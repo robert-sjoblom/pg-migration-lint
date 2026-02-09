@@ -41,14 +41,30 @@ Each subagent works in its own branch against a defined interface. They receive:
 **Deliverables**:
 
 ```
-Cargo.toml              # workspace with dependencies: pg_query, clap, serde, toml, quick-xml
+Cargo.toml              # workspace with dependencies: pg_query, clap, serde, toml, quick-xml, insta, proptest
 src/main.rs             # CLI skeleton (clap), dispatches to pipeline
 src/config.rs           # Config struct + TOML deserialization
 src/parser/ir.rs        # Complete IR type definitions (§3.2 of spec)
 src/catalog/types.rs    # TableState, ColumnState, IndexState, ConstraintState
+src/catalog/builder.rs  # CatalogBuilder test harness (§9 of test_plan.md) — PRIORITY
 src/rules/mod.rs        # Rule trait + Finding struct + Severity enum
 src/output/mod.rs       # OutputFormat enum, Reporter trait
-tests/fixtures/         # 10-15 sample migration files covering all rule triggers
+tests/fixtures/         # Fixture files per test_plan.md §4.1
+tests/fixtures/repos/   # Fixture repos for integration tests (clean/, all-rules/, etc.)
+```
+
+**`CatalogBuilder` (test_plan.md §9) is a Phase 0 deliverable, not deferred.** Both the Catalog Agent and Rules Agent depend on it for every test. Build it before dispatching subagents. Target API:
+
+```rust
+let catalog = CatalogBuilder::new()
+    .table("orders", |t| {
+        t.column("id", "int", false)
+         .column("status", "text", true)
+         .index("idx_status", &["status"], false)
+         .pk(&["id"])
+         .fk("fk_customer", &["customer_id"], "customers", &["id"])
+    })
+    .build();
 ```
 
 **Key types to define**:
@@ -70,9 +86,26 @@ pub enum Severity { Blocker, Critical, Major, Minor, Info }
 
 // output/mod.rs
 pub trait Reporter { fn emit(&self, findings: &[Finding], path: &Path) -> Result<()>; }
+
+// catalog/builder.rs — TEST HARNESS, PHASE 0 PRIORITY
+// Used by Catalog Agent and Rules Agent for all component tests.
+// Must be complete and documented before subagents are dispatched.
+pub struct CatalogBuilder { .. }
+impl CatalogBuilder {
+    pub fn new() -> Self;
+    pub fn table(self, name: &str, f: impl FnOnce(&mut TableBuilder)) -> Self;
+    pub fn build(self) -> Catalog;
+}
+pub struct TableBuilder { .. }
+impl TableBuilder {
+    pub fn column(&mut self, name: &str, type_name: &str, nullable: bool) -> &mut Self;
+    pub fn index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self;
+    pub fn pk(&mut self, columns: &[&str]) -> &mut Self;
+    pub fn fk(&mut self, name: &str, columns: &[&str], ref_table: &str, ref_columns: &[&str]) -> &mut Self;
+}
 ```
 
-**Exit criteria**: `cargo check` passes. All type stubs compile. Fixture files exist.
+**Exit criteria**: `cargo check` passes. All type stubs compile. `CatalogBuilder` is functional and tested. Fixture files and fixture repos exist.
 
 ---
 
@@ -93,11 +126,12 @@ Dispatch all 5 subagents simultaneously after Phase 0.
    - `ALTER TABLE` (add column, add constraint, drop column, alter column type)
    - `CREATE INDEX` / `DROP INDEX` (concurrent flag)
    - `DROP TABLE`
-   - `DO $$ ... $$` blocks → `IrNode::Unparseable`
+   - `DO $ ... $` blocks → `IrNode::Unparseable`
 3. Multi-statement files: split on `;`, parse each, preserve line offsets
-4. Unit tests against fixture files
+4. Unit tests per test_plan.md §2.1 (IR Construction)
+5. Property-based tests per test_plan.md §7 (`parse_sql` never panics on arbitrary input)
 
-**Acceptance**: every fixture file parses to expected IR. Unparseable blocks don't panic.
+**Acceptance**: every fixture file parses to expected IR. Unparseable blocks don't panic. `proptest` suite passes.
 
 #### 1B — Liquibase Agent
 
@@ -111,9 +145,9 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 3. **update-sql fallback**: shell out to `liquibase update-sql`, heuristic parsing of output
 4. **XML fallback**: `quick-xml` based parser for the 8 change types. Map each to raw SQL strings. Track `<changeSet>` line numbers.
 5. Strategy selection: try bridge → update-sql → xml-fallback based on config + what's available
-6. Unit tests for each strategy
+6. Unit tests for each strategy per test_plan.md §6 (bridge tests gated behind `PGM_TEST_JAVA=1`)
 
-**Acceptance**: XML fixtures with multiple changesets produce correct `MigrationUnit` sequences via all three strategies (bridge tested with Java in CI).
+**Acceptance**: XML fixtures with multiple changesets produce correct `MigrationUnit` sequences via all three strategies. Bridge tests pass under `PGM_TEST_JAVA=1`. Fallback gracefully activates when Java is unavailable.
 
 #### 1C — Catalog Agent
 
@@ -132,9 +166,9 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 8. `AlterTable(AlterColumnType)` → update column type
 9. `AlterTable(DropColumn)` → remove column, remove affected indexes/constraints
 10. `Unparseable` referencing a known table → set `incomplete = true`
-11. Unit tests: replay a sequence of fixtures and assert catalog state
+11. Component tests per test_plan.md §3.1 (Catalog Replay), using `CatalogBuilder` for expected-state assertions
 
-**Acceptance**: catalog correctly represents schema state after replaying fixture migrations. Column types tracked. Index column order preserved.
+**Acceptance**: catalog correctly represents schema state after replaying fixture migrations. Column types tracked. Index column order preserved. All §3.1 test cases pass.
 
 #### 1D — Rules Agent
 
@@ -154,9 +188,10 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 9. PGM011: `DROP COLUMN` on existing table → INFO
 10. PGM008: down-migration severity cap (wrap any rule, cap at INFO)
 11. `--explain` text for each rule: failure mode, example, fix
-12. Unit tests per rule with targeted fixtures
+12. Unit tests for helpers per test_plan.md §2.3 (binary-coercible cast matching) and §2.4 (FK index prefix matching)
+13. Component tests per test_plan.md §3.2 (per-rule component tests), using `CatalogBuilder` to construct pre-built catalog state
 
-**Acceptance**: each rule has ≥3 test cases (true positive, true negative, edge case). Suppression-aware.
+**Acceptance**: each rule passes all test cases in test_plan.md §3.2. Helper functions pass all §2.3 and §2.4 cases. Suppression-aware.
 
 #### 1E — Output Agent
 
@@ -169,9 +204,11 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 2. **SARIF 2.1.0**: proper schema with `runs[].tool`, `runs[].results[]`, `physicalLocation` with line numbers. Validate against SARIF schema.
 3. **SonarQube Generic Issue Import JSON**: per spec §7.1
 4. **Text**: per spec §7.3
-5. Unit tests: given a set of findings, assert each format's output
+5. Unit tests per test_plan.md §2.2 (suppression parsing) and §2.5 (output serialization)
+6. Use `insta` crate for snapshot testing of serialized output against `.expected.json` / `.expected.sarif` / `.expected.txt` files
+7. Property-based test per test_plan.md §7: SARIF serializer produces valid JSON for arbitrary `Finding` structs
 
-**Acceptance**: SARIF output validates against the SARIF JSON schema. SonarQube JSON matches the expected structure. Suppressions correctly filter findings.
+**Acceptance**: SARIF output validates against the SARIF JSON schema. SonarQube JSON matches the expected structure. Suppressions pass all §2.2 test cases. Snapshots match expected output.
 
 ---
 
@@ -215,8 +252,8 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 
 ### Phase 4 — Hardening (Overseer + targeted subagent dispatches)
 
-1. Fuzz the parser with malformed SQL (the `pg_query` crate handles this, but test the IR conversion layer)
-2. Test against real migration histories from your repos (anonymized if needed)
+1. Fuzz testing per test_plan.md §7: `cargo-fuzz` on `parse_sql` and suppression parser. `proptest` on serializers.
+2. Test against anonymized real migration histories from your repos (the fixture repo with both go-migrate and Liquibase migrations)
 3. Performance profiling on a repo with hundreds of migration files
 4. Edge cases: empty files, files with only comments, BOM markers, mixed encodings
 
@@ -248,10 +285,17 @@ Each subagent receives a prompt structured as:
 You are implementing the {component} for pg-migration-lint.
 
 ## Spec
-{relevant spec sections, verbatim}
+{relevant spec sections from spec.md, verbatim}
+
+## Test Plan
+{relevant sections from test_plan.md — the specific test tables your component must pass}
 
 ## Interface Contract
 {trait definitions, type definitions, function signatures you must implement}
+
+## Test Harness
+You have access to CatalogBuilder (src/catalog/builder.rs) for constructing
+catalog state in tests. Use it — do not construct TableState/Catalog manually.
 
 ## Files You Own
 {explicit list of files to create/modify}
@@ -260,15 +304,16 @@ You are implementing the {component} for pg-migration-lint.
 Everything outside your owned files.
 
 ## Fixtures
-{sample input files and expected outputs}
+{sample input files in tests/fixtures/ and expected outputs}
 
 ## Acceptance Criteria
-{specific test cases that must pass}
+{specific test tables from test_plan.md that must pass — enumerate them}
 
 ## Constraints
 - Do not add dependencies beyond what's in Cargo.toml
 - All public functions must have doc comments
 - All error paths must use thiserror, no unwrap/expect in library code
+- Use insta for snapshot tests on serialized output
 - Run cargo clippy before submitting
 ```
 
