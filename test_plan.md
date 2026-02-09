@@ -35,9 +35,17 @@ Each test: raw SQL string → assert specific IR node fields.
 | ALTER ADD COLUMN with volatile default | `ALTER TABLE t ADD COLUMN ts timestamptz DEFAULT now()` | `AddColumn` with `default_expr` containing function call "now" |
 | ALTER COLUMN TYPE | `ALTER TABLE t ALTER COLUMN x TYPE bigint` | `AlterColumnType { old_type: None, new_type: "bigint" }` (old_type requires catalog) |
 | Multi-statement file | Two statements separated by `;` | Two IR nodes with correct line offsets |
-| DO block | `DO $$ BEGIN ... END $$;` | `Unparseable` |
+| DO block | `DO $ BEGIN ... END $;` | `Unparseable` |
 | Empty input | `""` | Empty vec |
 | Comment-only file | `-- just a comment` | Empty vec |
+| Inline PK | `CREATE TABLE foo (id int PRIMARY KEY)` | `ColumnDef { is_inline_pk: true }` + no table-level PK constraint |
+| Table-level PK | `CREATE TABLE foo (id int, PRIMARY KEY (id))` | `ColumnDef { is_inline_pk: false }` + `TableConstraint::PrimaryKey { columns: ["id"] }` |
+| Inline FK | `CREATE TABLE t (pid int REFERENCES parent(id))` | FK captured on `ColumnDef` or as inline constraint |
+| Table-level FK | `CREATE TABLE t (pid int, FOREIGN KEY (pid) REFERENCES parent(id))` | `TableConstraint::ForeignKey` |
+| Inline UNIQUE | `CREATE TABLE t (code text UNIQUE)` | Unique captured on column |
+| Table-level UNIQUE | `CREATE TABLE t (code text, UNIQUE (code))` | `TableConstraint::Unique` |
+| Serial expansion | `CREATE TABLE t (id serial)` | Column type is canonical integer form, `DefaultExpr::FunctionCall { name: "nextval" }` |
+| Type aliases | `CREATE TABLE t (a int, b integer, c int4, d varchar(10), e character varying(10))` | Canonical type names per `pg_query_spike.md` |
 
 ### 2.2 Suppression Parsing (`suppress.rs`)
 
@@ -116,6 +124,11 @@ Test the replay engine in isolation: feed it ordered IR nodes, assert catalog st
 | Drop column removes from indexes | `CREATE TABLE t (a int, b int)` → `CREATE INDEX idx ON t(a, b)` → `ALTER TABLE t DROP COLUMN b` | index removed or marked partial |
 | Re-create after drop | `CREATE TABLE t (id int)` → `DROP TABLE t` → `CREATE TABLE t (id bigint)` | `t` in catalog with `bigint` column |
 | Composite index column order | `CREATE INDEX idx ON t (a, b, c)` | `idx.columns = ["a", "b", "c"]` in order |
+| Inline PK normalizes | `CREATE TABLE foo (id int PRIMARY KEY)` | `has_primary_key = true`, `ConstraintState::PrimaryKey { columns: ["id"] }` |
+| Table-level PK normalizes | `CREATE TABLE foo (id int, PRIMARY KEY (id))` | Identical `TableState` as inline PK |
+| Inline FK normalizes | `CREATE TABLE t (pid int REFERENCES parent(id))` | `ConstraintState::ForeignKey { columns: ["pid"], ref_table: "parent" }` |
+| Table-level FK normalizes | `CREATE TABLE t (pid int, FOREIGN KEY (pid) REFERENCES parent(id))` | Identical FK constraint as inline form |
+| Serial column | `CREATE TABLE t (id serial)` | Column type is canonical integer, `default_expr` is `FunctionCall { name: "nextval" }` |
 
 ### 3.2 Rules (per-rule component tests)
 
@@ -165,6 +178,7 @@ Each rule tested with: IR nodes + pre-built catalog + changed files list → ass
 |------|-------|--------|
 | `DEFAULT now()` | ADD COLUMN with `DEFAULT now()` | WARNING |
 | `DEFAULT gen_random_uuid()` | inline in CREATE TABLE | WARNING |
+| `DEFAULT nextval(...)` (serial) | `CREATE TABLE t (id serial)` expanded form | WARNING |
 | `DEFAULT my_function()` | unknown function | INFO |
 | `DEFAULT 0` | constant | No finding |
 | `DEFAULT 'active'` | string literal | No finding |

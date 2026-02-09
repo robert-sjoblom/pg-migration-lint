@@ -111,6 +111,10 @@ IR node types (non-exhaustive):
 | `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
 | `AddColumn { table, column }` | `AlterTableCmd(AT_AddColumn)` |
 | `AddConstraint { table, constraint }` | `AlterTableCmd(AT_AddConstraint)` |
+
+**Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
+
+**`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM007 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
 | `Unparseable { raw_sql }` | Anything that fails IR conversion |
 
 `Column` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_pk`.
@@ -215,10 +219,11 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 #### PGM007 — Volatile default on column
 
-- **Severity**: WARNING for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`). INFO for any other function call used as a default.
+- **Severity**: WARNING for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`, `nextval()`). INFO for any other function call used as a default.
 - **Triggers**: `ADD COLUMN ... DEFAULT fn()` or inline in `CREATE TABLE`.
 - **Note**: On Postgres 11+, non-volatile defaults on `ADD COLUMN` don't rewrite the table. Volatile defaults always evaluate per-row at write time, which is typically intentional — but worth flagging because developers sometimes use `now()` expecting a fixed value.
 - **Message (known volatile)**: `Column '{col}' on '{table}' uses volatile default '{fn}()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs.`
+- **Message (nextval/serial)**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite.`
 - **Message (unknown function)**: `Column '{col}' on '{table}' uses function '{fn}()' as default. If this function is volatile (the default for user-defined functions), it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead of a cheap catalog-only change. Verify the function's volatility classification.`
 
 #### PGM009 — `ALTER COLUMN TYPE` on existing table
@@ -459,6 +464,9 @@ pg-migration-lint/
 │   ├── pom.xml              # Maven build, shaded jar with Liquibase dependency
 │   └── src/main/java/
 │       └── LiquibaseBridge.java  # ~100 LOC: changelog → JSON mapping
+├── docs/
+│   └── pg_query_spike.md    # Phase 0 spike: canonical type names, serial expansion,
+│                            # inline vs table-level constraint AST mapping
 └── tests/
     ├── fixtures/             # Sample migration files
     └── integration/          # End-to-end tests

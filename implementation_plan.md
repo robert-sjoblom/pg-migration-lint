@@ -105,7 +105,17 @@ impl TableBuilder {
 }
 ```
 
-**Exit criteria**: `cargo check` passes. All type stubs compile. `CatalogBuilder` is functional and tested. Fixture files and fixture repos exist.
+**Exit criteria**: `cargo check` passes. All type stubs compile. `CatalogBuilder` is functional and tested. Fixture files and fixture repos exist. Phase 0 spike completed.
+
+#### Phase 0 Spike — `pg_query` Type Canonicalization
+
+Before dispatching subagents, verify `pg_query`'s behavior on:
+
+1. **Type aliases**: parse `int`, `integer`, `int4`, `bool`, `boolean`, `varchar`, `character varying`, `serial`, `bigserial`. Record the canonical type name string the crate returns for each. The PGM009 binary-coercible allowlist must use these canonical forms.
+2. **`serial` expansion**: confirm that `CREATE TABLE t (id serial)` parses to `integer` column + `DEFAULT nextval(...)`. Determines whether PGM007 needs `nextval` in its known volatile function list.
+3. **Inline vs table-level constraints**: parse both `CREATE TABLE foo (baz int PRIMARY KEY)` and `CREATE TABLE foo (baz int, PRIMARY KEY (baz))`. Document where each lands in the AST. Same for inline FK (`REFERENCES`) vs table-level `FOREIGN KEY`, and inline `UNIQUE` vs table-level.
+
+Record results in `docs/pg_query_spike.md`. The Parser Agent, Catalog Agent, and Rules Agent all reference this document.
 
 ---
 
@@ -131,7 +141,7 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 4. Unit tests per test_plan.md §2.1 (IR Construction)
 5. Property-based tests per test_plan.md §7 (`parse_sql` never panics on arbitrary input)
 
-**Acceptance**: every fixture file parses to expected IR. Unparseable blocks don't panic. `proptest` suite passes.
+**Acceptance**: every fixture file parses to expected IR. Unparseable blocks don't panic. `proptest` suite passes. Inline and table-level constraint syntax both produce correct IR nodes per `docs/pg_query_spike.md`. Type names use canonical forms from the spike.
 
 #### 1B — Liquibase Agent
 
@@ -168,7 +178,7 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 10. `Unparseable` referencing a known table → set `incomplete = true`
 11. Component tests per test_plan.md §3.1 (Catalog Replay), using `CatalogBuilder` for expected-state assertions. Tests call `apply()` in sequence and assert catalog state after each call.
 
-**Acceptance**: catalog correctly represents schema state after applying fixture migration units in order. Column types tracked. Index column order preserved. All §3.1 test cases pass.
+**Acceptance**: catalog correctly represents schema state after applying fixture migration units in order. Column types tracked. Index column order preserved. All §3.1 test cases pass. **Inline and table-level constraint syntax produce identical `TableState`** — tested explicitly with paired fixtures (e.g., `CREATE TABLE (id int PRIMARY KEY)` vs `CREATE TABLE (id int, PRIMARY KEY (id))` must yield the same catalog entry).
 
 #### 1D — Rules Agent
 
