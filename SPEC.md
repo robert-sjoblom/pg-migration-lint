@@ -1,0 +1,484 @@
+# pg-migration-lint — Specification v1
+
+## 1. Overview
+
+A Rust CLI tool that statically analyzes PostgreSQL migration files for common safety and correctness issues. It builds an internal table catalog by replaying the full migration history, then lints only new/changed files. Output is consumed by SonarQube (Generic Issue Import JSON) and GitHub Code Scanning (SARIF).
+
+### Non-goals for v1
+
+- SonarQube native plugin (deferred; external tool + import format)
+- Jenkins integration (deferred)
+- Multiple independent migration sets / monorepo support (deferred)
+- Declarative rule DSL / user-authored rules (deferred)
+- Incremental/cached replay (deferred; brute-force on every run)
+
+---
+
+## 2. Input Sources
+
+### 2.1 Raw SQL migrations
+
+- Individual `.up.sql` / `.down.sql` files (go-migrate convention)
+- Single-file-with-many-statements (`;`-delimited)
+- Standalone `.sql` files
+
+### 2.2 Liquibase
+
+- **Raw SQL changesets**: parsed directly
+
+- **XML changelogs**: three strategies, tried in order:
+
+  1. **Preferred**: `liquibase-bridge.jar` — a minimal Java CLI (~100 LOC) that embeds Liquibase as a library. Takes a changelog path, programmatically resolves all includes and preconditions, and emits a JSON mapping:
+     ```json
+     [
+       {
+         "changeset_id": "20240315-1",
+         "author": "robert",
+         "sql": "CREATE TABLE orders (...);",
+         "xml_file": "db/changelog/20240315-create-orders.xml",
+         "xml_line": 5,
+         "run_in_transaction": true
+       }
+     ]
+     ```
+     Rust shells out to `java -jar liquibase-bridge.jar --changelog <path>` and parses the output. This gives exact changeset-to-SQL traceability with precise line mapping back to the XML source. Requires a JRE, which is already present in CI environments that use Liquibase.
+
+  2. **Secondary**: invoke `liquibase update-sql` directly if the bridge jar is unavailable but the Liquibase binary exists. Less structured output (raw SQL without changeset-to-line mapping), parsed heuristically.
+
+  3. **Fallback**: lightweight XML parsing of common change types: `<createTable>`, `<addColumn>`, `<createIndex>`, `<addForeignKeyConstraint>`, `<dropTable>`, `<dropIndex>`, `<addPrimaryKey>`, `<addUniqueConstraint>`. Unknown/exotic change types are skipped; the catalog is marked as potentially incomplete for that changeset. Used when Java is unavailable.
+
+- Single XML files containing multiple `<changeSet>` elements are supported across all three strategies.
+
+### 2.3 Migration ordering
+
+Configured explicitly per project (not inferred):
+
+```toml
+[migrations]
+strategy = "liquibase"  # or "filename_lexicographic"
+```
+
+- `liquibase`: order derived from changelog include order
+- `filename_lexicographic`: sorted by filename (go-migrate convention)
+
+---
+
+## 3. Architecture
+
+### 3.1 Pipeline
+
+```
+Input Files
+    │
+    ▼
+┌──────────┐
+│  Parser  │  pg_query (libpg_query Rust bindings)
+└────┬─────┘  Liquibase XML parser (fallback)
+     │
+     ▼
+┌──────────┐
+│    IR    │  Intermediate Representation (§3.2)
+└────┬─────┘
+     │
+     ▼
+┌──────────────┐
+│ Replay Engine│  Builds Table Catalog (§3.3)
+└────┬─────────┘
+     │
+     ▼
+┌──────────────┐
+│ Rule Engine  │  Runs rules against changed files only
+└────┬─────────┘
+     │
+     ▼
+┌──────────┐
+│ Reporter │  SARIF, SonarQube JSON, text, --explain
+└──────────┘
+```
+
+### 3.2 Intermediate Representation (IR)
+
+The SQL AST from `pg_query` is transformed into a higher-level IR before rules execute. This decouples rule logic from parser internals and simplifies future rule authoring.
+
+IR node types (non-exhaustive):
+
+| IR Node | Source AST |
+|---|---|
+| `CreateTable { name, columns, constraints, temporary }` | `CreateStmt` |
+| `AlterTable { name, actions[] }` | `AlterTableStmt` |
+| `CreateIndex { table, columns, unique, concurrent }` | `IndexStmt` |
+| `DropIndex { name, concurrent }` | `DropStmt(OBJECT_INDEX)` |
+| `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
+| `AddColumn { table, column }` | `AlterTableCmd(AT_AddColumn)` |
+| `AddConstraint { table, constraint }` | `AlterTableCmd(AT_AddConstraint)` |
+| `Unparseable { raw_sql }` | Anything that fails IR conversion |
+
+`Column` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_pk`.
+
+`Constraint` variants: `PrimaryKey`, `ForeignKey { columns, ref_table, ref_columns }`, `Unique`, `Check`.
+
+`Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
+
+### 3.3 Table Catalog
+
+Built by replaying all migration files in configured order. Represents the schema state at each point in the migration history.
+
+```
+Catalog {
+    tables: HashMap<String, TableState>
+}
+
+TableState {
+    name: String,
+    columns: Vec<ColumnState>,    // name, type, nullable, default
+    indexes: Vec<IndexState>,     // name, columns (ordered), unique
+    constraints: Vec<ConstraintState>,  // PK, FK, unique, check
+    has_primary_key: bool,
+    incomplete: bool,             // true if any unparseable statement touched this table
+}
+```
+
+- `CREATE TABLE` → insert into catalog
+- `DROP TABLE` → remove from catalog entirely
+- `ALTER TABLE` → mutate existing entry
+- `CREATE INDEX` → add to table's index list
+- Unparseable statements → if they reference a known table (best-effort regex on table name), mark that table `incomplete = true`; otherwise skip silently
+
+### 3.4 Changed file detection
+
+The tool does NOT invoke `git` directly. CI passes changed files via:
+
+```
+pg-migration-lint --changed-files file1.sql,file2.sql ...
+```
+
+Or via a file:
+
+```
+pg-migration-lint --changed-files-from changed.txt
+```
+
+If `--changed-files` is omitted, all migration files are linted (useful for full-repo scans / first adoption).
+
+Base ref for diff is the caller's responsibility (CI script runs `git diff --name-only origin/main...HEAD`).
+
+---
+
+## 4. Rules
+
+### 4.1 Rule identifiers
+
+Format: `PGMnnn`. Stable across versions. Never reused.
+
+### 4.2 v1 Rules
+
+#### PGM001 — Missing `CONCURRENTLY` on `CREATE INDEX`
+
+- **Severity**: CRITICAL
+- **Triggers**: `CREATE INDEX` on a table that exists in the catalog AND is not created in the same set of changed files.
+- **Logic**: If the target table appears in a `CREATE TABLE` within the changed files, the index is on a new table → no finding. Otherwise, `CONCURRENTLY` is required.
+- **Message**: `CREATE INDEX on existing table '{table}' should use CONCURRENTLY to avoid holding an exclusive lock.`
+
+#### PGM002 — Missing `CONCURRENTLY` on `DROP INDEX`
+
+- **Severity**: CRITICAL
+- **Triggers**: `DROP INDEX` without `CONCURRENTLY`, where the index belongs to an existing table (same logic as PGM001).
+- **Message**: `DROP INDEX on existing table should use CONCURRENTLY to avoid holding an exclusive lock.`
+
+#### PGM003 — Foreign key without index on referencing columns
+
+- **Severity**: MAJOR
+- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no index exists on the referencing table with `cols` as a prefix of the index columns.
+- **Prefix matching**: FK columns `(a, b)` are covered by index `(a, b)` or `(a, b, c)` but NOT by `(b, a)` or `(a)`. Column order matters.
+- **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
+- **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`
+
+#### PGM004 — Table without primary key
+
+- **Severity**: MAJOR
+- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
+- **Message**: `Table '{table}' has no primary key.`
+
+#### PGM005 — `UNIQUE NOT NULL` used instead of primary key
+
+- **Severity**: INFO
+- **Triggers**: Table has no PK but has at least one `UNIQUE` constraint where all constituent columns are `NOT NULL`.
+- **Message**: `Table '{table}' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit.`
+
+#### PGM006 — `CONCURRENTLY` inside transaction
+
+- **Severity**: CRITICAL
+- **Triggers**: `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a context that implies transactional execution:
+  - Liquibase changeset without `runInTransaction="false"`
+  - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
+- **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
+
+#### PGM007 — Volatile default on column
+
+- **Severity**: WARNING for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`). INFO for any other function call used as a default.
+- **Triggers**: `ADD COLUMN ... DEFAULT fn()` or inline in `CREATE TABLE`.
+- **Note**: On Postgres 11+, non-volatile defaults on `ADD COLUMN` don't rewrite the table. Volatile defaults always evaluate per-row at write time, which is typically intentional — but worth flagging because developers sometimes use `now()` expecting a fixed value.
+- **Message (known volatile)**: `Column '{col}' on '{table}' uses volatile default '{fn}()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs.`
+- **Message (unknown function)**: `Column '{col}' on '{table}' uses function '{fn}()' as default. If this function is volatile (the default for user-defined functions), it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead of a cheap catalog-only change. Verify the function's volatility classification.`
+
+#### PGM009 — `ALTER COLUMN TYPE` on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ALTER COLUMN ... TYPE ...` where the table exists in the catalog (not created in the same set of changed files).
+- **Note**: Most type changes require a full table rewrite and `ACCESS EXCLUSIVE` lock for the duration. Binary-coercible casts do NOT rewrite. The rule maintains a hardcoded allowlist of safe casts:
+  - `varchar(n)` → `varchar(m)` where `m > n` (or unbounded `varchar`/`text`)
+  - `varchar(n)` → `text`
+  - `numeric(p,s)` → `numeric(p2,s)` where `p2 > p` (same scale)
+  - `bit(n)` → `bit(m)` where `m > n`
+  - `varbit(n)` → `varbit(m)` where `m > n`
+  - `timestamp` → `timestamptz` (safe in PG 15+ when session timezone is UTC; flagged as INFO instead of CRITICAL with a note to verify timezone config)
+- Safe casts produce no finding. All other type changes fire as CRITICAL.
+- **Message**: `Changing column type on existing table '{table}' ('{col}': {old_type} → {new_type}) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead.`
+
+#### PGM010 — `ADD COLUMN NOT NULL` without default on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a `DEFAULT` clause, where the table exists in the catalog.
+- **Note**: On PG 11+, `ADD COLUMN ... NOT NULL DEFAULT <value>` is safe (no rewrite for non-volatile defaults). Without a default, the command fails outright if any rows exist. This is almost always a bug.
+- **Message**: `Adding NOT NULL column '{col}' to existing table '{table}' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill.`
+
+#### PGM011 — `DROP COLUMN` on existing table
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... DROP COLUMN` where the table exists in the catalog.
+- **Note**: Postgres marks the column as dropped without rewriting the table, so this is cheap at the database level. The risk is application-level: queries referencing the column will break. This is informational to increase visibility.
+- **Message**: `Dropping column '{col}' from existing table '{table}'. The DDL is cheap but ensure no application code references this column.`
+
+#### PGM008 — Down migration issues
+
+- **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
+- The same rules (PGM001–PGM011) apply to `.down.sql` / rollback SQL, but findings are informational only.
+
+### 4.3 `--explain PGMnnn`
+
+Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. Exits 0. No file scanning.
+
+---
+
+## 5. Suppression
+
+### 5.1 Inline comment suppression
+
+**Next-statement scope:**
+
+```sql
+-- pgm-lint:suppress PGM001
+CREATE INDEX idx_foo ON bar (col);
+```
+
+**File-level scope:**
+
+```sql
+-- pgm-lint:suppress-file PGM001
+```
+
+File-level suppression must appear before any SQL statements in the file.
+
+Multiple rules in one comment: `-- pgm-lint:suppress PGM001,PGM003`
+
+### 5.2 SonarQube suppression
+
+SonarQube's built-in "Won't Fix" / "False Positive" workflow applies to imported findings. No special handling needed from the tool.
+
+---
+
+## 6. Configuration
+
+File: project root, name TBD (e.g., `pg-migration-lint.toml`).
+
+```toml
+[migrations]
+# Ordered list of migration source directories/files
+paths = ["db/migrations", "db/changelog.xml"]
+
+# Ordering strategy: "liquibase" | "filename_lexicographic"
+strategy = "liquibase"
+
+# File patterns to include
+include = ["*.sql", "*.xml"]
+
+# File patterns to exclude
+exclude = ["**/test/**"]
+
+[liquibase]
+# Path to liquibase-bridge.jar (preferred; enables exact changeset-to-SQL mapping)
+bridge_jar_path = "tools/liquibase-bridge.jar"
+
+# Path to liquibase binary (secondary; enables update-sql pre-processing)
+binary_path = "/usr/local/bin/liquibase"
+
+# Liquibase properties file (for update-sql connection info, secondary strategy only)
+properties_file = "liquibase.properties"
+
+# Strategy order: "bridge" → "update-sql" → "xml-fallback"
+# Set to "xml-only" to skip Java entirely
+strategy = "auto"
+
+[rules]
+# Severity overrides (future, not v1 — included for schema stability)
+# [rules.PGM001]
+# severity = "MAJOR"
+
+[output]
+# Formats to produce: "sarif", "sonarqube", "text"
+formats = ["sarif", "sonarqube"]
+
+# Output directory
+dir = "build/reports/migration-lint"
+
+[cli]
+# Exit code threshold: "blocker", "critical", "major", "minor", "info", "none"
+# Tool returns non-zero if any finding meets or exceeds this severity
+fail_on = "critical"
+```
+
+---
+
+## 7. Output Formats
+
+### 7.1 SonarQube Generic Issue Import
+
+```json
+{
+  "issues": [
+    {
+      "engineId": "pg-migration-lint",
+      "ruleId": "PGM001",
+      "severity": "CRITICAL",
+      "type": "BUG",
+      "primaryLocation": {
+        "message": "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.",
+        "filePath": "db/migrations/V042__add_order_index.sql",
+        "textRange": {
+          "startLine": 3,
+          "endLine": 3
+        }
+      }
+    }
+  ]
+}
+```
+
+### 7.2 SARIF
+
+Standard SARIF 2.1.0 schema. Upload to GitHub via `github/codeql-action/upload-sarif@v3`. This produces inline PR annotations with no API integration needed.
+
+### 7.3 Text
+
+Human-readable for local development:
+
+```
+CRITICAL PGM001 db/migrations/V042__add_order_index.sql:3
+  CREATE INDEX on existing table 'orders' should use CONCURRENTLY.
+
+MAJOR PGM003 db/migrations/V042__add_order_index.sql:7
+  Foreign key on 'order_items(order_id)' has no covering index.
+```
+
+---
+
+## 8. CLI Interface
+
+```
+pg-migration-lint [OPTIONS]
+
+OPTIONS:
+  --config <path>              Config file (default: ./pg-migration-lint.toml)
+  --changed-files <list>       Comma-separated list of changed files
+  --changed-files-from <path>  File containing changed file paths (one per line)
+  --format <fmt>               Override output format (sarif|sonarqube|text)
+  --fail-on <severity>         Override exit code threshold
+  --explain <rule>             Print rule explanation and exit
+
+EXIT CODES:
+  0  No findings at or above threshold
+  1  Findings at or above threshold
+  2  Tool error (config, parse failure, etc.)
+```
+
+---
+
+## 9. Line Number Mapping
+
+- **Raw SQL files**: exact line numbers from `pg_query` parse positions.
+- **Liquibase XML (bridge jar)**: exact line numbers. The bridge emits `xml_line` per changeset, and `pg_query` gives statement offsets within the SQL. Combined, this maps findings to precise XML source locations.
+- **Liquibase XML (update-sql)**: changeset-level granularity only. Heuristic mapping from generated SQL comments back to changeset IDs.
+- **Liquibase XML (fallback parser)**: changeset-level granularity. The finding points to the opening `<changeSet>` tag line.
+
+---
+
+## 10. Distribution
+
+- **Primary**: statically linked Rust binary for `x86_64-unknown-linux-gnu` (musl for static linking).
+- **Secondary**: OCI container image (includes JRE + bridge jar for full Liquibase support out of the box).
+- **Bridge jar**: `liquibase-bridge.jar` published as a separate release artifact. Teams using Liquibase XML download both the binary and the jar.
+- Build via GitHub Actions. Release binaries and jar attached to GitHub releases.
+
+---
+
+## 11. Project Structure (Proposed)
+
+```
+pg-migration-lint/
+├── Cargo.toml
+├── src/
+│   ├── main.rs              # CLI entry point (clap)
+│   ├── config.rs            # TOML config parsing
+│   ├── input/
+│   │   ├── mod.rs
+│   │   ├── sql.rs           # Raw SQL file loading
+│   │   ├── liquibase_bridge.rs  # Shell out to bridge jar, parse JSON
+│   │   ├── liquibase_updatesql.rs # update-sql invocation
+│   │   └── liquibase_xml.rs # Lightweight XML fallback parser
+│   ├── parser/
+│   │   ├── mod.rs
+│   │   ├── pg_query.rs      # pg_query bindings → IR
+│   │   └── ir.rs            # IR type definitions
+│   ├── catalog/
+│   │   ├── mod.rs
+│   │   ├── replay.rs        # Migration replay engine
+│   │   └── types.rs         # TableState, IndexState, etc.
+│   ├── rules/
+│   │   ├── mod.rs           # Rule trait, registry
+│   │   ├── pgm001.rs        # One file per rule
+│   │   ├── pgm002.rs
+│   │   ├── ...
+│   │   └── explain.rs       # --explain text per rule
+│   ├── suppress.rs          # Suppression comment parsing
+│   └── output/
+│       ├── mod.rs
+│       ├── sarif.rs
+│       ├── sonarqube.rs
+│       └── text.rs
+├── bridge/                   # Java subproject
+│   ├── pom.xml              # Maven build, shaded jar with Liquibase dependency
+│   └── src/main/java/
+│       └── LiquibaseBridge.java  # ~100 LOC: changelog → JSON mapping
+└── tests/
+    ├── fixtures/             # Sample migration files
+    └── integration/          # End-to-end tests
+```
+
+---
+
+## 12. Future Work (Explicitly Deferred)
+
+- Native SonarQube plugin (Java, Plugin API)
+- Jenkins PR comment integration
+- Multiple independent migration sets (monorepo)
+- Declarative rule DSL for user-authored rules
+- Incremental replay with caching
+- Severity overrides in config
+
+---
+
+## 13. Revision History
+
+| Version | Date       | Changes |
+|---------|------------|---------|
+| 1.0     | 2026-02-09 | Initial specification. 11 rules (PGM001–PGM011). Rust CLI with `pg_query` parser, IR layer, replay-based table catalog. Liquibase bridge jar for exact changeset-to-SQL traceability. SARIF + SonarQube Generic Issue Import output. GitHub Actions integration via `upload-sarif`.|
