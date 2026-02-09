@@ -481,4 +481,4 @@ pg-migration-lint/
 
 | Version | Date       | Changes |
 |---------|------------|---------|
-| 1.0     | 2026-02-09 | Initial specification. 11 rules (PGM001–PGM011). Rust CLI with `pg_query` parser, IR layer, replay-based table catalog. Liquibase bridge jar for exact changeset-to-SQL traceability. SARIF + SonarQube Generic Issue Import output. GitHub Actions integration via `upload-sarif`.|
+| 1.0     | 2026-02-09 | Initial specification. 11 rules (PGM001–PGM011). Rust CLI with `pg_query` parser, IR layer, replay-based table catalog. Liquibase bridge jar for exact changeset-to-SQL traceability. SARIF + SonarQube Generic Issue Import output. GitHub Actions integration via `upload-sarif`. |

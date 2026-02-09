@@ -153,10 +153,10 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 
 **Scope**: `src/catalog/replay.rs`, `src/catalog/mod.rs`
 
-**Contract**: implement `pub fn replay(migrations: &[Migration]) -> Catalog` where `Migration = { units: Vec<(IrNode, SourceSpan)>, file_path }`.
+**Contract**: implement `pub fn apply(catalog: &mut Catalog, unit: &MigrationUnit)` which applies a single unit's IR nodes to mutate the catalog. The pipeline calls this in a loop — no bulk replay function needed.
 
 **Tasks**:
-1. Process IR nodes in order, build/mutate `Catalog`
+1. Implement `apply()`: process IR nodes in a unit sequentially, mutate `Catalog`
 2. `CreateTable` → insert `TableState` with columns, inline constraints, inline indexes
 3. `AlterTable(AddColumn)` → push to table's columns
 4. `AlterTable(AddConstraint)` → push to constraints, set `has_primary_key` if PK
@@ -166,9 +166,9 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 8. `AlterTable(AlterColumnType)` → update column type
 9. `AlterTable(DropColumn)` → remove column, remove affected indexes/constraints
 10. `Unparseable` referencing a known table → set `incomplete = true`
-11. Component tests per test_plan.md §3.1 (Catalog Replay), using `CatalogBuilder` for expected-state assertions
+11. Component tests per test_plan.md §3.1 (Catalog Replay), using `CatalogBuilder` for expected-state assertions. Tests call `apply()` in sequence and assert catalog state after each call.
 
-**Acceptance**: catalog correctly represents schema state after replaying fixture migrations. Column types tracked. Index column order preserved. All §3.1 test cases pass.
+**Acceptance**: catalog correctly represents schema state after applying fixture migration units in order. Column types tracked. Index column order preserved. All §3.1 test cases pass.
 
 #### 1D — Rules Agent
 
@@ -217,12 +217,14 @@ Dispatch all 5 subagents simultaneously after Phase 0.
 **Goal**: wire everything together in `main.rs` and validate end-to-end.
 
 **Tasks**:
-1. Implement the full pipeline in `main.rs`:
+1. Implement the single-pass pipeline in `main.rs`:
    - Load config
-   - Discover and load migration files (SQL + Liquibase)
-   - Parse all files to IR
-   - Replay to build catalog
-   - For each changed file: run all rules, apply suppressions, collect findings
+   - Discover and load migration files (SQL + Liquibase) into ordered `MigrationHistory`
+   - Parse `--changed-files` into a set
+   - Single-pass loop over all units:
+     - If unit is in changed files: clone catalog → apply unit → lint with (before=clone, after=mutated) → accumulate `tables_created_in_change`
+     - If unit is not in changed files: apply unit only (advance catalog state)
+   - Apply suppression filtering to collected findings
    - Cap down-migration findings to INFO
    - Emit reports in configured formats
    - Exit with appropriate code based on `fail_on` threshold
