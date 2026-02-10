@@ -131,13 +131,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download release binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: pg-migration-lint
           path: artifacts
 
       - name: Download bridge JAR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: liquibase-bridge
           path: artifacts
