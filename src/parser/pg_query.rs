@@ -10,6 +10,9 @@ use crate::parser::ir::{
 };
 use pg_query::NodeEnum;
 
+/// Sentinel type name used when the actual type cannot be determined.
+const UNKNOWN_TYPE: &str = "unknown";
+
 /// Parse a SQL source string into a list of located IR nodes.
 ///
 /// Each SQL statement in the source is converted to the most specific IR node
@@ -157,6 +160,15 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
     })
 }
 
+/// Convert a constraint name to `Option<String>`, treating empty strings as `None`.
+fn optional_name(name: &str) -> Option<String> {
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 /// Convert a pg_query `ColumnDef` into an IR `ColumnDef` plus any inline
 /// constraints that should be promoted to table-level constraints.
 ///
@@ -207,41 +219,29 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
             pg_query::protobuf::ConstrType::ConstrForeign => {
                 let ref_table = relation_to_qualified_name(con.pktable.as_ref());
                 let ref_columns = extract_string_list(&con.pk_attrs);
-                let name = if con.conname.is_empty() {
-                    None
-                } else {
-                    Some(con.conname.clone())
-                };
                 constraints.push(TableConstraint::ForeignKey {
-                    name,
+                    name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
                     ref_table,
                     ref_columns,
                 });
             }
             pg_query::protobuf::ConstrType::ConstrUnique => {
-                let name = if con.conname.is_empty() {
-                    None
-                } else {
-                    Some(con.conname.clone())
-                };
                 constraints.push(TableConstraint::Unique {
-                    name,
+                    name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
                 });
             }
             pg_query::protobuf::ConstrType::ConstrCheck => {
-                let name = if con.conname.is_empty() {
-                    None
-                } else {
-                    Some(con.conname.clone())
-                };
                 let expression = con
                     .raw_expr
                     .as_ref()
                     .map(|e| deparse_node(e))
                     .unwrap_or_default();
-                constraints.push(TableConstraint::Check { name, expression });
+                constraints.push(TableConstraint::Check {
+                    name: optional_name(&con.conname),
+                    expression,
+                });
             }
             _ => {}
         }
@@ -273,7 +273,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
 fn extract_type_name(tn: Option<&pg_query::protobuf::TypeName>) -> (TypeName, bool) {
     let tn = match tn {
         Some(t) => t,
-        None => return (TypeName::simple("unknown"), false),
+        None => return (TypeName::simple(UNKNOWN_TYPE), false),
     };
 
     // Extract the last string from names[]
@@ -285,7 +285,7 @@ fn extract_type_name(tn: Option<&pg_query::protobuf::TypeName>) -> (TypeName, bo
             Some(NodeEnum::String(s)) => Some(s.sval.clone()),
             _ => None,
         })
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|| UNKNOWN_TYPE.to_string())
         .to_lowercase();
 
     // Check for serial types (NOT expanded by pg_query)
@@ -457,7 +457,7 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                     NodeEnum::ColumnDef(col) => Some(extract_type_name(col.type_name.as_ref()).0),
                     _ => None,
                 })
-                .unwrap_or_else(|| TypeName::simple("unknown"));
+                .unwrap_or_else(|| TypeName::simple(UNKNOWN_TYPE));
 
             vec![AlterTableAction::AlterColumnType {
                 column_name: cmd.name.clone(),
@@ -490,11 +490,7 @@ fn convert_table_constraint(
     con: &pg_query::protobuf::Constraint,
     context_column: Option<&str>,
 ) -> Option<TableConstraint> {
-    let name = if con.conname.is_empty() {
-        None
-    } else {
-        Some(con.conname.clone())
-    };
+    let name = optional_name(&con.conname);
 
     match con.contype() {
         pg_query::protobuf::ConstrType::ConstrPrimary => {
@@ -694,7 +690,7 @@ fn relation_to_qualified_name(rel: Option<&pg_query::protobuf::RangeVar>) -> Qua
 /// Check if a `RangeVar` refers to a temporary table.
 ///
 /// In pg_query, temporary tables are indicated by the `relpersistence` field
-/// being set to `'t'` (temporary) or `'u'` (unlogged).
+/// being set to `'t'` (temporary). Unlogged tables (`'u'`) are not skipped.
 fn is_temp_relation(rel: Option<&pg_query::protobuf::RangeVar>) -> bool {
     match rel {
         Some(r) => r.relpersistence == "t",

@@ -45,7 +45,7 @@ struct SonarQubeTextRange {
 
 /// Convert a file path to a string with forward slashes.
 fn path_to_forward_slashes(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    super::normalize_path(path)
 }
 
 impl Reporter for SonarQubeReporter {

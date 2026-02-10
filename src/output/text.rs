@@ -21,7 +21,7 @@ use std::path::Path;
 ///   message
 /// ```
 fn format_finding(finding: &Finding) -> String {
-    let file_str = finding.file.to_string_lossy().replace('\\', "/");
+    let file_str = super::normalize_path(&finding.file);
     let mut buf = String::new();
     // Using write! on String is infallible, but we handle the result properly.
     let _ = write!(

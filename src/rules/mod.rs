@@ -66,13 +66,7 @@ impl Severity {
 
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Severity::Info => write!(f, "INFO"),
-            Severity::Minor => write!(f, "MINOR"),
-            Severity::Major => write!(f, "MAJOR"),
-            Severity::Critical => write!(f, "CRITICAL"),
-            Severity::Blocker => write!(f, "BLOCKER"),
-        }
+        f.write_str(self.sonarqube_str())
     }
 }
 
@@ -161,7 +155,8 @@ pub trait Rule: Send + Sync {
     /// `statements` are the IR nodes for the unit being linted.
     /// `ctx` provides catalog state and changed-file context.
     ///
-    /// Returns findings with severity set to `default_severity()`.
+    /// Returns findings, typically with severity from `default_severity()`.
+    /// Some rules (e.g. PGM007, PGM009) may use per-finding severity.
     /// The caller handles down-migration severity capping and suppression filtering.
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>;
 }

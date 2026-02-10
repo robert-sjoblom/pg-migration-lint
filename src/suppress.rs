@@ -129,10 +129,8 @@ pub fn parse_suppressions(source: &str) -> Suppressions {
                         if !next_line.is_empty() && !is_comment_line(next_line) {
                             // Statement line is 1-based
                             let statement_line = next_idx + 1;
-                            let rule_set = suppressions
-                                .line_level
-                                .entry(statement_line)
-                                .or_insert_with(HashSet::new);
+                            let rule_set =
+                                suppressions.line_level.entry(statement_line).or_default();
 
                             for rule_id in rules_str.split(',') {
                                 let rule_id = rule_id.trim();
