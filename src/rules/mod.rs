@@ -6,6 +6,7 @@
 #[cfg(test)]
 pub mod test_helpers;
 
+pub mod column_type_check;
 pub mod pgm001;
 pub mod pgm002;
 pub mod pgm003;

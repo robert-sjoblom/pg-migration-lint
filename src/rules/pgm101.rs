@@ -4,16 +4,12 @@
 //! This type stores no timezone context, making values ambiguous.
 //! Use `timestamptz` (timestamp with time zone) instead.
 
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::column_type_check;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 /// Rule that flags the use of `timestamp` without time zone.
 pub struct Pgm101;
-
-/// Check whether a type name is `timestamp` (without time zone).
-fn is_bare_timestamp(tn: &TypeName) -> bool {
-    tn.name == "timestamp"
-}
 
 impl Rule for Pgm101 {
     fn id(&self) -> &'static str {
@@ -54,79 +50,21 @@ impl Rule for Pgm101 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if is_bare_timestamp(&col.type_name) {
-                            findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
-                                    "Column '{}' on '{}' uses 'timestamp without time zone'. \
-                                     Use 'timestamptz' (timestamp with time zone) instead to \
-                                     store unambiguous points in time.",
-                                    col.name, ct.name,
-                                ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
-                        }
-                    }
-                }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        match action {
-                            AlterTableAction::AddColumn(col) => {
-                                if is_bare_timestamp(&col.type_name) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses 'timestamp without time zone'. \
-                                             Use 'timestamptz' (timestamp with time zone) instead to \
-                                             store unambiguous points in time.",
-                                            col.name, at.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            AlterTableAction::AlterColumnType {
-                                column_name,
-                                new_type,
-                                ..
-                            } => {
-                                if is_bare_timestamp(new_type) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses 'timestamp without time zone'. \
-                                             Use 'timestamptz' (timestamp with time zone) instead to \
-                                             store unambiguous points in time.",
-                                            column_name, at.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        findings
+        column_type_check::check_column_types(
+            statements,
+            ctx,
+            self.id(),
+            self.default_severity(),
+            |tn| tn.name == "timestamp",
+            |col, table, _tn| {
+                format!(
+                    "Column '{}' on '{}' uses 'timestamp without time zone'. \
+                     Use 'timestamptz' (timestamp with time zone) instead to \
+                     store unambiguous points in time.",
+                    col, table,
+                )
+            },
+        )
     }
 }
 

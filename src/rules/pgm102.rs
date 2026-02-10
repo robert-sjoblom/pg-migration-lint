@@ -4,16 +4,12 @@
 //! not truncation — a value of '23:59:59.9' rounds to the next day.
 //! Use full precision and format on output instead.
 
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::column_type_check;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 /// Rule that flags the use of `timestamp(0)` or `timestamptz(0)`.
 pub struct Pgm102;
-
-/// Check whether a type name is timestamp or timestamptz with precision 0.
-fn is_zero_precision_timestamp(tn: &TypeName) -> bool {
-    (tn.name == "timestamp" || tn.name == "timestamptz") && tn.modifiers == [0]
-}
 
 impl Rule for Pgm102 {
     fn id(&self) -> &'static str {
@@ -53,82 +49,22 @@ impl Rule for Pgm102 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if is_zero_precision_timestamp(&col.type_name) {
-                            findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
-                                    "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
-                                     rounding, not truncation \u{2014} a value of '23:59:59.9' \
-                                     rounds to the next day. Use full precision and format on \
-                                     output instead.",
-                                    col.name, ct.name, col.type_name.name,
-                                ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
-                        }
-                    }
-                }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        match action {
-                            AlterTableAction::AddColumn(col) => {
-                                if is_zero_precision_timestamp(&col.type_name) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
-                                             rounding, not truncation \u{2014} a value of '23:59:59.9' \
-                                             rounds to the next day. Use full precision and format on \
-                                             output instead.",
-                                            col.name, at.name, col.type_name.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            AlterTableAction::AlterColumnType {
-                                column_name,
-                                new_type,
-                                ..
-                            } => {
-                                if is_zero_precision_timestamp(new_type) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
-                                             rounding, not truncation \u{2014} a value of '23:59:59.9' \
-                                             rounds to the next day. Use full precision and format on \
-                                             output instead.",
-                                            column_name, at.name, new_type.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        findings
+        column_type_check::check_column_types(
+            statements,
+            ctx,
+            self.id(),
+            self.default_severity(),
+            |tn| (tn.name == "timestamp" || tn.name == "timestamptz") && tn.modifiers == [0],
+            |col, table, tn| {
+                format!(
+                    "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
+                     rounding, not truncation \u{2014} a value of '23:59:59.9' \
+                     rounds to the next day. Use full precision and format on \
+                     output instead.",
+                    col, table, tn.name,
+                )
+            },
+        )
     }
 }
 

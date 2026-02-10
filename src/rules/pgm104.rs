@@ -4,16 +4,12 @@
 //! `lc_monetary` locale setting, making it unreliable across environments.
 //! Use `numeric(p,s)` instead.
 
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::column_type_check;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 /// Rule that flags the use of the `money` type.
 pub struct Pgm104;
-
-/// Check whether a type name is `money`.
-fn is_money(tn: &TypeName) -> bool {
-    tn.name == "money"
-}
 
 impl Rule for Pgm104 {
     fn id(&self) -> &'static str {
@@ -55,79 +51,21 @@ impl Rule for Pgm104 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if is_money(&col.type_name) {
-                            findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
-                                    "Column '{}' on '{}' uses the 'money' type. The money type \
-                                     depends on the lc_monetary locale setting, making it \
-                                     unreliable across environments. Use numeric(p,s) instead.",
-                                    col.name, ct.name,
-                                ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
-                        }
-                    }
-                }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        match action {
-                            AlterTableAction::AddColumn(col) => {
-                                if is_money(&col.type_name) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses the 'money' type. The money type \
-                                             depends on the lc_monetary locale setting, making it \
-                                             unreliable across environments. Use numeric(p,s) instead.",
-                                            col.name, at.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            AlterTableAction::AlterColumnType {
-                                column_name,
-                                new_type,
-                                ..
-                            } => {
-                                if is_money(new_type) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses the 'money' type. The money type \
-                                             depends on the lc_monetary locale setting, making it \
-                                             unreliable across environments. Use numeric(p,s) instead.",
-                                            column_name, at.name,
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        findings
+        column_type_check::check_column_types(
+            statements,
+            ctx,
+            self.id(),
+            self.default_severity(),
+            |tn| tn.name == "money",
+            |col, table, _tn| {
+                format!(
+                    "Column '{}' on '{}' uses the 'money' type. The money type \
+                     depends on the lc_monetary locale setting, making it \
+                     unreliable across environments. Use numeric(p,s) instead.",
+                    col, table,
+                )
+            },
+        )
     }
 }
 
