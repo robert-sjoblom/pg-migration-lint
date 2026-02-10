@@ -54,10 +54,12 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
 
         // Handle inline PK on the column definition
         if col.is_inline_pk {
-            table.has_primary_key = true;
-            table.constraints.push(ConstraintState::PrimaryKey {
-                columns: vec![col.name.clone()],
-            });
+            apply_table_constraint(
+                &mut table,
+                &TableConstraint::PrimaryKey {
+                    columns: vec![col.name.clone()],
+                },
+            );
         }
     }
 
@@ -87,10 +89,12 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
 
                 // Handle inline PK on the added column
                 if col_def.is_inline_pk {
-                    table.has_primary_key = true;
-                    table.constraints.push(ConstraintState::PrimaryKey {
-                        columns: vec![col_def.name.clone()],
-                    });
+                    apply_table_constraint(
+                        table,
+                        &TableConstraint::PrimaryKey {
+                            columns: vec![col_def.name.clone()],
+                        },
+                    );
                 }
             }
             AlterTableAction::DropColumn { name } => {
@@ -184,6 +188,13 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             table.has_primary_key = true;
             table.constraints.push(ConstraintState::PrimaryKey {
                 columns: columns.clone(),
+            });
+            // PostgreSQL automatically creates a unique index for PKs.
+            // Track it so has_covering_index() finds PK coverage for FKs.
+            table.indexes.push(IndexState {
+                name: format!("{}_pkey", table.name),
+                columns: columns.clone(),
+                unique: true,
             });
         }
         TableConstraint::ForeignKey {
@@ -1029,8 +1040,9 @@ mod tests {
         let table = catalog.get_table("users").expect("users should exist");
         assert_eq!(table.columns.len(), 2);
         assert!(table.has_primary_key);
-        assert_eq!(table.indexes.len(), 1);
-        assert_eq!(table.indexes[0].name, "idx_users_name");
+        assert_eq!(table.indexes.len(), 2);
+        assert_eq!(table.indexes[0].name, "users_pkey");
+        assert_eq!(table.indexes[1].name, "idx_users_name");
     }
 
     #[test]
