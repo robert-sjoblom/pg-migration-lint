@@ -4,25 +4,12 @@
 //! The `char(n)` type pads with spaces, wastes storage, and is no faster than
 //! `text` or `varchar` in PostgreSQL.
 
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::column_type_check;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 /// Rule that flags the use of `char(n)`.
 pub struct Pgm103;
-
-/// Check whether a type name is `bpchar` (PostgreSQL's internal name for `char(n)`).
-fn is_bpchar(tn: &TypeName) -> bool {
-    tn.name == "bpchar"
-}
-
-/// Format the display name for the char type, showing the length modifier if present.
-fn display_char_type(tn: &TypeName) -> String {
-    if let Some(&n) = tn.modifiers.first() {
-        format!("char({})", n)
-    } else {
-        "char".to_string()
-    }
-}
 
 impl Rule for Pgm103 {
     fn id(&self) -> &'static str {
@@ -63,81 +50,26 @@ impl Rule for Pgm103 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if is_bpchar(&col.type_name) {
-                            findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
-                                    "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
-                                     spaces, wastes storage, and is no faster than text or varchar \
-                                     in PostgreSQL. Use text or varchar instead.",
-                                    col.name,
-                                    ct.name,
-                                    display_char_type(&col.type_name),
-                                ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
-                        }
-                    }
-                }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        match action {
-                            AlterTableAction::AddColumn(col) => {
-                                if is_bpchar(&col.type_name) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
-                                             spaces, wastes storage, and is no faster than text or varchar \
-                                             in PostgreSQL. Use text or varchar instead.",
-                                            col.name, at.name, display_char_type(&col.type_name),
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            AlterTableAction::AlterColumnType {
-                                column_name,
-                                new_type,
-                                ..
-                            } => {
-                                if is_bpchar(new_type) {
-                                    findings.push(Finding {
-                                        rule_id: self.id().to_string(),
-                                        severity: self.default_severity(),
-                                        message: format!(
-                                            "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
-                                             spaces, wastes storage, and is no faster than text or varchar \
-                                             in PostgreSQL. Use text or varchar instead.",
-                                            column_name, at.name, display_char_type(new_type),
-                                        ),
-                                        file: ctx.file.clone(),
-                                        start_line: stmt.span.start_line,
-                                        end_line: stmt.span.end_line,
-                                    });
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        findings
+        column_type_check::check_column_types(
+            statements,
+            ctx,
+            self.id(),
+            self.default_severity(),
+            |tn| tn.name == "bpchar",
+            |col, table, tn| {
+                let display = if let Some(&n) = tn.modifiers.first() {
+                    format!("char({})", n)
+                } else {
+                    "char".to_string()
+                };
+                format!(
+                    "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
+                     spaces, wastes storage, and is no faster than text or varchar \
+                     in PostgreSQL. Use text or varchar instead.",
+                    col, table, display,
+                )
+            },
+        )
     }
 }
 
