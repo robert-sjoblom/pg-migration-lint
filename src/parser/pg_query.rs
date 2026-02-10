@@ -116,7 +116,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> IrNode {
 // ---------------------------------------------------------------------------
 
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.
-fn convert_create_table(create: &pg_query::protobuf::CreateStmt, raw_sql: &str) -> IrNode {
+fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str) -> IrNode {
     let name = relation_to_qualified_name(create.relation.as_ref());
 
     let temporary = matches!(
@@ -155,7 +155,6 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, raw_sql: &str) 
         constraints,
         temporary,
     })
-    .or_unparseable(raw_sql)
 }
 
 /// Convert a pg_query `ColumnDef` into an IR `ColumnDef` plus any inline
@@ -661,14 +660,11 @@ fn extract_qualified_name_from_drop_objects(
                 1 => Some(QualifiedName::unqualified(&strings[0])),
                 2 => Some(QualifiedName::qualified(&strings[0], &strings[1])),
                 _ if !strings.is_empty() => {
-                    // Take last two as schema.name
+                    // Take last two as schema.name (len >= 3 guaranteed here
+                    // since len == 1 and len == 2 are handled above)
                     let name = strings.last().cloned().unwrap_or_default();
-                    if strings.len() >= 2 {
-                        let schema = strings[strings.len() - 2].clone();
-                        Some(QualifiedName::qualified(schema, name))
-                    } else {
-                        Some(QualifiedName::unqualified(name))
-                    }
+                    let schema = strings[strings.len() - 2].clone();
+                    Some(QualifiedName::qualified(schema, name))
                 }
                 _ => None,
             };
@@ -802,18 +798,6 @@ fn extract_first_identifier(s: &str) -> Option<String> {
         let cleaned = ident.replace('"', "");
         let parts: Vec<&str> = cleaned.split('.').collect();
         parts.last().map(|s| s.to_string())
-    }
-}
-
-/// Extension trait to allow fallback to `Unparseable` if conversion panics.
-/// This is used internally as a safe guard.
-trait OrUnparseable {
-    fn or_unparseable(self, raw_sql: &str) -> IrNode;
-}
-
-impl OrUnparseable for IrNode {
-    fn or_unparseable(self, _raw_sql: &str) -> IrNode {
-        self
     }
 }
 

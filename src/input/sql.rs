@@ -14,14 +14,10 @@ use std::path::{Path, PathBuf};
 /// lexicographically by filename. Each file becomes one `MigrationUnit`.
 ///
 /// Down migrations are detected by filename patterns: `.down.sql` or `_down.sql`.
+#[derive(Default)]
 pub struct SqlLoader;
 
 impl SqlLoader {
-    /// Create a new `SqlLoader`.
-    pub fn new() -> Self {
-        Self
-    }
-
     /// Load a single SQL file and parse it into a `MigrationUnit`.
     ///
     /// The file is read entirely into memory, parsed into IR nodes, and
@@ -49,12 +45,6 @@ impl SqlLoader {
             run_in_transaction: true,
             is_down,
         })
-    }
-}
-
-impl Default for SqlLoader {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -108,8 +98,6 @@ impl MigrationLoader for SqlLoader {
 }
 
 /// Collect all `.sql` files from a directory (non-recursive).
-///
-/// Returns the files sorted lexicographically by filename.
 fn collect_sql_files(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
     let entries = std::fs::read_dir(dir).map_err(|e| LoadError::Io {
         path: dir.to_path_buf(),
@@ -130,7 +118,6 @@ fn collect_sql_files(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
         }
     }
 
-    files.sort();
     Ok(files)
 }
 
@@ -255,7 +242,7 @@ mod tests {
         // Also create a non-SQL file that should be ignored
         fs::write(dir.path().join("README.md"), "# Migrations").expect("write");
 
-        let loader = SqlLoader::new();
+        let loader = SqlLoader;
         let history = loader
             .load(&[dir.path().to_path_buf()])
             .expect("Failed to load migrations");
@@ -274,21 +261,21 @@ mod tests {
         let file_path = dir.path().join("migration.sql");
         fs::write(&file_path, "CREATE TABLE t (id int);").expect("write");
 
-        let loader = SqlLoader::new();
+        let loader = SqlLoader;
         let history = loader.load(&[file_path]).expect("Failed to load migration");
         assert_eq!(history.units.len(), 1);
     }
 
     #[test]
     fn test_loader_nonexistent_path() {
-        let loader = SqlLoader::new();
+        let loader = SqlLoader;
         let result = loader.load(&[PathBuf::from("/nonexistent/path")]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_loader_empty_paths() {
-        let loader = SqlLoader::new();
+        let loader = SqlLoader;
         let history = loader.load(&[]).expect("Empty paths should succeed");
         assert!(history.units.is_empty());
     }
@@ -309,7 +296,7 @@ mod tests {
         )
         .expect("write");
 
-        let loader = SqlLoader::new();
+        let loader = SqlLoader;
         let history = loader
             .load(&[dir1.path().to_path_buf(), dir2.path().to_path_buf()])
             .expect("Failed to load migrations");
