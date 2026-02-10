@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["pg-migration-lint contributors"]
 description = "Static analyzer for PostgreSQL migration files"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/pg-migration-lint"
+repository = "https://github.com/robert-sjoblom/pg-migration-lint"
 
 [[bin]]
 name = "pg-migration-lint"
