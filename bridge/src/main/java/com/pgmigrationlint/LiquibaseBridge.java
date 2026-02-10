@@ -130,7 +130,7 @@ public class LiquibaseBridge {
             // so we default to 1 if unavailable. The Rust side handles this gracefully.
             entry.xml_line = 1;
 
-            entry.run_in_transaction = changeSet.getRunInTransaction();
+            entry.run_in_transaction = changeSet.isRunInTransaction();
 
             entries.add(entry);
         }
