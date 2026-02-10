@@ -21,12 +21,25 @@ use std::process::Command;
 pub struct UpdateSqlLoader {
     /// Path to the liquibase binary.
     pub binary_path: PathBuf,
+    /// Optional path to a liquibase properties file (--defaults-file).
+    pub properties_file: Option<PathBuf>,
 }
 
 impl UpdateSqlLoader {
     /// Create a new UpdateSqlLoader with the given binary path.
     pub fn new(binary_path: PathBuf) -> Self {
-        Self { binary_path }
+        Self {
+            binary_path,
+            properties_file: None,
+        }
+    }
+
+    /// Create a new UpdateSqlLoader with a binary path and optional properties file.
+    pub fn with_properties(binary_path: PathBuf, properties_file: Option<PathBuf>) -> Self {
+        Self {
+            binary_path,
+            properties_file,
+        }
     }
 
     /// Load migration units from a changelog file by running `liquibase update-sql`.
@@ -34,7 +47,11 @@ impl UpdateSqlLoader {
     /// Executes the liquibase binary and parses the output to identify changeset
     /// boundaries and extract SQL statements for each changeset.
     pub fn load(&self, changelog_path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
-        let output = Command::new(&self.binary_path)
+        let mut cmd = Command::new(&self.binary_path);
+        if let Some(ref props) = self.properties_file {
+            cmd.arg("--defaults-file").arg(props);
+        }
+        let output = cmd
             .arg("update-sql")
             .arg("--changelog-file")
             .arg(changelog_path)

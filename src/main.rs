@@ -9,16 +9,17 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use pg_migration_lint::catalog::replay;
+use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
-use pg_migration_lint::input::MigrationLoader;
+use pg_migration_lint::input::{MigrationHistory, MigrationLoader};
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter, TextReporter};
 use pg_migration_lint::rules::{self, LintContext};
 use pg_migration_lint::suppress::parse_suppressions;
-use pg_migration_lint::{Catalog, Finding, IrNode, RuleRegistry, Severity};
+use pg_migration_lint::{Catalog, Config, Finding, IrNode, RuleRegistry, Severity};
 
 /// Default config file name used when --config is not explicitly provided.
 const DEFAULT_CONFIG_FILE: &str = "pg-migration-lint.toml";
@@ -46,6 +47,10 @@ struct Args {
     /// Override output format (text, sarif, sonarqube)
     #[arg(long)]
     format: Option<String>,
+
+    /// Override exit code threshold (critical, major, minor, info, none)
+    #[arg(long)]
+    fail_on: Option<String>,
 }
 
 fn main() {
@@ -85,10 +90,7 @@ fn run(args: Args) -> Result<bool> {
     let changed_files = parse_changed_files(&args)?;
 
     // --- Step 1: Load migration files ---
-    let loader = SqlLoader::new();
-    let history = loader
-        .load(&config.migrations.paths)
-        .context("Failed to load migrations")?;
+    let history = load_migrations(&config)?;
 
     // --- Step 2: Build changed files set for O(1) lookup ---
     // Convert the Vec<PathBuf> into a HashSet<PathBuf>.
@@ -107,6 +109,7 @@ fn run(args: Args) -> Result<bool> {
 
     let mut all_findings: Vec<Finding> = Vec::new();
     let mut tables_created_in_change: HashSet<String> = HashSet::new();
+    let mut changed_units_per_file: HashMap<PathBuf, usize> = HashMap::new();
 
     for unit in &history.units {
         // Determine if this unit is in the changed set.
@@ -124,6 +127,10 @@ fn run(args: Args) -> Result<bool> {
         };
 
         if is_changed {
+            *changed_units_per_file
+                .entry(unit.source_file.clone())
+                .or_insert(0) += 1;
+
             // Clone catalog BEFORE applying this unit
             let catalog_before = catalog.clone();
 
@@ -173,6 +180,23 @@ fn run(args: Args) -> Result<bool> {
         }
     }
 
+    // Warn when a single file contributes many changesets (likely a single-file changelog)
+    const MULTI_CHANGESET_THRESHOLD: usize = 20;
+    if !lint_all {
+        for (file, count) in &changed_units_per_file {
+            if *count >= MULTI_CHANGESET_THRESHOLD {
+                eprintln!(
+                    "Warning: {} changesets from '{}' matched as changed. \
+                     If this is a single-file changelog, findings may include \
+                     historical changesets. Consider using <include> with one \
+                     changeset per file for accurate changed-file detection.",
+                    count,
+                    file.display()
+                );
+            }
+        }
+    }
+
     // --- Step 4: Emit reports ---
     let formats: Vec<String> = if let Some(ref fmt) = args.format {
         vec![fmt.clone()]
@@ -199,7 +223,8 @@ fn run(args: Args) -> Result<bool> {
     // --- Step 5: Summary and exit code ---
     eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
 
-    let fail_on = Severity::parse(&config.cli.fail_on);
+    let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
+    let fail_on = Severity::parse(fail_on_str);
     if let Some(threshold) = fail_on {
         if all_findings.iter().any(|f| f.severity >= threshold) {
             return Ok(true);
@@ -281,4 +306,50 @@ fn parse_changed_files(args: &Args) -> Result<Vec<PathBuf>> {
     }
 
     Ok(files)
+}
+
+/// Load migration files using the strategy configured in `config.migrations.strategy`.
+///
+/// - `"filename_lexicographic"` (default): Load `.sql` files sorted by filename.
+/// - `"liquibase"`: Use the Liquibase three-tier fallback (bridge JAR -> update-sql -> XML).
+///
+/// For the Liquibase strategy, the sub-strategy is controlled by `config.liquibase.strategy`
+/// (`"auto"`, `"bridge"`, `"update-sql"`, `"xml-fallback"`).
+fn load_migrations(config: &Config) -> Result<MigrationHistory> {
+    match config.migrations.strategy.as_str() {
+        "liquibase" => {
+            eprintln!(
+                "pg-migration-lint: using liquibase strategy (sub-strategy: {})",
+                config.liquibase.strategy
+            );
+            let raw_units = load_liquibase(&config.liquibase, &config.migrations.paths)
+                .context("Failed to load Liquibase migrations")?;
+
+            let units = raw_units
+                .into_iter()
+                .map(|r| r.into_migration_unit())
+                .collect();
+
+            Ok(MigrationHistory { units })
+        }
+        "filename_lexicographic" => {
+            eprintln!("pg-migration-lint: using filename_lexicographic strategy");
+            let loader = SqlLoader::new();
+            let history = loader
+                .load(&config.migrations.paths)
+                .context("Failed to load migrations")?;
+            Ok(history)
+        }
+        other => {
+            eprintln!(
+                "pg-migration-lint: unknown strategy '{}', falling back to filename_lexicographic",
+                other
+            );
+            let loader = SqlLoader::new();
+            let history = loader
+                .load(&config.migrations.paths)
+                .context("Failed to load migrations")?;
+            Ok(history)
+        }
+    }
 }

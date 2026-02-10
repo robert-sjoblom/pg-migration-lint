@@ -198,7 +198,10 @@ fn load_with_updatesql(
             message: "binary_path is required for 'update-sql' strategy".to_string(),
         })?;
 
-    let loader = super::liquibase_updatesql::UpdateSqlLoader::new(binary_path.clone());
+    let loader = super::liquibase_updatesql::UpdateSqlLoader::with_properties(
+        binary_path.clone(),
+        config.properties_file.clone(),
+    );
     let mut all_units = Vec::new();
 
     for path in paths {
@@ -313,6 +316,7 @@ mod tests {
         let config = LiquibaseConfig {
             bridge_jar_path: None,
             binary_path: None,
+            properties_file: None,
             strategy: "invalid-strategy".to_string(),
         };
 

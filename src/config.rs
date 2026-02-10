@@ -72,6 +72,9 @@ pub struct LiquibaseConfig {
     /// Path to liquibase binary
     pub binary_path: Option<PathBuf>,
 
+    /// Path to liquibase properties file (passed as --defaults-file to liquibase CLI)
+    pub properties_file: Option<PathBuf>,
+
     /// Strategy: "auto", "bridge", "update-sql", "xml-fallback"
     #[serde(default = "default_liquibase_strategy")]
     pub strategy: String,
@@ -82,6 +85,7 @@ impl Default for LiquibaseConfig {
         Self {
             bridge_jar_path: Some(PathBuf::from("tools/liquibase-bridge.jar")),
             binary_path: Some(PathBuf::from("liquibase")),
+            properties_file: None,
             strategy: default_liquibase_strategy(),
         }
     }
