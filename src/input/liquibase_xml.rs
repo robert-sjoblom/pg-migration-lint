@@ -263,7 +263,12 @@ fn handle_start_tag(
             match tag_name {
                 "sql" => Ok(ParseState::InSqlTag(cs, String::new())),
                 "createTable" => {
-                    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <createTable> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
                     let schema_name = get_attr(attrs, "schemaName");
                     Ok(ParseState::InCreateTable(
                         cs,
@@ -275,7 +280,12 @@ fn handle_start_tag(
                     ))
                 }
                 "addColumn" => {
-                    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <addColumn> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
                     let schema_name = get_attr(attrs, "schemaName");
                     Ok(ParseState::InAddColumn(
                         cs,
@@ -288,7 +298,12 @@ fn handle_start_tag(
                 }
                 "createIndex" => {
                     let index_name = get_attr(attrs, "indexName").unwrap_or_default();
-                    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <createIndex> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
                     let schema_name = get_attr(attrs, "schemaName");
                     let unique = get_attr(attrs, "unique")
                         .map(|v| v == "true")
@@ -305,7 +320,12 @@ fn handle_start_tag(
                     ))
                 }
                 "dropTable" => {
-                    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <dropTable> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
                     let schema_name = get_attr(attrs, "schemaName");
                     let qualified = qualify_name(&schema_name, &table_name);
                     cs.sql_parts.push(format!("DROP TABLE {};", qualified));
@@ -324,6 +344,12 @@ fn handle_start_tag(
                     Ok(ParseState::InChangeSet(cs))
                 }
                 "addPrimaryKey" => {
+                    if get_attr(attrs, "tableName").is_none() {
+                        eprintln!(
+                            "Warning: <addPrimaryKey> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    }
                     let sql = generate_add_pk_sql(attrs);
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))

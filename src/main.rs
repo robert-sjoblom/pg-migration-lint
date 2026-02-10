@@ -121,9 +121,12 @@ fn run(args: Args) -> Result<bool> {
                 .unwrap_or_else(|_| unit.source_file.clone());
             changed_files_set.contains(&canonical)
                 || changed_files_set.contains(&unit.source_file)
-                || changed_files_set
-                    .iter()
-                    .any(|cf| cf.ends_with(&unit.source_file) || unit.source_file.ends_with(cf))
+                || changed_files_set.iter().any(|cf| {
+                    // Only allow suffix matching when the shorter path includes a directory
+                    // component, to prevent bare filenames from matching across directories.
+                    (cf.ends_with(&unit.source_file) && unit.source_file.components().count() > 1)
+                        || (unit.source_file.ends_with(cf) && cf.components().count() > 1)
+                })
         };
 
         if is_changed {
@@ -168,7 +171,17 @@ fn run(args: Args) -> Result<bool> {
 
             // Parse suppressions from source file and filter findings.
             // Read the raw SQL source for suppression comments.
-            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+            let source = match std::fs::read_to_string(&unit.source_file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: could not read '{}' for suppression comments: {}",
+                        unit.source_file.display(),
+                        e
+                    );
+                    String::new()
+                }
+            };
             let suppressions = parse_suppressions(&source);
 
             unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
@@ -224,7 +237,17 @@ fn run(args: Args) -> Result<bool> {
     eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
 
     let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
-    let fail_on = Severity::parse(fail_on_str);
+    let fail_on = if fail_on_str.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        match Severity::parse(fail_on_str) {
+            Some(s) => Some(s),
+            None => anyhow::bail!(
+                "Unknown severity '{}' for --fail-on. Valid values: critical, major, minor, info, none",
+                fail_on_str
+            ),
+        }
+    };
     if let Some(threshold) = fail_on
         && all_findings.iter().any(|f| f.severity >= threshold)
     {
