@@ -19,8 +19,8 @@
 //! not processed, so the catalog can be flagged as potentially incomplete.
 
 use crate::input::{LoadError, RawMigrationUnit};
-use quick_xml::events::Event;
 use quick_xml::Reader;
+use quick_xml::events::Event;
 use std::path::{Path, PathBuf};
 
 /// Lightweight XML fallback loader for Liquibase changelogs.
@@ -1154,9 +1154,11 @@ mod tests {
             .expect("Should parse changeset with multiple changes");
         assert_eq!(units.len(), 1);
         assert!(units[0].sql.contains("CREATE TABLE users"));
-        assert!(units[0]
-            .sql
-            .contains("CREATE INDEX idx_users_id ON users (id);"));
+        assert!(
+            units[0]
+                .sql
+                .contains("CREATE INDEX idx_users_id ON users (id);")
+        );
     }
 
     #[test]

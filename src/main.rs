@@ -225,10 +225,10 @@ fn run(args: Args) -> Result<bool> {
 
     let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
     let fail_on = Severity::parse(fail_on_str);
-    if let Some(threshold) = fail_on {
-        if all_findings.iter().any(|f| f.severity >= threshold) {
-            return Ok(true);
-        }
+    if let Some(threshold) = fail_on
+        && all_findings.iter().any(|f| f.severity >= threshold)
+    {
+        return Ok(true);
     }
 
     Ok(false)

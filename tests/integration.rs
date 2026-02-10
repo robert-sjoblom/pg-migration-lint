@@ -1,14 +1,14 @@
 //! Integration tests for the full lint pipeline.
 
-use pg_migration_lint::catalog::replay;
+use pg_migration_lint::IrNode;
 use pg_migration_lint::catalog::Catalog;
+use pg_migration_lint::catalog::replay;
 use pg_migration_lint::input::liquibase_xml::XmlFallbackLoader;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter};
-use pg_migration_lint::rules::{cap_for_down_migration, Finding, LintContext, RuleRegistry};
+use pg_migration_lint::rules::{Finding, LintContext, RuleRegistry, cap_for_down_migration};
 use pg_migration_lint::suppress::parse_suppressions;
-use pg_migration_lint::IrNode;
 use std::collections::HashSet;
 use std::path::PathBuf;
 

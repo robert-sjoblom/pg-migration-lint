@@ -143,8 +143,8 @@ impl Rule for Pgm003 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use std::collections::HashSet;
     use std::path::PathBuf;

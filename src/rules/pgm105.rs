@@ -78,9 +78,10 @@ impl Rule for Pgm105 {
                 }
                 IrNode::AlterTable(at) => {
                     for action in &at.actions {
-                        if let AlterTableAction::AddColumn(col) = action {
-                            if col.is_serial {
-                                findings.push(Finding {
+                        if let AlterTableAction::AddColumn(col) = action
+                            && col.is_serial
+                        {
+                            findings.push(Finding {
                                     rule_id: self.id().to_string(),
                                     severity: self.default_severity(),
                                     message: format!(
@@ -95,7 +96,6 @@ impl Rule for Pgm105 {
                                     start_line: stmt.span.start_line,
                                     end_line: stmt.span.end_line,
                                 });
-                            }
                         }
                     }
                 }

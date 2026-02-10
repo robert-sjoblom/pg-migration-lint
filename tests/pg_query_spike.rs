@@ -224,22 +224,13 @@ fn spike_inline_vs_table_level_constraints() {
             "Table-level FK",
             "CREATE TABLE orders (customer_id int, FOREIGN KEY (customer_id) REFERENCES customers(id));",
         ),
-        (
-            "Inline UNIQUE",
-            "CREATE TABLE users (email text UNIQUE);",
-        ),
+        ("Inline UNIQUE", "CREATE TABLE users (email text UNIQUE);"),
         (
             "Table-level UNIQUE",
             "CREATE TABLE users (email text, UNIQUE (email));",
         ),
-        (
-            "Inline NOT NULL",
-            "CREATE TABLE t (col text NOT NULL);",
-        ),
-        (
-            "Inline CHECK",
-            "CREATE TABLE t (col int CHECK (col > 0));",
-        ),
+        ("Inline NOT NULL", "CREATE TABLE t (col text NOT NULL);"),
+        ("Inline CHECK", "CREATE TABLE t (col int CHECK (col > 0));"),
         (
             "Table-level CHECK",
             "CREATE TABLE t (col int, CHECK (col > 0));",

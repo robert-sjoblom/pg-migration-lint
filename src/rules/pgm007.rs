@@ -167,17 +167,17 @@ impl Rule for Pgm007 {
                 }
                 IrNode::AlterTable(at) => {
                     for action in &at.actions {
-                        if let AlterTableAction::AddColumn(col) = action {
-                            if let Some(finding) = check_column(
+                        if let AlterTableAction::AddColumn(col) = action
+                            && let Some(finding) = check_column(
                                 col,
                                 &at.name,
                                 self,
                                 ctx.file,
                                 stmt.span.start_line,
                                 stmt.span.end_line,
-                            ) {
-                                findings.push(finding);
-                            }
+                            )
+                        {
+                            findings.push(finding);
                         }
                     }
                 }
