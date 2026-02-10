@@ -61,6 +61,11 @@ impl Default for SonarQubeReporter {
     }
 }
 
+/// Normalize a path to use forward slashes for cross-platform output.
+pub fn normalize_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 #[cfg(test)]
 pub mod test_helpers;
 

@@ -112,7 +112,7 @@ fn sarif_level(severity: &Severity) -> &'static str {
 
 /// Convert a file path to a SARIF-compatible URI with forward slashes.
 fn path_to_uri(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    super::normalize_path(path)
 }
 
 /// Collect unique rules from findings, keyed by rule_id.
