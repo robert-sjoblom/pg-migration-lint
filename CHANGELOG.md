@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.0.0...v1.0.1) (2026-02-10)
+
+
+### Bug Fixes
+
+* **catalog:** track PK implicit index for FK covering-index checks ([f255336](https://github.com/robert-sjoblom/pg-migration-lint/commit/f2553362b6f327f91d82b4a0a1e6da0c48c591b1))
+* **cli:** validate --fail-on severity and improve changed-file matching ([ecd0ae1](https://github.com/robert-sjoblom/pg-migration-lint/commit/ecd0ae1ea4576942cdd047c83a88f6e17f8f688f))
+* **liquibase:** report errors for missing required XML attributes ([ecd0ae1](https://github.com/robert-sjoblom/pg-migration-lint/commit/ecd0ae1ea4576942cdd047c83a88f6e17f8f688f))
+* **parser:** propagate inline constraints on ALTER TABLE ADD COLUMN ([73ce0ef](https://github.com/robert-sjoblom/pg-migration-lint/commit/73ce0ef6a954043b190d7422e6f1cfe781045662))
+* **sarif:** use crate version, correct URL, and rule descriptions ([927d625](https://github.com/robert-sjoblom/pg-migration-lint/commit/927d6251f30ceabb98c55f12be27b49b0401208a))
+
 ## 1.0.0 — 2026-02-10
 
 Initial release of pg-migration-lint.
