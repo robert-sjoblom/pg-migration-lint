@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <include file="001-base-tables.xml"/>
+    <include file="002-orders.xml"/>
+    <include file="003-add-columns.xml"/>
+    <include file="004-create-indexes.xml"/>
+    <include file="005-add-fk.xml"/>
+    <include file="006-table-no-pk.xml"/>
+    <include file="007-volatile-defaults.xml"/>
+    <include file="008-add-not-null.xml"/>
+    <include file="009-raw-sql.xml"/>
+    <include file="010-cleanup.xml"/>
+
+</databaseChangeLog>

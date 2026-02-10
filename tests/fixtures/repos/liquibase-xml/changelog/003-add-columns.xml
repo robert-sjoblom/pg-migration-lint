@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- Add multiple columns to orders (clean; all nullable) -->
+    <changeSet id="003-add-order-details" author="charlie">
+        <addColumn tableName="orders">
+            <column name="invoice_reference" type="VARCHAR(100)"/>
+            <column name="your_reference" type="VARCHAR(200)"/>
+            <column name="delivery_address" type="TEXT"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Add columns to accounts (clean; nullable with defaults) -->
+    <changeSet id="003-add-account-fields" author="charlie">
+        <addColumn tableName="accounts">
+            <column name="billing_email" type="VARCHAR(255)"/>
+            <column name="phone" type="VARCHAR(50)"/>
+            <column name="country_code" type="VARCHAR(3)" defaultValue="SE"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Add a nullable column to subscriptions -->
+    <changeSet id="003-add-subscription-type" author="charlie">
+        <addColumn tableName="subscriptions">
+            <column name="subscription_type" type="VARCHAR(50)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

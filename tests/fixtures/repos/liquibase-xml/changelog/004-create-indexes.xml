@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        PGM001 VIOLATION: createIndex on existing table without CONCURRENTLY.
+        The XML fallback parser generates plain CREATE INDEX SQL (no CONCURRENTLY).
+        Since users, subscriptions, and products were created in earlier changesets,
+        these should trigger PGM001.
+    -->
+
+    <changeSet id="004-add-users-email-index" author="alice">
+        <createIndex indexName="idx_users_email" tableName="users">
+            <column name="email"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="004-add-subscriptions-account-index" author="alice">
+        <createIndex indexName="idx_subscriptions_account_id" tableName="subscriptions">
+            <column name="account_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Multi-column index on products -->
+    <changeSet id="004-add-products-composite-index" author="alice">
+        <createIndex indexName="idx_products_name_article" tableName="products">
+            <column name="name"/>
+            <column name="article_number"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

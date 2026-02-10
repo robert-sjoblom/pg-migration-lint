@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        PGM004 VIOLATION: Tables created without primary keys.
+    -->
+
+    <!-- Event log table without PK -->
+    <changeSet id="006-create-event-log" author="charlie">
+        <createTable tableName="event_log">
+            <column name="event_id" type="UUID">
+                <constraints unique="true" nullable="false"/>
+            </column>
+            <column name="event_type" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="JSONB"/>
+            <column name="created" type="TIMESTAMP(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Subscription invoices table without PK -->
+    <changeSet id="006-create-subscription-invoices" author="charlie">
+        <createTable tableName="subscription_invoices">
+            <column name="subscription_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="invoiced_from" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="invoiced_until" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="invoice_id" type="VARCHAR(19)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="invoice_total" type="NUMERIC(12,2)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- FK on subscription_invoices without covering index -> also PGM003 -->
+        <addForeignKeyConstraint constraintName="fk_subscription_invoices_subscription"
+                                 baseTableName="subscription_invoices"
+                                 baseColumnNames="subscription_id"
+                                 referencedTableName="subscriptions"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+</databaseChangeLog>

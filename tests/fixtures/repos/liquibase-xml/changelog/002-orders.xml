@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- Orders table with PK and inline FK via raw SQL -->
+    <changeSet id="002-create-orders" author="bob">
+        <createTable tableName="orders">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="account_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT"/>
+            <column name="order_type" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="products" type="JSONB"/>
+            <column name="notes" type="TEXT"/>
+            <column name="created" type="TIMESTAMP(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated" type="TIMESTAMP(6)"/>
+        </createTable>
+    </changeSet>
+
+    <!-- Order actions table -->
+    <changeSet id="002-create-order-actions" author="bob">
+        <createTable tableName="order_actions">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="order_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="action_type" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="result" type="VARCHAR(50)"/>
+            <column name="performed_by" type="BIGINT"/>
+            <column name="created" type="TIMESTAMP(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- Indexes on the new tables (clean, since they are created in the same changeset) -->
+        <createIndex indexName="idx_order_actions_order_id" tableName="order_actions">
+            <column name="order_id"/>
+        </createIndex>
+        <createIndex indexName="idx_orders_account_id" tableName="orders">
+            <column name="account_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Subscription items table -->
+    <changeSet id="002-create-subscription-items" author="bob">
+        <createTable tableName="subscription_items">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="subscription_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="product_id" type="BIGINT"/>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="quantity" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created" type="TIMESTAMP(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex indexName="idx_subscription_items_subscription" tableName="subscription_items">
+            <column name="subscription_id"/>
+        </createIndex>
+
+        <addForeignKeyConstraint constraintName="fk_subscription_items_subscription"
+                                 baseTableName="subscription_items"
+                                 baseColumnNames="subscription_id"
+                                 referencedTableName="subscriptions"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+</databaseChangeLog>

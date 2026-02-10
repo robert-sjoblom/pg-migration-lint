@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- Raw SQL: add CHECK constraints (clean, informational) -->
+    <changeSet id="009-add-check-constraints" author="charlie">
+        <sql>
+            ALTER TABLE subscription_invoices
+            ADD CONSTRAINT check_invoiced_from_before_until
+            CHECK (invoiced_from &lt;= invoiced_until);
+        </sql>
+        <sql>
+            ALTER TABLE orders
+            ADD CONSTRAINT check_order_status
+            CHECK (status IN ('PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED'));
+        </sql>
+    </changeSet>
+
+    <!-- Raw SQL: CONCURRENTLY index with runInTransaction=false (clean) -->
+    <changeSet id="009-add-concurrent-index" author="charlie" runInTransaction="false">
+        <sql>
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS
+                idx_order_actions_status ON order_actions (status);
+        </sql>
+    </changeSet>
+
+    <!-- Raw SQL: Add a primary key to event_log (fixing PGM004 from earlier) -->
+    <changeSet id="009-add-pk-to-event-log" author="charlie">
+        <sql>
+            ALTER TABLE event_log ADD PRIMARY KEY (event_id);
+        </sql>
+    </changeSet>
+
+    <!-- Raw SQL using CDATA for complex queries -->
+    <changeSet id="009-add-subscription-type-constraint" author="charlie">
+        <sql><![CDATA[
+            ALTER TABLE subscriptions
+            ADD CONSTRAINT check_subscription_type
+            CHECK (subscription_type IS NULL OR subscription_type IN ('STANDARD', 'TRIAL', 'PARTNER'));
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        PGM007 VIOLATION: Volatile defaults (NOW(), CURRENT_TIMESTAMP).
+        The defaultValueComputed attribute generates DEFAULT <expr> in the SQL.
+        When applied to existing tables via addColumn, NOW() is volatile and
+        can force a table rewrite on large tables.
+    -->
+
+    <!-- Create price_plans table with volatile defaults (new table, may or may not trigger PGM007
+         depending on whether the rule checks tables_created_in_change) -->
+    <changeSet id="007-create-price-plans" author="alice">
+        <createTable tableName="price_plans">
+            <column name="id" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="TEXT">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Add volatile default columns to existing tables -->
+    <changeSet id="007-add-timestamps-to-products" author="alice">
+        <addColumn tableName="products">
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMPTZ" defaultValueComputed="NOW()"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Create price_plan_products with multiple FKs and volatile default -->
+    <changeSet id="007-create-price-plan-products" author="alice">
+        <createTable tableName="price_plan_products">
+            <column name="id" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="price_plan_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="product_id" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="discount_type" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="discount_value" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMPTZ" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint constraintName="fk_price_plan_products_plan"
+                                 baseTableName="price_plan_products"
+                                 baseColumnNames="price_plan_id"
+                                 referencedTableName="price_plans"
+                                 referencedColumnNames="id"/>
+
+        <addForeignKeyConstraint constraintName="fk_price_plan_products_product"
+                                 baseTableName="price_plan_products"
+                                 baseColumnNames="product_id"
+                                 referencedTableName="products"
+                                 referencedColumnNames="id"/>
+
+        <addUniqueConstraint tableName="price_plan_products"
+                             columnNames="product_id, price_plan_id"
+                             constraintName="uq_price_plan_products"/>
+    </changeSet>
+
+</databaseChangeLog>

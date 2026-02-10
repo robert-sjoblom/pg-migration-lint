@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        PGM003 VIOLATION: Foreign key constraints without covering indexes.
+        orders.user_id references users.id but there is no index on orders(user_id).
+        orders.account_id has an index (idx_orders_account_id from 002), so that FK is safe.
+    -->
+
+    <!-- FK on orders.user_id -> users.id (NO covering index on orders.user_id) -->
+    <changeSet id="005-add-fk-orders-user" author="bob">
+        <addForeignKeyConstraint constraintName="fk_orders_user"
+                                 baseTableName="orders"
+                                 baseColumnNames="user_id"
+                                 referencedTableName="users"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+    <!-- FK on subscriptions.account_id -> accounts.id (NO covering index yet) -->
+    <changeSet id="005-add-fk-subscriptions-account" author="bob">
+        <addForeignKeyConstraint constraintName="fk_subscriptions_account"
+                                 baseTableName="subscriptions"
+                                 baseColumnNames="account_id"
+                                 referencedTableName="accounts"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+    <!-- FK on orders.account_id -> accounts.id (HAS covering index from 002) -->
+    <changeSet id="005-add-fk-orders-account" author="bob">
+        <addForeignKeyConstraint constraintName="fk_orders_account"
+                                 baseTableName="orders"
+                                 baseColumnNames="account_id"
+                                 referencedTableName="accounts"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+</databaseChangeLog>

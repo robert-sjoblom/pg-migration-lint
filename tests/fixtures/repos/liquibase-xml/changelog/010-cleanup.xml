@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- Drop unused indexes -->
+    <changeSet id="010-drop-unused-indexes" author="alice">
+        <dropIndex indexName="idx_products_name_article" tableName="products"/>
+    </changeSet>
+
+    <!-- Drop a table -->
+    <changeSet id="010-drop-event-log" author="alice">
+        <dropTable tableName="event_log"/>
+    </changeSet>
+
+    <!-- Add a primary key to subscription_invoices (fixing PGM004 from 006) -->
+    <changeSet id="010-add-pk-subscription-invoices" author="alice">
+        <addPrimaryKey tableName="subscription_invoices"
+                       columnNames="subscription_id, invoiced_from"
+                       constraintName="pk_subscription_invoices"/>
+    </changeSet>
+
+    <!-- Add a covering index for the subscriptions.account_id FK from 005 -->
+    <changeSet id="010-add-missing-fk-index" author="alice" runInTransaction="false">
+        <sql>
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS
+                idx_subscriptions_account_id_covering
+                ON subscriptions (account_id);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
