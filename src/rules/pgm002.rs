@@ -58,7 +58,7 @@ impl Rule for Pgm002 {
                 }
 
                 // Find which table this index belongs to by searching catalog_before.
-                let belongs_to_existing_table = ctx.catalog_before.tables().any(|table| {
+                let owning_table = ctx.catalog_before.tables().find(|table| {
                     // Skip tables created in the current change set.
                     if ctx.tables_created_in_change.contains(&table.name) {
                         return false;
@@ -66,13 +66,15 @@ impl Rule for Pgm002 {
                     table.indexes.iter().any(|idx| idx.name == di.index_name)
                 });
 
-                if belongs_to_existing_table {
+                if let Some(table) = owning_table {
                     findings.push(Finding::new(
                         self.id(),
                         self.default_severity(),
-                        "DROP INDEX on existing table should use CONCURRENTLY \
-                             to avoid holding an exclusive lock."
-                            .to_string(),
+                        format!(
+                            "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
+                             to avoid holding an exclusive lock.",
+                            di.index_name, table.name
+                        ),
                         ctx.file,
                         &stmt.span,
                     ));
@@ -118,6 +120,8 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "PGM002");
         assert_eq!(findings[0].severity, Severity::Critical);
+        assert!(findings[0].message.contains("idx_orders_status"));
+        assert!(findings[0].message.contains("orders"));
     }
 
     #[test]
