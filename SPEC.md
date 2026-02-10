@@ -11,6 +11,8 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
 - Multiple independent migration sets / monorepo support (deferred)
 - Declarative rule DSL / user-authored rules (deferred)
 - Incremental/cached replay (deferred; brute-force on every run)
+- Single-file Liquibase changelog support (deferred; when all changesets live in one file, changed-file detection cannot distinguish new vs. existing changesets without git diffing, which is out of scope — the tool's contract is "CI tells us what changed")
+- Built-in git integration (explicitly rejected; weakens focus)
 
 ---
 
@@ -254,12 +256,93 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Note**: Postgres marks the column as dropped without rewriting the table, so this is cheap at the database level. The risk is application-level: queries referencing the column will break. This is informational to increase visibility.
 - **Message**: `Dropping column '{col}' from existing table '{table}'. The DDL is cheap but ensure no application code references this column.`
 
+#### PGM012 — `ADD PRIMARY KEY` on existing table without prior `UNIQUE` constraint
+
+- **Severity**: MAJOR
+- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY (cols)` where the table exists in the catalog (not created in the same changeset) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
+- **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the PK columns exactly (set equality). If neither exists, fire.
+- **Why**: Adding a primary key builds a unique index (not concurrently) under `ACCESS EXCLUSIVE` lock. If duplicates exist, the command fails at deploy time. The safe pattern is: build a unique index CONCURRENTLY first, then `ADD PRIMARY KEY USING INDEX`.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - The PK columns already have a covering unique index (exact column match)
+  - The PK columns already have a `UNIQUE` constraint (exact column match)
+- **Message**: `ADD PRIMARY KEY on existing table '{table}' requires building a unique index under ACCESS EXCLUSIVE lock. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
+
 #### PGM008 — Down migration issues
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM011) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules (PGM001–PGM012) apply to `.down.sql` / rollback SQL, but findings are informational only.
 
-### 4.3 `--explain PGMnnn`
+### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
+
+Rules derived from the [PostgreSQL "Don't Do This" wiki](https://wiki.postgresql.org/wiki/Don%27t_Do_This). These detect column type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
+
+All type rules share a common detection pattern: inspect `TypeName` on `ColumnDef` in `CreateTable` columns, `AddColumn` actions, and `AlterColumnType` actions.
+
+**Type name canonicalization** (verified against `pg_query` output):
+
+| SQL Syntax | IR `TypeName.name` | Notes |
+|------------|-------------------|-------|
+| `timestamp` / `timestamp without time zone` | `"timestamp"` | pg_query normalizes both |
+| `timestamptz` / `timestamp with time zone` | `"timestamptz"` | |
+| `char(n)` / `character(n)` | `"bpchar"` | NOT `"char"` — pg_query canonical form |
+| `char` / `character` (no length) | `"bpchar"` | Implicit modifier `[1]` |
+| `money` | `"money"` | |
+| `serial` | `"int4"` + `nextval()` default | Parser maps and synthesizes |
+| `bigserial` | `"int8"` + `nextval()` default | Parser maps and synthesizes |
+| `smallserial` | `"int2"` + `nextval()` default | Parser maps and synthesizes |
+| `float` / `double precision` | `"float8"` | |
+| `real` | `"float4"` | |
+| `varchar(n)` / `character varying(n)` | `"varchar"` | Modifiers: `[n]` |
+
+#### PGM101 — Don't use `timestamp` (without time zone)
+
+- **Severity**: WARNING
+- **Triggers**: Column type with `TypeName.name == "timestamp"` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
+- **Why**: `timestamp without time zone` stores a date-time with no time zone context. The stored value is ambiguous — it could be UTC, local time, or anything else. `timestamptz` stores an absolute point in time (internally UTC) and converts on input/output based on session `timezone`, making it unambiguous.
+- **Message**: `Column '{col}' on '{table}' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time.`
+
+#### PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`
+
+- **Severity**: WARNING
+- **Triggers**: Column type with `TypeName.name` in `("timestamp", "timestamptz")` and `TypeName.modifiers == [0]`.
+- **Why**: Setting fractional seconds precision to 0 causes PostgreSQL to *round* (not truncate). An input of `23:59:59.9` becomes `00:00:00` of the *next day*, silently changing the date.
+- **Message**: `Column '{col}' on '{table}' uses '{type}(0)'. Precision 0 causes rounding, not truncation — a value of '23:59:59.9' rounds to the next day. Use full precision and format on output instead.`
+
+#### PGM103 — Don't use `char(n)` or `character(n)`
+
+- **Severity**: WARNING
+- **Triggers**: Column type with `TypeName.name == "bpchar"` (pg_query canonical form for SQL `char`/`character`).
+- **Why**: `char(n)` pads values with spaces to exactly `n` characters. This wastes storage, causes surprising comparison behavior, and is never faster than `text` or `varchar` — PostgreSQL stores them identically on disk (as varlena), with added overhead of pad/unpad operations.
+- **Message**: `Column '{col}' on '{table}' uses 'char({n})'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead.`
+
+#### PGM104 — Don't use the `money` type
+
+- **Severity**: WARNING
+- **Triggers**: Column type with `TypeName.name == "money"`.
+- **Why**: The `money` type has fixed fractional precision determined by `lc_monetary` locale. Changing the locale silently reinterprets stored values. It stores no currency code, making multi-currency support impossible. Input/output depends on locale, making dumps/restores across systems dangerous. Use `numeric(p,s)` instead.
+- **Message**: `Column '{col}' on '{table}' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead.`
+
+#### PGM105 — Don't use `serial` / `bigserial`
+
+- **Severity**: INFO
+- **Triggers**: Column with `DefaultExpr::FunctionCall { name: "nextval", .. }` on an `int4`, `int8`, or `int2` typed column. (pg_query expands `serial`→`int4 + nextval()`, `bigserial`→`int8 + nextval()`.)
+- **Why**: The `serial` pseudo-types create an implicit sequence with several problems: the sequence ownership is weaker than identity columns, `INSERT` with explicit values doesn't advance the sequence (causing future conflicts), and grants/ownership are separate. Identity columns (`GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY`, SQL standard, PG 10+) handle all these edge cases correctly.
+- **Interaction with PGM007**: Both PGM105 and PGM007 fire on `nextval()` defaults. This is intentional — PGM007 warns about the volatile default aspect, PGM105 recommends the identity column alternative.
+- **Message**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach.`
+
+#### Deferred "Don't Do This" Rules
+
+The following rules are specified but deferred until per-rule enable/disable configuration is implemented:
+
+- **PGM106** — Don't use `varchar(n)` for arbitrary length limits (INFO). Very common pattern; needs ability to disable globally.
+- **PGM107** — Don't use `float`/`real`/`double precision` for exact values (INFO). Legitimate for many use cases; needs ability to disable.
+- **PGM111** — Don't use `INHERITS` for partitioning (WARNING). Requires IR extension to detect `CREATE TABLE ... INHERITS`.
+
+See `docs/dont-do-this-rules.md` for full specifications of deferred rules.
+
+### 4.4 `--explain PGMnnn`
 
 Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. Exits 0. No file scanning.
 
@@ -490,3 +573,4 @@ pg-migration-lint/
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-02-09 | Initial specification. 11 rules (PGM001–PGM011). Rust CLI with `pg_query` parser, IR layer, replay-based table catalog. Liquibase bridge jar for exact changeset-to-SQL traceability. SARIF + SonarQube Generic Issue Import output. GitHub Actions integration via `upload-sarif`. |
+| 1.1     | 2026-02-10 | Added PGM012 (ADD PRIMARY KEY without UNIQUE). Added "Don't Do This" rules PGM101–PGM105 (timestamp, timestamp(0), char(n), money, serial). Deferred PGM106 (varchar), PGM107 (float), PGM111 (INHERITS) until per-rule config. Documented pg_query type name canonicalization. Added `is_serial` to IR `ColumnDef`. Explicitly deferred single-file Liquibase changelog support and rejected built-in git integration as non-goals. |

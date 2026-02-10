@@ -14,5 +14,6 @@
     <include file="008-add-not-null.xml"/>
     <include file="009-raw-sql.xml"/>
     <include file="010-cleanup.xml"/>
+    <include file="011-dont-do-this-types.xml"/>
 
 </databaseChangeLog>

@@ -108,18 +108,20 @@ fn test_clean_repo_no_findings() {
 
 #[test]
 fn test_all_rules_trigger() {
-    // Only V002 and V003 are changed; V001 is just replayed as baseline.
+    // V002, V003, and V004 are changed; V001 is just replayed as baseline.
     // This ensures tables from V001 are in catalog_before but NOT in
     // tables_created_in_change, so rules that check for pre-existing tables
     // (PGM001, PGM002, PGM009, PGM010, PGM011) will fire.
+    // V004 introduces "Don't Do This" type anti-patterns (PGM101-PGM105).
     let findings = lint_fixture(
         "all-rules",
-        &["V002__violations.sql", "V003__more_violations.sql"],
+        &["V002__violations.sql", "V003__more_violations.sql", "V004__dont_do_this_types.sql"],
     );
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     for expected in &["PGM001", "PGM002", "PGM003", "PGM004", "PGM005",
-                       "PGM006", "PGM007", "PGM009", "PGM010", "PGM011", "PGM012"] {
+                       "PGM006", "PGM007", "PGM009", "PGM010", "PGM011", "PGM012",
+                       "PGM101", "PGM102", "PGM103", "PGM104", "PGM105"] {
         assert!(
             rule_ids.contains(expected),
             "Expected {} finding but not found. Got:\n  {}",
@@ -135,10 +137,10 @@ fn test_all_rules_trigger() {
 
 #[test]
 fn test_suppressed_repo_no_findings() {
-    // Only V002 and V003 are changed; V001 just replays.
+    // Only V002, V003, and V004 are changed; V001 just replays.
     let findings = lint_fixture(
         "suppressed",
-        &["V002__suppressed.sql", "V003__suppressed.sql"],
+        &["V002__suppressed.sql", "V003__suppressed.sql", "V004__suppressed.sql"],
     );
     assert!(
         findings.is_empty(),
@@ -269,6 +271,91 @@ fn test_all_rules_changed_files_all_empty() {
     assert!(
         rule_ids.contains("PGM006"),
         "PGM006 should fire even with all files changed"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// "Don't Do This" rules (PGM101-PGM105)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pgm101_timestamp_without_tz() {
+    let findings = lint_fixture(
+        "all-rules",
+        &["V004__dont_do_this_types.sql"],
+    );
+    let pgm101: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM101").collect();
+
+    assert!(!pgm101.is_empty(), "Expected PGM101 findings for 'timestamp' without time zone");
+    assert!(
+        pgm101.iter().any(|f| f.message.to_lowercase().contains("timestamp")),
+        "PGM101 message should mention 'timestamp'. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_pgm102_timestamptz_zero_precision() {
+    let findings = lint_fixture(
+        "all-rules",
+        &["V004__dont_do_this_types.sql"],
+    );
+    let pgm102: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM102").collect();
+
+    assert!(!pgm102.is_empty(), "Expected PGM102 findings for 'timestamptz(0)'");
+    assert!(
+        pgm102.iter().any(|f| f.message.contains("0") || f.message.to_lowercase().contains("precision")),
+        "PGM102 message should mention precision or (0). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_pgm103_char_n_type() {
+    let findings = lint_fixture(
+        "all-rules",
+        &["V004__dont_do_this_types.sql"],
+    );
+    let pgm103: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM103").collect();
+
+    assert!(!pgm103.is_empty(), "Expected PGM103 findings for 'char(n)'");
+    assert!(
+        pgm103.iter().any(|f| f.message.to_lowercase().contains("char")),
+        "PGM103 message should mention 'char'. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_pgm104_money_type() {
+    let findings = lint_fixture(
+        "all-rules",
+        &["V004__dont_do_this_types.sql"],
+    );
+    let pgm104: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM104").collect();
+
+    assert!(!pgm104.is_empty(), "Expected PGM104 findings for 'money' type");
+    assert!(
+        pgm104.iter().any(|f| f.message.to_lowercase().contains("money")),
+        "PGM104 message should mention 'money'. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_pgm105_serial_type() {
+    let findings = lint_fixture(
+        "all-rules",
+        &["V004__dont_do_this_types.sql"],
+    );
+    let pgm105: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM105").collect();
+
+    assert!(!pgm105.is_empty(), "Expected PGM105 findings for 'serial' type");
+    assert!(
+        pgm105.iter().any(|f| f.message.to_lowercase().contains("serial")
+            || f.message.to_lowercase().contains("identity")),
+        "PGM105 message should mention 'serial' or 'identity'. Got:\n  {}",
+        format_findings(&findings)
     );
 }
 
@@ -450,11 +537,11 @@ fn test_xml_parses_all_changesets() {
     let loader = XmlFallbackLoader;
     let raw_units = loader.load(&base).expect("Failed to load XML fixture");
 
-    // 001: 4, 002: 3, 003: 3, 004: 3, 005: 3, 006: 2, 007: 3, 008: 3, 009: 4, 010: 4 = 32
+    // 001: 4, 002: 3, 003: 3, 004: 3, 005: 3, 006: 2, 007: 3, 008: 3, 009: 4, 010: 4, 011: 3 = 35
     assert_eq!(
         raw_units.len(),
-        32,
-        "Expected 32 changesets across all XML files, got {}",
+        35,
+        "Expected 35 changesets across all XML files, got {}",
         raw_units.len()
     );
 }
@@ -652,6 +739,79 @@ fn test_xml_finding_count_reasonable() {
         findings.len() <= 40,
         "Expected at most 40 findings from 004-008, got {}",
         findings.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// XML: "Don't Do This" rules (PGM101, PGM103, PGM104)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_xml_lint_011_pgm101_timestamp() {
+    // Lint only 011 changesets. 001-010 are replayed as history.
+    // 011-add-event-timestamp adds a TIMESTAMP column -> PGM101
+    let findings = lint_xml_fixture("liquibase-xml", &[
+        "011-add-event-timestamp",
+    ]);
+    let pgm101: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM101").collect();
+
+    assert!(
+        !pgm101.is_empty(),
+        "Expected PGM101 for TIMESTAMP column. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_xml_lint_011_pgm103_char_n() {
+    // 011-add-country-code adds a CHAR(3) column -> PGM103
+    let findings = lint_xml_fixture("liquibase-xml", &[
+        "011-add-country-code",
+    ]);
+    let pgm103: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM103").collect();
+
+    assert!(
+        !pgm103.is_empty(),
+        "Expected PGM103 for CHAR(3) column. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_xml_lint_011_pgm104_money() {
+    // 011-add-balance adds a MONEY column -> PGM104
+    let findings = lint_xml_fixture("liquibase-xml", &[
+        "011-add-balance",
+    ]);
+    let pgm104: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM104").collect();
+
+    assert!(
+        !pgm104.is_empty(),
+        "Expected PGM104 for MONEY column. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_xml_lint_all_includes_dont_do_this_rules() {
+    // Verify the "Don't Do This" rules fire when all changesets are linted
+    let findings = lint_xml_fixture("liquibase-xml", &[]);
+    let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+    assert!(
+        rule_ids.contains("PGM101"),
+        "Expected PGM101 (timestamp without tz). Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        rule_ids.contains("PGM103"),
+        "Expected PGM103 (char(n)). Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        rule_ids.contains("PGM104"),
+        "Expected PGM104 (money). Got:\n  {}",
+        format_findings(&findings)
     );
 }
 

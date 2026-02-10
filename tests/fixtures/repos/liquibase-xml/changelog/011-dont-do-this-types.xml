@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- PGM101: timestamp without time zone -->
+    <changeSet id="011-add-event-timestamp" author="dave">
+        <addColumn tableName="users">
+            <column name="processed_at" type="TIMESTAMP"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- PGM103: char(n) type -->
+    <changeSet id="011-add-country-code" author="dave">
+        <addColumn tableName="accounts">
+            <column name="region_code" type="CHAR(3)"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- PGM104: money type -->
+    <changeSet id="011-add-balance" author="dave">
+        <addColumn tableName="accounts">
+            <column name="balance" type="MONEY"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -94,11 +94,10 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   on disk (as varlena), just with the added overhead of pad/unpad operations. The SQL
   standard `char(n)` type is a relic with no performance benefit in PostgreSQL.
 - **Severity**: WARNING
-- **IR detectability**: Fully detectable. Match `TypeName.name` being `"char"` or
-  `"character"` (both with and without modifiers). Note: the internal single-byte type
-  `"char"` (with quotes in SQL) is a distinct type used for system catalogs; the parser
-  may represent it differently. The rule should match the unquoted `char`/`character`
-  type names.
+- **IR detectability**: Fully detectable. Match `TypeName.name == "bpchar"`. pg_query
+  normalizes both `char(n)` and `character(n)` to the canonical name `"bpchar"`. The
+  internal single-byte type `"char"` (with quotes in SQL) is a distinct pg_catalog type
+  and will NOT match. Unqualified `char` / `character` get synthetic modifier `[1]`.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE countries (
@@ -362,16 +361,16 @@ This rule is **not recommended for implementation** at this time.
 
 ## Summary Table
 
-| Rule ID | Anti-Pattern | Severity | IR Detectable | Confidence |
-|---------|-------------|----------|---------------|------------|
-| PGM101 | `timestamp` without time zone | WARNING | Yes | High |
-| PGM102 | `timestamp(0)` / `timestamptz(0)` precision | WARNING | Yes | High |
-| PGM103 | `char(n)` / `character(n)` | WARNING | Yes | High |
-| PGM104 | `money` type | WARNING | Yes | High |
-| PGM105 | `serial` / `bigserial` (prefer identity) | INFO | Partial | Medium |
-| PGM106 | `varchar(n)` (prefer text) | INFO | Yes | High |
-| PGM107 | `float` / `real` / `double precision` | INFO | Yes | High |
-| PGM111 | `INHERITS`-based partitioning | WARNING | No (needs IR extension) | High (once detectable) |
+| Rule ID | Anti-Pattern | Severity | IR Match | Status |
+|---------|-------------|----------|----------|--------|
+| PGM101 | `timestamp` without time zone | WARNING | `name == "timestamp"` | **Implement** |
+| PGM102 | `timestamp(0)` / `timestamptz(0)` precision | WARNING | `name in (timestamp, timestamptz) && modifiers == [0]` | **Implement** |
+| PGM103 | `char(n)` / `character(n)` | WARNING | `name == "bpchar"` | **Implement** |
+| PGM104 | `money` type | WARNING | `name == "money"` | **Implement** |
+| PGM105 | `serial` / `bigserial` (prefer identity) | INFO | `nextval()` default on `int4`/`int8`/`int2` | **Implement** |
+| PGM106 | `varchar(n)` (prefer text) | INFO | `name == "varchar" && modifiers non-empty` | Deferred (needs per-rule config) |
+| PGM107 | `float` / `real` / `double precision` | INFO | `name in ("float4", "float8")` | Deferred (needs per-rule config) |
+| PGM111 | `INHERITS`-based partitioning | WARNING | Not in IR | Deferred (needs IR extension) |
 
 Rules not recommended: PGM108 (text without CHECK), PGM109 (reserved-word identifiers),
 PGM110 (integer PK), PGM112 (unlogged tables).
@@ -412,8 +411,8 @@ names (lowercased) for reliable matching. Known aliases to handle:
 | `timestamp without time zone` | `"timestamp"` |
 | `timestamptz` | `"timestamptz"` |
 | `timestamp with time zone` | `"timestamptz"` |
-| `char(n)` | `"char"` or `"character"` |
-| `character(n)` | `"character"` |
+| `char(n)` | `"bpchar"` |
+| `character(n)` | `"bpchar"` |
 | `character varying(n)` | `"varchar"` |
 | `varchar(n)` | `"varchar"` |
 | `float` | `"float8"` (PG default) |
@@ -433,11 +432,9 @@ aliases for each type.
 
 ### Interaction with Existing Rules
 
-- **PGM105 vs PGM007**: Both can fire on `nextval()` defaults. When PGM105 fires
-  (serial/bigserial detection), PGM007 should either not fire for the same column, or
-  PGM007's existing "serial" message variant should be replaced by PGM105. Recommend:
-  have PGM105 take precedence, and add the `nextval` function name to a skip list
-  consulted by PGM007.
+- **PGM105 vs PGM007**: Both fire on `nextval()` defaults. This is intentional — PGM007
+  warns about the volatile default aspect (table rewrite risk), PGM105 recommends the
+  identity column alternative. Both findings are relevant and neither suppresses the other.
 - **PGM101 vs PGM009**: If someone uses `ALTER COLUMN TYPE` to change from `timestamptz`
   to `timestamp`, both PGM009 (type change on existing table) and PGM101 (bad type) can
   fire. This is correct behavior -- both findings are relevant (one is about the
