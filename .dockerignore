@@ -1,0 +1,37 @@
+# =============================================================================
+# .dockerignore -- Exclude files that should not be sent to the Docker daemon
+# =============================================================================
+
+# Rust build artifacts (will be rebuilt inside the container)
+target/
+
+# Bridge Maven build artifacts (rebuilt in stage 1)
+bridge/target/
+
+# Git history (not needed for builds)
+.git/
+.jj/
+
+# IDE / editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local tools directory (JAR is built from source in Docker)
+tools/
+
+# Temporary files
+tmp/
+
+# Claude / AI context (not needed for builds)
+.claude/
+
+# Documentation not needed for test builds
+*.md
+!tests/fixtures/README.md
+
+# OS files
+.DS_Store
+Thumbs.db

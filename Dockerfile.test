@@ -1,0 +1,79 @@
+# =============================================================================
+# Dockerfile.test -- Multi-stage build for running the full pg-migration-lint
+# test suite, including Liquibase bridge JAR support.
+#
+# Stage 1: Build the Liquibase bridge fat JAR (Maven + JDK 21)
+# Stage 2: Build and test the Rust project with the JAR available
+#
+# Usage:
+#   docker build -f Dockerfile.test -t pg-migration-lint-test .
+#   docker run --rm pg-migration-lint-test
+#
+# Or use the helper script:
+#   ./scripts/test-docker.sh
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Build the Liquibase bridge JAR
+# ---------------------------------------------------------------------------
+FROM maven:3.9-eclipse-temurin-21 AS bridge-build
+
+WORKDIR /build/bridge
+
+# Copy POM first for dependency caching
+COPY bridge/pom.xml .
+RUN mvn dependency:go-offline -q
+
+# Copy Java sources and build the shaded (fat) JAR
+COPY bridge/src/ src/
+RUN mvn package -q -DskipTests
+
+# Verify the JAR was produced
+RUN test -f target/liquibase-bridge-1.0.0.jar
+
+# ---------------------------------------------------------------------------
+# Stage 2: Rust build, test, and lint
+# ---------------------------------------------------------------------------
+FROM rust:1.83-bookworm AS rust-test
+
+# Install system dependencies required by pg_query crate (bindgen needs
+# libclang) and general Rust build tooling.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libclang-dev \
+    clang \
+    pkg-config \
+    libssl-dev \
+    # JRE needed at test time so the bridge loader can shell out to `java`
+    default-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# -- Layer 1: Cache Rust dependencies --
+# Copy only the manifests and create a dummy lib/main so cargo can fetch deps.
+COPY Cargo.toml Cargo.lock ./
+
+# Create minimal stub sources so `cargo fetch` resolves all dependencies.
+# These will be overwritten in the next COPY, but the dependency layer is cached.
+RUN mkdir -p src && \
+    echo 'pub fn _stub() {}' > src/lib.rs && \
+    echo 'fn main() {}' > src/main.rs && \
+    cargo fetch
+
+# -- Layer 2: Copy the bridge JAR to the default config path --
+# The LiquibaseConfig default is "tools/liquibase-bridge.jar"
+COPY --from=bridge-build /build/bridge/target/liquibase-bridge-1.0.0.jar tools/liquibase-bridge.jar
+
+# -- Layer 3: Copy the full Rust project source --
+COPY src/ src/
+COPY tests/ tests/
+
+# -- Layer 4: Build (compile check) --
+# Build the library and binary in debug mode to catch compilation errors.
+RUN cargo build --tests 2>&1
+
+# -- Layer 5: Run tests and clippy --
+# The CMD runs both cargo test and cargo clippy. Using a shell form so we
+# can chain commands with &&.
+CMD ["sh", "-c", "cargo test -- --test-threads=4 && cargo clippy -- -D warnings"]
