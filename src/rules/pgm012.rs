@@ -66,29 +66,26 @@ impl Rule for Pgm012 {
                 }
 
                 for action in &at.actions {
-                    if let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                        columns,
-                    }) = action
+                    if let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) =
+                        action
+                        && let Some(table) = ctx.catalog_before.get_table(table_key)
+                        && !table.has_unique_covering(columns)
                     {
-                        if let Some(table) = ctx.catalog_before.get_table(table_key) {
-                            if !table.has_unique_covering(columns) {
-                                findings.push(Finding {
-                                    rule_id: self.id().to_string(),
-                                    severity: self.default_severity(),
-                                    message: format!(
-                                        "ADD PRIMARY KEY on existing table '{table}' without a \
+                        findings.push(Finding {
+                            rule_id: self.id().to_string(),
+                            severity: self.default_severity(),
+                            message: format!(
+                                "ADD PRIMARY KEY on existing table '{table}' without a \
                                          prior UNIQUE constraint or unique index on column(s) \
                                          [{columns}]. Create a unique index CONCURRENTLY first, \
                                          then use ADD PRIMARY KEY USING INDEX.",
-                                        table = at.name,
-                                        columns = columns.join(", "),
-                                    ),
-                                    file: ctx.file.clone(),
-                                    start_line: stmt.span.start_line,
-                                    end_line: stmt.span.end_line,
-                                });
-                            }
-                        }
+                                table = at.name,
+                                columns = columns.join(", "),
+                            ),
+                            file: ctx.file.clone(),
+                            start_line: stmt.span.start_line,
+                            end_line: stmt.span.end_line,
+                        });
                     }
                 }
             }
@@ -101,8 +98,8 @@ impl Rule for Pgm012 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use std::collections::HashSet;
     use std::path::PathBuf;

@@ -68,9 +68,11 @@ impl Rule for Pgm010 {
                 }
 
                 for action in &at.actions {
-                    if let AlterTableAction::AddColumn(col) = action {
-                        if !col.nullable && col.default_expr.is_none() {
-                            findings.push(Finding {
+                    if let AlterTableAction::AddColumn(col) = action
+                        && !col.nullable
+                        && col.default_expr.is_none()
+                    {
+                        findings.push(Finding {
                                 rule_id: self.id().to_string(),
                                 severity: self.default_severity(),
                                 message: format!(
@@ -84,7 +86,6 @@ impl Rule for Pgm010 {
                                 start_line: stmt.span.start_line,
                                 end_line: stmt.span.end_line,
                             });
-                        }
                     }
                 }
             }
@@ -97,8 +98,8 @@ impl Rule for Pgm010 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use std::collections::HashSet;
     use std::path::PathBuf;

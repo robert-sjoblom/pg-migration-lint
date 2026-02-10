@@ -263,8 +263,8 @@ impl Rule for Pgm009 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -376,10 +376,10 @@ mod tests {
         // Override the column type with modifiers via a custom approach.
         // Since the builder doesn't support modifiers, we build directly.
         let mut before_with_mods = before.clone();
-        if let Some(table) = before_with_mods.get_table_mut("users") {
-            if let Some(col) = table.get_column_mut("name") {
-                col.type_name = TypeName::with_modifiers("varchar", vec![50]);
-            }
+        if let Some(table) = before_with_mods.get_table_mut("users")
+            && let Some(col) = table.get_column_mut("name")
+        {
+            col.type_name = TypeName::with_modifiers("varchar", vec![50]);
         }
 
         let after = before_with_mods.clone();

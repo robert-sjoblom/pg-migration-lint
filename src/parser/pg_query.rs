@@ -494,10 +494,10 @@ fn convert_table_constraint(
     match con.contype() {
         pg_query::protobuf::ConstrType::ConstrPrimary => {
             let mut columns = extract_string_list(&con.keys);
-            if columns.is_empty() {
-                if let Some(col) = context_column {
-                    columns.push(col.to_string());
-                }
+            if columns.is_empty()
+                && let Some(col) = context_column
+            {
+                columns.push(col.to_string());
             }
             Some(TableConstraint::PrimaryKey { columns })
         }
@@ -505,10 +505,10 @@ fn convert_table_constraint(
             let ref_table = relation_to_qualified_name(con.pktable.as_ref());
             let ref_columns = extract_string_list(&con.pk_attrs);
             let mut columns = extract_string_list(&con.fk_attrs);
-            if columns.is_empty() {
-                if let Some(col) = context_column {
-                    columns.push(col.to_string());
-                }
+            if columns.is_empty()
+                && let Some(col) = context_column
+            {
+                columns.push(col.to_string());
             }
             Some(TableConstraint::ForeignKey {
                 name,
@@ -519,10 +519,10 @@ fn convert_table_constraint(
         }
         pg_query::protobuf::ConstrType::ConstrUnique => {
             let mut columns = extract_string_list(&con.keys);
-            if columns.is_empty() {
-                if let Some(col) = context_column {
-                    columns.push(col.to_string());
-                }
+            if columns.is_empty()
+                && let Some(col) = context_column
+            {
+                columns.push(col.to_string());
             }
             Some(TableConstraint::Unique { name, columns })
         }
@@ -729,16 +729,13 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
     };
 
     // Replace the target list's value with our node
-    if let Some(stmt) = parse_result.protobuf.stmts.first_mut() {
-        if let Some(ref mut stmt_node) = stmt.stmt {
-            if let Some(NodeEnum::SelectStmt(ref mut select)) = stmt_node.node {
-                if let Some(first_target) = select.target_list.first_mut() {
-                    if let Some(NodeEnum::ResTarget(ref mut res)) = first_target.node {
-                        res.val = Some(Box::new(node.clone()));
-                    }
-                }
-            }
-        }
+    if let Some(stmt) = parse_result.protobuf.stmts.first_mut()
+        && let Some(ref mut stmt_node) = stmt.stmt
+        && let Some(NodeEnum::SelectStmt(ref mut select)) = stmt_node.node
+        && let Some(first_target) = select.target_list.first_mut()
+        && let Some(NodeEnum::ResTarget(ref mut res)) = first_target.node
+    {
+        res.val = Some(Box::new(node.clone()));
     }
 
     match pg_query::deparse(&parse_result.protobuf) {

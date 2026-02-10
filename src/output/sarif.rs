@@ -239,8 +239,7 @@ mod tests {
         assert_eq!(parsed["runs"][0]["results"][0]["ruleId"], "PGM001");
         assert_eq!(parsed["runs"][0]["results"][0]["level"], "error");
         assert_eq!(
-            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
-                ["startLine"],
+            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]["startLine"],
             3
         );
         assert_eq!(
@@ -354,10 +353,11 @@ mod tests {
         let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
 
-        let uri = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
-            ["artifactLocation"]["uri"]
-            .as_str()
-            .expect("uri string");
+        let uri =
+            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+                ["uri"]
+                .as_str()
+                .expect("uri string");
         assert!(!uri.contains('\\'));
         assert!(uri.contains('/'));
     }

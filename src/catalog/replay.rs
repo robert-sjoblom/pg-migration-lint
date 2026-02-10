@@ -143,10 +143,10 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
         .find(|t| t.indexes.iter().any(|idx| idx.name == di.index_name))
         .map(|t| t.name.clone());
 
-    if let Some(table_name) = owning_table {
-        if let Some(table) = catalog.get_table_mut(&table_name) {
-            table.indexes.retain(|idx| idx.name != di.index_name);
-        }
+    if let Some(table_name) = owning_table
+        && let Some(table) = catalog.get_table_mut(&table_name)
+    {
+        table.indexes.retain(|idx| idx.name != di.index_name);
     }
 }
 
@@ -158,10 +158,10 @@ fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
 
 /// Handle Unparseable: if a table_hint is provided, mark that table as incomplete.
 fn apply_unparseable(catalog: &mut Catalog, table_hint: &Option<String>) {
-    if let Some(hint) = table_hint {
-        if let Some(table) = catalog.get_table_mut(hint) {
-            table.incomplete = true;
-        }
+    if let Some(hint) = table_hint
+        && let Some(table) = catalog.get_table_mut(hint)
+    {
+        table.incomplete = true;
     }
 }
 

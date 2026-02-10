@@ -28,10 +28,10 @@ impl Suppressions {
         }
 
         // Check line-level suppressions
-        if let Some(rules) = self.line_level.get(&statement_line) {
-            if rules.contains(rule_id) {
-                return true;
-            }
+        if let Some(rules) = self.line_level.get(&statement_line)
+            && rules.contains(rule_id)
+        {
+            return true;
         }
 
         false
@@ -62,11 +62,11 @@ fn extract_directive(trimmed: &str) -> Option<Directive<'_>> {
 
     // Try XML-style comment: "<!-- pgm-lint:suppress... -->"
     // Must be a single-line comment: starts with "<!--" and ends with "-->".
-    if let Some(inner) = trimmed.strip_prefix("<!--") {
-        if let Some(body) = inner.strip_suffix("-->") {
-            let body = body.trim();
-            return parse_directive_body(body);
-        }
+    if let Some(inner) = trimmed.strip_prefix("<!--")
+        && let Some(body) = inner.strip_suffix("-->")
+    {
+        let body = body.trim();
+        return parse_directive_body(body);
     }
 
     None
