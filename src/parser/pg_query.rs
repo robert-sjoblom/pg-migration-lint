@@ -262,6 +262,7 @@ fn convert_column_def(
         nullable,
         default_expr,
         is_inline_pk,
+        is_serial,
     };
 
     (col_def, constraints)

@@ -259,6 +259,7 @@ mod tests {
             nullable,
             default_expr: None,
             is_inline_pk: false,
+            is_serial: false,
         }
     }
 
@@ -270,6 +271,7 @@ mod tests {
             nullable: false,
             default_expr: None,
             is_inline_pk: true,
+            is_serial: false,
         }
     }
 
@@ -897,6 +899,7 @@ mod tests {
                     args: vec![],
                 }),
                 is_inline_pk: false,
+                is_serial: false,
             }],
             constraints: vec![],
             temporary: false,

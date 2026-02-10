@@ -158,6 +158,7 @@ mod tests {
                     nullable: true,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "payload".to_string(),
@@ -165,6 +166,7 @@ mod tests {
                     nullable: true,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![],
@@ -201,6 +203,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: true,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "event_type".to_string(),
@@ -208,6 +211,7 @@ mod tests {
                     nullable: true,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![TableConstraint::PrimaryKey {
@@ -244,6 +248,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "name".to_string(),
@@ -251,6 +256,7 @@ mod tests {
                     nullable: true,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![],
@@ -277,6 +283,7 @@ mod tests {
                 nullable: true,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             }],
             constraints: vec![],
             temporary: true,
@@ -308,6 +315,7 @@ mod tests {
                 nullable: false,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             }],
             constraints: vec![TableConstraint::Unique {
                 name: Some("uk_email".to_string()),

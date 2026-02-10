@@ -232,6 +232,7 @@ mod tests {
             nullable: true,
             default_expr: Some(default),
             is_inline_pk: false,
+            is_serial: false,
         }
     }
 
@@ -304,6 +305,7 @@ mod tests {
                 nullable: true,
                 default_expr: Some(DefaultExpr::Literal("active".to_string())),
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 
@@ -378,6 +380,7 @@ mod tests {
                 nullable: true,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 

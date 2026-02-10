@@ -151,6 +151,7 @@ mod tests {
                 nullable: false,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 
@@ -182,6 +183,7 @@ mod tests {
                 nullable: false,
                 default_expr: Some(DefaultExpr::Literal("pending".to_string())),
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 
@@ -209,6 +211,7 @@ mod tests {
                 nullable: true,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 
@@ -237,6 +240,7 @@ mod tests {
                 nullable: false,
                 default_expr: None,
                 is_inline_pk: false,
+                is_serial: false,
             })],
         }))];
 

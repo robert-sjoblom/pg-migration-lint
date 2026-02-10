@@ -159,6 +159,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "name".to_string(),
@@ -166,6 +167,7 @@ mod tests {
                     nullable: true,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![TableConstraint::Unique {
@@ -206,6 +208,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: true,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "email".to_string(),
@@ -213,6 +216,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![

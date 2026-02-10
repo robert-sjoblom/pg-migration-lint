@@ -294,6 +294,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
                 ColumnDef {
                     name: "b".to_string(),
@@ -301,6 +302,7 @@ mod tests {
                     nullable: false,
                     default_expr: None,
                     is_inline_pk: false,
+                    is_serial: false,
                 },
             ],
             constraints: vec![TableConstraint::ForeignKey {

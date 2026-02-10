@@ -127,6 +127,8 @@ pub struct ColumnDef {
     pub default_expr: Option<DefaultExpr>,
     /// True if this column has an inline PRIMARY KEY constraint.
     pub is_inline_pk: bool,
+    /// True if this column was declared as `serial`, `bigserial`, or `smallserial`.
+    pub is_serial: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
