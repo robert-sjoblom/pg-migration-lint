@@ -396,8 +396,8 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
             _ => continue,
         };
 
-        let action = convert_alter_table_cmd(cmd);
-        actions.push(action);
+        let new_actions = convert_alter_table_cmd(cmd);
+        actions.extend(new_actions);
     }
 
     if actions.is_empty() {
@@ -409,37 +409,43 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
     IrNode::AlterTable(AlterTable { name, actions })
 }
 
-/// Convert a single `AlterTableCmd` into an `AlterTableAction`.
-fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> AlterTableAction {
+/// Convert a single `AlterTableCmd` into one or more `AlterTableAction`s.
+///
+/// Returns a `Vec` because `ADD COLUMN` with inline constraints (e.g. FK,
+/// UNIQUE, CHECK) produces the column action *plus* constraint actions.
+fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<AlterTableAction> {
     match cmd.subtype() {
         pg_query::protobuf::AlterTableType::AtAddColumn => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
                 Some(NodeEnum::ColumnDef(col)) => {
-                    let (col_def, _inline_constraints) = convert_column_def(col);
-                    // Note: inline constraints from ADD COLUMN are not yet
-                    // promoted to table-level in the AlterTable IR. The catalog
-                    // replay handles AddColumn constraints separately.
-                    AlterTableAction::AddColumn(col_def)
+                    let (col_def, inline_constraints) = convert_column_def(col);
+                    let mut result = vec![AlterTableAction::AddColumn(col_def)];
+                    result.extend(
+                        inline_constraints
+                            .into_iter()
+                            .map(AlterTableAction::AddConstraint),
+                    );
+                    result
                 }
-                _ => AlterTableAction::Other {
+                _ => vec![AlterTableAction::Other {
                     description: "ADD COLUMN (unparseable definition)".to_string(),
-                },
+                }],
             }
         }
-        pg_query::protobuf::AlterTableType::AtDropColumn => AlterTableAction::DropColumn {
+        pg_query::protobuf::AlterTableType::AtDropColumn => vec![AlterTableAction::DropColumn {
             name: cmd.name.clone(),
-        },
+        }],
         pg_query::protobuf::AlterTableType::AtAddConstraint => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
                 Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None) {
-                    Some(tc) => AlterTableAction::AddConstraint(tc),
-                    None => AlterTableAction::Other {
+                    Some(tc) => vec![AlterTableAction::AddConstraint(tc)],
+                    None => vec![AlterTableAction::Other {
                         description: "ADD CONSTRAINT (unknown type)".to_string(),
-                    },
+                    }],
                 },
-                _ => AlterTableAction::Other {
+                _ => vec![AlterTableAction::Other {
                     description: "ADD CONSTRAINT (unparseable)".to_string(),
-                },
+                }],
             }
         }
         pg_query::protobuf::AlterTableType::AtAlterColumnType => {
@@ -454,21 +460,21 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> AlterTabl
                 })
                 .unwrap_or_else(|| TypeName::simple("unknown"));
 
-            AlterTableAction::AlterColumnType {
+            vec![AlterTableAction::AlterColumnType {
                 column_name: cmd.name.clone(),
                 new_type,
                 old_type: None, // Must be filled in from catalog during linting
-            }
+            }]
         }
-        pg_query::protobuf::AlterTableType::AtSetNotNull => AlterTableAction::Other {
+        pg_query::protobuf::AlterTableType::AtSetNotNull => vec![AlterTableAction::Other {
             description: format!("SET NOT NULL on {}", cmd.name),
-        },
-        pg_query::protobuf::AlterTableType::AtDropNotNull => AlterTableAction::Other {
+        }],
+        pg_query::protobuf::AlterTableType::AtDropNotNull => vec![AlterTableAction::Other {
             description: format!("DROP NOT NULL on {}", cmd.name),
-        },
-        other => AlterTableAction::Other {
+        }],
+        other => vec![AlterTableAction::Other {
             description: format!("{:?}", other),
-        },
+        }],
     }
 }
 
