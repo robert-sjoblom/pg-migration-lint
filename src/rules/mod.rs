@@ -3,6 +3,9 @@
 //! Each rule implements the `Rule` trait and checks for specific migration safety issues.
 //! Rules receive IR nodes and catalog state, returning findings with severity levels.
 
+#[cfg(test)]
+pub mod test_helpers;
+
 pub mod pgm001;
 pub mod pgm002;
 pub mod pgm003;

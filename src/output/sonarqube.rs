@@ -89,19 +89,9 @@ impl Reporter for SonarQubeReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::test_helpers::test_finding;
     use crate::rules::{Finding, Severity};
     use std::path::PathBuf;
-
-    fn test_finding() -> Finding {
-        Finding {
-            rule_id: "PGM001".to_string(),
-            severity: Severity::Critical,
-            message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.".to_string(),
-            file: PathBuf::from("db/migrations/V042__add_index.sql"),
-            start_line: 3,
-            end_line: 3,
-        }
-    }
 
     #[test]
     fn single_finding_produces_valid_json() {

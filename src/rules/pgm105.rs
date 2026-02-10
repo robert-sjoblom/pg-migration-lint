@@ -112,36 +112,9 @@ mod tests {
     use super::*;
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
+    use crate::rules::test_helpers::{located, make_ctx};
     use std::collections::HashSet;
     use std::path::PathBuf;
-
-    fn make_ctx<'a>(
-        before: &'a Catalog,
-        after: &'a Catalog,
-        file: &'a PathBuf,
-        created: &'a HashSet<String>,
-    ) -> LintContext<'a> {
-        LintContext {
-            catalog_before: before,
-            catalog_after: after,
-            tables_created_in_change: created,
-            run_in_transaction: true,
-            is_down: false,
-            file,
-        }
-    }
-
-    fn located(node: IrNode) -> Located<IrNode> {
-        Located {
-            node,
-            span: SourceSpan {
-                start_line: 1,
-                end_line: 1,
-                start_offset: 0,
-                end_offset: 0,
-            },
-        }
-    }
 
     #[test]
     fn test_serial_fires() {
