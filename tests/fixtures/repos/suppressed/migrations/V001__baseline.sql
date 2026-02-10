@@ -7,4 +7,9 @@ CREATE TABLE products (
     id bigint PRIMARY KEY,
     name text NOT NULL
 );
+CREATE TABLE events (
+    id bigint NOT NULL,
+    event_type text NOT NULL,
+    payload text
+);
 CREATE INDEX idx_customers_email ON customers (email);

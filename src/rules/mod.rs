@@ -13,6 +13,7 @@ pub mod pgm007;
 pub mod pgm009;
 pub mod pgm010;
 pub mod pgm011;
+pub mod pgm012;
 
 use crate::catalog::Catalog;
 use crate::parser::ir::{IrNode, Located};
@@ -160,6 +161,7 @@ impl RuleRegistry {
         self.register(Box::new(pgm009::Pgm009));
         self.register(Box::new(pgm010::Pgm010));
         self.register(Box::new(pgm011::Pgm011));
+        self.register(Box::new(pgm012::Pgm012));
     }
 
     /// Register a single rule.
@@ -193,8 +195,8 @@ mod tests {
         let mut registry = RuleRegistry::new();
         registry.register_defaults();
 
-        // We should have 10 rules (PGM001-PGM007, PGM009-PGM011; PGM008 is not a rule)
-        assert_eq!(registry.rules.len(), 10);
+        // We should have 11 rules (PGM001-PGM007, PGM009-PGM012; PGM008 is not a rule)
+        assert_eq!(registry.rules.len(), 11);
     }
 
     #[test]

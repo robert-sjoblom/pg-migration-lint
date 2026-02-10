@@ -77,6 +77,44 @@ impl TableState {
         })
     }
 
+    /// Check if the given columns are already covered by a unique index or
+    /// UNIQUE constraint. Used by PGM012 to determine whether `ADD PRIMARY KEY`
+    /// can rely on pre-existing uniqueness enforcement.
+    ///
+    /// For indexes: requires exact column match (same columns, same order).
+    /// For constraints: requires exact column set match (order-independent).
+    pub fn has_unique_covering(&self, columns: &[String]) -> bool {
+        // Check unique indexes: exact column match (same order, same length)
+        let index_match = self.indexes.iter().any(|idx| {
+            idx.unique
+                && idx.columns.len() == columns.len()
+                && idx.columns.iter().zip(columns).all(|(ic, c)| ic == c)
+        });
+        if index_match {
+            return true;
+        }
+
+        // Check UNIQUE constraints: exact column set match (order-independent)
+        self.constraints.iter().any(|c| {
+            if let ConstraintState::Unique {
+                columns: constraint_cols,
+                ..
+            } = c
+            {
+                if constraint_cols.len() != columns.len() {
+                    return false;
+                }
+                let mut sorted_constraint: Vec<&String> = constraint_cols.iter().collect();
+                let mut sorted_target: Vec<&String> = columns.iter().collect();
+                sorted_constraint.sort();
+                sorted_target.sort();
+                sorted_constraint == sorted_target
+            } else {
+                false
+            }
+        })
+    }
+
     /// Check if this table has a UNIQUE constraint where all columns are NOT NULL.
     /// Used for PGM005 (UNIQUE NOT NULL substitute for PK).
     pub fn has_unique_not_null(&self) -> bool {
