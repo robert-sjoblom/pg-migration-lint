@@ -1,0 +1,20 @@
+# Test Fixtures
+
+This directory contains test fixtures for pg-migration-lint.
+
+## Structure
+
+- `repos/` - Full fixture repositories for integration tests
+  - `clean/` - All migrations correct, expect 0 findings
+  - `all-rules/` - One violation per rule (PGM001-PGM011), expect 11 findings
+  - `suppressed/` - All violations suppressed, expect 0 findings
+  - `new-table-in-pr/` - Tests changed-file detection logic
+  - `fk-with-later-index/` - Tests post-file analysis
+  - `liquibase-xml/` - Tests Liquibase fallback parser
+
+## Usage
+
+Component tests will use individual SQL snippets.
+Integration tests will use the full repositories in `repos/`.
+
+Phase 1 agents will populate these directories with actual test cases.

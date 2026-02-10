@@ -1,0 +1,132 @@
+//! Table catalog types
+//!
+//! The catalog represents the database schema state at a point in migration history.
+//! It's built by replaying migrations in order.
+
+use crate::parser::ir::{DefaultExpr, TypeName};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default)]
+pub struct Catalog {
+    tables: HashMap<String, TableState>,
+}
+
+impl Catalog {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_table(&self, name: &str) -> Option<&TableState> {
+        self.tables.get(name)
+    }
+
+    pub fn get_table_mut(&mut self, name: &str) -> Option<&mut TableState> {
+        self.tables.get_mut(name)
+    }
+
+    pub fn has_table(&self, name: &str) -> bool {
+        self.tables.contains_key(name)
+    }
+
+    pub fn insert_table(&mut self, table: TableState) {
+        self.tables.insert(table.name.clone(), table);
+    }
+
+    pub fn remove_table(&mut self, name: &str) -> Option<TableState> {
+        self.tables.remove(name)
+    }
+
+    pub fn tables(&self) -> impl Iterator<Item = &TableState> {
+        self.tables.values()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TableState {
+    pub name: String,
+    pub columns: Vec<ColumnState>,
+    pub indexes: Vec<IndexState>,
+    pub constraints: Vec<ConstraintState>,
+    pub has_primary_key: bool,
+    /// True if an unparseable statement referenced this table.
+    /// Rules should consider lowering confidence on findings for incomplete tables.
+    pub incomplete: bool,
+}
+
+impl TableState {
+    pub fn get_column(&self, name: &str) -> Option<&ColumnState> {
+        self.columns.iter().find(|c| c.name == name)
+    }
+
+    pub fn get_column_mut(&mut self, name: &str) -> Option<&mut ColumnState> {
+        self.columns.iter_mut().find(|c| c.name == name)
+    }
+
+    pub fn remove_column(&mut self, name: &str) {
+        self.columns.retain(|c| c.name != name);
+        // Also remove indexes that reference this column
+        self.indexes.retain(|idx| !idx.columns.iter().any(|c| c == name));
+    }
+
+    /// Check if any index on this table covers the given columns as a prefix.
+    /// Column order matters: [a, b] is covered by [a, b, c] but not [b, a].
+    pub fn has_covering_index(&self, fk_columns: &[String]) -> bool {
+        self.indexes.iter().any(|idx| {
+            idx.columns.len() >= fk_columns.len()
+                && idx.columns.iter().zip(fk_columns).all(|(ic, fc)| ic == fc)
+        })
+    }
+
+    /// Check if this table has a UNIQUE constraint where all columns are NOT NULL.
+    /// Used for PGM005 (UNIQUE NOT NULL substitute for PK).
+    pub fn has_unique_not_null(&self) -> bool {
+        self.constraints.iter().any(|c| {
+            if let ConstraintState::Unique { columns, .. } = c {
+                columns.iter().all(|col_name| {
+                    self.get_column(col_name)
+                        .map(|col| !col.nullable)
+                        .unwrap_or(false)
+                })
+            } else {
+                false
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnState {
+    pub name: String,
+    pub type_name: TypeName, // Reuses the IR type
+    pub nullable: bool,
+    pub has_default: bool,
+    pub default_expr: Option<DefaultExpr>, // Reuses the IR type
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexState {
+    pub name: String,
+    /// Column names in index order. Order matters for prefix matching.
+    pub columns: Vec<String>,
+    pub unique: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstraintState {
+    PrimaryKey {
+        columns: Vec<String>,
+    },
+    ForeignKey {
+        name: Option<String>,
+        columns: Vec<String>,
+        ref_table: String,
+        ref_columns: Vec<String>,
+    },
+    Unique {
+        name: Option<String>,
+        columns: Vec<String>,
+    },
+    Check {
+        name: Option<String>,
+    },
+}
