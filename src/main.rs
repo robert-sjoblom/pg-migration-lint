@@ -26,7 +26,7 @@ const DEFAULT_CONFIG_FILE: &str = "pg-migration-lint.toml";
 
 #[derive(Parser, Debug)]
 #[command(name = "pg-migration-lint")]
-#[command(about = "Static analyzer for PostgreSQL migration files", long_about = None)]
+#[command(about = "Static analyzer for PostgreSQL migration files", long_about = None, version)]
 struct Args {
     /// Path to configuration file
     #[arg(short, long)]

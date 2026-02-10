@@ -176,7 +176,8 @@ impl Default for ColumnConstraints {
 /// `RawMigrationUnit` with SQL generated from its child change elements.
 fn parse_changelog_xml(xml: &str, source_path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text_start = true;
+    reader.config_mut().trim_text_end = true;
 
     let mut units: Vec<RawMigrationUnit> = Vec::new();
     let mut state = ParseState::Root;
@@ -200,7 +201,7 @@ fn parse_changelog_xml(xml: &str, source_path: &Path) -> Result<Vec<RawMigration
                 let tag_name = local_name_str(e.name().as_ref());
                 let attrs = collect_attributes(e)?;
                 let is_empty = matches!(event, Event::Empty(_));
-                let current_line = byte_offset_to_line(xml, reader.buffer_position());
+                let current_line = byte_offset_to_line(xml, reader.buffer_position() as usize);
 
                 state = handle_start_tag(
                     state,
@@ -221,10 +222,7 @@ fn parse_changelog_xml(xml: &str, source_path: &Path) -> Result<Vec<RawMigration
                 state = handle_end_tag(state, &tag_name, source_path, &mut units)?;
             }
             Event::Text(ref e) => {
-                let text = e.unescape().map_err(|err| LoadError::Parse {
-                    path: source_path.to_path_buf(),
-                    message: format!("XML text unescape error: {}", err),
-                })?;
+                let text = String::from_utf8_lossy(e.as_ref());
                 state = handle_text(state, &text);
             }
             Event::CData(ref e) => {
@@ -787,7 +785,8 @@ fn byte_offset_to_line(xml: &str, offset: usize) -> usize {
 /// Extract `<include file="..."/>` paths from the XML, resolved relative to the parent file.
 fn extract_include_paths(xml: &str, source_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
     let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
+    reader.config_mut().trim_text_start = true;
+    reader.config_mut().trim_text_end = true;
     let mut buf = Vec::new();
     let mut paths = Vec::new();
 
