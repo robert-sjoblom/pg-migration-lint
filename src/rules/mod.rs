@@ -3,6 +3,17 @@
 //! Each rule implements the `Rule` trait and checks for specific migration safety issues.
 //! Rules receive IR nodes and catalog state, returning findings with severity levels.
 
+pub mod pgm001;
+pub mod pgm002;
+pub mod pgm003;
+pub mod pgm004;
+pub mod pgm005;
+pub mod pgm006;
+pub mod pgm007;
+pub mod pgm009;
+pub mod pgm010;
+pub mod pgm011;
+
 use crate::catalog::Catalog;
 use crate::parser::ir::{IrNode, Located};
 use std::collections::HashSet;
@@ -116,22 +127,39 @@ pub trait Rule: Send + Sync {
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>;
 }
 
+/// Cap all finding severities to INFO for down/rollback migrations (PGM008).
+///
+/// Down migrations are informational only. This function mutates the
+/// findings in place, setting every severity to `Severity::Info`.
+pub fn cap_for_down_migration(findings: &mut [Finding]) {
+    for f in findings {
+        f.severity = Severity::Info;
+    }
+}
+
 /// Registry of all rules.
 pub struct RuleRegistry {
     rules: Vec<Box<dyn Rule>>,
 }
 
 impl RuleRegistry {
+    /// Create a new empty rule registry.
     pub fn new() -> Self {
         Self { rules: vec![] }
     }
 
     /// Register all built-in rules.
     pub fn register_defaults(&mut self) {
-        // Will be populated in Phase 1D by the Rules Agent
-        // self.register(Box::new(pgm001::MissingConcurrentCreateIndex));
-        // self.register(Box::new(pgm002::MissingConcurrentDropIndex));
-        // ... etc
+        self.register(Box::new(pgm001::Pgm001));
+        self.register(Box::new(pgm002::Pgm002));
+        self.register(Box::new(pgm003::Pgm003));
+        self.register(Box::new(pgm004::Pgm004));
+        self.register(Box::new(pgm005::Pgm005));
+        self.register(Box::new(pgm006::Pgm006));
+        self.register(Box::new(pgm007::Pgm007));
+        self.register(Box::new(pgm009::Pgm009));
+        self.register(Box::new(pgm010::Pgm010));
+        self.register(Box::new(pgm011::Pgm011));
     }
 
     /// Register a single rule.
@@ -153,5 +181,74 @@ impl RuleRegistry {
 impl Default for RuleRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registry_register_defaults() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        // We should have 10 rules (PGM001-PGM007, PGM009-PGM011; PGM008 is not a rule)
+        assert_eq!(registry.rules.len(), 10);
+    }
+
+    #[test]
+    fn test_registry_get_by_id() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        assert!(registry.get("PGM001").is_some());
+        assert!(registry.get("PGM005").is_some());
+        assert!(registry.get("PGM011").is_some());
+        assert!(registry.get("PGM008").is_none()); // Not a separate rule
+        assert!(registry.get("PGM999").is_none());
+    }
+
+    #[test]
+    fn test_cap_for_down_migration() {
+        let mut findings = vec![
+            Finding {
+                rule_id: "PGM001".to_string(),
+                severity: Severity::Critical,
+                message: "test".to_string(),
+                file: PathBuf::from("test.sql"),
+                start_line: 1,
+                end_line: 1,
+            },
+            Finding {
+                rule_id: "PGM004".to_string(),
+                severity: Severity::Major,
+                message: "test".to_string(),
+                file: PathBuf::from("test.sql"),
+                start_line: 2,
+                end_line: 2,
+            },
+        ];
+
+        cap_for_down_migration(&mut findings);
+
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert_eq!(findings[1].severity, Severity::Info);
+    }
+
+    #[test]
+    fn test_severity_ordering() {
+        assert!(Severity::Info < Severity::Minor);
+        assert!(Severity::Minor < Severity::Major);
+        assert!(Severity::Major < Severity::Critical);
+        assert!(Severity::Critical < Severity::Blocker);
+    }
+
+    #[test]
+    fn test_severity_parse() {
+        assert_eq!(Severity::parse("critical"), Some(Severity::Critical));
+        assert_eq!(Severity::parse("CRITICAL"), Some(Severity::Critical));
+        assert_eq!(Severity::parse("info"), Some(Severity::Info));
+        assert_eq!(Severity::parse("garbage"), None);
     }
 }

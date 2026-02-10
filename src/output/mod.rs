@@ -60,3 +60,7 @@ impl Default for SonarQubeReporter {
         Self::new()
     }
 }
+
+pub mod sarif;
+pub mod sonarqube;
+pub mod text;

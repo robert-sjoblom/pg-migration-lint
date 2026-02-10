@@ -4,7 +4,16 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::HashSet;
 use std::path::PathBuf;
+
+use pg_migration_lint::catalog::replay;
+use pg_migration_lint::input::MigrationLoader;
+use pg_migration_lint::input::sql::SqlLoader;
+use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter, TextReporter};
+use pg_migration_lint::rules::{self, LintContext};
+use pg_migration_lint::suppress::parse_suppressions;
+use pg_migration_lint::{Catalog, Finding, IrNode, RuleRegistry, Severity};
 
 #[derive(Parser, Debug)]
 #[command(name = "pg-migration-lint")]
@@ -54,23 +63,135 @@ fn main() -> Result<()> {
     // Parse changed files
     let changed_files = parse_changed_files(&args)?;
 
-    // TODO: Phase 2 - implement the full pipeline:
-    // 1. Load migration files
-    // 2. Parse to IR
-    // 3. Single-pass replay and lint
-    // 4. Apply suppressions
-    // 5. Emit reports
-    // 6. Exit with appropriate code
+    // --- Step 1: Load migration files ---
+    let loader = SqlLoader::new();
+    let history = loader
+        .load(&config.migrations.paths)
+        .context("Failed to load migrations")?;
 
-    println!("Config loaded: {:?}", config);
-    println!("Changed files: {:?}", changed_files);
+    // --- Step 2: Build changed files set for O(1) lookup ---
+    // Convert the Vec<PathBuf> into a HashSet<PathBuf>.
+    // Canonicalize paths where possible for reliable matching.
+    let changed_files_set: HashSet<PathBuf> = changed_files
+        .iter()
+        .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        .collect();
+
+    let lint_all = changed_files_set.is_empty();
+
+    // --- Step 3: Single-pass replay and lint ---
+    let mut catalog = Catalog::new();
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+
+    let mut all_findings: Vec<Finding> = Vec::new();
+    let mut tables_created_in_change: HashSet<String> = HashSet::new();
+
+    for unit in &history.units {
+        // Determine if this unit is in the changed set.
+        // Try canonicalized comparison first, then fall back to direct and ends_with matching.
+        let is_changed = if lint_all {
+            true
+        } else {
+            let canonical = std::fs::canonicalize(&unit.source_file)
+                .unwrap_or_else(|_| unit.source_file.clone());
+            changed_files_set.contains(&canonical)
+                || changed_files_set.contains(&unit.source_file)
+                || changed_files_set
+                    .iter()
+                    .any(|cf| cf.ends_with(&unit.source_file) || unit.source_file.ends_with(cf))
+        };
+
+        if is_changed {
+            // Clone catalog BEFORE applying this unit
+            let catalog_before = catalog.clone();
+
+            // Apply unit to catalog
+            replay::apply(&mut catalog, unit);
+
+            // Track tables created in this change (for PGM001/002 "new table" detection)
+            for stmt in &unit.statements {
+                if let IrNode::CreateTable(ct) = &stmt.node {
+                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                }
+            }
+
+            // Build lint context
+            let ctx = LintContext {
+                catalog_before: &catalog_before,
+                catalog_after: &catalog,
+                tables_created_in_change: &tables_created_in_change,
+                run_in_transaction: unit.run_in_transaction,
+                is_down: unit.is_down,
+                file: &unit.source_file,
+            };
+
+            // Run all rules
+            let mut unit_findings: Vec<Finding> = Vec::new();
+            for rule in registry.iter() {
+                let mut findings = rule.check(&unit.statements, &ctx);
+                unit_findings.append(&mut findings);
+            }
+
+            // Cap severity for down migrations (PGM008)
+            if unit.is_down {
+                rules::cap_for_down_migration(&mut unit_findings);
+            }
+
+            // Parse suppressions from source file and filter findings.
+            // Read the raw SQL source for suppression comments.
+            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+            let suppressions = parse_suppressions(&source);
+
+            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+
+            all_findings.append(&mut unit_findings);
+        } else {
+            // Not a changed file -- just replay to build catalog
+            replay::apply(&mut catalog, unit);
+        }
+    }
+
+    // --- Step 4: Emit reports ---
+    let formats: Vec<String> = if let Some(ref fmt) = args.format {
+        vec![fmt.clone()]
+    } else {
+        config.output.formats.clone()
+    };
+
+    for format in &formats {
+        let reporter: Box<dyn Reporter> = match format.as_str() {
+            "text" => Box::new(TextReporter::new(true)),
+            "sarif" => Box::new(SarifReporter::new()),
+            "sonarqube" => Box::new(SonarQubeReporter::new()),
+            other => {
+                eprintln!("Warning: Unknown output format '{}', skipping", other);
+                continue;
+            }
+        };
+
+        reporter
+            .emit(&all_findings, &config.output.dir)
+            .context(format!("Failed to write {} report", format))?;
+    }
+
+    // --- Step 5: Summary and exit code ---
+    eprintln!(
+        "pg-migration-lint: {} finding(s)",
+        all_findings.len()
+    );
+
+    let fail_on = Severity::parse(&config.cli.fail_on);
+    if let Some(threshold) = fail_on {
+        if all_findings.iter().any(|f| f.severity >= threshold) {
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
 }
 
 fn explain_rule(rule_id: &str) -> Result<()> {
-    use pg_migration_lint::RuleRegistry;
-
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
 
