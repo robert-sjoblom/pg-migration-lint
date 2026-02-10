@@ -119,7 +119,7 @@ fn test_all_rules_trigger() {
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     for expected in &["PGM001", "PGM002", "PGM003", "PGM004", "PGM005",
-                       "PGM006", "PGM007", "PGM009", "PGM010", "PGM011"] {
+                       "PGM006", "PGM007", "PGM009", "PGM010", "PGM011", "PGM012"] {
         assert!(
             rule_ids.contains(expected),
             "Expected {} finding but not found. Got:\n  {}",
@@ -154,14 +154,25 @@ fn test_suppressed_repo_no_findings() {
 
 #[test]
 fn test_only_changed_files_linted() {
-    // Only V001 is "changed" -- it creates new tables, should have 0 findings
+    // Only V001 is "changed" -- it creates new tables, so pre-existing-table
+    // rules (PGM001, PGM009, PGM010, PGM011) should NOT fire. However,
+    // PGM004 fires for the 'events' table which has no primary key.
     let findings = lint_fixture("all-rules", &["V001__baseline.sql"]);
+    let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
     assert!(
-        findings.is_empty(),
-        "Baseline-only should have 0 findings but got {}: {:?}",
+        !rule_ids.contains("PGM001"),
+        "PGM001 should not fire for baseline-only. Got:\n  {}",
+        format_findings(&findings)
+    );
+    // PGM004 fires for the events table (no PK)
+    assert_eq!(
+        findings.len(),
+        1,
+        "Expected exactly 1 finding (PGM004 for events), got {}: {:?}",
         findings.len(),
         findings.iter().map(|f| format!("{}: {}", f.rule_id, f.message)).collect::<Vec<_>>()
     );
+    assert_eq!(findings[0].rule_id, "PGM004");
 }
 
 #[test]
@@ -640,6 +651,392 @@ fn test_xml_finding_count_reasonable() {
     assert!(
         findings.len() <= 40,
         "Expected at most 40 findings from 004-008, got {}",
+        findings.len()
+    );
+}
+
+// ===========================================================================
+// Go-migrate fixture integration tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Parse all migrations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_parses_all_migrations() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/go-migrate/migrations");
+    let loader = SqlLoader;
+    let history = loader.load(&[base]).expect("Failed to load go-migrate fixture");
+    // 13 up files + 3 down files + 1 comment-only down file = 17 total
+    assert_eq!(
+        history.units.len(),
+        17,
+        "Should have 17 migration units (13 up + 3 down + 1 comment-only down)"
+    );
+}
+
+#[test]
+fn test_gomigrate_up_down_detection() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/go-migrate/migrations");
+    let loader = SqlLoader;
+    let history = loader.load(&[base]).expect("Failed to load go-migrate fixture");
+
+    let up_count = history.units.iter().filter(|u| !u.is_down).count();
+    let down_count = history.units.iter().filter(|u| u.is_down).count();
+
+    assert_eq!(up_count, 14, "Should have 14 up migrations");
+    assert_eq!(down_count, 3, "Should have 3 down migrations");
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Lint all, verify key rules fire
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_lint_all_finds_violations() {
+    // When all files are changed, tables_created_in_change includes everything,
+    // so only rules that don't check tables_created_in_change will fire.
+    let findings = lint_fixture("go-migrate", &[]);
+    let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+    // PGM003 should fire (FK without covering index on orders.assigned_user_id)
+    assert!(
+        rule_ids.contains("PGM003"),
+        "Expected PGM003 (FK without index). Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM004 should fire (audit_log has no PK when first created in 000007)
+    assert!(
+        rule_ids.contains("PGM004"),
+        "Expected PGM004 (table without PK). Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM007 should fire (volatile defaults: now(), gen_random_uuid())
+    assert!(
+        rule_ids.contains("PGM007"),
+        "Expected PGM007 (volatile default). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Down migration severity capping (PGM008)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_down_migration_capped() {
+    // Lint only the last down migration which creates an index without CONCURRENTLY.
+    // It targets the orders table which is pre-existing in catalog_before.
+    // PGM001 would normally fire as CRITICAL, but since it's a down migration,
+    // all findings should be capped to INFO severity.
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000015_drop_index_no_concurrently.down.sql"],
+    );
+
+    assert!(
+        !findings.is_empty(),
+        "Down migration should produce findings (PGM001 capped to INFO)"
+    );
+
+    for finding in &findings {
+        assert_eq!(
+            finding.severity,
+            pg_migration_lint::rules::Severity::Info,
+            "All findings in down migration should be capped to INFO. Got {} with severity {}",
+            finding.rule_id,
+            finding.severity
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Changed-file filtering
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_changed_file_filtering() {
+    // Only lint baseline files (000001-000005). Since these create new tables,
+    // they are all in tables_created_in_change. Rules requiring pre-existing
+    // tables (PGM001, PGM010, PGM012) should NOT fire.
+    let findings = lint_fixture(
+        "go-migrate",
+        &[
+            "000001_create_users.up.sql",
+            "000002_create_accounts.up.sql",
+            "000003_create_orders.up.sql",
+            "000004_create_order_items.up.sql",
+            "000005_create_settings.up.sql",
+        ],
+    );
+
+    let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+    // PGM001 should NOT fire (no CREATE INDEX without CONCURRENTLY in baseline)
+    assert!(
+        !rule_ids.contains("PGM001"),
+        "PGM001 should not fire for baseline. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM010 should NOT fire (no ADD COLUMN NOT NULL in baseline)
+    assert!(
+        !rule_ids.contains("PGM010"),
+        "PGM010 should not fire for baseline. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM001 fires when indexes are changed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm001_fires() {
+    // Only 000006 is changed. Tables from 000001-000005 are replayed as
+    // history (pre-existing). 000006 creates indexes WITHOUT CONCURRENTLY.
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000006_add_indexes_no_concurrently.up.sql"],
+    );
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+
+    assert_eq!(
+        pgm001.len(),
+        2,
+        "Expected 2 PGM001 findings for indexes on users and orders. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM003 fires for FK without index
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm003_fires() {
+    // Replay 000001-000007 as history, lint 000008 (adds FK without index).
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000008_add_fk_without_index.up.sql"],
+    );
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert!(
+        !pgm003.is_empty(),
+        "Expected at least 1 PGM003 finding for orders.assigned_user_id FK. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm003.iter().any(|f| f.message.contains("assigned_user_id")),
+        "PGM003 should mention assigned_user_id. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM004 fires for table without PK
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm004_fires() {
+    // Replay 000001-000006, lint 000007 (creates audit_log without PK).
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000007_create_audit_log.up.sql"],
+    );
+    let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
+
+    assert_eq!(
+        pgm004.len(),
+        1,
+        "Expected 1 PGM004 finding for audit_log. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm004[0].message.contains("audit_log"),
+        "PGM004 should mention audit_log. Got: {}",
+        pgm004[0].message
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM007 fires for volatile defaults
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm007_fires() {
+    // Replay 000001-000008, lint 000009 (adds volatile defaults).
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000009_add_volatile_defaults.up.sql"],
+    );
+    let pgm007: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM007").collect();
+
+    assert_eq!(
+        pgm007.len(),
+        2,
+        "Expected 2 PGM007 findings for now() and gen_random_uuid(). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM010 fires for NOT NULL without default
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm010_fires() {
+    // Replay 000001-000009, lint 000010 (ADD COLUMN NOT NULL no default).
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000010_add_not_null_no_default.up.sql"],
+    );
+    let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
+
+    assert_eq!(
+        pgm010.len(),
+        1,
+        "Expected 1 PGM010 finding for users.role. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm010[0].message.contains("role"),
+        "PGM010 should mention 'role'. Got: {}",
+        pgm010[0].message
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: PGM012 fires for ADD PRIMARY KEY without unique
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_pgm012_fires() {
+    // Replay 000001-000011, skip 000012.down.sql, lint 000012.up.sql
+    // (ADD PRIMARY KEY on audit_log without prior unique constraint).
+    let findings = lint_fixture(
+        "go-migrate",
+        &["000012_add_primary_key_no_unique.up.sql"],
+    );
+    let pgm012: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM012").collect();
+
+    assert_eq!(
+        pgm012.len(),
+        1,
+        "Expected 1 PGM012 finding for audit_log. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm012[0].message.contains("audit_log"),
+        "PGM012 should mention audit_log. Got: {}",
+        pgm012[0].message
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Clean migrations produce no violations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_clean_files_no_violations() {
+    // Lint only 000013 and 000014 (clean migrations).
+    // 000013 uses CONCURRENTLY, 000014 adds nullable/default columns.
+    let findings = lint_fixture(
+        "go-migrate",
+        &[
+            "000013_add_concurrently_index.up.sql",
+            "000014_add_order_notes.up.sql",
+        ],
+    );
+
+    // Filter out PGM007 findings from 000013 — it indexes tables that have
+    // volatile defaults in their catalog state, but PGM007 only fires for
+    // column defs in the current file, not for pre-existing columns.
+    // Similarly, PGM006 checks CONCURRENTLY + run_in_transaction.
+    // 000013 has CONCURRENTLY but SqlLoader sets run_in_transaction=true,
+    // so PGM006 will fire for the CONCURRENTLY indexes.
+    let non_pgm006: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id != "PGM006")
+        .collect();
+
+    assert!(
+        non_pgm006.is_empty(),
+        "Clean migrations should have no findings (except PGM006 for CONCURRENTLY in txn). Got:\n  {}",
+        format_findings(&non_pgm006.iter().map(|f| (*f).clone()).collect::<Vec<_>>())
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Go-migrate: Multi-file changed set with targeted violations
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gomigrate_multi_file_changed_set() {
+    // Lint 000006-000010 as changed (000001-000005 as history).
+    let findings = lint_fixture(
+        "go-migrate",
+        &[
+            "000006_add_indexes_no_concurrently.up.sql",
+            "000007_create_audit_log.up.sql",
+            "000008_add_fk_without_index.up.sql",
+            "000009_add_volatile_defaults.up.sql",
+            "000010_add_not_null_no_default.up.sql",
+        ],
+    );
+    let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+    // PGM001 fires for 000006 (indexes on pre-existing tables)
+    assert!(
+        rule_ids.contains("PGM001"),
+        "Expected PGM001. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM003 fires for 000008 (FK without index)
+    assert!(
+        rule_ids.contains("PGM003"),
+        "Expected PGM003. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM004 fires for 000007 (audit_log without PK)
+    assert!(
+        rule_ids.contains("PGM004"),
+        "Expected PGM004. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM007 fires for 000009 (volatile defaults)
+    assert!(
+        rule_ids.contains("PGM007"),
+        "Expected PGM007. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM010 fires for 000010 (NOT NULL no default)
+    assert!(
+        rule_ids.contains("PGM010"),
+        "Expected PGM010. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // Should have a reasonable number of findings
+    assert!(
+        findings.len() >= 6,
+        "Expected at least 6 findings from 000006-000010, got {}: \n  {}",
+        findings.len(),
+        format_findings(&findings)
+    );
+    assert!(
+        findings.len() <= 30,
+        "Expected at most 30 findings from 000006-000010, got {}",
         findings.len()
     );
 }
