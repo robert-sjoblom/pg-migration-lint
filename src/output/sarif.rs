@@ -118,26 +118,29 @@ fn path_to_uri(path: &Path) -> String {
 /// Collect unique rules from findings, keyed by rule_id.
 ///
 /// Returns a map from rule_id to the highest severity seen for that rule,
-/// preserving deterministic ordering via BTreeMap.
+/// preserving deterministic ordering via BTreeMap. Uses the first finding's
+/// message as the rule's short description.
 fn collect_rule_descriptors(findings: &[Finding]) -> Vec<SarifRuleDescriptor> {
-    let mut rule_map: BTreeMap<String, &Severity> = BTreeMap::new();
+    let mut rule_map: BTreeMap<String, (&Severity, &str)> = BTreeMap::new();
 
     for f in findings {
         rule_map
             .entry(f.rule_id.clone())
-            .and_modify(|existing| {
-                if f.severity > **existing {
-                    *existing = &f.severity;
+            .and_modify(|(existing_sev, _)| {
+                if f.severity > **existing_sev {
+                    *existing_sev = &f.severity;
                 }
             })
-            .or_insert(&f.severity);
+            .or_insert((&f.severity, &f.message));
     }
 
     rule_map
         .into_iter()
-        .map(|(id, severity)| SarifRuleDescriptor {
-            id: id.clone(),
-            short_description: SarifMessage { text: id },
+        .map(|(id, (severity, message))| SarifRuleDescriptor {
+            id,
+            short_description: SarifMessage {
+                text: message.to_string(),
+            },
             default_configuration: SarifDefaultConfiguration {
                 level: sarif_level(severity),
             },
@@ -184,8 +187,8 @@ impl Reporter for SarifReporter {
                 tool: SarifTool {
                     driver: SarifDriver {
                         name: "pg-migration-lint",
-                        version: "0.1.0",
-                        information_uri: "https://github.com/yourusername/pg-migration-lint",
+                        version: env!("CARGO_PKG_VERSION"),
+                        information_uri: "https://github.com/robert-sjoblom/pg-migration-lint",
                         rules,
                     },
                 },
@@ -516,7 +519,7 @@ mod tests {
         // PGM001: Critical -> error
         assert_eq!(rules[0]["id"], "PGM001");
         assert!(rules[0]["shortDescription"]["text"].is_string());
-        assert_eq!(rules[0]["shortDescription"]["text"], "PGM001");
+        assert_eq!(rules[0]["shortDescription"]["text"], "critical finding");
         assert_eq!(rules[0]["defaultConfiguration"]["level"], "error");
 
         // PGM003: Major -> warning
@@ -637,7 +640,7 @@ mod tests {
         // Tool metadata
         let driver = &runs[0]["tool"]["driver"];
         assert_eq!(driver["name"], "pg-migration-lint");
-        assert_eq!(driver["version"], "0.1.0");
+        assert_eq!(driver["version"], env!("CARGO_PKG_VERSION"));
         assert!(driver["informationUri"].is_string());
 
         // Rules array: 3 distinct rules
