@@ -78,8 +78,6 @@ enum ParseState {
 #[derive(Debug, Clone)]
 struct ChangeSetInfo {
     id: String,
-    #[allow(dead_code)]
-    author: String,
     run_in_transaction: bool,
     line: usize,
     sql_parts: Vec<String>,
@@ -89,14 +87,12 @@ impl ChangeSetInfo {
     /// Create a new ChangeSetInfo from attributes of a <changeSet> element.
     fn from_attributes(attrs: &[(String, String)], line: usize) -> Self {
         let id = get_attr(attrs, "id").unwrap_or_default();
-        let author = get_attr(attrs, "author").unwrap_or_default();
         let run_in_transaction = get_attr(attrs, "runInTransaction")
             .map(|v| v != "false")
             .unwrap_or(true);
 
         Self {
             id,
-            author,
             run_in_transaction,
             line,
             sql_parts: Vec::new(),

@@ -19,7 +19,7 @@ pub enum ConfigError {
 }
 
 /// Main configuration structure
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Config {
     #[serde(default)]
     pub migrations: MigrationsConfig,
@@ -156,21 +156,5 @@ impl Config {
         let contents = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
-    }
-
-    /// Create a default configuration
-    pub fn default_config() -> Self {
-        Self {
-            migrations: MigrationsConfig::default(),
-            liquibase: LiquibaseConfig::default(),
-            output: OutputConfig::default(),
-            cli: CliConfig::default(),
-        }
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self::default_config()
     }
 }

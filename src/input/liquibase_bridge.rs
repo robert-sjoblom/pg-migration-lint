@@ -26,9 +26,6 @@ pub struct BridgeLoader {
 #[derive(Debug, Deserialize)]
 struct BridgeChangeset {
     changeset_id: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    author: String,
     sql: String,
     xml_file: String,
     #[serde(default = "default_xml_line")]
