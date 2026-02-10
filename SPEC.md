@@ -565,6 +565,9 @@ pg-migration-lint/
 - Declarative rule DSL for user-authored rules
 - Incremental replay with caching
 - Severity overrides in config
+- Per-rule enable/disable in config (needed for PGM106, PGM107)
+- Fuzz testing / property-based testing of parser and catalog replay
+- Config parsing unit tests (TOML validation, error paths, default handling)
 
 ---
 
