@@ -266,7 +266,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
 /// Extract a canonical `TypeName` from a pg_query `TypeName` node.
 ///
 /// Returns `(TypeName, is_serial)` where `is_serial` is true if the original
-/// type was `serial` or `bigserial` (which pg_query does NOT expand).
+/// type was `smallserial`, `serial`, or `bigserial` (which pg_query does NOT expand).
 ///
 /// Canonical name extraction: use the LAST element of `TypeName.names[]`.
 /// This normalizes all PostgreSQL type aliases automatically.
@@ -289,8 +289,9 @@ fn extract_type_name(tn: Option<&pg_query::protobuf::TypeName>) -> (TypeName, bo
         .to_lowercase();
 
     // Check for serial types (NOT expanded by pg_query)
-    let is_serial = canonical == "serial" || canonical == "bigserial";
+    let is_serial = matches!(canonical.as_str(), "smallserial" | "serial" | "bigserial");
     let mapped_name = match canonical.as_str() {
+        "smallserial" => "int2".to_string(),
         "serial" => "int4".to_string(),
         "bigserial" => "int8".to_string(),
         other => other.to_string(),
@@ -899,6 +900,21 @@ mod tests {
             IrNode::CreateTable(ct) => {
                 assert_eq!(ct.columns[0].type_name.name, "int8");
                 assert!(ct.columns[0].default_expr.is_some());
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_smallserial_type() {
+        let sql = "CREATE TABLE t (id smallserial);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert_eq!(ct.columns[0].type_name.name, "int2");
+                assert!(
+                    matches!(ct.columns[0].default_expr, Some(DefaultExpr::FunctionCall { ref name, .. }) if name == "nextval")
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
