@@ -58,10 +58,10 @@ impl Rule for Pgm105 {
                 IrNode::CreateTable(ct) => {
                     for col in &ct.columns {
                         if col.is_serial {
-                            findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
+                            findings.push(Finding::new(
+                                self.id(),
+                                self.default_severity(),
+                                format!(
                                     "Column '{}' on '{}' uses a sequence default \
                                      (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \
                                      AS IDENTITY for new tables (PostgreSQL 10+). Identity columns \
@@ -69,10 +69,9 @@ impl Rule for Pgm105 {
                                      approach.",
                                     col.name, ct.name,
                                 ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
+                                ctx.file,
+                                &stmt.span,
+                            ));
                         }
                     }
                 }
@@ -81,10 +80,10 @@ impl Rule for Pgm105 {
                         if let AlterTableAction::AddColumn(col) = action
                             && col.is_serial
                         {
-                            findings.push(Finding {
-                                    rule_id: self.id().to_string(),
-                                    severity: self.default_severity(),
-                                    message: format!(
+                            findings.push(Finding::new(
+                                    self.id(),
+                                    self.default_severity(),
+                                    format!(
                                         "Column '{}' on '{}' uses a sequence default \
                                          (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \
                                          AS IDENTITY for new tables (PostgreSQL 10+). Identity columns \
@@ -92,10 +91,9 @@ impl Rule for Pgm105 {
                                          approach.",
                                         col.name, at.name,
                                     ),
-                                    file: ctx.file.clone(),
-                                    start_line: stmt.span.start_line,
-                                    end_line: stmt.span.end_line,
-                                });
+                                    ctx.file,
+                                    &stmt.span,
+                                ));
                         }
                     }
                 }

@@ -75,19 +75,18 @@ impl Rule for Pgm005 {
                         .unwrap_or(false);
 
                     if has_unique_not_null {
-                        findings.push(Finding {
-                            rule_id: self.id().to_string(),
-                            severity: self.default_severity(),
-                            message: format!(
+                        findings.push(Finding::new(
+                            self.id(),
+                            self.default_severity(),
+                            format!(
                                 "Table '{}' uses UNIQUE NOT NULL instead of PRIMARY KEY. \
                                  Functionally equivalent but PRIMARY KEY is conventional \
                                  and more explicit.",
                                 ct.name
                             ),
-                            file: ctx.file.clone(),
-                            start_line: stmt.span.start_line,
-                            end_line: stmt.span.end_line,
-                        });
+                            ctx.file,
+                            &stmt.span,
+                        ));
                     }
                 }
             }

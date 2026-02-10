@@ -61,9 +61,7 @@ impl Rule for Pgm010 {
                 let table_key = at.name.catalog_key();
 
                 // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.catalog_before.has_table(table_key)
-                    || ctx.tables_created_in_change.contains(table_key)
-                {
+                if !ctx.is_existing_table(table_key) {
                     continue;
                 }
 
@@ -72,20 +70,19 @@ impl Rule for Pgm010 {
                         && !col.nullable
                         && col.default_expr.is_none()
                     {
-                        findings.push(Finding {
-                                rule_id: self.id().to_string(),
-                                severity: self.default_severity(),
-                                message: format!(
+                        findings.push(Finding::new(
+                                self.id(),
+                                self.default_severity(),
+                                format!(
                                     "Adding NOT NULL column '{col}' to existing table '{table}' \
                                      without a DEFAULT will fail if the table has any rows. \
                                      Add a DEFAULT value, or add the column as nullable and backfill.",
                                     col = col.name,
                                     table = at.name,
                                 ),
-                                file: ctx.file.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
-                            });
+                                ctx.file,
+                                &stmt.span,
+                            ));
                     }
                 }
             }

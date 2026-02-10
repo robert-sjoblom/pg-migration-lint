@@ -5,7 +5,7 @@
 //! deletes and updates on the referenced table cause sequential scans on
 //! the referencing table, leading to severe performance degradation.
 
-use crate::parser::ir::{IrNode, Located, TableConstraint};
+use crate::parser::ir::{IrNode, Located, SourceSpan, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 /// Rule that flags foreign keys without a covering index on the referencing table.
@@ -16,8 +16,7 @@ pub struct Pgm003;
 struct FkInfo {
     table_name: String,
     columns: Vec<String>,
-    start_line: usize,
-    end_line: usize,
+    span: SourceSpan,
 }
 
 impl Rule for Pgm003 {
@@ -80,8 +79,7 @@ impl Rule for Pgm003 {
                             fks.push(FkInfo {
                                 table_name: ct.name.catalog_key().to_string(),
                                 columns: columns.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
+                                span: stmt.span.clone(),
                             });
                         }
                     }
@@ -98,8 +96,7 @@ impl Rule for Pgm003 {
                             fks.push(FkInfo {
                                 table_name: at.name.catalog_key().to_string(),
                                 columns: columns.clone(),
-                                start_line: stmt.span.start_line,
-                                end_line: stmt.span.end_line,
+                                span: stmt.span.clone(),
                             });
                         }
                     }
@@ -119,20 +116,19 @@ impl Rule for Pgm003 {
 
             if !has_index {
                 let cols_display = fk.columns.join(", ");
-                findings.push(Finding {
-                    rule_id: self.id().to_string(),
-                    severity: self.default_severity(),
-                    message: format!(
+                findings.push(Finding::new(
+                    self.id(),
+                    self.default_severity(),
+                    format!(
                         "Foreign key on '{table}({cols})' has no covering index. \
                          Sequential scans on the referencing table during deletes/updates \
                          on the referenced table will cause performance issues.",
                         table = fk.table_name,
                         cols = cols_display,
                     ),
-                    file: ctx.file.clone(),
-                    start_line: fk.start_line,
-                    end_line: fk.end_line,
-                });
+                    ctx.file,
+                    &fk.span,
+                ));
             }
         }
 

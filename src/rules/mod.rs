@@ -25,10 +25,10 @@ pub mod pgm104;
 pub mod pgm105;
 
 use crate::catalog::Catalog;
-use crate::parser::ir::{IrNode, Located};
+use crate::parser::ir::{IrNode, Located, SourceSpan};
 use std::collections::HashSet;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -86,6 +86,26 @@ pub struct Finding {
     pub end_line: usize,
 }
 
+impl Finding {
+    /// Create a finding from a rule, lint context, source span, and message.
+    pub fn new(
+        rule_id: &str,
+        severity: Severity,
+        message: String,
+        file: &Path,
+        span: &SourceSpan,
+    ) -> Self {
+        Self {
+            rule_id: rule_id.to_string(),
+            severity,
+            message,
+            file: file.to_path_buf(),
+            start_line: span.start_line,
+            end_line: span.end_line,
+        }
+    }
+}
+
 /// Context available to rules during linting.
 pub struct LintContext<'a> {
     /// The catalog state BEFORE the current unit was applied.
@@ -110,7 +130,16 @@ pub struct LintContext<'a> {
     pub is_down: bool,
 
     /// The source file being linted.
-    pub file: &'a PathBuf,
+    pub file: &'a Path,
+}
+
+impl<'a> LintContext<'a> {
+    /// Check if a table existed before this change and was not created in the
+    /// current set of changed files.
+    pub fn is_existing_table(&self, table_key: &str) -> bool {
+        self.catalog_before.has_table(table_key)
+            && !self.tables_created_in_change.contains(table_key)
+    }
 }
 
 /// Trait that every rule implements.

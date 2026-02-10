@@ -65,21 +65,18 @@ impl Rule for Pgm001 {
 
                 // Only flag if table exists in catalog_before (pre-existing)
                 // AND was not created in the current set of changed files.
-                if ctx.catalog_before.has_table(table_key)
-                    && !ctx.tables_created_in_change.contains(table_key)
-                {
-                    findings.push(Finding {
-                        rule_id: self.id().to_string(),
-                        severity: self.default_severity(),
-                        message: format!(
+                if ctx.is_existing_table(table_key) {
+                    findings.push(Finding::new(
+                        self.id(),
+                        self.default_severity(),
+                        format!(
                             "CREATE INDEX on existing table '{}' should use CONCURRENTLY \
                              to avoid holding an exclusive lock.",
                             ci.table_name
                         ),
-                        file: ctx.file.clone(),
-                        start_line: stmt.span.start_line,
-                        end_line: stmt.span.end_line,
-                    });
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
         }

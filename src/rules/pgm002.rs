@@ -67,16 +67,15 @@ impl Rule for Pgm002 {
                 });
 
                 if belongs_to_existing_table {
-                    findings.push(Finding {
-                        rule_id: self.id().to_string(),
-                        severity: self.default_severity(),
-                        message: "DROP INDEX on existing table should use CONCURRENTLY \
+                    findings.push(Finding::new(
+                        self.id(),
+                        self.default_severity(),
+                        "DROP INDEX on existing table should use CONCURRENTLY \
                              to avoid holding an exclusive lock."
                             .to_string(),
-                        file: ctx.file.clone(),
-                        start_line: stmt.span.start_line,
-                        end_line: stmt.span.end_line,
-                    });
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
         }

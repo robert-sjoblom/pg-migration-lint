@@ -4,13 +4,13 @@ use crate::catalog::Catalog;
 use crate::parser::ir::*;
 use crate::rules::LintContext;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Build a `LintContext` with default settings (in transaction, not a down migration).
 pub fn make_ctx<'a>(
     before: &'a Catalog,
     after: &'a Catalog,
-    file: &'a PathBuf,
+    file: &'a Path,
     created: &'a HashSet<String>,
 ) -> LintContext<'a> {
     LintContext {
@@ -27,7 +27,7 @@ pub fn make_ctx<'a>(
 pub fn make_ctx_with_txn<'a>(
     before: &'a Catalog,
     after: &'a Catalog,
-    file: &'a PathBuf,
+    file: &'a Path,
     created: &'a HashSet<String>,
     run_in_transaction: bool,
 ) -> LintContext<'a> {
