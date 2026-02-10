@@ -91,10 +91,38 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-bridge:
+    name: Build Liquibase bridge JAR
+    runs-on: ubuntu-latest
+    # Skip on scheduled runs (only audit needs the weekly trigger)
+    if: github.event_name != 'schedule'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build fat JAR with Maven (via Docker)
+        run: |
+          docker run --rm \
+            -v "$PWD/bridge:/build" \
+            -w /build \
+            maven:3.9-eclipse-temurin-21 \
+            mvn package -q -DskipTests
+
+      - name: Rename JAR (strip version number)
+        run: cp bridge/target/liquibase-bridge-1.0.0.jar bridge/target/liquibase-bridge.jar
+
+      - name: Upload bridge JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: liquibase-bridge
+          path: bridge/target/liquibase-bridge.jar
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, build-bridge]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -108,10 +136,17 @@ jobs:
           name: pg-migration-lint
           path: artifacts
 
-      - name: Prepare release asset
+      - name: Download bridge JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: liquibase-bridge
+          path: artifacts
+
+      - name: Prepare release assets
         run: |
           chmod +x artifacts/pg-migration-lint
           tar -czf pg-migration-lint-x86_64-linux.tar.gz -C artifacts pg-migration-lint
+          cp artifacts/liquibase-bridge.jar liquibase-bridge.jar
 
       - name: Extract version from tag
         id: version
@@ -131,9 +166,18 @@ jobs:
         with:
           name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: pg-migration-lint-x86_64-linux.tar.gz
+          files: |
+            pg-migration-lint-x86_64-linux.tar.gz
+            liquibase-bridge.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deny:
+    name: Deny (licenses, advisories, duplicates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
 
   audit:
     name: Security audit
