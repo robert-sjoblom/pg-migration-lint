@@ -84,7 +84,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload release binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pg-migration-lint
           path: target/release/pg-migration-lint
@@ -112,7 +112,7 @@ jobs:
         run: cp bridge/target/liquibase-bridge-1.0.0.jar bridge/target/liquibase-bridge.jar
 
       - name: Upload bridge JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: liquibase-bridge
           path: bridge/target/liquibase-bridge.jar
