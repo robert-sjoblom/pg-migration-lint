@@ -5,7 +5,9 @@
 //! a WARNING; `nextval` gets a serial-specific message; unknown functions
 //! produce an INFO suggesting the developer verify volatility.
 
-use crate::parser::ir::{AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName};
+use crate::parser::ir::{
+    AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName, SourceSpan,
+};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 use std::path::Path;
 
@@ -31,8 +33,7 @@ fn check_column(
     table_name: &QualifiedName,
     rule: &Pgm007,
     file: &Path,
-    start_line: usize,
-    end_line: usize,
+    span: &SourceSpan,
 ) -> Option<Finding> {
     let func_name = match &col.default_expr {
         Some(DefaultExpr::FunctionCall { name, .. }) => name,
@@ -42,27 +43,26 @@ fn check_column(
     let lower = func_name.to_lowercase();
 
     if lower == "nextval" {
-        return Some(Finding {
-            rule_id: rule.id().to_string(),
-            severity: Severity::Minor, // WARNING level — standard but volatile
-            message: format!(
+        return Some(Finding::new(
+            rule.id(),
+            Severity::Minor, // WARNING level — standard but volatile
+            format!(
                 "Column '{col}' on '{table}' uses a sequence default (serial/bigserial). \
                  This is standard usage — suppress if intentional. Note: on ADD COLUMN \
                  to an existing table, this is volatile and forces a table rewrite.",
                 col = col.name,
                 table = table_name,
             ),
-            file: file.to_path_buf(),
-            start_line,
-            end_line,
-        });
+            file,
+            span,
+        ));
     }
 
     if KNOWN_VOLATILE.contains(&lower.as_str()) {
-        return Some(Finding {
-            rule_id: rule.id().to_string(),
-            severity: Severity::Minor, // WARNING level — known volatile
-            message: format!(
+        return Some(Finding::new(
+            rule.id(),
+            Severity::Minor, // WARNING level — known volatile
+            format!(
                 "Column '{col}' on '{table}' uses volatile default '{fn_name}()'. \
                  Unlike non-volatile defaults, this forces a full table rewrite under an \
                  ACCESS EXCLUSIVE lock \u{2014} every existing row must be physically updated \
@@ -73,17 +73,16 @@ fn check_column(
                 table = table_name,
                 fn_name = func_name,
             ),
-            file: file.to_path_buf(),
-            start_line,
-            end_line,
-        });
+            file,
+            span,
+        ));
     }
 
     // Unknown function — INFO level.
-    Some(Finding {
-        rule_id: rule.id().to_string(),
-        severity: Severity::Info,
-        message: format!(
+    Some(Finding::new(
+        rule.id(),
+        Severity::Info,
+        format!(
             "Column '{col}' on '{table}' uses function '{fn_name}()' as default. \
              If this function is volatile (the default for user-defined functions), \
              it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead \
@@ -92,10 +91,9 @@ fn check_column(
             table = table_name,
             fn_name = func_name,
         ),
-        file: file.to_path_buf(),
-        start_line,
-        end_line,
-    })
+        file,
+        span,
+    ))
 }
 
 impl Rule for Pgm007 {
@@ -153,14 +151,9 @@ impl Rule for Pgm007 {
             match &stmt.node {
                 IrNode::CreateTable(ct) => {
                     for col in &ct.columns {
-                        if let Some(finding) = check_column(
-                            col,
-                            &ct.name,
-                            self,
-                            ctx.file,
-                            stmt.span.start_line,
-                            stmt.span.end_line,
-                        ) {
+                        if let Some(finding) =
+                            check_column(col, &ct.name, self, ctx.file, &stmt.span)
+                        {
                             findings.push(finding);
                         }
                     }
@@ -168,14 +161,8 @@ impl Rule for Pgm007 {
                 IrNode::AlterTable(at) => {
                     for action in &at.actions {
                         if let AlterTableAction::AddColumn(col) = action
-                            && let Some(finding) = check_column(
-                                col,
-                                &at.name,
-                                self,
-                                ctx.file,
-                                stmt.span.start_line,
-                                stmt.span.end_line,
-                            )
+                            && let Some(finding) =
+                                check_column(col, &at.name, self, ctx.file, &stmt.span)
                         {
                             findings.push(finding);
                         }

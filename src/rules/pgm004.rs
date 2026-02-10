@@ -77,14 +77,13 @@ impl Rule for Pgm004 {
                         .unwrap_or(false);
 
                     if !has_unique_not_null {
-                        findings.push(Finding {
-                            rule_id: self.id().to_string(),
-                            severity: self.default_severity(),
-                            message: format!("Table '{}' has no primary key.", ct.name),
-                            file: ctx.file.clone(),
-                            start_line: stmt.span.start_line,
-                            end_line: stmt.span.end_line,
-                        });
+                        findings.push(Finding::new(
+                            self.id(),
+                            self.default_severity(),
+                            format!("Table '{}' has no primary key.", ct.name),
+                            ctx.file,
+                            &stmt.span,
+                        ));
                     }
                 }
             }

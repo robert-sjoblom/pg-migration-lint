@@ -194,9 +194,7 @@ impl Rule for Pgm009 {
                 let table_key = at.name.catalog_key();
 
                 // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.catalog_before.has_table(table_key)
-                    || ctx.tables_created_in_change.contains(table_key)
-                {
+                if !ctx.is_existing_table(table_key) {
                     continue;
                 }
 
@@ -233,10 +231,10 @@ impl Rule for Pgm009 {
                             .map(|t| t.to_string())
                             .unwrap_or_else(|| "unknown".to_string());
 
-                        findings.push(Finding {
-                            rule_id: self.id().to_string(),
+                        findings.push(Finding::new(
+                            self.id(),
                             severity,
-                            message: format!(
+                            format!(
                                 "Changing column type on existing table '{table}' \
                                  ('{col}': {old} \u{2192} {new}) rewrites the entire table \
                                  under an ACCESS EXCLUSIVE lock. For large tables, this causes \
@@ -247,10 +245,9 @@ impl Rule for Pgm009 {
                                 old = old_display,
                                 new = new_type,
                             ),
-                            file: ctx.file.clone(),
-                            start_line: stmt.span.start_line,
-                            end_line: stmt.span.end_line,
-                        });
+                            ctx.file,
+                            &stmt.span,
+                        ));
                     }
                 }
             }

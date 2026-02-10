@@ -59,9 +59,7 @@ impl Rule for Pgm012 {
                 let table_key = at.name.catalog_key();
 
                 // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.catalog_before.has_table(table_key)
-                    || ctx.tables_created_in_change.contains(table_key)
-                {
+                if !ctx.is_existing_table(table_key) {
                     continue;
                 }
 
@@ -71,10 +69,10 @@ impl Rule for Pgm012 {
                         && let Some(table) = ctx.catalog_before.get_table(table_key)
                         && !table.has_unique_covering(columns)
                     {
-                        findings.push(Finding {
-                            rule_id: self.id().to_string(),
-                            severity: self.default_severity(),
-                            message: format!(
+                        findings.push(Finding::new(
+                            self.id(),
+                            self.default_severity(),
+                            format!(
                                 "ADD PRIMARY KEY on existing table '{table}' without a \
                                          prior UNIQUE constraint or unique index on column(s) \
                                          [{columns}]. Create a unique index CONCURRENTLY first, \
@@ -82,10 +80,9 @@ impl Rule for Pgm012 {
                                 table = at.name,
                                 columns = columns.join(", "),
                             ),
-                            file: ctx.file.clone(),
-                            start_line: stmt.span.start_line,
-                            end_line: stmt.span.end_line,
-                        });
+                            ctx.file,
+                            &stmt.span,
+                        ));
                     }
                 }
             }

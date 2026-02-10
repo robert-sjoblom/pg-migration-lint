@@ -25,14 +25,13 @@ pub fn check_column_types(
             IrNode::CreateTable(ct) => {
                 for col in &ct.columns {
                     if predicate(&col.type_name) {
-                        findings.push(Finding {
-                            rule_id: rule_id.to_string(),
+                        findings.push(Finding::new(
+                            rule_id,
                             severity,
-                            message: message_fn(&col.name, &ct.name, &col.type_name),
-                            file: ctx.file.clone(),
-                            start_line: stmt.span.start_line,
-                            end_line: stmt.span.end_line,
-                        });
+                            message_fn(&col.name, &ct.name, &col.type_name),
+                            ctx.file,
+                            &stmt.span,
+                        ));
                     }
                 }
             }
@@ -41,14 +40,13 @@ pub fn check_column_types(
                     match action {
                         AlterTableAction::AddColumn(col) => {
                             if predicate(&col.type_name) {
-                                findings.push(Finding {
-                                    rule_id: rule_id.to_string(),
+                                findings.push(Finding::new(
+                                    rule_id,
                                     severity,
-                                    message: message_fn(&col.name, &at.name, &col.type_name),
-                                    file: ctx.file.clone(),
-                                    start_line: stmt.span.start_line,
-                                    end_line: stmt.span.end_line,
-                                });
+                                    message_fn(&col.name, &at.name, &col.type_name),
+                                    ctx.file,
+                                    &stmt.span,
+                                ));
                             }
                         }
                         AlterTableAction::AlterColumnType {
@@ -57,14 +55,13 @@ pub fn check_column_types(
                             ..
                         } => {
                             if predicate(new_type) {
-                                findings.push(Finding {
-                                    rule_id: rule_id.to_string(),
+                                findings.push(Finding::new(
+                                    rule_id,
                                     severity,
-                                    message: message_fn(column_name, &at.name, new_type),
-                                    file: ctx.file.clone(),
-                                    start_line: stmt.span.start_line,
-                                    end_line: stmt.span.end_line,
-                                });
+                                    message_fn(column_name, &at.name, new_type),
+                                    ctx.file,
+                                    &stmt.span,
+                                ));
                             }
                         }
                         _ => {}
