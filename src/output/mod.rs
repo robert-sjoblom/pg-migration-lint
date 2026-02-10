@@ -61,6 +61,9 @@ impl Default for SonarQubeReporter {
     }
 }
 
+#[cfg(test)]
+pub mod test_helpers;
+
 pub mod sarif;
 pub mod sonarqube;
 pub mod text;
