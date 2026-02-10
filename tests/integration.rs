@@ -577,7 +577,11 @@ fn lint_xml_fixture(fixture_name: &str, changed_ids: &[&str]) -> Vec<Finding> {
                 cap_for_down_migration(&mut unit_findings);
             }
 
-            // Note: suppressions don't apply to XML since comments are in XML not SQL
+            // Parse suppressions from the XML source file and filter findings.
+            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+            let suppressions = parse_suppressions(&source);
+            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+
             all_findings.extend(unit_findings);
         } else {
             replay::apply(&mut catalog, unit);
@@ -599,11 +603,11 @@ fn test_xml_parses_all_changesets() {
     let loader = XmlFallbackLoader;
     let raw_units = loader.load(&base).expect("Failed to load XML fixture");
 
-    // 001: 4, 002: 3, 003: 3, 004: 3, 005: 3, 006: 2, 007: 3, 008: 3, 009: 4, 010: 4, 011: 3 = 35
+    // 001: 4, 002: 3, 003: 3, 004: 3, 005: 3, 006: 2, 007: 3, 008: 3, 009: 4, 010: 4, 011: 3, 012: 2 = 37
     assert_eq!(
         raw_units.len(),
-        35,
-        "Expected 35 changesets across all XML files, got {}",
+        37,
+        "Expected 37 changesets across all XML files, got {}",
         raw_units.len()
     );
 }
@@ -879,6 +883,61 @@ fn test_xml_lint_all_includes_dont_do_this_rules() {
     assert!(
         rule_ids.contains("PGM104"),
         "Expected PGM104 (money). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// XML: Suppression via XML comments
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_xml_suppression_file_level() {
+    // Lint only the 012 changesets which have file-level XML comment suppressions.
+    // 012-suppressed.xml has <!-- pgm-lint:suppress-file PGM001,PGM004 --> at the top.
+    // 012-add-suppressed-index creates an index without CONCURRENTLY -> PGM001 (suppressed)
+    // 012-create-suppressed-table-no-pk creates a table without PK -> PGM004 (suppressed)
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            "012-add-suppressed-index",
+            "012-create-suppressed-table-no-pk",
+        ],
+    );
+
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
+
+    assert!(
+        pgm001.is_empty(),
+        "PGM001 should be suppressed by file-level XML comment. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm004.is_empty(),
+        "PGM004 should be suppressed by file-level XML comment. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_xml_suppression_does_not_suppress_other_files() {
+    // Lint 004 changesets (which are NOT in 012-suppressed.xml).
+    // The suppression in 012-suppressed.xml should NOT affect findings from 004.
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            "004-add-users-email-index",
+            "004-add-subscriptions-account-index",
+            "004-add-products-composite-index",
+        ],
+    );
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+
+    assert_eq!(
+        pgm001.len(),
+        3,
+        "PGM001 should still fire for 004 changesets (not suppressed). Got:\n  {}",
         format_findings(&findings)
     );
 }

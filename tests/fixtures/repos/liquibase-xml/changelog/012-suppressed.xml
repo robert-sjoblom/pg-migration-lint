@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pgm-lint:suppress-file PGM001,PGM004 -->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        PGM001 VIOLATION (suppressed at file level):
+        createIndex on existing table without CONCURRENTLY.
+    -->
+    <changeSet id="012-add-suppressed-index" author="bob">
+        <createIndex indexName="idx_users_display_name" tableName="users">
+            <column name="display_name"/>
+        </createIndex>
+    </changeSet>
+
+    <!--
+        PGM004 VIOLATION (suppressed at file level):
+        Table without primary key.
+    -->
+    <changeSet id="012-create-suppressed-table-no-pk" author="bob">
+        <createTable tableName="suppressed_audit">
+            <column name="event_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="text"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

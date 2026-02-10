@@ -15,5 +15,6 @@
     <include file="009-raw-sql.xml"/>
     <include file="010-cleanup.xml"/>
     <include file="011-dont-do-this-types.xml"/>
+    <include file="012-suppressed.xml"/>
 
 </databaseChangeLog>
