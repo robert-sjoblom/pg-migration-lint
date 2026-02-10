@@ -13,8 +13,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use pg_migration_lint::catalog::replay;
-use pg_migration_lint::input::MigrationLoader;
 use pg_migration_lint::input::sql::SqlLoader;
+use pg_migration_lint::input::MigrationLoader;
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter, TextReporter};
 use pg_migration_lint::rules::{self, LintContext};
 use pg_migration_lint::suppress::parse_suppressions;
@@ -197,10 +197,7 @@ fn run(args: Args) -> Result<bool> {
     }
 
     // --- Step 5: Summary and exit code ---
-    eprintln!(
-        "pg-migration-lint: {} finding(s)",
-        all_findings.len()
-    );
+    eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
 
     let fail_on = Severity::parse(&config.cli.fail_on);
     if let Some(threshold) = fail_on {
@@ -222,13 +219,9 @@ fn load_config(config_path: &Option<PathBuf>) -> Result<pg_migration_lint::Confi
         Some(path) => {
             // User explicitly provided --config; file must exist.
             if !path.exists() {
-                anyhow::bail!(
-                    "Config file not found: {}",
-                    path.display()
-                );
+                anyhow::bail!("Config file not found: {}", path.display());
             }
-            pg_migration_lint::Config::from_file(path)
-                .context("Failed to load configuration")
+            pg_migration_lint::Config::from_file(path).context("Failed to load configuration")
         }
         None => {
             // Using default config path; missing file is OK.
@@ -277,8 +270,8 @@ fn parse_changed_files(args: &Args) -> Result<Vec<PathBuf>> {
     }
 
     if let Some(ref file_path) = args.changed_files_from {
-        let contents = std::fs::read_to_string(file_path)
-            .context("Failed to read changed-files-from file")?;
+        let contents =
+            std::fs::read_to_string(file_path).context("Failed to read changed-files-from file")?;
         for line in contents.lines() {
             let line = line.trim();
             if !line.is_empty() {

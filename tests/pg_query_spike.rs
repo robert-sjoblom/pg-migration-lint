@@ -71,8 +71,14 @@ fn spike_type_canonical_names() {
         ("boolean", "CREATE TABLE t (col boolean);"),
         ("varchar", "CREATE TABLE t (col varchar);"),
         ("varchar(100)", "CREATE TABLE t (col varchar(100));"),
-        ("character varying", "CREATE TABLE t (col character varying);"),
-        ("character varying(100)", "CREATE TABLE t (col character varying(100));"),
+        (
+            "character varying",
+            "CREATE TABLE t (col character varying);",
+        ),
+        (
+            "character varying(100)",
+            "CREATE TABLE t (col character varying(100));",
+        ),
         ("text", "CREATE TABLE t (col text);"),
         ("char", "CREATE TABLE t (col char);"),
         ("char(5)", "CREATE TABLE t (col char(5));"),
@@ -87,13 +93,16 @@ fn spike_type_canonical_names() {
         ("double precision", "CREATE TABLE t (col double precision);"),
         ("timestamp", "CREATE TABLE t (col timestamp);"),
         ("timestamptz", "CREATE TABLE t (col timestamptz);"),
-        ("timestamp with time zone", "CREATE TABLE t (col timestamp with time zone);"),
+        (
+            "timestamp with time zone",
+            "CREATE TABLE t (col timestamp with time zone);",
+        ),
         ("uuid", "CREATE TABLE t (col uuid);"),
         ("jsonb", "CREATE TABLE t (col jsonb);"),
         ("json", "CREATE TABLE t (col json);"),
     ];
 
-    println!("\n{:<30} | {}", "INPUT TYPE", "CANONICAL FORM");
+    println!("\n{:<30} | CANONICAL FORM", "INPUT TYPE");
     println!("{:-<30}-+-{:-<80}", "", "");
 
     for (label, sql) in cases {
@@ -107,10 +116,7 @@ fn spike_serial_expansion() {
     println!("\n=== serial ===");
     println!("{}", extract_type_info("CREATE TABLE t (id serial);"));
     println!("\n=== bigserial ===");
-    println!(
-        "{}",
-        extract_type_info("CREATE TABLE t (id bigserial);")
-    );
+    println!("{}", extract_type_info("CREATE TABLE t (id bigserial);"));
     println!("\n=== serial PRIMARY KEY ===");
     println!(
         "{}",
@@ -158,8 +164,7 @@ fn extract_create_info(sql: &str) -> String {
                             _ => "??".to_string(),
                         })
                         .collect();
-                    let fk_info = if !con.pktable.is_none() {
-                        let pk_table = con.pktable.as_ref().unwrap();
+                    let fk_info = if let Some(pk_table) = con.pktable.as_ref() {
                         let fk_cols: Vec<String> = con
                             .fk_attrs
                             .iter()
@@ -296,9 +301,7 @@ fn spike_alter_table_ast() {
         if let pg_query::NodeEnum::AlterTableStmt(alter) = stmt {
             println!("table: {}", alter.relation.as_ref().unwrap().relname);
             for cmd_node in &alter.cmds {
-                if let Some(pg_query::NodeEnum::AlterTableCmd(cmd)) =
-                    cmd_node.node.as_ref()
-                {
+                if let Some(pg_query::NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref() {
                     println!(
                         "  subtype={:?}, name='{}', behavior={:?}",
                         cmd.subtype(),
@@ -348,9 +351,7 @@ fn spike_create_drop_index_ast() {
                     idx.concurrent,
                 );
                 for param in &idx.index_params {
-                    if let Some(pg_query::NodeEnum::IndexElem(elem)) =
-                        param.node.as_ref()
-                    {
+                    if let Some(pg_query::NodeEnum::IndexElem(elem)) = param.node.as_ref() {
                         println!("  column: name={}", elem.name);
                     }
                 }

@@ -1,7 +1,7 @@
 //! Table catalog and replay engine
 
-pub mod types;
 pub mod replay;
+pub mod types;
 
 #[cfg(test)]
 pub mod builder;

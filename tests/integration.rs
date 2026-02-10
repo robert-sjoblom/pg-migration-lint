@@ -5,6 +5,7 @@ use pg_migration_lint::catalog::Catalog;
 use pg_migration_lint::input::liquibase_xml::XmlFallbackLoader;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
+use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter};
 use pg_migration_lint::rules::{cap_for_down_migration, Finding, LintContext, RuleRegistry};
 use pg_migration_lint::suppress::parse_suppressions;
 use pg_migration_lint::IrNode;
@@ -20,12 +21,11 @@ fn lint_fixture(fixture_name: &str, changed_filenames: &[&str]) -> Vec<Finding> 
         .join("migrations");
 
     let loader = SqlLoader;
-    let history = loader.load(&[base.clone()]).expect("Failed to load fixture");
+    let history = loader
+        .load(std::slice::from_ref(&base))
+        .expect("Failed to load fixture");
 
-    let changed: HashSet<PathBuf> = changed_filenames
-        .iter()
-        .map(|f| base.join(f))
-        .collect();
+    let changed: HashSet<PathBuf> = changed_filenames.iter().map(|f| base.join(f)).collect();
 
     let mut catalog = Catalog::new();
     let mut registry = RuleRegistry::new();
@@ -34,8 +34,7 @@ fn lint_fixture(fixture_name: &str, changed_filenames: &[&str]) -> Vec<Finding> 
     let mut tables_created_in_change: HashSet<String> = HashSet::new();
 
     for unit in &history.units {
-        let is_changed = changed.is_empty()
-            || changed.contains(&unit.source_file);
+        let is_changed = changed.is_empty() || changed.contains(&unit.source_file);
 
         if is_changed {
             let catalog_before = catalog.clone();
@@ -98,7 +97,10 @@ fn test_clean_repo_no_findings() {
         findings.is_empty(),
         "Clean repo should have 0 findings but got {}: {:?}",
         findings.len(),
-        findings.iter().map(|f| format!("{}: {}", f.rule_id, f.message)).collect::<Vec<_>>()
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -115,13 +117,18 @@ fn test_all_rules_trigger() {
     // V004 introduces "Don't Do This" type anti-patterns (PGM101-PGM105).
     let findings = lint_fixture(
         "all-rules",
-        &["V002__violations.sql", "V003__more_violations.sql", "V004__dont_do_this_types.sql"],
+        &[
+            "V002__violations.sql",
+            "V003__more_violations.sql",
+            "V004__dont_do_this_types.sql",
+        ],
     );
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
-    for expected in &["PGM001", "PGM002", "PGM003", "PGM004", "PGM005",
-                       "PGM006", "PGM007", "PGM009", "PGM010", "PGM011", "PGM012",
-                       "PGM101", "PGM102", "PGM103", "PGM104", "PGM105"] {
+    for expected in &[
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
+        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+    ] {
         assert!(
             rule_ids.contains(expected),
             "Expected {} finding but not found. Got:\n  {}",
@@ -140,13 +147,20 @@ fn test_suppressed_repo_no_findings() {
     // Only V002, V003, and V004 are changed; V001 just replays.
     let findings = lint_fixture(
         "suppressed",
-        &["V002__suppressed.sql", "V003__suppressed.sql", "V004__suppressed.sql"],
+        &[
+            "V002__suppressed.sql",
+            "V003__suppressed.sql",
+            "V004__suppressed.sql",
+        ],
     );
     assert!(
         findings.is_empty(),
         "Suppressed repo should have 0 findings but got {}: {:?}",
         findings.len(),
-        findings.iter().map(|f| format!("{}: {}", f.rule_id, f.message)).collect::<Vec<_>>()
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -172,7 +186,10 @@ fn test_only_changed_files_linted() {
         1,
         "Expected exactly 1 finding (PGM004 for events), got {}: {:?}",
         findings.len(),
-        findings.iter().map(|f| format!("{}: {}", f.rule_id, f.message)).collect::<Vec<_>>()
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
     );
     assert_eq!(findings[0].rule_id, "PGM004");
 }
@@ -280,15 +297,17 @@ fn test_all_rules_changed_files_all_empty() {
 
 #[test]
 fn test_pgm101_timestamp_without_tz() {
-    let findings = lint_fixture(
-        "all-rules",
-        &["V004__dont_do_this_types.sql"],
-    );
+    let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm101: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM101").collect();
 
-    assert!(!pgm101.is_empty(), "Expected PGM101 findings for 'timestamp' without time zone");
     assert!(
-        pgm101.iter().any(|f| f.message.to_lowercase().contains("timestamp")),
+        !pgm101.is_empty(),
+        "Expected PGM101 findings for 'timestamp' without time zone"
+    );
+    assert!(
+        pgm101
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("timestamp")),
         "PGM101 message should mention 'timestamp'. Got:\n  {}",
         format_findings(&findings)
     );
@@ -296,15 +315,17 @@ fn test_pgm101_timestamp_without_tz() {
 
 #[test]
 fn test_pgm102_timestamptz_zero_precision() {
-    let findings = lint_fixture(
-        "all-rules",
-        &["V004__dont_do_this_types.sql"],
-    );
+    let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm102: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM102").collect();
 
-    assert!(!pgm102.is_empty(), "Expected PGM102 findings for 'timestamptz(0)'");
     assert!(
-        pgm102.iter().any(|f| f.message.contains("0") || f.message.to_lowercase().contains("precision")),
+        !pgm102.is_empty(),
+        "Expected PGM102 findings for 'timestamptz(0)'"
+    );
+    assert!(
+        pgm102
+            .iter()
+            .any(|f| f.message.contains("0") || f.message.to_lowercase().contains("precision")),
         "PGM102 message should mention precision or (0). Got:\n  {}",
         format_findings(&findings)
     );
@@ -312,15 +333,14 @@ fn test_pgm102_timestamptz_zero_precision() {
 
 #[test]
 fn test_pgm103_char_n_type() {
-    let findings = lint_fixture(
-        "all-rules",
-        &["V004__dont_do_this_types.sql"],
-    );
+    let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm103: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM103").collect();
 
     assert!(!pgm103.is_empty(), "Expected PGM103 findings for 'char(n)'");
     assert!(
-        pgm103.iter().any(|f| f.message.to_lowercase().contains("char")),
+        pgm103
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("char")),
         "PGM103 message should mention 'char'. Got:\n  {}",
         format_findings(&findings)
     );
@@ -328,15 +348,17 @@ fn test_pgm103_char_n_type() {
 
 #[test]
 fn test_pgm104_money_type() {
-    let findings = lint_fixture(
-        "all-rules",
-        &["V004__dont_do_this_types.sql"],
-    );
+    let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm104: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM104").collect();
 
-    assert!(!pgm104.is_empty(), "Expected PGM104 findings for 'money' type");
     assert!(
-        pgm104.iter().any(|f| f.message.to_lowercase().contains("money")),
+        !pgm104.is_empty(),
+        "Expected PGM104 findings for 'money' type"
+    );
+    assert!(
+        pgm104
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("money")),
         "PGM104 message should mention 'money'. Got:\n  {}",
         format_findings(&findings)
     );
@@ -344,16 +366,18 @@ fn test_pgm104_money_type() {
 
 #[test]
 fn test_pgm105_serial_type() {
-    let findings = lint_fixture(
-        "all-rules",
-        &["V004__dont_do_this_types.sql"],
-    );
+    let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm105: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM105").collect();
 
-    assert!(!pgm105.is_empty(), "Expected PGM105 findings for 'serial' type");
     assert!(
-        pgm105.iter().any(|f| f.message.to_lowercase().contains("serial")
-            || f.message.to_lowercase().contains("identity")),
+        !pgm105.is_empty(),
+        "Expected PGM105 findings for 'serial' type"
+    );
+    assert!(
+        pgm105
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("serial")
+                || f.message.to_lowercase().contains("identity")),
         "PGM105 message should mention 'serial' or 'identity'. Got:\n  {}",
         format_findings(&findings)
     );
@@ -369,7 +393,9 @@ fn test_enterprise_parses_all_migrations() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/enterprise/migrations");
     let loader = SqlLoader;
-    let history = loader.load(&[base]).expect("Failed to load enterprise fixture");
+    let history = loader
+        .load(&[base])
+        .expect("Failed to load enterprise fixture");
     assert_eq!(history.units.len(), 30, "Should have 30 migration units");
 }
 
@@ -379,13 +405,25 @@ fn test_enterprise_lint_all_finds_violations() {
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     // PGM003 should fire (FKs without covering indexes in V005, V006, V010, V021, V029)
-    assert!(rule_ids.contains("PGM003"), "Expected PGM003. Got:\n  {}", format_findings(&findings));
+    assert!(
+        rule_ids.contains("PGM003"),
+        "Expected PGM003. Got:\n  {}",
+        format_findings(&findings)
+    );
 
     // PGM004 should fire (many tables without PKs in V003, V015, V020, V021)
-    assert!(rule_ids.contains("PGM004"), "Expected PGM004. Got:\n  {}", format_findings(&findings));
+    assert!(
+        rule_ids.contains("PGM004"),
+        "Expected PGM004. Got:\n  {}",
+        format_findings(&findings)
+    );
 
     // PGM007 should fire (volatile defaults in V012, V018, V022, V027, V028, V029)
-    assert!(rule_ids.contains("PGM007"), "Expected PGM007. Got:\n  {}", format_findings(&findings));
+    assert!(
+        rule_ids.contains("PGM007"),
+        "Expected PGM007. Got:\n  {}",
+        format_findings(&findings)
+    );
 }
 
 #[test]
@@ -395,8 +433,12 @@ fn test_enterprise_lint_v007_only() {
     let findings = lint_fixture("enterprise", &["V007__create_index_no_concurrently.sql"]);
     let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
 
-    assert_eq!(pgm001.len(), 3, "Expected 3 PGM001 findings for 3 non-concurrent indexes. Got:\n  {}",
-        format_findings(&findings));
+    assert_eq!(
+        pgm001.len(),
+        3,
+        "Expected 3 PGM001 findings for 3 non-concurrent indexes. Got:\n  {}",
+        format_findings(&findings)
+    );
 }
 
 #[test]
@@ -405,8 +447,11 @@ fn test_enterprise_lint_v023_only() {
     let findings = lint_fixture("enterprise", &["V023__drop_index_no_concurrently.sql"]);
     let pgm002: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM002").collect();
 
-    assert!(pgm002.len() >= 1, "Expected PGM002 for DROP INDEX without CONCURRENTLY. Got:\n  {}",
-        format_findings(&findings));
+    assert!(
+        !pgm002.is_empty(),
+        "Expected PGM002 for DROP INDEX without CONCURRENTLY. Got:\n  {}",
+        format_findings(&findings)
+    );
 }
 
 #[test]
@@ -415,8 +460,12 @@ fn test_enterprise_lint_v008_only() {
     let findings = lint_fixture("enterprise", &["V008__add_not_null_column.sql"]);
     let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
 
-    assert_eq!(pgm010.len(), 1, "Expected 1 PGM010 for NOT NULL without default. Got:\n  {}",
-        format_findings(&findings));
+    assert_eq!(
+        pgm010.len(),
+        1,
+        "Expected 1 PGM010 for NOT NULL without default. Got:\n  {}",
+        format_findings(&findings)
+    );
 }
 
 #[test]
@@ -425,33 +474,46 @@ fn test_enterprise_lint_v013_only() {
     let findings = lint_fixture("enterprise", &["V013__alter_column_type.sql"]);
     let pgm009: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM009").collect();
 
-    assert!(pgm009.len() >= 1, "Expected PGM009 for ALTER COLUMN TYPE. Got:\n  {}",
-        format_findings(&findings));
+    assert!(
+        !pgm009.is_empty(),
+        "Expected PGM009 for ALTER COLUMN TYPE. Got:\n  {}",
+        format_findings(&findings)
+    );
 }
 
 #[test]
 fn test_enterprise_finding_count_reasonable() {
     // Lint only V005-V015 as changed (V001-V004 as history).
     // This should produce a reasonable number of findings.
-    let findings = lint_fixture("enterprise", &[
-        "V005__add_support_user_fields.sql",
-        "V006__add_order_status_columns.sql",
-        "V007__create_index_no_concurrently.sql",
-        "V008__add_not_null_column.sql",
-        "V009__create_products_tables.sql",
-        "V010__create_promotion_tables.sql",
-        "V011__create_index_concurrently.sql",
-        "V012__create_price_plans.sql",
-        "V013__alter_column_type.sql",
-        "V014__drop_column.sql",
-        "V015__create_tables_without_pks.sql",
-    ]);
+    let findings = lint_fixture(
+        "enterprise",
+        &[
+            "V005__add_support_user_fields.sql",
+            "V006__add_order_status_columns.sql",
+            "V007__create_index_no_concurrently.sql",
+            "V008__add_not_null_column.sql",
+            "V009__create_products_tables.sql",
+            "V010__create_promotion_tables.sql",
+            "V011__create_index_concurrently.sql",
+            "V012__create_price_plans.sql",
+            "V013__alter_column_type.sql",
+            "V014__drop_column.sql",
+            "V015__create_tables_without_pks.sql",
+        ],
+    );
 
     // Should have a significant number of findings
-    assert!(findings.len() >= 10, "Expected at least 10 findings from V005-V015, got {}: \n  {}",
-        findings.len(), format_findings(&findings));
-    assert!(findings.len() <= 60, "Expected at most 60 findings from V005-V015, got {}",
-        findings.len());
+    assert!(
+        findings.len() >= 10,
+        "Expected at least 10 findings from V005-V015, got {}: \n  {}",
+        findings.len(),
+        format_findings(&findings)
+    );
+    assert!(
+        findings.len() <= 60,
+        "Expected at most 60 findings from V005-V015, got {}",
+        findings.len()
+    );
 }
 
 // ===========================================================================
@@ -585,11 +647,14 @@ fn test_xml_lint_all_finds_violations() {
 fn test_xml_lint_004_only() {
     // Files 001-003 are replayed as history, only 004 changesets are linted.
     // 004 creates 3 indexes WITHOUT CONCURRENTLY on pre-existing tables -> PGM001
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "004-add-users-email-index",
-        "004-add-subscriptions-account-index",
-        "004-add-products-composite-index",
-    ]);
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            "004-add-users-email-index",
+            "004-add-subscriptions-account-index",
+            "004-add-products-composite-index",
+        ],
+    );
     let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
 
     assert_eq!(
@@ -610,18 +675,21 @@ fn test_xml_lint_005_only() {
     // orders.user_id FK has no covering index -> PGM003
     // subscriptions.account_id FK: idx_subscriptions_account_id was created in 004 -> should NOT fire
     // orders.account_id FK: idx_orders_account_id was created in 002 -> should NOT fire
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "005-add-fk-orders-user",
-        "005-add-fk-subscriptions-account",
-        "005-add-fk-orders-account",
-    ]);
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            "005-add-fk-orders-user",
+            "005-add-fk-subscriptions-account",
+            "005-add-fk-orders-account",
+        ],
+    );
     let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
 
     // orders.user_id has no covering index -> PGM003
     // subscriptions.account_id had idx_subscriptions_account_id created in 004 -> no PGM003
     // orders.account_id has idx_orders_account_id from 002 -> no PGM003
     assert!(
-        pgm003.len() >= 1,
+        !pgm003.is_empty(),
         "Expected at least 1 PGM003 finding for orders.user_id FK. Got:\n  {}",
         format_findings(&findings)
     );
@@ -646,10 +714,10 @@ fn test_xml_lint_006_only() {
     // the tool considers UNIQUE NOT NULL as functionally equivalent to a PK).
     // subscription_invoices has no PK -> PGM004
     // subscription_invoices has FK without covering index -> PGM003
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "006-create-event-log",
-        "006-create-subscription-invoices",
-    ]);
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &["006-create-event-log", "006-create-subscription-invoices"],
+    );
 
     let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
     assert_eq!(
@@ -669,7 +737,7 @@ fn test_xml_lint_006_only() {
 
     let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
     assert!(
-        pgm003.len() >= 1,
+        !pgm003.is_empty(),
         "Expected PGM003 for subscription_invoices.subscription_id FK. Got:\n  {}",
         format_findings(&findings)
     );
@@ -685,11 +753,14 @@ fn test_xml_lint_008_only() {
     // accounts.region: NOT NULL, no default -> PGM010
     // orders.priority: NOT NULL, WITH default (0) -> clean
     // products.product_type: NOT NULL, no default -> PGM010
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "008-add-region-to-accounts",
-        "008-add-priority-to-orders",
-        "008-add-category-to-products",
-    ]);
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            "008-add-region-to-accounts",
+            "008-add-priority-to-orders",
+            "008-add-category-to-products",
+        ],
+    );
     let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
 
     assert_eq!(
@@ -707,27 +778,30 @@ fn test_xml_lint_008_only() {
 #[test]
 fn test_xml_finding_count_reasonable() {
     // Changesets 004-008 as changed, 001-003 as history.
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        // 004
-        "004-add-users-email-index",
-        "004-add-subscriptions-account-index",
-        "004-add-products-composite-index",
-        // 005
-        "005-add-fk-orders-user",
-        "005-add-fk-subscriptions-account",
-        "005-add-fk-orders-account",
-        // 006
-        "006-create-event-log",
-        "006-create-subscription-invoices",
-        // 007
-        "007-create-price-plans",
-        "007-add-timestamps-to-products",
-        "007-create-price-plan-products",
-        // 008
-        "008-add-region-to-accounts",
-        "008-add-priority-to-orders",
-        "008-add-category-to-products",
-    ]);
+    let findings = lint_xml_fixture(
+        "liquibase-xml",
+        &[
+            // 004
+            "004-add-users-email-index",
+            "004-add-subscriptions-account-index",
+            "004-add-products-composite-index",
+            // 005
+            "005-add-fk-orders-user",
+            "005-add-fk-subscriptions-account",
+            "005-add-fk-orders-account",
+            // 006
+            "006-create-event-log",
+            "006-create-subscription-invoices",
+            // 007
+            "007-create-price-plans",
+            "007-add-timestamps-to-products",
+            "007-create-price-plan-products",
+            // 008
+            "008-add-region-to-accounts",
+            "008-add-priority-to-orders",
+            "008-add-category-to-products",
+        ],
+    );
 
     assert!(
         findings.len() >= 8,
@@ -750,9 +824,7 @@ fn test_xml_finding_count_reasonable() {
 fn test_xml_lint_011_pgm101_timestamp() {
     // Lint only 011 changesets. 001-010 are replayed as history.
     // 011-add-event-timestamp adds a TIMESTAMP column -> PGM101
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "011-add-event-timestamp",
-    ]);
+    let findings = lint_xml_fixture("liquibase-xml", &["011-add-event-timestamp"]);
     let pgm101: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM101").collect();
 
     assert!(
@@ -765,9 +837,7 @@ fn test_xml_lint_011_pgm101_timestamp() {
 #[test]
 fn test_xml_lint_011_pgm103_char_n() {
     // 011-add-country-code adds a CHAR(3) column -> PGM103
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "011-add-country-code",
-    ]);
+    let findings = lint_xml_fixture("liquibase-xml", &["011-add-country-code"]);
     let pgm103: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM103").collect();
 
     assert!(
@@ -780,9 +850,7 @@ fn test_xml_lint_011_pgm103_char_n() {
 #[test]
 fn test_xml_lint_011_pgm104_money() {
     // 011-add-balance adds a MONEY column -> PGM104
-    let findings = lint_xml_fixture("liquibase-xml", &[
-        "011-add-balance",
-    ]);
+    let findings = lint_xml_fixture("liquibase-xml", &["011-add-balance"]);
     let pgm104: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM104").collect();
 
     assert!(
@@ -828,7 +896,9 @@ fn test_gomigrate_parses_all_migrations() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/go-migrate/migrations");
     let loader = SqlLoader;
-    let history = loader.load(&[base]).expect("Failed to load go-migrate fixture");
+    let history = loader
+        .load(&[base])
+        .expect("Failed to load go-migrate fixture");
     // 13 up files + 3 down files + 1 comment-only down file = 17 total
     assert_eq!(
         history.units.len(),
@@ -842,7 +912,9 @@ fn test_gomigrate_up_down_detection() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/go-migrate/migrations");
     let loader = SqlLoader;
-    let history = loader.load(&[base]).expect("Failed to load go-migrate fixture");
+    let history = loader
+        .load(&[base])
+        .expect("Failed to load go-migrate fixture");
 
     let up_count = history.units.iter().filter(|u| !u.is_down).count();
     let down_count = history.units.iter().filter(|u| u.is_down).count();
@@ -960,10 +1032,7 @@ fn test_gomigrate_changed_file_filtering() {
 fn test_gomigrate_pgm001_fires() {
     // Only 000006 is changed. Tables from 000001-000005 are replayed as
     // history (pre-existing). 000006 creates indexes WITHOUT CONCURRENTLY.
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000006_add_indexes_no_concurrently.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000006_add_indexes_no_concurrently.up.sql"]);
     let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
 
     assert_eq!(
@@ -981,10 +1050,7 @@ fn test_gomigrate_pgm001_fires() {
 #[test]
 fn test_gomigrate_pgm003_fires() {
     // Replay 000001-000007 as history, lint 000008 (adds FK without index).
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000008_add_fk_without_index.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000008_add_fk_without_index.up.sql"]);
     let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
 
     assert!(
@@ -993,7 +1059,9 @@ fn test_gomigrate_pgm003_fires() {
         format_findings(&findings)
     );
     assert!(
-        pgm003.iter().any(|f| f.message.contains("assigned_user_id")),
+        pgm003
+            .iter()
+            .any(|f| f.message.contains("assigned_user_id")),
         "PGM003 should mention assigned_user_id. Got:\n  {}",
         format_findings(&findings)
     );
@@ -1006,10 +1074,7 @@ fn test_gomigrate_pgm003_fires() {
 #[test]
 fn test_gomigrate_pgm004_fires() {
     // Replay 000001-000006, lint 000007 (creates audit_log without PK).
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000007_create_audit_log.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000007_create_audit_log.up.sql"]);
     let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
 
     assert_eq!(
@@ -1032,10 +1097,7 @@ fn test_gomigrate_pgm004_fires() {
 #[test]
 fn test_gomigrate_pgm007_fires() {
     // Replay 000001-000008, lint 000009 (adds volatile defaults).
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000009_add_volatile_defaults.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000009_add_volatile_defaults.up.sql"]);
     let pgm007: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM007").collect();
 
     assert_eq!(
@@ -1053,10 +1115,7 @@ fn test_gomigrate_pgm007_fires() {
 #[test]
 fn test_gomigrate_pgm010_fires() {
     // Replay 000001-000009, lint 000010 (ADD COLUMN NOT NULL no default).
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000010_add_not_null_no_default.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000010_add_not_null_no_default.up.sql"]);
     let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
 
     assert_eq!(
@@ -1080,10 +1139,7 @@ fn test_gomigrate_pgm010_fires() {
 fn test_gomigrate_pgm012_fires() {
     // Replay 000001-000011, skip 000012.down.sql, lint 000012.up.sql
     // (ADD PRIMARY KEY on audit_log without prior unique constraint).
-    let findings = lint_fixture(
-        "go-migrate",
-        &["000012_add_primary_key_no_unique.up.sql"],
-    );
+    let findings = lint_fixture("go-migrate", &["000012_add_primary_key_no_unique.up.sql"]);
     let pgm012: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM012").collect();
 
     assert_eq!(
@@ -1121,10 +1177,7 @@ fn test_gomigrate_clean_files_no_violations() {
     // Similarly, PGM006 checks CONCURRENTLY + run_in_transaction.
     // 000013 has CONCURRENTLY but SqlLoader sets run_in_transaction=true,
     // so PGM006 will fire for the CONCURRENTLY indexes.
-    let non_pgm006: Vec<&Finding> = findings
-        .iter()
-        .filter(|f| f.rule_id != "PGM006")
-        .collect();
+    let non_pgm006: Vec<&Finding> = findings.iter().filter(|f| f.rule_id != "PGM006").collect();
 
     assert!(
         non_pgm006.is_empty(),
@@ -1197,6 +1250,442 @@ fn test_gomigrate_multi_file_changed_set() {
     assert!(
         findings.len() <= 30,
         "Expected at most 30 findings from 000006-000010, got {}",
+        findings.len()
+    );
+}
+
+// ===========================================================================
+// SARIF output integration tests
+// ===========================================================================
+
+#[test]
+fn test_sarif_output_valid_structure() {
+    // Run the all-rules fixture through the full pipeline, emit SARIF, and
+    // verify the output is valid SARIF 2.1.0 with correct structure.
+    let findings = lint_fixture(
+        "all-rules",
+        &[
+            "V002__violations.sql",
+            "V003__more_violations.sql",
+            "V004__dont_do_this_types.sql",
+        ],
+    );
+    assert!(
+        !findings.is_empty(),
+        "All-rules fixture should produce findings"
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let reporter = SarifReporter::new();
+    reporter.emit(&findings, dir.path()).expect("emit SARIF");
+
+    let content =
+        std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read SARIF file");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse SARIF JSON");
+
+    // Verify it's valid SARIF 2.1.0
+    assert_eq!(
+        parsed["$schema"],
+        "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+        "SARIF $schema field must be the 2.1.0 schema URL"
+    );
+    assert_eq!(parsed["version"], "2.1.0", "SARIF version must be 2.1.0");
+
+    // Verify runs array
+    let runs = parsed["runs"].as_array().expect("runs should be an array");
+    assert_eq!(runs.len(), 1, "Should have exactly 1 run");
+
+    // Verify tool driver
+    let driver = &runs[0]["tool"]["driver"];
+    assert_eq!(driver["name"], "pg-migration-lint");
+    assert!(driver["version"].is_string(), "driver should have version");
+    assert!(
+        driver["informationUri"].is_string(),
+        "driver should have informationUri"
+    );
+
+    // Verify results count matches findings
+    let results = runs[0]["results"]
+        .as_array()
+        .expect("results should be an array");
+    assert_eq!(
+        results.len(),
+        findings.len(),
+        "SARIF results count should match findings count"
+    );
+
+    // Verify all results have correct ruleIds from our rule set
+    let known_rules: HashSet<&str> = [
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
+        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+    ]
+    .into_iter()
+    .collect();
+    for result in results {
+        let rule_id = result["ruleId"]
+            .as_str()
+            .expect("ruleId should be a string");
+        assert!(
+            known_rules.contains(rule_id),
+            "SARIF result ruleId '{}' should be a known rule",
+            rule_id
+        );
+    }
+
+    // Verify file paths in results are not empty and reference SQL files
+    for result in results {
+        let uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            .as_str()
+            .expect("artifactLocation.uri should be a string");
+        assert!(
+            !uri.is_empty(),
+            "SARIF artifactLocation.uri should not be empty"
+        );
+        assert!(
+            uri.contains(".sql"),
+            "SARIF file paths should reference SQL files, got: {}",
+            uri
+        );
+    }
+
+    // Verify rules array has entries for distinct rule IDs in findings
+    let rules = driver["rules"]
+        .as_array()
+        .expect("rules should be an array");
+    let finding_rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert_eq!(
+        rules.len(),
+        finding_rule_ids.len(),
+        "SARIF rules array should have one entry per distinct rule ID"
+    );
+    for rule in rules {
+        assert!(rule["id"].is_string(), "Each rule must have an id");
+        assert!(
+            rule["shortDescription"]["text"].is_string(),
+            "Each rule must have shortDescription.text"
+        );
+        assert!(
+            rule["defaultConfiguration"]["level"].is_string(),
+            "Each rule must have defaultConfiguration.level"
+        );
+        let level = rule["defaultConfiguration"]["level"].as_str().unwrap();
+        assert!(
+            ["error", "warning", "note"].contains(&level),
+            "Rule level must be error, warning, or note; got: {}",
+            level
+        );
+    }
+
+    // Verify line numbers are positive and endLine >= startLine
+    for result in results {
+        let region = &result["locations"][0]["physicalLocation"]["region"];
+        let start_line = region["startLine"]
+            .as_u64()
+            .expect("startLine should be a number");
+        let end_line = region["endLine"]
+            .as_u64()
+            .expect("endLine should be a number");
+        assert!(start_line >= 1, "startLine should be >= 1");
+        assert!(end_line >= start_line, "endLine should be >= startLine");
+    }
+
+    // Verify SARIF levels map correctly to known values
+    for result in results {
+        let level = result["level"].as_str().expect("level should be a string");
+        assert!(
+            ["error", "warning", "note"].contains(&level),
+            "Result level must be error, warning, or note; got: {}",
+            level
+        );
+    }
+}
+
+#[test]
+fn test_sarif_output_round_trip_from_fixture() {
+    // A focused round-trip test: emit SARIF from a small changed-file set,
+    // parse it back, and verify specific finding data survives serialization.
+    let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
+    assert!(!findings.is_empty(), "V002 should produce findings");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let reporter = SarifReporter::new();
+    reporter.emit(&findings, dir.path()).expect("emit SARIF");
+
+    let content =
+        std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read SARIF file");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse SARIF JSON");
+
+    let results = parsed["runs"][0]["results"]
+        .as_array()
+        .expect("results array");
+
+    // For each original finding, verify it appears in the SARIF output
+    for finding in &findings {
+        let matching = results.iter().find(|r| {
+            r["ruleId"].as_str() == Some(&finding.rule_id)
+                && r["message"]["text"].as_str() == Some(&finding.message)
+        });
+        assert!(
+            matching.is_some(),
+            "Finding {} with message '{}' should appear in SARIF output",
+            finding.rule_id,
+            finding.message
+        );
+
+        let matched = matching.unwrap();
+        let loc = &matched["locations"][0]["physicalLocation"];
+        assert_eq!(
+            loc["region"]["startLine"].as_u64().unwrap() as usize,
+            finding.start_line,
+            "startLine mismatch for {}",
+            finding.rule_id
+        );
+        assert_eq!(
+            loc["region"]["endLine"].as_u64().unwrap() as usize,
+            finding.end_line,
+            "endLine mismatch for {}",
+            finding.rule_id
+        );
+    }
+}
+
+// ===========================================================================
+// SonarQube output integration tests
+// ===========================================================================
+
+#[test]
+fn test_sonarqube_output_valid_structure() {
+    // Run the all-rules fixture through the full pipeline, emit SonarQube JSON,
+    // and verify the output has the correct Generic Issue Import structure.
+    let findings = lint_fixture(
+        "all-rules",
+        &[
+            "V002__violations.sql",
+            "V003__more_violations.sql",
+            "V004__dont_do_this_types.sql",
+        ],
+    );
+    assert!(
+        !findings.is_empty(),
+        "All-rules fixture should produce findings"
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let reporter = SonarQubeReporter::new();
+    reporter
+        .emit(&findings, dir.path())
+        .expect("emit SonarQube JSON");
+
+    let content =
+        std::fs::read_to_string(dir.path().join("findings.json")).expect("read SonarQube file");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse SonarQube JSON");
+
+    // Verify top-level structure
+    let issues = parsed["issues"]
+        .as_array()
+        .expect("issues should be an array");
+    assert_eq!(
+        issues.len(),
+        findings.len(),
+        "SonarQube issues count should match findings count"
+    );
+
+    // Verify each issue has the required fields
+    let known_rules: HashSet<&str> = [
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
+        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+    ]
+    .into_iter()
+    .collect();
+
+    for issue in issues {
+        // engineId
+        assert_eq!(
+            issue["engineId"], "pg-migration-lint",
+            "All issues must have engineId 'pg-migration-lint'"
+        );
+
+        // ruleId
+        let rule_id = issue["ruleId"].as_str().expect("ruleId should be a string");
+        assert!(
+            known_rules.contains(rule_id),
+            "SonarQube ruleId '{}' should be a known rule",
+            rule_id
+        );
+
+        // severity
+        let severity = issue["severity"]
+            .as_str()
+            .expect("severity should be a string");
+        assert!(
+            ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"].contains(&severity),
+            "Severity must be a valid SonarQube severity; got: {}",
+            severity
+        );
+
+        // type
+        assert_eq!(issue["type"], "BUG", "Issue type should be BUG");
+
+        // primaryLocation
+        let primary_location = &issue["primaryLocation"];
+        assert!(
+            primary_location["message"].is_string(),
+            "primaryLocation must have a message"
+        );
+        let message = primary_location["message"]
+            .as_str()
+            .expect("message string");
+        assert!(
+            !message.is_empty(),
+            "primaryLocation.message should not be empty"
+        );
+
+        let file_path = primary_location["filePath"]
+            .as_str()
+            .expect("filePath should be a string");
+        assert!(!file_path.is_empty(), "filePath should not be empty");
+        assert!(
+            file_path.contains(".sql"),
+            "SonarQube file paths should reference SQL files, got: {}",
+            file_path
+        );
+
+        // textRange
+        let text_range = &primary_location["textRange"];
+        let start_line = text_range["startLine"]
+            .as_u64()
+            .expect("startLine should be a number");
+        let end_line = text_range["endLine"]
+            .as_u64()
+            .expect("endLine should be a number");
+        assert!(start_line >= 1, "startLine should be >= 1");
+        assert!(end_line >= start_line, "endLine should be >= startLine");
+    }
+}
+
+#[test]
+fn test_sonarqube_output_round_trip_from_fixture() {
+    // Focused round-trip: emit SonarQube JSON from a small changed-file set,
+    // parse it back, and verify each finding's data survives serialization.
+    let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
+    assert!(!findings.is_empty(), "V002 should produce findings");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let reporter = SonarQubeReporter::new();
+    reporter
+        .emit(&findings, dir.path())
+        .expect("emit SonarQube JSON");
+
+    let content =
+        std::fs::read_to_string(dir.path().join("findings.json")).expect("read SonarQube file");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse SonarQube JSON");
+
+    let issues = parsed["issues"].as_array().expect("issues array");
+
+    // For each original finding, verify it appears in the SonarQube output
+    for finding in &findings {
+        let matching = issues.iter().find(|issue| {
+            issue["ruleId"].as_str() == Some(&finding.rule_id)
+                && issue["primaryLocation"]["message"].as_str() == Some(&finding.message)
+        });
+        assert!(
+            matching.is_some(),
+            "Finding {} with message '{}' should appear in SonarQube output",
+            finding.rule_id,
+            finding.message
+        );
+
+        let matched = matching.unwrap();
+
+        // Verify severity mapping
+        let expected_severity = finding.severity.sonarqube_str();
+        assert_eq!(
+            matched["severity"].as_str().unwrap(),
+            expected_severity,
+            "Severity mismatch for {} finding",
+            finding.rule_id
+        );
+
+        // Verify line numbers
+        let text_range = &matched["primaryLocation"]["textRange"];
+        assert_eq!(
+            text_range["startLine"].as_u64().unwrap() as usize,
+            finding.start_line,
+            "startLine mismatch for {}",
+            finding.rule_id
+        );
+        assert_eq!(
+            text_range["endLine"].as_u64().unwrap() as usize,
+            finding.end_line,
+            "endLine mismatch for {}",
+            finding.rule_id
+        );
+
+        // Verify file path is not empty
+        let file_path = matched["primaryLocation"]["filePath"]
+            .as_str()
+            .expect("filePath string");
+        assert!(
+            !file_path.is_empty(),
+            "filePath should not be empty for {}",
+            finding.rule_id
+        );
+    }
+}
+
+#[test]
+fn test_sarif_and_sonarqube_finding_counts_match() {
+    // Both reporters should produce the same number of entries from the same findings.
+    let findings = lint_fixture(
+        "all-rules",
+        &[
+            "V002__violations.sql",
+            "V003__more_violations.sql",
+            "V004__dont_do_this_types.sql",
+        ],
+    );
+
+    let dir_sarif = tempfile::tempdir().expect("sarif tempdir");
+    let dir_sonar = tempfile::tempdir().expect("sonar tempdir");
+
+    let sarif_reporter = SarifReporter::new();
+    sarif_reporter
+        .emit(&findings, dir_sarif.path())
+        .expect("emit SARIF");
+
+    let sonar_reporter = SonarQubeReporter::new();
+    sonar_reporter
+        .emit(&findings, dir_sonar.path())
+        .expect("emit SonarQube");
+
+    let sarif_content =
+        std::fs::read_to_string(dir_sarif.path().join("findings.sarif")).expect("read SARIF");
+    let sonar_content =
+        std::fs::read_to_string(dir_sonar.path().join("findings.json")).expect("read SonarQube");
+
+    let sarif_parsed: serde_json::Value =
+        serde_json::from_str(&sarif_content).expect("parse SARIF");
+    let sonar_parsed: serde_json::Value =
+        serde_json::from_str(&sonar_content).expect("parse SonarQube");
+
+    let sarif_count = sarif_parsed["runs"][0]["results"]
+        .as_array()
+        .expect("SARIF results")
+        .len();
+    let sonar_count = sonar_parsed["issues"]
+        .as_array()
+        .expect("SonarQube issues")
+        .len();
+
+    assert_eq!(
+        sarif_count, sonar_count,
+        "SARIF result count ({}) should match SonarQube issue count ({})",
+        sarif_count, sonar_count
+    );
+    assert_eq!(
+        sarif_count,
+        findings.len(),
+        "Both should match the original findings count ({})",
         findings.len()
     );
 }

@@ -67,9 +67,7 @@ impl Rule for Pgm004 {
 
                 // Post-file check: look at catalog_after to see if a PK was added.
                 let table_state = ctx.catalog_after.get_table(table_key);
-                let has_pk = table_state
-                    .map(|t| t.has_primary_key)
-                    .unwrap_or(false);
+                let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
 
                 if !has_pk {
                     // Check for PGM005 condition: UNIQUE NOT NULL substitute.
@@ -82,10 +80,7 @@ impl Rule for Pgm004 {
                         findings.push(Finding {
                             rule_id: self.id().to_string(),
                             severity: self.default_severity(),
-                            message: format!(
-                                "Table '{}' has no primary key.",
-                                ct.name
-                            ),
+                            message: format!("Table '{}' has no primary key.", ct.name),
                             file: ctx.file.clone(),
                             start_line: stmt.span.start_line,
                             end_line: stmt.span.end_line,

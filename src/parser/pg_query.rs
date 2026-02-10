@@ -63,10 +63,7 @@ pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
             .unwrap_or("")
             .to_string();
 
-        let stmt_node = raw_stmt
-            .stmt
-            .as_ref()
-            .and_then(|s| s.node.as_ref());
+        let stmt_node = raw_stmt.stmt.as_ref().and_then(|s| s.node.as_ref());
 
         let ir_node = match stmt_node {
             Some(node_enum) => convert_node(node_enum, &raw_sql),
@@ -119,10 +116,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> IrNode {
 // ---------------------------------------------------------------------------
 
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.
-fn convert_create_table(
-    create: &pg_query::protobuf::CreateStmt,
-    raw_sql: &str,
-) -> IrNode {
+fn convert_create_table(create: &pg_query::protobuf::CreateStmt, raw_sql: &str) -> IrNode {
     let name = relation_to_qualified_name(create.relation.as_ref());
 
     let temporary = matches!(
@@ -161,7 +155,7 @@ fn convert_create_table(
         constraints,
         temporary,
     })
-        .or_unparseable(raw_sql)
+    .or_unparseable(raw_sql)
 }
 
 /// Convert a pg_query `ColumnDef` into an IR `ColumnDef` plus any inline
@@ -169,9 +163,7 @@ fn convert_create_table(
 ///
 /// Returns `(ColumnDef, Vec<TableConstraint>)` where the vector contains
 /// inline PRIMARY KEY, FOREIGN KEY, UNIQUE, and CHECK constraints.
-fn convert_column_def(
-    col: &pg_query::protobuf::ColumnDef,
-) -> (ColumnDef, Vec<TableConstraint>) {
+fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<TableConstraint>) {
     let col_name = col.colname.clone();
 
     // Extract type name
@@ -279,9 +271,7 @@ fn convert_column_def(
 ///
 /// Canonical name extraction: use the LAST element of `TypeName.names[]`.
 /// This normalizes all PostgreSQL type aliases automatically.
-fn extract_type_name(
-    tn: Option<&pg_query::protobuf::TypeName>,
-) -> (TypeName, bool) {
+fn extract_type_name(tn: Option<&pg_query::protobuf::TypeName>) -> (TypeName, bool) {
     let tn = match tn {
         Some(t) => t,
         None => return (TypeName::simple("unknown"), false),
@@ -380,17 +370,11 @@ fn convert_default_expr(node: &pg_query::protobuf::Node) -> DefaultExpr {
                 })
                 .unwrap_or_else(|| "unknown".to_string());
 
-            let args: Vec<String> = fc
-                .args
-                .iter()
-                .map(deparse_node)
-                .collect();
+            let args: Vec<String> = fc.args.iter().map(deparse_node).collect();
 
             DefaultExpr::FunctionCall { name, args }
         }
-        Some(NodeEnum::TypeCast(_)) => {
-            DefaultExpr::Other(deparse_node(node))
-        }
+        Some(NodeEnum::TypeCast(_)) => DefaultExpr::Other(deparse_node(node)),
         Some(_) => DefaultExpr::Other(deparse_node(node)),
         None => DefaultExpr::Other("NULL".to_string()),
     }
@@ -401,10 +385,7 @@ fn convert_default_expr(node: &pg_query::protobuf::Node) -> DefaultExpr {
 // ---------------------------------------------------------------------------
 
 /// Convert a pg_query `AlterTableStmt` to `IrNode::AlterTable`.
-fn convert_alter_table(
-    alter: &pg_query::protobuf::AlterTableStmt,
-    raw_sql: &str,
-) -> IrNode {
+fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> IrNode {
     let name = relation_to_qualified_name(alter.relation.as_ref());
 
     let mut actions = Vec::new();
@@ -429,9 +410,7 @@ fn convert_alter_table(
 }
 
 /// Convert a single `AlterTableCmd` into an `AlterTableAction`.
-fn convert_alter_table_cmd(
-    cmd: &pg_query::protobuf::AlterTableCmd,
-) -> AlterTableAction {
+fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> AlterTableAction {
     match cmd.subtype() {
         pg_query::protobuf::AlterTableType::AtAddColumn => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
@@ -447,21 +426,17 @@ fn convert_alter_table_cmd(
                 },
             }
         }
-        pg_query::protobuf::AlterTableType::AtDropColumn => {
-            AlterTableAction::DropColumn {
-                name: cmd.name.clone(),
-            }
-        }
+        pg_query::protobuf::AlterTableType::AtDropColumn => AlterTableAction::DropColumn {
+            name: cmd.name.clone(),
+        },
         pg_query::protobuf::AlterTableType::AtAddConstraint => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
-                Some(NodeEnum::Constraint(con)) => {
-                    match convert_table_constraint(con, None) {
-                        Some(tc) => AlterTableAction::AddConstraint(tc),
-                        None => AlterTableAction::Other {
-                            description: "ADD CONSTRAINT (unknown type)".to_string(),
-                        },
-                    }
-                }
+                Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None) {
+                    Some(tc) => AlterTableAction::AddConstraint(tc),
+                    None => AlterTableAction::Other {
+                        description: "ADD CONSTRAINT (unknown type)".to_string(),
+                    },
+                },
                 _ => AlterTableAction::Other {
                     description: "ADD CONSTRAINT (unparseable)".to_string(),
                 },
@@ -485,16 +460,12 @@ fn convert_alter_table_cmd(
                 old_type: None, // Must be filled in from catalog during linting
             }
         }
-        pg_query::protobuf::AlterTableType::AtSetNotNull => {
-            AlterTableAction::Other {
-                description: format!("SET NOT NULL on {}", cmd.name),
-            }
-        }
-        pg_query::protobuf::AlterTableType::AtDropNotNull => {
-            AlterTableAction::Other {
-                description: format!("DROP NOT NULL on {}", cmd.name),
-            }
-        }
+        pg_query::protobuf::AlterTableType::AtSetNotNull => AlterTableAction::Other {
+            description: format!("SET NOT NULL on {}", cmd.name),
+        },
+        pg_query::protobuf::AlterTableType::AtDropNotNull => AlterTableAction::Other {
+            description: format!("DROP NOT NULL on {}", cmd.name),
+        },
         other => AlterTableAction::Other {
             description: format!("{:?}", other),
         },
@@ -616,10 +587,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 /// - `ObjectType::ObjectIndex` -> `IrNode::DropIndex`
 /// - `ObjectType::ObjectTable` -> `IrNode::DropTable`
 /// - Everything else -> `IrNode::Ignored`
-fn convert_drop_stmt(
-    drop: &pg_query::protobuf::DropStmt,
-    raw_sql: &str,
-) -> IrNode {
+fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> IrNode {
     match drop.remove_type() {
         pg_query::protobuf::ObjectType::ObjectIndex => {
             let index_name = extract_name_from_drop_objects(&drop.objects);
@@ -708,9 +676,7 @@ fn extract_qualified_name_from_drop_objects(
 // ---------------------------------------------------------------------------
 
 /// Convert a pg_query `RangeVar` (relation reference) to a `QualifiedName`.
-fn relation_to_qualified_name(
-    rel: Option<&pg_query::protobuf::RangeVar>,
-) -> QualifiedName {
+fn relation_to_qualified_name(rel: Option<&pg_query::protobuf::RangeVar>) -> QualifiedName {
     match rel {
         Some(r) => {
             if r.schemaname.is_empty() {
@@ -778,9 +744,7 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
     match pg_query::deparse(&parse_result.protobuf) {
         Ok(sql) => {
             // Strip the "SELECT " prefix
-            sql.strip_prefix("SELECT ")
-                .unwrap_or(&sql)
-                .to_string()
+            sql.strip_prefix("SELECT ").unwrap_or(&sql).to_string()
         }
         Err(_) => format!("{:?}", node.node),
     }
@@ -1007,7 +971,10 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert_eq!(ct.columns[0].default_expr, Some(DefaultExpr::Literal("0".to_string())));
+                assert_eq!(
+                    ct.columns[0].default_expr,
+                    Some(DefaultExpr::Literal("0".to_string()))
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1018,14 +985,12 @@ mod tests {
         let sql = "CREATE TABLE t (col timestamp DEFAULT now());";
         let nodes = parse_sql(sql);
         match &nodes[0].node {
-            IrNode::CreateTable(ct) => {
-                match &ct.columns[0].default_expr {
-                    Some(DefaultExpr::FunctionCall { name, .. }) => {
-                        assert_eq!(name, "now");
-                    }
-                    other => panic!("Expected FunctionCall default, got: {:?}", other),
+            IrNode::CreateTable(ct) => match &ct.columns[0].default_expr {
+                Some(DefaultExpr::FunctionCall { name, .. }) => {
+                    assert_eq!(name, "now");
                 }
-            }
+                other => panic!("Expected FunctionCall default, got: {:?}", other),
+            },
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
     }
@@ -1075,12 +1040,10 @@ mod tests {
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
                 assert!(ct.columns[0].is_inline_pk);
-                assert!(
-                    ct.constraints.iter().any(|c| matches!(
-                        c,
-                        TableConstraint::PrimaryKey { columns } if columns == &["id"]
-                    )),
-                );
+                assert!(ct.constraints.iter().any(|c| matches!(
+                    c,
+                    TableConstraint::PrimaryKey { columns } if columns == &["id"]
+                )),);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1138,12 +1101,10 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(
-                    ct.constraints.iter().any(|c| matches!(
-                        c,
-                        TableConstraint::Unique { columns, .. } if columns == &["email"]
-                    )),
-                );
+                assert!(ct.constraints.iter().any(|c| matches!(
+                    c,
+                    TableConstraint::Unique { columns, .. } if columns == &["email"]
+                )),);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1204,19 +1165,20 @@ mod tests {
             IrNode::AlterTable(at) => {
                 assert_eq!(at.actions.len(), 1);
                 match &at.actions[0] {
-                    AlterTableAction::AddConstraint(tc) => {
-                        match tc {
-                            TableConstraint::ForeignKey {
-                                name, columns, ref_table, ref_columns,
-                            } => {
-                                assert_eq!(name.as_deref(), Some("fk_customer"));
-                                assert_eq!(columns, &["customer_id"]);
-                                assert_eq!(ref_table, &QualifiedName::unqualified("customers"));
-                                assert_eq!(ref_columns, &["id"]);
-                            }
-                            other => panic!("Expected ForeignKey, got: {:?}", other),
+                    AlterTableAction::AddConstraint(tc) => match tc {
+                        TableConstraint::ForeignKey {
+                            name,
+                            columns,
+                            ref_table,
+                            ref_columns,
+                        } => {
+                            assert_eq!(name.as_deref(), Some("fk_customer"));
+                            assert_eq!(columns, &["customer_id"]);
+                            assert_eq!(ref_table, &QualifiedName::unqualified("customers"));
+                            assert_eq!(ref_columns, &["id"]);
                         }
-                    }
+                        other => panic!("Expected ForeignKey, got: {:?}", other),
+                    },
                     other => panic!("Expected AddConstraint, got: {:?}", other),
                 }
             }
@@ -1501,7 +1463,10 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(ct.columns[0].nullable, "Column without NOT NULL should be nullable");
+                assert!(
+                    ct.columns[0].nullable,
+                    "Column without NOT NULL should be nullable"
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1513,7 +1478,10 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(!ct.columns[0].nullable, "Column with NOT NULL should not be nullable");
+                assert!(
+                    !ct.columns[0].nullable,
+                    "Column with NOT NULL should not be nullable"
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1525,7 +1493,10 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(!ct.columns[0].nullable, "PRIMARY KEY column should not be nullable");
+                assert!(
+                    !ct.columns[0].nullable,
+                    "PRIMARY KEY column should not be nullable"
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1542,7 +1513,9 @@ mod tests {
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
                 assert!(
-                    ct.constraints.iter().any(|c| matches!(c, TableConstraint::Check { .. })),
+                    ct.constraints
+                        .iter()
+                        .any(|c| matches!(c, TableConstraint::Check { .. })),
                     "Expected CHECK constraint, got: {:?}",
                     ct.constraints
                 );
@@ -1560,18 +1533,16 @@ mod tests {
         let sql = "ALTER TABLE t ADD COLUMN seq_id serial;";
         let nodes = parse_sql(sql);
         match &nodes[0].node {
-            IrNode::AlterTable(at) => {
-                match &at.actions[0] {
-                    AlterTableAction::AddColumn(col) => {
-                        assert_eq!(col.type_name.name, "int4");
-                        assert!(matches!(
-                            col.default_expr,
-                            Some(DefaultExpr::FunctionCall { ref name, .. }) if name == "nextval"
-                        ));
-                    }
-                    other => panic!("Expected AddColumn, got: {:?}", other),
+            IrNode::AlterTable(at) => match &at.actions[0] {
+                AlterTableAction::AddColumn(col) => {
+                    assert_eq!(col.type_name.name, "int4");
+                    assert!(matches!(
+                        col.default_expr,
+                        Some(DefaultExpr::FunctionCall { ref name, .. }) if name == "nextval"
+                    ));
                 }
-            }
+                other => panic!("Expected AddColumn, got: {:?}", other),
+            },
             other => panic!("Expected AlterTable, got: {:?}", other),
         }
     }
@@ -1585,14 +1556,12 @@ mod tests {
         let sql = "CREATE TABLE t (active bool DEFAULT TRUE);";
         let nodes = parse_sql(sql);
         match &nodes[0].node {
-            IrNode::CreateTable(ct) => {
-                match &ct.columns[0].default_expr {
-                    Some(DefaultExpr::Literal(v)) => {
-                        assert_eq!(v, "true");
-                    }
-                    other => panic!("Expected Literal default, got: {:?}", other),
+            IrNode::CreateTable(ct) => match &ct.columns[0].default_expr {
+                Some(DefaultExpr::Literal(v)) => {
+                    assert_eq!(v, "true");
                 }
-            }
+                other => panic!("Expected Literal default, got: {:?}", other),
+            },
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
     }
@@ -1606,14 +1575,12 @@ mod tests {
         let sql = "ALTER TABLE t ADD PRIMARY KEY (id);";
         let nodes = parse_sql(sql);
         match &nodes[0].node {
-            IrNode::AlterTable(at) => {
-                match &at.actions[0] {
-                    AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) => {
-                        assert_eq!(columns, &["id"]);
-                    }
-                    other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
+            IrNode::AlterTable(at) => match &at.actions[0] {
+                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) => {
+                    assert_eq!(columns, &["id"]);
                 }
-            }
+                other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
+            },
             other => panic!("Expected AlterTable, got: {:?}", other),
         }
     }

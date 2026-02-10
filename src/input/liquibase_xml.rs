@@ -36,11 +36,10 @@ impl XmlFallbackLoader {
     /// Parses the XML file and converts each `<changeSet>` element into
     /// a `RawMigrationUnit` with generated SQL.
     pub fn load(&self, path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
-        let xml = std::fs::read_to_string(path)
-            .map_err(|e| LoadError::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
+        let xml = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
         let mut units = parse_changelog_xml(&xml, path)?;
 
         // Process <include> directives by loading referenced files
@@ -175,10 +174,7 @@ impl Default for ColumnConstraints {
 /// Iterates through XML events using a state machine to track position
 /// within the document structure. Each `<changeSet>` produces one
 /// `RawMigrationUnit` with SQL generated from its child change elements.
-fn parse_changelog_xml(
-    xml: &str,
-    source_path: &Path,
-) -> Result<Vec<RawMigrationUnit>, LoadError> {
+fn parse_changelog_xml(xml: &str, source_path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
     let mut reader = Reader::from_str(xml);
     reader.trim_text(true);
 
@@ -187,10 +183,16 @@ fn parse_changelog_xml(
     let mut buf = Vec::new();
 
     loop {
-        let event = reader.read_event_into(&mut buf).map_err(|e| LoadError::Parse {
-            path: source_path.to_path_buf(),
-            message: format!("XML parse error at position {}: {}", reader.buffer_position(), e),
-        })?;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| LoadError::Parse {
+                path: source_path.to_path_buf(),
+                message: format!(
+                    "XML parse error at position {}: {}",
+                    reader.buffer_position(),
+                    e
+                ),
+            })?;
 
         match event {
             Event::Eof => break,
@@ -251,7 +253,9 @@ fn handle_start_tag(
     match state {
         ParseState::Root => {
             if tag_name == "changeSet" {
-                Ok(ParseState::InChangeSet(ChangeSetInfo::from_attributes(attrs, line)))
+                Ok(ParseState::InChangeSet(ChangeSetInfo::from_attributes(
+                    attrs, line,
+                )))
             } else {
                 // Stay at root for databaseChangeLog, include, etc.
                 Ok(ParseState::Root)
@@ -259,9 +263,7 @@ fn handle_start_tag(
         }
         ParseState::InChangeSet(mut cs) => {
             match tag_name {
-                "sql" => {
-                    Ok(ParseState::InSqlTag(cs, String::new()))
-                }
+                "sql" => Ok(ParseState::InSqlTag(cs, String::new())),
                 "createTable" => {
                     let table_name = get_attr(attrs, "tableName").unwrap_or_default();
                     let schema_name = get_attr(attrs, "schemaName");
@@ -333,8 +335,8 @@ fn handle_start_tag(
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))
                 }
-                "rollback" | "preConditions" | "comment" | "tagDatabase"
-                | "validCheckSum" | "property" => {
+                "rollback" | "preConditions" | "comment" | "tagDatabase" | "validCheckSum"
+                | "property" => {
                     // Known non-SQL elements; skip silently
                     Ok(ParseState::InChangeSet(cs))
                 }
@@ -717,10 +719,7 @@ fn generate_add_unique_sql(attrs: &[(String, String)]) -> String {
     let qualified = qualify_name(&schema_name, &table_name);
 
     if constraint_name.is_empty() {
-        format!(
-            "ALTER TABLE {} ADD UNIQUE ({});",
-            qualified, column_names
-        )
+        format!("ALTER TABLE {} ADD UNIQUE ({});", qualified, column_names)
     } else {
         format!(
             "ALTER TABLE {} ADD CONSTRAINT {} UNIQUE ({});",
@@ -786,10 +785,7 @@ fn byte_offset_to_line(xml: &str, offset: usize) -> usize {
 }
 
 /// Extract `<include file="..."/>` paths from the XML, resolved relative to the parent file.
-fn extract_include_paths(
-    xml: &str,
-    source_path: &Path,
-) -> Result<Vec<PathBuf>, LoadError> {
+fn extract_include_paths(xml: &str, source_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
     let mut reader = Reader::from_str(xml);
     reader.trim_text(true);
     let mut buf = Vec::new();
@@ -798,10 +794,12 @@ fn extract_include_paths(
     let parent_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
 
     loop {
-        let event = reader.read_event_into(&mut buf).map_err(|e| LoadError::Parse {
-            path: source_path.to_path_buf(),
-            message: format!("XML parse error while scanning includes: {}", e),
-        })?;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|e| LoadError::Parse {
+                path: source_path.to_path_buf(),
+                message: format!("XML parse error while scanning includes: {}", e),
+            })?;
 
         match event {
             Event::Eof => break,
@@ -844,10 +842,7 @@ mod tests {
             .expect("Should parse simple SQL changeset");
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].id, "1");
-        assert_eq!(
-            units[0].sql,
-            "CREATE INDEX idx_users_name ON users (name);"
-        );
+        assert_eq!(units[0].sql, "CREATE INDEX idx_users_name ON users (name);");
         assert!(units[0].run_in_transaction);
         assert!(!units[0].is_down);
     }
@@ -869,8 +864,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse createTable");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse createTable");
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
@@ -908,8 +903,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse addColumn");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse addColumn");
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
@@ -930,8 +925,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse createIndex");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse createIndex");
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
@@ -947,8 +942,8 @@ mod tests {
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse empty changelog");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse empty changelog");
         assert!(units.is_empty());
     }
 
@@ -1012,8 +1007,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse dropTable");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropTable");
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].sql, "DROP TABLE old_table;");
     }
@@ -1027,8 +1022,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse dropIndex");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropIndex");
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].sql, "DROP INDEX idx_old;");
     }
@@ -1067,8 +1062,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse addPrimaryKey");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse addPrimaryKey");
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
@@ -1160,7 +1155,9 @@ mod tests {
             .expect("Should parse changeset with multiple changes");
         assert_eq!(units.len(), 1);
         assert!(units[0].sql.contains("CREATE TABLE users"));
-        assert!(units[0].sql.contains("CREATE INDEX idx_users_id ON users (id);"));
+        assert!(units[0]
+            .sql
+            .contains("CREATE INDEX idx_users_id ON users (id);"));
     }
 
     #[test]
@@ -1179,7 +1176,9 @@ mod tests {
             .expect("Should parse self-closing columns");
         assert_eq!(units.len(), 1);
         assert!(
-            units[0].sql.contains("CREATE TABLE simple (id integer, name text);"),
+            units[0]
+                .sql
+                .contains("CREATE TABLE simple (id integer, name text);"),
             "Expected simple CREATE TABLE, got: {}",
             units[0].sql
         );
@@ -1195,8 +1194,7 @@ mod tests {
 </databaseChangeLog>"#;
 
         let path = Path::new("db/changelog/main.xml");
-        let units = parse_changelog_xml(xml, path)
-            .expect("Should track source info");
+        let units = parse_changelog_xml(xml, path).expect("Should track source info");
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].source_file, PathBuf::from("db/changelog/main.xml"));
         // Line offset should be > 1 since changeSet is not on line 1
@@ -1216,8 +1214,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should handle empty changeset");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should handle empty changeset");
         assert!(
             units.is_empty(),
             "Expected no units for empty changeset, got: {:?}",
@@ -1236,8 +1234,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse CDATA SQL");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse CDATA SQL");
         assert_eq!(units.len(), 1);
         assert!(
             units[0].sql.contains("CREATE TABLE test"),
@@ -1262,7 +1260,9 @@ mod tests {
             .expect("Should parse multi-column index");
         assert_eq!(units.len(), 1);
         assert!(
-            units[0].sql.contains("CREATE INDEX idx_orders_composite ON orders (user_id, created_at);"),
+            units[0]
+                .sql
+                .contains("CREATE INDEX idx_orders_composite ON orders (user_id, created_at);"),
             "Expected multi-column index, got: {}",
             units[0].sql
         );
@@ -1284,8 +1284,8 @@ mod tests {
     </changeSet>
 </databaseChangeLog>"#;
 
-        let units = parse_changelog_xml(xml, Path::new("test.xml"))
-            .expect("Should parse FK with schemas");
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse FK with schemas");
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(

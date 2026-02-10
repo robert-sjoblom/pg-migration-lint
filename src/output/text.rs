@@ -80,8 +80,7 @@ mod tests {
         Finding {
             rule_id: "PGM001".to_string(),
             severity: Severity::Critical,
-            message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY."
-                .to_string(),
+            message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.".to_string(),
             file: PathBuf::from("db/migrations/V042__add_index.sql"),
             start_line: 3,
             end_line: 3,
@@ -130,7 +129,8 @@ mod tests {
 
         let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
 
-        let expected = "CRITICAL PGM001 a.sql:1\n  first finding\n\nMAJOR PGM003 b.sql:7\n  second finding\n";
+        let expected =
+            "CRITICAL PGM001 a.sql:1\n  first finding\n\nMAJOR PGM003 b.sql:7\n  second finding\n";
         assert_eq!(content, expected);
     }
 

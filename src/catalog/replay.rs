@@ -206,9 +206,9 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             });
         }
         TableConstraint::Check { name, .. } => {
-            table.constraints.push(ConstraintState::Check {
-                name: name.clone(),
-            });
+            table
+                .constraints
+                .push(ConstraintState::Check { name: name.clone() });
         }
     }
 }
@@ -449,7 +449,10 @@ mod tests {
         apply(&mut catalog, &unit);
 
         let table = catalog.get_table("t").expect("table should exist");
-        assert!(table.indexes.is_empty(), "Indexes should be empty after DROP INDEX");
+        assert!(
+            table.indexes.is_empty(),
+            "Indexes should be empty after DROP INDEX"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -555,7 +558,9 @@ mod tests {
 
         apply(&mut catalog, &unit);
 
-        let table = catalog.get_table("t").expect("table should exist after re-create");
+        let table = catalog
+            .get_table("t")
+            .expect("table should exist after re-create");
         assert_eq!(table.columns.len(), 1);
         assert_eq!(table.columns[0].type_name.name, "bigint");
     }
@@ -881,7 +886,11 @@ mod tests {
         apply(&mut catalog, &unit);
 
         let table = catalog.get_table("t").expect("table should exist");
-        assert_eq!(table.columns.len(), 1, "Ignored node should not alter catalog");
+        assert_eq!(
+            table.columns.len(),
+            1,
+            "Ignored node should not alter catalog"
+        );
     }
 
     #[test]

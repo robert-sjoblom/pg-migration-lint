@@ -65,7 +65,8 @@ impl TableState {
     pub fn remove_column(&mut self, name: &str) {
         self.columns.retain(|c| c.name != name);
         // Also remove indexes that reference this column
-        self.indexes.retain(|idx| !idx.columns.iter().any(|c| c == name));
+        self.indexes
+            .retain(|idx| !idx.columns.iter().any(|c| c == name));
     }
 
     /// Check if any index on this table covers the given columns as a prefix.

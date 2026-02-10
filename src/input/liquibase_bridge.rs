@@ -58,10 +58,7 @@ impl BridgeLoader {
     pub fn load(&self, changelog_path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
         if !self.jar_path.exists() {
             return Err(LoadError::BridgeError {
-                message: format!(
-                    "Bridge JAR not found at: {}",
-                    self.jar_path.display()
-                ),
+                message: format!("Bridge JAR not found at: {}", self.jar_path.display()),
             });
         }
 

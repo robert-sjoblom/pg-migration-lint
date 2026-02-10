@@ -16,7 +16,9 @@ pub enum IrNode {
     DropTable(DropTable),
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
-    Ignored { raw_sql: String },
+    Ignored {
+        raw_sql: String,
+    },
     /// SQL that failed to parse or is inherently opaque (DO $$ blocks, dynamic SQL).
     /// The replay engine uses `table_hint` to mark affected tables as incomplete.
     Unparseable {
@@ -179,7 +181,9 @@ pub enum DefaultExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TableConstraint {
-    PrimaryKey { columns: Vec<String> },
+    PrimaryKey {
+        columns: Vec<String>,
+    },
     ForeignKey {
         name: Option<String>,
         columns: Vec<String>,

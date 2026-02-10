@@ -118,11 +118,9 @@ impl TableBuilder {
     /// Add a primary key constraint
     pub fn pk(&mut self, columns: &[&str]) -> &mut Self {
         self.state.has_primary_key = true;
-        self.state
-            .constraints
-            .push(ConstraintState::PrimaryKey {
-                columns: columns.iter().map(|s| s.to_string()).collect(),
-            });
+        self.state.constraints.push(ConstraintState::PrimaryKey {
+            columns: columns.iter().map(|s| s.to_string()).collect(),
+        });
         self
     }
 
@@ -134,14 +132,12 @@ impl TableBuilder {
         ref_table: &str,
         ref_columns: &[&str],
     ) -> &mut Self {
-        self.state
-            .constraints
-            .push(ConstraintState::ForeignKey {
-                name: Some(name.to_string()),
-                columns: columns.iter().map(|s| s.to_string()).collect(),
-                ref_table: ref_table.to_string(),
-                ref_columns: ref_columns.iter().map(|s| s.to_string()).collect(),
-            });
+        self.state.constraints.push(ConstraintState::ForeignKey {
+            name: Some(name.to_string()),
+            columns: columns.iter().map(|s| s.to_string()).collect(),
+            ref_table: ref_table.to_string(),
+            ref_columns: ref_columns.iter().map(|s| s.to_string()).collect(),
+        });
         self
     }
 
@@ -213,33 +209,32 @@ mod tests {
             .table("orders", |t| {
                 t.column("customer_id", "integer", false)
                     .column("product_id", "integer", false)
-                    .index("idx_customer_product", &["customer_id", "product_id"], false);
+                    .index(
+                        "idx_customer_product",
+                        &["customer_id", "product_id"],
+                        false,
+                    );
             })
             .build();
 
         let orders = catalog.get_table("orders").unwrap();
 
         // Exact match
-        assert!(orders.has_covering_index(&[
-            "customer_id".to_string(),
-            "product_id".to_string()
-        ]));
+        assert!(orders.has_covering_index(&["customer_id".to_string(), "product_id".to_string()]));
 
         // Prefix match
         assert!(orders.has_covering_index(&["customer_id".to_string()]));
 
         // Wrong order - should not match
-        assert!(!orders.has_covering_index(&[
-            "product_id".to_string(),
-            "customer_id".to_string()
-        ]));
+        assert!(!orders.has_covering_index(&["product_id".to_string(), "customer_id".to_string()]));
     }
 
     #[test]
     fn test_has_unique_not_null() {
         let catalog = CatalogBuilder::new()
             .table("users", |t| {
-                t.column("email", "text", false).unique("uk_email", &["email"]);
+                t.column("email", "text", false)
+                    .unique("uk_email", &["email"]);
             })
             .build();
 

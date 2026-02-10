@@ -212,10 +212,7 @@ mod tests {
         let result = parse_changeset_marker(line);
         assert_eq!(
             result,
-            Some((
-                "db/changelog.xml".to_string(),
-                "create-table".to_string()
-            ))
+            Some(("db/changelog.xml".to_string(), "create-table".to_string()))
         );
     }
 

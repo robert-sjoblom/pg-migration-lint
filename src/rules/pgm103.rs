@@ -77,7 +77,9 @@ impl Rule for Pgm103 {
                                     "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
                                      spaces, wastes storage, and is no faster than text or varchar \
                                      in PostgreSQL. Use text or varchar instead.",
-                                    col.name, ct.name, display_char_type(&col.type_name),
+                                    col.name,
+                                    ct.name,
+                                    display_char_type(&col.type_name),
                                 ),
                                 file: ctx.file.clone(),
                                 start_line: stmt.span.start_line,

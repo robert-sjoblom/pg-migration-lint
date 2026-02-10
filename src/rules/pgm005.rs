@@ -67,9 +67,7 @@ impl Rule for Pgm005 {
                 let table_key = ct.name.catalog_key();
                 let table_state = ctx.catalog_after.get_table(table_key);
 
-                let has_pk = table_state
-                    .map(|t| t.has_primary_key)
-                    .unwrap_or(false);
+                let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
 
                 if !has_pk {
                     let has_unique_not_null = table_state

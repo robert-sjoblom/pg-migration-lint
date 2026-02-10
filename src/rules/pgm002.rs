@@ -58,23 +58,21 @@ impl Rule for Pgm002 {
                 }
 
                 // Find which table this index belongs to by searching catalog_before.
-                let belongs_to_existing_table =
-                    ctx.catalog_before.tables().any(|table| {
-                        // Skip tables created in the current change set.
-                        if ctx.tables_created_in_change.contains(&table.name) {
-                            return false;
-                        }
-                        table.indexes.iter().any(|idx| idx.name == di.index_name)
-                    });
+                let belongs_to_existing_table = ctx.catalog_before.tables().any(|table| {
+                    // Skip tables created in the current change set.
+                    if ctx.tables_created_in_change.contains(&table.name) {
+                        return false;
+                    }
+                    table.indexes.iter().any(|idx| idx.name == di.index_name)
+                });
 
                 if belongs_to_existing_table {
                     findings.push(Finding {
                         rule_id: self.id().to_string(),
                         severity: self.default_severity(),
-                        message:
-                            "DROP INDEX on existing table should use CONCURRENTLY \
+                        message: "DROP INDEX on existing table should use CONCURRENTLY \
                              to avoid holding an exclusive lock."
-                                .to_string(),
+                            .to_string(),
                         file: ctx.file.clone(),
                         start_line: stmt.span.start_line,
                         end_line: stmt.span.end_line,
@@ -128,9 +126,11 @@ mod tests {
     fn test_drop_index_no_concurrent_fires() {
         let before = CatalogBuilder::new()
             .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .pk(&["id"])
-                    .index("idx_orders_status", &["status"], false);
+                t.column("id", "integer", false).pk(&["id"]).index(
+                    "idx_orders_status",
+                    &["status"],
+                    false,
+                );
             })
             .build();
         let after = before.clone();
@@ -153,9 +153,11 @@ mod tests {
     fn test_drop_index_with_concurrent_no_finding() {
         let before = CatalogBuilder::new()
             .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .pk(&["id"])
-                    .index("idx_orders_status", &["status"], false);
+                t.column("id", "integer", false).pk(&["id"]).index(
+                    "idx_orders_status",
+                    &["status"],
+                    false,
+                );
             })
             .build();
         let after = before.clone();
