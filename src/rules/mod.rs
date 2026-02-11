@@ -20,6 +20,7 @@ pub mod pgm011;
 pub mod pgm012;
 pub mod pgm013;
 pub mod pgm014;
+pub mod pgm015;
 pub mod pgm101;
 pub mod pgm102;
 pub mod pgm103;
@@ -199,6 +200,7 @@ impl RuleRegistry {
         self.register(Box::new(pgm012::Pgm012));
         self.register(Box::new(pgm013::Pgm013));
         self.register(Box::new(pgm014::Pgm014));
+        self.register(Box::new(pgm015::Pgm015));
         self.register(Box::new(pgm101::Pgm101));
         self.register(Box::new(pgm102::Pgm102));
         self.register(Box::new(pgm103::Pgm103));
@@ -237,8 +239,8 @@ mod tests {
         let mut registry = RuleRegistry::new();
         registry.register_defaults();
 
-        // We should have 18 rules (PGM001-PGM007, PGM009-PGM014, PGM101-PGM105; PGM008 is not a rule)
-        assert_eq!(registry.rules.len(), 18);
+        // We should have 19 rules (PGM001-PGM007, PGM009-PGM015, PGM101-PGM105; PGM008 is not a rule)
+        assert_eq!(registry.rules.len(), 19);
     }
 
     #[test]
