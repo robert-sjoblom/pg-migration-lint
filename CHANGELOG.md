@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.1.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.0.1...v1.1.0) (2026-02-11)
+
+
+### Features
+
+* **suppress:** warn on unknown rule IDs in suppression comments ([3227f89](https://github.com/robert-sjoblom/pg-migration-lint/commit/3227f894691bcae5b85d047b6ad904e8b76755f7))
+
+
+### Bug Fixes
+
+* **cli:** include blocker in --fail-on error message ([d823337](https://github.com/robert-sjoblom/pg-migration-lint/commit/d8233374674189c4536eb836f43c9ad638b2410e))
+* **config:** validate fail_on at config load time ([ae90504](https://github.com/robert-sjoblom/pg-migration-lint/commit/ae90504008ec061291cfd2cbe61e752aec915bfb))
+* **liquibase:** validate required XML attributes before generating SQL ([75d3605](https://github.com/robert-sjoblom/pg-migration-lint/commit/75d3605ca1f73e7f998c9a4c9639cbcb5471fe7d))
+* **parser:** handle smallserial type as serial variant ([a120aea](https://github.com/robert-sjoblom/pg-migration-lint/commit/a120aea7c86bfcfe58d260471c65a6ea03156d13))
+* **PGM002:** include index and table name in finding message ([ece37d7](https://github.com/robert-sjoblom/pg-migration-lint/commit/ece37d7f56b16ee28b7c1015f7872cfdfce4af26))
+* **PGM009:** treat numeric(P) as equivalent to numeric(P, 0) ([2f612b2](https://github.com/robert-sjoblom/pg-migration-lint/commit/2f612b2908a3bd24bf9fa3bada20d3065ca1d96b))
+
+
+### Performance Improvements
+
+* **catalog:** O(1) index-to-table lookup via reverse map ([63f37fa](https://github.com/robert-sjoblom/pg-migration-lint/commit/63f37fa1ad2c5c1c6ff9c761d21c1a6d42b9a570))
+
 ## [1.0.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.0.0...v1.0.1) (2026-02-10)
 
 
