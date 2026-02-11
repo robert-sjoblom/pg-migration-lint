@@ -22,3 +22,6 @@ ALTER TABLE products ADD COLUMN sku text NOT NULL;
 
 -- PGM011: DROP COLUMN on existing table
 ALTER TABLE products DROP COLUMN name;
+
+-- PGM013: DROP COLUMN silently removes unique constraint (product_code has inline UNIQUE from V001)
+ALTER TABLE products DROP COLUMN product_code;

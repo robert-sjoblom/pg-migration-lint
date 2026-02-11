@@ -140,7 +140,7 @@ fn test_all_rules_trigger() {
 
     for expected in &[
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
     ] {
         assert!(
             rule_ids.contains(expected),
@@ -1472,7 +1472,7 @@ fn test_sarif_output_valid_structure() {
     // Verify all results have correct ruleIds from our rule set
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
     ]
     .into_iter()
     .collect();
@@ -1648,7 +1648,7 @@ fn test_sonarqube_output_valid_structure() {
     // Verify each issue has the required fields
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
     ]
     .into_iter()
     .collect();
