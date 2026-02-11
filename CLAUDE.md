@@ -359,8 +359,6 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `clean/` - All migrations correct, expect 0 findings
 - `all-rules/` - One violation per rule, expect 11 findings
 - `suppressed/` - All violations suppressed, expect 0 findings
-- `new-table-in-pr/` - Tests changed-file detection logic
-- `fk-with-later-index/` - Tests post-file analysis
 - `liquibase-xml/` - Tests Liquibase fallback parser
 
 See `test_plan.md` sections 3-5 for comprehensive test case coverage per rule.
