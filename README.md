@@ -190,13 +190,15 @@ If your migrations are managed by Liquibase XML changelogs, set the strategy in 
 
 ```toml
 [migrations]
-paths = ["db/changelog"]
+paths = ["db/changelog/migrations.xml"]
 strategy = "liquibase"
 
 [liquibase]
 bridge_jar_path = "tools/liquibase-bridge.jar"
 strategy = "auto"
 ```
+
+For Liquibase, `paths` must point to the root changelog file (e.g. `migrations.xml`), not the directory containing it. The tool follows `<include>` elements from this entrypoint to discover changesets in order.
 
 The tool uses a three-tier approach for Liquibase XML processing:
 
@@ -216,7 +218,9 @@ If no config file is found at the default path, the tool uses built-in defaults 
 
 ```toml
 [migrations]
-# Directories or files containing migrations. Scanned in order.
+# Paths to migration sources. Scanned in order.
+# For filename_lexicographic: directories containing .sql files.
+# For liquibase: the root changelog file (e.g. "db/changelog/migrations.xml").
 # Default: ["db/migrations"]
 paths = ["db/migrations"]
 
