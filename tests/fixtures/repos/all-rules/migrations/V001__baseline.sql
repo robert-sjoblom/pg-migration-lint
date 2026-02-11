@@ -13,4 +13,8 @@ CREATE TABLE events (
     event_type text NOT NULL,
     payload text
 );
+CREATE TABLE accounts (
+    account_id bigint PRIMARY KEY,
+    account_name text NOT NULL
+);
 CREATE INDEX idx_customers_email ON customers (email);
