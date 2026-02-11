@@ -269,10 +269,49 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The PK columns already have a `UNIQUE` constraint (exact column match)
 - **Message**: `ADD PRIMARY KEY on existing table '{table}' requires building a unique index under ACCESS EXCLUSIVE lock. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
 
+#### PGM013 — `DROP COLUMN` silently removes unique constraint
+
+- **Severity**: WARNING
+- **Status**: Specified, not yet implemented.
+- **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `UNIQUE` constraint or unique index on the table in `catalog_before`.
+- **Why**: PostgreSQL automatically drops any index or constraint that depends on the column. If the column was part of a unique constraint or unique index, the uniqueness guarantee is silently lost. This can lead to duplicate rows being inserted where they were previously impossible.
+- **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `Unique` or any `IndexState` where `is_unique` is true. If so, fire.
+- **Does not fire when**:
+  - The column is not part of any unique constraint or unique index
+  - The table does not exist in `catalog_before`
+- **Message**: `Dropping column '{col}' from table '{table}' silently removes unique constraint '{constraint}'. Verify that the uniqueness guarantee is no longer needed.`
+- **Implementation notes**: `TableState::remove_column` currently removes indexes but does not remove constraints from the `constraints` vec. This must be fixed for catalog accuracy before or alongside this rule.
+
+#### PGM014 — `DROP COLUMN` silently removes primary key
+
+- **Severity**: MAJOR
+- **Status**: Specified, not yet implemented.
+- **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in the table's primary key (in `catalog_before`).
+- **Why**: Dropping a PK column (with `CASCADE`) silently removes the primary key constraint. The table loses its row identity, which affects replication, ORMs, query planning, and data integrity. PGM004 catches tables *created* without a PK, but cannot tell you which specific `DROP COLUMN` *caused* the loss.
+- **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `PrimaryKey`. If so, fire.
+- **Does not fire when**:
+  - The column is not part of the primary key
+  - The table does not exist in `catalog_before`
+- **Message**: `Dropping column '{col}' from table '{table}' silently removes the primary key. The table will have no row identity. Add a new primary key or reconsider the column drop.`
+- **Implementation notes**: Same catalog fix as PGM013 — `remove_column` must also clean up constraints referencing the dropped column.
+
+#### PGM015 — `DROP COLUMN` silently removes foreign key
+
+- **Severity**: WARNING
+- **Status**: Specified, not yet implemented.
+- **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `FOREIGN KEY` constraint on the table in `catalog_before`.
+- **Why**: Dropping a column that is part of a foreign key (with `CASCADE`) silently removes the FK constraint. The referential integrity guarantee is lost — the table can now hold values with no corresponding row in the referenced table.
+- **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `ForeignKey`. If so, fire.
+- **Does not fire when**:
+  - The column is not part of any foreign key constraint
+  - The table does not exist in `catalog_before`
+- **Message**: `Dropping column '{col}' from table '{table}' silently removes foreign key '{constraint}' referencing '{ref_table}'. Verify that the referential integrity guarantee is no longer needed.`
+- **Implementation notes**: Same catalog fix as PGM013/PGM014.
+
 #### PGM008 — Down migration issues
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM012) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules (PGM001–PGM015) apply to `.down.sql` / rollback SQL, but findings are informational only.
 
 ### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
 
@@ -577,3 +616,4 @@ pg-migration-lint/
 |---------|------------|---------|
 | 1.0     | 2026-02-09 | Initial specification. 11 rules (PGM001–PGM011). Rust CLI with `pg_query` parser, IR layer, replay-based table catalog. Liquibase bridge jar for exact changeset-to-SQL traceability. SARIF + SonarQube Generic Issue Import output. GitHub Actions integration via `upload-sarif`. |
 | 1.1     | 2026-02-10 | Added PGM012 (ADD PRIMARY KEY without UNIQUE). Added "Don't Do This" rules PGM101–PGM105 (timestamp, timestamp(0), char(n), money, serial). Deferred PGM106 (varchar), PGM107 (float), PGM111 (INHERITS) until per-rule config. Documented pg_query type name canonicalization. Added `is_serial` to IR `ColumnDef`. Explicitly deferred single-file Liquibase changelog support and rejected built-in git integration as non-goals. |
+| 1.2     | 2026-02-11 | Specified PGM013 (DROP COLUMN removes unique constraint, WARNING), PGM014 (DROP COLUMN removes primary key, MAJOR), PGM015 (DROP COLUMN removes foreign key, WARNING). All three not yet implemented — spec only. Noted prerequisite catalog fix: `remove_column` must also clean up constraints, not just indexes. |
