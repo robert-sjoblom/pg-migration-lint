@@ -9,6 +9,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
     tables: HashMap<String, TableState>,
+    /// Reverse lookup: index name → owning table key.
+    index_to_table: HashMap<String, String>,
 }
 
 impl Catalog {
@@ -29,11 +31,43 @@ impl Catalog {
     }
 
     pub fn insert_table(&mut self, table: TableState) {
+        // Register all indexes in the reverse lookup.
+        for idx in &table.indexes {
+            if !idx.name.is_empty() {
+                self.index_to_table
+                    .insert(idx.name.clone(), table.name.clone());
+            }
+        }
         self.tables.insert(table.name.clone(), table);
     }
 
     pub fn remove_table(&mut self, name: &str) -> Option<TableState> {
-        self.tables.remove(name)
+        if let Some(table) = self.tables.remove(name) {
+            for idx in &table.indexes {
+                self.index_to_table.remove(&idx.name);
+            }
+            Some(table)
+        } else {
+            None
+        }
+    }
+
+    /// Register an index in the reverse lookup.
+    pub fn register_index(&mut self, index_name: &str, table_key: &str) {
+        if !index_name.is_empty() {
+            self.index_to_table
+                .insert(index_name.to_string(), table_key.to_string());
+        }
+    }
+
+    /// Remove an index from the reverse lookup.
+    pub fn unregister_index(&mut self, index_name: &str) {
+        self.index_to_table.remove(index_name);
+    }
+
+    /// Look up which table owns a given index. O(1).
+    pub fn table_for_index(&self, index_name: &str) -> Option<&str> {
+        self.index_to_table.get(index_name).map(|s| s.as_str())
     }
 
     pub fn tables(&self) -> impl Iterator<Item = &TableState> {
