@@ -21,6 +21,7 @@
 use crate::input::{LoadError, RawMigrationUnit};
 use quick_xml::Reader;
 use quick_xml::events::Event;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Lightweight XML fallback loader for Liquibase changelogs.
@@ -36,16 +37,41 @@ impl XmlFallbackLoader {
     /// Parses the XML file and converts each `<changeSet>` element into
     /// a `RawMigrationUnit` with generated SQL.
     pub fn load(&self, path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
+        let root_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut visited = HashSet::new();
+        self.load_with_root(path, root_dir, &mut visited)
+    }
+
+    /// Load a changelog, resolving `<include file="...">` paths relative
+    /// to `root_dir` (the directory of the top-level changelog). Liquibase
+    /// resolves include paths relative to the classpath root, which in
+    /// practice is the directory containing the master changelog.
+    fn load_with_root(
+        &self,
+        path: &Path,
+        root_dir: &Path,
+        visited: &mut HashSet<PathBuf>,
+    ) -> Result<Vec<RawMigrationUnit>, LoadError> {
+        // Detect circular includes.
+        let canonical = path.to_path_buf();
+        if !visited.insert(canonical) {
+            return Err(LoadError::Parse {
+                path: path.to_path_buf(),
+                message: format!("Circular include detected: {}", path.display()),
+            });
+        }
+
         let xml = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
             path: path.to_path_buf(),
             source: e,
         })?;
         let mut units = parse_changelog_xml(&xml, path)?;
 
-        // Process <include> directives by loading referenced files
-        let include_paths = extract_include_paths(&xml, path)?;
+        // Process <include> directives by loading referenced files.
+        // Paths are resolved relative to root_dir (classpath root).
+        let include_paths = extract_include_paths(&xml, root_dir, path)?;
         for include_path in include_paths {
-            let included_units = self.load(&include_path)?;
+            let included_units = self.load_with_root(&include_path, root_dir, visited)?;
             units.extend(included_units);
         }
 
@@ -878,21 +904,26 @@ fn byte_offset_to_line(xml: &str, offset: usize) -> usize {
     xml[..clamped].matches('\n').count() + 1
 }
 
-/// Extract `<include file="..."/>` paths from the XML, resolved relative to the parent file.
-fn extract_include_paths(xml: &str, source_path: &Path) -> Result<Vec<PathBuf>, LoadError> {
+/// Extract `<include file="..."/>` paths from the XML, resolved relative
+/// to `base_dir`. Liquibase resolves include paths relative to the classpath
+/// root (the directory of the top-level changelog), not the including file.
+/// `source_file` is used only for error reporting.
+fn extract_include_paths(
+    xml: &str,
+    base_dir: &Path,
+    source_file: &Path,
+) -> Result<Vec<PathBuf>, LoadError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text_start = true;
     reader.config_mut().trim_text_end = true;
     let mut buf = Vec::new();
     let mut paths = Vec::new();
 
-    let parent_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
-
     loop {
         let event = reader
             .read_event_into(&mut buf)
             .map_err(|e| LoadError::Parse {
-                path: source_path.to_path_buf(),
+                path: source_file.to_path_buf(),
                 message: format!("XML parse error while scanning includes: {}", e),
             })?;
 
@@ -903,7 +934,11 @@ fn extract_include_paths(xml: &str, source_path: &Path) -> Result<Vec<PathBuf>, 
                 if tag_name == "include" {
                     let attrs = collect_attributes(e)?;
                     if let Some(file_attr) = get_attr(&attrs, "file") {
-                        let resolved = parent_dir.join(&file_attr);
+                        // Liquibase treats leading "/" as classpath-relative,
+                        // not filesystem-absolute. Strip it so Path::join
+                        // resolves relative to base_dir.
+                        let cleaned = file_attr.strip_prefix('/').unwrap_or(&file_attr);
+                        let resolved = base_dir.join(cleaned);
                         paths.push(resolved);
                     }
                 }
@@ -1440,11 +1475,32 @@ mod tests {
     <include file="sub/changelog-2.xml"/>
 </databaseChangeLog>"#;
 
-        let paths = extract_include_paths(xml, Path::new("/project/db/main.xml"))
-            .expect("Should extract include paths");
+        let paths = extract_include_paths(
+            xml,
+            Path::new("/project/db"),
+            Path::new("/project/db/main.xml"),
+        )
+        .expect("Should extract include paths");
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0], PathBuf::from("/project/db/sub/changelog-1.xml"));
         assert_eq!(paths[1], PathBuf::from("/project/db/sub/changelog-2.xml"));
+    }
+
+    #[test]
+    fn test_extract_include_paths_strips_leading_slash() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <include file="/sub/changelog.xml"/>
+</databaseChangeLog>"#;
+
+        let paths = extract_include_paths(
+            xml,
+            Path::new("/project/db"),
+            Path::new("/project/db/main.xml"),
+        )
+        .expect("Should strip leading slash");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], PathBuf::from("/project/db/sub/changelog.xml"));
     }
 
     #[test]
