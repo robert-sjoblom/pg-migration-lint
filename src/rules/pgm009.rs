@@ -119,21 +119,35 @@ fn check_widening_single_modifier(old: &TypeName, new: &TypeName) -> CastSafety 
     }
 }
 
+/// Normalize numeric modifiers: `numeric(P)` is equivalent to `numeric(P, 0)`.
+fn normalize_numeric_modifiers(mods: &[i64]) -> (i64, i64) {
+    match mods {
+        [p, s] => (*p, *s),
+        [p] => (*p, 0),
+        _ => (-1, -1), // sentinel for unmodified or unexpected
+    }
+}
+
 /// Check numeric(P,S) -> numeric(P2,S) widening.
 /// Safe if: P2 >= P and scale is the same.
 fn check_numeric_widening(old: &TypeName, new: &TypeName) -> CastSafety {
     match (old.modifiers.as_slice(), new.modifiers.as_slice()) {
-        ([old_p, old_s], [new_p, new_s]) => {
+        // Both unmodified (bare `numeric`) — no-op
+        ([], []) => CastSafety::Safe,
+        // Constrained -> unconstrained is widening (safe)
+        (_, []) => CastSafety::Safe,
+        // Unconstrained -> constrained is potentially narrowing
+        ([], _) => CastSafety::Unsafe,
+        // Both have modifiers — normalize and compare
+        (old_mods, new_mods) => {
+            let (old_p, old_s) = normalize_numeric_modifiers(old_mods);
+            let (new_p, new_s) = normalize_numeric_modifiers(new_mods);
             if new_p >= old_p && new_s == old_s {
                 CastSafety::Safe
             } else {
                 CastSafety::Unsafe
             }
         }
-        // If modifiers don't match pattern, treat as potentially unsafe
-        // numeric with no modifiers -> numeric with no modifiers is a no-op
-        ([], []) => CastSafety::Safe,
-        _ => CastSafety::Unsafe,
     }
 }
 
@@ -301,6 +315,67 @@ mod tests {
     fn test_numeric_widening_same_scale_safe() {
         let old = TypeName::with_modifiers("numeric", vec![10, 2]);
         let new = TypeName::with_modifiers("numeric", vec![12, 2]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_numeric_precision_only_to_precision_scale_safe() {
+        // numeric(10) is equivalent to numeric(10, 0) in PostgreSQL
+        let old = TypeName::with_modifiers("numeric", vec![10]);
+        let new = TypeName::with_modifiers("numeric", vec![12, 0]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_numeric_precision_scale_to_precision_only_safe() {
+        let old = TypeName::with_modifiers("numeric", vec![10, 0]);
+        let new = TypeName::with_modifiers("numeric", vec![12]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_numeric_identity_after_normalization() {
+        // numeric(10) = numeric(10, 0), so this is a no-op
+        let old = TypeName::with_modifiers("numeric", vec![10]);
+        let new = TypeName::with_modifiers("numeric", vec![10, 0]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_numeric_narrowing_single_modifier_unsafe() {
+        // numeric(10) -> numeric(8) is narrowing (both normalize to scale 0)
+        let old = TypeName::with_modifiers("numeric", vec![10]);
+        let new = TypeName::with_modifiers("numeric", vec![8]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_numeric_scale_change_via_normalization_unsafe() {
+        // numeric(10) = numeric(10,0), so -> numeric(10,2) changes scale
+        let old = TypeName::with_modifiers("numeric", vec![10]);
+        let new = TypeName::with_modifiers("numeric", vec![10, 2]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_numeric_bare_to_bare_safe() {
+        let old = TypeName::simple("numeric");
+        let new = TypeName::simple("numeric");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_numeric_bare_to_constrained_unsafe() {
+        let old = TypeName::simple("numeric");
+        let new = TypeName::with_modifiers("numeric", vec![10]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_numeric_constrained_to_bare_safe() {
+        // Removing precision/scale constraints is widening
+        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
+        let new = TypeName::simple("numeric");
         assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
     }
 
