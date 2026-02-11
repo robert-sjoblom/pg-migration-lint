@@ -101,6 +101,21 @@ impl TableState {
         // Also remove indexes that reference this column
         self.indexes
             .retain(|idx| !idx.columns.iter().any(|c| c == name));
+
+        // Remove constraints referencing the dropped column.
+        // PostgreSQL drops the entire constraint, not just the column from it.
+        self.constraints.retain(|c| match c {
+            ConstraintState::PrimaryKey { columns }
+            | ConstraintState::ForeignKey { columns, .. }
+            | ConstraintState::Unique { columns, .. } => !columns.iter().any(|c| c == name),
+            ConstraintState::Check { .. } => true,
+        });
+
+        // Recalculate has_primary_key in case the PK was removed.
+        self.has_primary_key = self
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::PrimaryKey { .. }));
     }
 
     /// Check if any index on this table covers the given columns as a prefix.
