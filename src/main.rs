@@ -184,6 +184,16 @@ fn run(args: Args) -> Result<bool> {
             };
             let suppressions = parse_suppressions(&source);
 
+            for id in suppressions.rule_ids() {
+                if registry.get(id).is_none() {
+                    eprintln!(
+                        "WARNING: unknown rule '{}' in suppression comment in {}",
+                        id,
+                        unit.source_file.display()
+                    );
+                }
+            }
+
             unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
 
             all_findings.append(&mut unit_findings);
