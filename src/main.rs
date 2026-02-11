@@ -113,6 +113,21 @@ fn run(args: Args) -> Result<bool> {
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
 
+    // Build active rules list, filtering out any disabled via config.
+    let disabled: HashSet<&str> = config.rules.disabled.iter().map(|s| s.as_str()).collect();
+    for rule_id in &disabled {
+        if registry.get(rule_id).is_none() {
+            eprintln!(
+                "WARNING: unknown rule '{}' in [rules].disabled, ignoring",
+                rule_id
+            );
+        }
+    }
+    let active_rules: Vec<&dyn rules::Rule> = registry
+        .iter()
+        .filter(|r| !disabled.contains(r.id()))
+        .collect();
+
     let mut all_findings: Vec<Finding> = Vec::new();
     let mut tables_created_in_change: HashSet<String> = HashSet::new();
     let mut changed_units_per_file: HashMap<PathBuf, usize> = HashMap::new();
@@ -163,9 +178,9 @@ fn run(args: Args) -> Result<bool> {
                 file: &unit.source_file,
             };
 
-            // Run all rules
+            // Run active rules (disabled rules already filtered out)
             let mut unit_findings: Vec<Finding> = Vec::new();
-            for rule in registry.iter() {
+            for rule in &active_rules {
                 let mut findings = rule.check(&unit.statements, &ctx);
                 unit_findings.append(&mut findings);
             }

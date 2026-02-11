@@ -80,7 +80,7 @@ impl Rule for Pgm004 {
                         findings.push(Finding::new(
                             self.id(),
                             self.default_severity(),
-                            format!("Table '{}' has no primary key.", ct.name),
+                            format!("Table '{}' has no primary key.", ct.name.display_name()),
                             ctx.file,
                             &stmt.span,
                         ));

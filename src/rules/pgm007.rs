@@ -51,7 +51,7 @@ fn check_column(
                  This is standard usage — suppress if intentional. Note: on ADD COLUMN \
                  to an existing table, this is volatile and forces a table rewrite.",
                 col = col.name,
-                table = table_name,
+                table = table_name.display_name(),
             ),
             file,
             span,
@@ -70,7 +70,7 @@ fn check_column(
                  Consider adding the column without a default, then backfilling with \
                  batched UPDATEs.",
                 col = col.name,
-                table = table_name,
+                table = table_name.display_name(),
                 fn_name = func_name,
             ),
             file,

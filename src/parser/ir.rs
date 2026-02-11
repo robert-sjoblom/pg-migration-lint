@@ -87,7 +87,7 @@ pub struct DropTable {
 /// Schema-qualified name. `schema` is None for unqualified references.
 ///
 /// `PartialEq`, `Eq`, and `Hash` are implemented manually on `schema` + `name`
-/// only, excluding the pre-computed `catalog_key` cache.
+/// only, excluding the pre-computed `catalog_key` cache and `schema_is_default`.
 #[derive(Debug, Clone)]
 pub struct QualifiedName {
     pub schema: Option<String>,
@@ -95,6 +95,9 @@ pub struct QualifiedName {
     /// Pre-computed lookup key: `"schema.name"` when qualified, `"name"` when not.
     /// Updated by constructors and `set_default_schema()`.
     catalog_key: String,
+    /// True when the schema was assigned by normalization, not by the user.
+    /// Used to suppress the schema prefix in user-facing messages.
+    schema_is_default: bool,
 }
 
 impl PartialEq for QualifiedName {
@@ -120,6 +123,7 @@ impl QualifiedName {
             schema: None,
             name,
             catalog_key,
+            schema_is_default: false,
         }
     }
 
@@ -131,6 +135,7 @@ impl QualifiedName {
             schema: Some(schema),
             name,
             catalog_key,
+            schema_is_default: false,
         }
     }
 
@@ -150,6 +155,20 @@ impl QualifiedName {
         if self.schema.is_none() {
             self.schema = Some(default.to_string());
             self.catalog_key = format!("{}.{}", default, self.name);
+            self.schema_is_default = true;
+        }
+    }
+
+    /// Returns the user-facing name: just `name` if the schema was synthesized
+    /// by normalization, or `schema.name` if the user wrote it explicitly.
+    pub fn display_name(&self) -> String {
+        if self.schema_is_default {
+            self.name.clone()
+        } else {
+            match &self.schema {
+                Some(s) => format!("{}.{}", s, self.name),
+                None => self.name.clone(),
+            }
         }
     }
 }
@@ -330,6 +349,28 @@ mod tests {
         let mut name = QualifiedName::unqualified("orders");
         name.set_default_schema("public");
         // Display should now show the schema since it was set
+        assert_eq!(format!("{}", name), "public.orders");
+    }
+
+    #[test]
+    fn test_display_name_unqualified() {
+        let name = QualifiedName::unqualified("orders");
+        assert_eq!(name.display_name(), "orders");
+    }
+
+    #[test]
+    fn test_display_name_qualified() {
+        let name = QualifiedName::qualified("myschema", "orders");
+        assert_eq!(name.display_name(), "myschema.orders");
+    }
+
+    #[test]
+    fn test_display_name_after_set_default_schema() {
+        let mut name = QualifiedName::unqualified("orders");
+        name.set_default_schema("public");
+        // display_name omits the synthetic schema
+        assert_eq!(name.display_name(), "orders");
+        // Display still shows the full form
         assert_eq!(format!("{}", name), "public.orders");
     }
 

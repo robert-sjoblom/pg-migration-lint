@@ -82,7 +82,7 @@ impl Rule for Pgm005 {
                                 "Table '{}' uses UNIQUE NOT NULL instead of PRIMARY KEY. \
                                  Functionally equivalent but PRIMARY KEY is conventional \
                                  and more explicit.",
-                                ct.name
+                                ct.name.display_name()
                             ),
                             ctx.file,
                             &stmt.span,

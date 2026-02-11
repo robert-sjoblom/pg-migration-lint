@@ -72,7 +72,7 @@ impl Rule for Pgm001 {
                         format!(
                             "CREATE INDEX on existing table '{}' should use CONCURRENTLY \
                              to avoid holding an exclusive lock.",
-                            ci.table_name
+                            ci.table_name.display_name()
                         ),
                         ctx.file,
                         &stmt.span,

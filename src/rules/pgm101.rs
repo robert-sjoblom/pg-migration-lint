@@ -61,7 +61,8 @@ impl Rule for Pgm101 {
                     "Column '{}' on '{}' uses 'timestamp without time zone'. \
                      Use 'timestamptz' (timestamp with time zone) instead to \
                      store unambiguous points in time.",
-                    col, table,
+                    col,
+                    table.display_name(),
                 )
             },
         )

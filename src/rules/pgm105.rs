@@ -67,7 +67,7 @@ impl Rule for Pgm105 {
                                      AS IDENTITY for new tables (PostgreSQL 10+). Identity columns \
                                      have better ownership semantics and are the SQL standard \
                                      approach.",
-                                    col.name, ct.name,
+                                    col.name, ct.name.display_name(),
                                 ),
                                 ctx.file,
                                 &stmt.span,
@@ -89,7 +89,7 @@ impl Rule for Pgm105 {
                                          AS IDENTITY for new tables (PostgreSQL 10+). Identity columns \
                                          have better ownership semantics and are the SQL standard \
                                          approach.",
-                                        col.name, at.name,
+                                        col.name, at.name.display_name(),
                                     ),
                                     ctx.file,
                                     &stmt.span,

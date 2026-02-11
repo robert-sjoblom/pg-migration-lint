@@ -41,6 +41,7 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
 
     let mut table = TableState {
         name: table_key,
+        display_name: ct.name.display_name(),
         columns: Vec::new(),
         indexes: Vec::new(),
         constraints: Vec::new(),
@@ -234,6 +235,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 name: name.clone(),
                 columns: columns.clone(),
                 ref_table: ref_table.catalog_key().to_string(),
+                ref_table_display: ref_table.display_name(),
                 ref_columns: ref_columns.clone(),
             });
         }
@@ -433,6 +435,7 @@ mod tests {
                 columns,
                 ref_table,
                 ref_columns,
+                ..
             } => {
                 assert_eq!(name.as_deref(), Some("fk_parent"));
                 assert_eq!(columns, &["pid".to_string()]);
@@ -815,6 +818,7 @@ mod tests {
                     columns,
                     ref_table,
                     ref_columns,
+                    ..
                 } if n == "fk_parent"
                     && columns == &["pid".to_string()]
                     && ref_table == "parent"

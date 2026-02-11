@@ -62,7 +62,8 @@ impl Rule for Pgm104 {
                     "Column '{}' on '{}' uses the 'money' type. The money type \
                      depends on the lc_monetary locale setting, making it \
                      unreliable across environments. Use numeric(p,s) instead.",
-                    col, table,
+                    col,
+                    table.display_name(),
                 )
             },
         )

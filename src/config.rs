@@ -32,6 +32,9 @@ pub struct Config {
 
     #[serde(default)]
     pub cli: CliConfig,
+
+    #[serde(default)]
+    pub rules: RulesConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -133,6 +136,15 @@ impl Default for CliConfig {
     }
 }
 
+/// Configuration for rule selection.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RulesConfig {
+    /// Rule IDs to disable globally (e.g., `["PGM007", "PGM101"]`).
+    /// Findings from disabled rules are not emitted.
+    #[serde(default)]
+    pub disabled: Vec<String>,
+}
+
 fn default_schema() -> String {
     "public".to_string()
 }
@@ -222,5 +234,25 @@ mod tests {
     fn test_default_fail_on_is_valid() {
         let config = Config::default();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_rules_disabled_deserialization() {
+        let toml = "[rules]\ndisabled = [\"PGM007\", \"PGM101\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.rules.disabled, vec!["PGM007", "PGM101"]);
+    }
+
+    #[test]
+    fn test_rules_section_defaults_to_empty() {
+        let config = Config::default();
+        assert!(config.rules.disabled.is_empty());
+    }
+
+    #[test]
+    fn test_no_rules_section_uses_defaults() {
+        let toml = "[cli]\nfail_on = \"critical\"";
+        let config = parse_and_validate(toml).unwrap();
+        assert!(config.rules.disabled.is_empty());
     }
 }

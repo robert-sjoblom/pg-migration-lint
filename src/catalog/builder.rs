@@ -66,6 +66,7 @@ impl TableBuilder {
         Self {
             state: TableState {
                 name: name.to_string(),
+                display_name: name.to_string(),
                 columns: vec![],
                 indexes: vec![],
                 constraints: vec![],
@@ -136,6 +137,7 @@ impl TableBuilder {
             name: Some(name.to_string()),
             columns: columns.iter().map(|s| s.to_string()).collect(),
             ref_table: ref_table.to_string(),
+            ref_table_display: ref_table.to_string(),
             ref_columns: ref_columns.iter().map(|s| s.to_string()).collect(),
         });
         self

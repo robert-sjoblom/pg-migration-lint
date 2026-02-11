@@ -8,7 +8,7 @@ use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
 use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter};
-use pg_migration_lint::rules::{Finding, LintContext, RuleRegistry, cap_for_down_migration};
+use pg_migration_lint::rules::{Finding, LintContext, Rule, RuleRegistry, cap_for_down_migration};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -608,6 +608,115 @@ fn test_enterprise_finding_count_reasonable() {
         "Expected at most 48 findings from V005-V015, got {}:\n  {}",
         findings.len(),
         format_findings(&findings)
+    );
+}
+
+// ===========================================================================
+// Enterprise changed-files mode: incremental lint behavior
+// ===========================================================================
+
+#[test]
+fn test_enterprise_changed_file_single_late_migration() {
+    // Lint only V014 (drop column). V001-V013 are replayed as history.
+    // All findings should come exclusively from V014.
+    let findings_v014 = lint_fixture("enterprise", &["V014__drop_column.sql"]);
+
+    // Every finding must originate from V014's file
+    let v014_suffix = "V014__drop_column.sql";
+    for finding in &findings_v014 {
+        let path = finding.file.display().to_string();
+        assert!(
+            path.ends_with(v014_suffix),
+            "All findings should be from V014, but found one from '{}': {} {}",
+            path,
+            finding.rule_id,
+            finding.message
+        );
+    }
+
+    // The incremental count for a single file should be less than the full run
+    let findings_full = lint_fixture("enterprise", &[]);
+    assert!(
+        findings_v014.len() < findings_full.len(),
+        "Single-file incremental ({}) should produce fewer findings than full run ({})",
+        findings_v014.len(),
+        findings_full.len()
+    );
+}
+
+#[test]
+fn test_enterprise_changed_file_volatile_defaults() {
+    // Lint only V022 (add volatile defaults). V001-V021 are replayed as history.
+    // V022 adds columns with gen_random_uuid() and now() defaults -> PGM007.
+    let findings = lint_fixture("enterprise", &["V022__add_volatile_defaults.sql"]);
+
+    let pgm007: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM007").collect();
+    assert!(
+        !pgm007.is_empty(),
+        "Expected PGM007 for volatile defaults in V022. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // V022 does not add any foreign keys, so PGM003 should not fire
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    assert!(
+        pgm003.is_empty(),
+        "PGM003 should not fire for V022 (no FK creation). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_enterprise_changed_files_reduces_fk_noise() {
+    // Full run should produce PGM003 findings (FKs without covering indexes)
+    let findings_full = lint_fixture("enterprise", &[]);
+    let pgm003_full: Vec<&Finding> = findings_full
+        .iter()
+        .filter(|f| f.rule_id == "PGM003")
+        .collect();
+    assert!(
+        !pgm003_full.is_empty(),
+        "Full run should have PGM003 findings. Got:\n  {}",
+        format_findings(&findings_full)
+    );
+
+    // Targeting only V014 (drop column, no FK creation) should have 0 PGM003
+    let findings_v014 = lint_fixture("enterprise", &["V014__drop_column.sql"]);
+    let pgm003_v014: Vec<&Finding> = findings_v014
+        .iter()
+        .filter(|f| f.rule_id == "PGM003")
+        .collect();
+    assert!(
+        pgm003_v014.is_empty(),
+        "V014 (drop column) should have 0 PGM003 findings. Got:\n  {}",
+        format_findings(&findings_v014)
+    );
+}
+
+#[test]
+fn test_enterprise_full_vs_incremental_counts() {
+    // Full lint (all files changed)
+    let findings_full = lint_fixture("enterprise", &[]);
+
+    // Incremental lint (only V014 + V022 changed)
+    let findings_incremental = lint_fixture(
+        "enterprise",
+        &["V014__drop_column.sql", "V022__add_volatile_defaults.sql"],
+    );
+
+    assert!(
+        !findings_full.is_empty(),
+        "Full run should produce findings"
+    );
+    assert!(
+        !findings_incremental.is_empty(),
+        "Incremental run should produce findings (V014 triggers PGM011, V022 triggers PGM007)"
+    );
+    assert!(
+        findings_incremental.len() < findings_full.len(),
+        "Incremental count ({}) should be less than full count ({})",
+        findings_incremental.len(),
+        findings_full.len()
     );
 }
 
@@ -1965,12 +2074,12 @@ fn test_schema_qualified_no_collision() {
         format_findings(&findings)
     );
 
-    // Verify one mentions myschema.customers (schema-qualified) and the other
-    // mentions orders (normalized to public.orders in catalog).
+    // Verify one mentions myschema.customers (explicitly qualified) and the other
+    // mentions just 'orders' (unqualified — display_name omits the synthetic public. prefix).
     let mentions_myschema = pgm001
         .iter()
         .any(|f| f.message.contains("myschema.customers"));
-    let mentions_orders = pgm001.iter().any(|f| f.message.contains("public.orders"));
+    let mentions_orders = pgm001.iter().any(|f| f.message.contains("'orders'"));
     assert!(
         mentions_myschema,
         "Expected a PGM001 finding mentioning 'myschema.customers'. Got:\n  {}",
@@ -1978,7 +2087,7 @@ fn test_schema_qualified_no_collision() {
     );
     assert!(
         mentions_orders,
-        "Expected a PGM001 finding mentioning 'public.orders' (normalized). Got:\n  {}",
+        "Expected a PGM001 finding mentioning 'orders' (without synthetic schema prefix). Got:\n  {}",
         format_findings(&findings)
     );
 
@@ -2086,5 +2195,120 @@ fn test_schema_qualified_custom_default_schema() {
         pgm003.is_empty(),
         "PGM003 should not fire (covering index present). Got:\n  {}",
         format_findings(&findings)
+    );
+}
+
+// ===========================================================================
+// Config-level rule suppression
+// ===========================================================================
+
+/// Run the lint pipeline with specific rules disabled.
+fn lint_fixture_with_disabled(
+    fixture_name: &str,
+    changed_filenames: &[&str],
+    disabled_rules: &[&str],
+) -> Vec<Finding> {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos")
+        .join(fixture_name)
+        .join("migrations");
+
+    let loader = SqlLoader;
+    let mut history = loader
+        .load(std::slice::from_ref(&base))
+        .expect("Failed to load fixture");
+
+    normalize::normalize_schemas(&mut history.units, "public");
+
+    let changed: HashSet<PathBuf> = changed_filenames.iter().map(|f| base.join(f)).collect();
+    let disabled: HashSet<&str> = disabled_rules.iter().copied().collect();
+
+    let mut catalog = Catalog::new();
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    let active_rules: Vec<&dyn Rule> = registry
+        .iter()
+        .filter(|r| !disabled.contains(r.id()))
+        .collect();
+
+    let mut all_findings: Vec<Finding> = Vec::new();
+    let mut tables_created_in_change: HashSet<String> = HashSet::new();
+
+    for unit in &history.units {
+        let is_changed = changed.is_empty() || changed.contains(&unit.source_file);
+
+        if is_changed {
+            let catalog_before = catalog.clone();
+            replay::apply(&mut catalog, unit);
+
+            for stmt in &unit.statements {
+                if let IrNode::CreateTable(ct) = &stmt.node {
+                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                }
+            }
+
+            let ctx = LintContext {
+                catalog_before: &catalog_before,
+                catalog_after: &catalog,
+                tables_created_in_change: &tables_created_in_change,
+                run_in_transaction: unit.run_in_transaction,
+                is_down: unit.is_down,
+                file: &unit.source_file,
+            };
+
+            let mut unit_findings: Vec<Finding> = Vec::new();
+            for rule in &active_rules {
+                unit_findings.extend(rule.check(&unit.statements, &ctx));
+            }
+
+            if unit.is_down {
+                cap_for_down_migration(&mut unit_findings);
+            }
+
+            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+            let suppressions = parse_suppressions(&source);
+            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+
+            all_findings.extend(unit_findings);
+        } else {
+            replay::apply(&mut catalog, unit);
+        }
+    }
+
+    all_findings
+}
+
+#[test]
+fn test_disabled_rules_suppresses_findings() {
+    let changed = &["V002__violations.sql"];
+
+    // Baseline: PGM003 should fire
+    let findings_all = lint_fixture("all-rules", changed);
+    let pgm003_all = findings_all
+        .iter()
+        .filter(|f| f.rule_id == "PGM003")
+        .count();
+    assert!(pgm003_all > 0, "PGM003 should fire without suppression");
+
+    // With PGM003 disabled: no PGM003 findings
+    let findings_disabled = lint_fixture_with_disabled("all-rules", changed, &["PGM003"]);
+    let pgm003_disabled = findings_disabled
+        .iter()
+        .filter(|f| f.rule_id == "PGM003")
+        .count();
+    assert_eq!(pgm003_disabled, 0, "PGM003 should not fire when disabled");
+
+    // Other rules should be unaffected
+    let other_all = findings_all
+        .iter()
+        .filter(|f| f.rule_id != "PGM003")
+        .count();
+    let other_disabled = findings_disabled
+        .iter()
+        .filter(|f| f.rule_id != "PGM003")
+        .count();
+    assert_eq!(
+        other_all, other_disabled,
+        "Non-disabled rules should produce identical findings"
     );
 }
