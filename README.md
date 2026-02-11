@@ -7,7 +7,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 16 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 19 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, silent constraint removal, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -36,7 +36,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 16 rules across two categories: migration safety rules (PGM001-PGM012) and PostgreSQL type anti-pattern rules (PGM101-PGM105).
+pg-migration-lint ships with 19 rules across two categories: migration safety rules (PGM001-PGM015) and PostgreSQL type anti-pattern rules (PGM101-PGM105).
 
 ### Migration Safety Rules
 
@@ -54,6 +54,9 @@ pg-migration-lint ships with 16 rules across two categories: migration safety ru
 | PGM010 | Critical | `ADD COLUMN NOT NULL` without default | `ALTER TABLE orders ADD COLUMN region text NOT NULL;` |
 | PGM011 | Info | `DROP COLUMN` on existing table | `ALTER TABLE orders DROP COLUMN legacy_col;` |
 | PGM012 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
+| PGM013 | Minor | `DROP COLUMN` silently removes unique constraint | `ALTER TABLE users DROP COLUMN email;` (where `email` has a UNIQUE constraint) |
+| PGM014 | Major | `DROP COLUMN` silently removes primary key | `ALTER TABLE orders DROP COLUMN id;` (where `id` is the PK) |
+| PGM015 | Minor | `DROP COLUMN` silently removes foreign key | `ALTER TABLE orders DROP COLUMN customer_id;` (where `customer_id` is an FK) |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 
@@ -230,6 +233,14 @@ include = ["*.sql", "*.xml"]
 # File patterns to exclude.
 # Default: []
 exclude = ["**/test/**"]
+
+# Default schema for unqualified table names.
+# Unqualified names like "orders" are normalized to "public.orders" for
+# catalog lookups, so that "orders" and "public.orders" resolve to the
+# same table. Set this to your service's search_path schema if it
+# differs from "public".
+# Default: "public"
+default_schema = "public"
 
 [liquibase]
 # Path to liquibase-bridge.jar (see "Liquibase XML support" above).
