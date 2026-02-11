@@ -8,6 +8,7 @@ This directory contains test fixtures for pg-migration-lint.
   - `clean/` - All migrations correct, expect 0 findings
   - `all-rules/` - One violation per rule (PGM001-PGM011), expect 11 findings
   - `suppressed/` - All violations suppressed, expect 0 findings
+  - `fk-with-later-index/` - Tests PGM003 FK detection across migration boundaries
   - `liquibase-xml/` - Tests Liquibase fallback parser
 
 ## Usage

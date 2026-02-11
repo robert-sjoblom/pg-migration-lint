@@ -262,7 +262,10 @@ fn test_pgm004_finding_details() {
 fn test_pgm002_finding_details() {
     // V003 drops idx_customers_email WITHOUT CONCURRENTLY.
     // V001 is replayed as baseline (creates the index), V002 and V003 are changed.
-    let findings = lint_fixture("all-rules", &["V002__violations.sql", "V003__more_violations.sql"]);
+    let findings = lint_fixture(
+        "all-rules",
+        &["V002__violations.sql", "V003__more_violations.sql"],
+    );
     let pgm002: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM002").collect();
 
     assert_eq!(pgm002.len(), 1, "Expected exactly 1 PGM002 finding");
@@ -1824,5 +1827,92 @@ fn test_sarif_and_sonarqube_finding_counts_match() {
         findings.len(),
         "Both should match the original findings count ({})",
         findings.len()
+    );
+}
+
+// ===========================================================================
+// Cross-file FK detection (PGM003) with fk-with-later-index fixture
+// ===========================================================================
+
+#[test]
+fn test_fk_without_index_cross_file_only_fk_changed() {
+    // Only V002 is changed. V001 is replayed as history (creates tables).
+    // V002 adds FK on orders.customer_id but V003 (which adds the covering
+    // index) has NOT been replayed yet. PGM003 should fire because
+    // catalog_after has no covering index at this point.
+    let findings = lint_fixture("fk-with-later-index", &["V002__add_fk.sql"]);
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert_eq!(
+        pgm003.len(),
+        1,
+        "Expected exactly 1 PGM003 finding for FK without index. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm003[0].message.contains("customer_id"),
+        "PGM003 message should mention 'customer_id'. Got: {}",
+        pgm003[0].message
+    );
+}
+
+#[test]
+fn test_fk_with_later_index_only_index_changed() {
+    // Only V003 is changed. V001 and V002 are replayed as history.
+    // The FK from V002 already exists in catalog_before, and V003 adds
+    // the covering index. Since V002 is not being linted, no PGM003
+    // should fire -- the FK was in a prior file, not in the current lint set.
+    let findings = lint_fixture("fk-with-later-index", &["V003__add_index.sql"]);
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert!(
+        pgm003.is_empty(),
+        "PGM003 should NOT fire when only the index file is linted. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_fk_cross_file_both_changed() {
+    // Both V002 and V003 are changed. V001 is replayed as history.
+    // When linting V002: FK is added but no covering index yet -> PGM003 fires.
+    // When linting V003: index is added, no new FK in this file -> no PGM003.
+    let findings = lint_fixture(
+        "fk-with-later-index",
+        &["V002__add_fk.sql", "V003__add_index.sql"],
+    );
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert_eq!(
+        pgm003.len(),
+        1,
+        "Expected exactly 1 PGM003 finding (from V002 only). Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm003[0].message.contains("customer_id"),
+        "PGM003 message should mention 'customer_id'. Got: {}",
+        pgm003[0].message
+    );
+}
+
+#[test]
+fn test_fk_cross_file_all_changed() {
+    // All files are changed (empty changed set). V001 creates tables (no FK,
+    // no finding). V002 adds FK without covering index -> PGM003 fires.
+    // V003 adds the covering index -> no additional PGM003.
+    let findings = lint_fixture("fk-with-later-index", &[]);
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert_eq!(
+        pgm003.len(),
+        1,
+        "Expected exactly 1 PGM003 finding (from V002). Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm003[0].message.contains("customer_id"),
+        "PGM003 message should mention 'customer_id'. Got: {}",
+        pgm003[0].message
     );
 }
