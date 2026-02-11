@@ -797,10 +797,9 @@ fn extract_first_identifier(s: &str) -> Option<String> {
     if ident.is_empty() {
         None
     } else {
-        // Strip quotes and return the last component (table name)
+        // Strip quotes and return the full identifier (may be schema-qualified)
         let cleaned = ident.replace('"', "");
-        let parts: Vec<&str> = cleaned.split('.').collect();
-        parts.last().map(|s| s.to_string())
+        Some(cleaned)
     }
 }
 
@@ -1473,7 +1472,7 @@ mod tests {
     #[test]
     fn test_extract_table_hint_schema_qualified() {
         let hint = extract_table_hint_from_raw("ALTER TABLE public.orders ADD COLUMN x int;");
-        assert_eq!(hint.as_deref(), Some("orders"));
+        assert_eq!(hint.as_deref(), Some("public.orders"));
     }
 
     #[test]

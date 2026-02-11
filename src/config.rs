@@ -51,6 +51,12 @@ pub struct MigrationsConfig {
     /// File patterns to exclude
     #[serde(default)]
     pub exclude: Vec<String>,
+
+    /// Default schema for unqualified table names (default: "public").
+    /// Used to normalize unqualified references so that `orders` and
+    /// `public.orders` resolve to the same catalog entry.
+    #[serde(default = "default_schema")]
+    pub default_schema: String,
 }
 
 impl Default for MigrationsConfig {
@@ -60,6 +66,7 @@ impl Default for MigrationsConfig {
             strategy: default_strategy(),
             include: default_include(),
             exclude: vec![],
+            default_schema: default_schema(),
         }
     }
 }
@@ -124,6 +131,10 @@ impl Default for CliConfig {
             fail_on: default_fail_on(),
         }
     }
+}
+
+fn default_schema() -> String {
+    "public".to_string()
 }
 
 fn default_strategy() -> String {

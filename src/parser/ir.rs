@@ -4,6 +4,7 @@
 //! only the information needed for linting, not the full PostgreSQL AST.
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 /// A parsed SQL statement mapped to a high-level operation.
 /// Each variant carries only the fields rules need — not the full AST.
@@ -84,31 +85,72 @@ pub struct DropTable {
 // --- Supporting types ---
 
 /// Schema-qualified name. `schema` is None for unqualified references.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// `PartialEq`, `Eq`, and `Hash` are implemented manually on `schema` + `name`
+/// only, excluding the pre-computed `catalog_key` cache.
+#[derive(Debug, Clone)]
 pub struct QualifiedName {
     pub schema: Option<String>,
     pub name: String,
+    /// Pre-computed lookup key: `"schema.name"` when qualified, `"name"` when not.
+    /// Updated by constructors and `set_default_schema()`.
+    catalog_key: String,
+}
+
+impl PartialEq for QualifiedName {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema == other.schema && self.name == other.name
+    }
+}
+
+impl Eq for QualifiedName {}
+
+impl Hash for QualifiedName {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.schema.hash(state);
+        self.name.hash(state);
+    }
 }
 
 impl QualifiedName {
     pub fn unqualified(name: impl Into<String>) -> Self {
+        let name = name.into();
+        let catalog_key = name.clone();
         Self {
             schema: None,
-            name: name.into(),
+            name,
+            catalog_key,
         }
     }
 
     pub fn qualified(schema: impl Into<String>, name: impl Into<String>) -> Self {
+        let schema = schema.into();
+        let name = name.into();
+        let catalog_key = format!("{}.{}", schema, name);
         Self {
-            schema: Some(schema.into()),
-            name: name.into(),
+            schema: Some(schema),
+            name,
+            catalog_key,
         }
     }
 
-    /// Returns the name used for catalog lookup. Ignores schema for now
-    /// (flat catalog). Future: schema-aware lookup.
+    /// Returns the pre-computed key used for catalog lookup.
+    ///
+    /// Before normalization this returns just the table name for unqualified
+    /// references. After `set_default_schema()` has been called, all names
+    /// have an explicit schema and this returns `"schema.name"`.
     pub fn catalog_key(&self) -> &str {
-        &self.name
+        &self.catalog_key
+    }
+
+    /// Assign a default schema to an unqualified name and recompute the catalog key.
+    ///
+    /// If the name is already schema-qualified this is a no-op.
+    pub fn set_default_schema(&mut self, default: &str) {
+        if self.schema.is_none() {
+            self.schema = Some(default.to_string());
+            self.catalog_key = format!("{}.{}", default, self.name);
+        }
     }
 }
 
@@ -219,4 +261,85 @@ pub struct SourceSpan {
     pub end_line: usize,     // 1-based, inclusive
     pub start_offset: usize, // byte offset from start of file
     pub end_offset: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unqualified_catalog_key() {
+        let name = QualifiedName::unqualified("orders");
+        assert_eq!(name.catalog_key(), "orders");
+    }
+
+    #[test]
+    fn test_qualified_catalog_key() {
+        let name = QualifiedName::qualified("myschema", "orders");
+        assert_eq!(name.catalog_key(), "myschema.orders");
+    }
+
+    #[test]
+    fn test_set_default_schema_on_unqualified() {
+        let mut name = QualifiedName::unqualified("orders");
+        name.set_default_schema("public");
+        assert_eq!(name.schema, Some("public".to_string()));
+        assert_eq!(name.catalog_key(), "public.orders");
+    }
+
+    #[test]
+    fn test_set_default_schema_noop_on_qualified() {
+        let mut name = QualifiedName::qualified("myschema", "orders");
+        name.set_default_schema("public");
+        // Should not change — already qualified
+        assert_eq!(name.schema, Some("myschema".to_string()));
+        assert_eq!(name.catalog_key(), "myschema.orders");
+    }
+
+    #[test]
+    fn test_different_schemas_are_distinct() {
+        let a = QualifiedName::qualified("public", "orders");
+        let b = QualifiedName::qualified("audit", "orders");
+        assert_ne!(a, b);
+        assert_ne!(a.catalog_key(), b.catalog_key());
+    }
+
+    #[test]
+    fn test_equality_ignores_catalog_key_cache() {
+        // Two names with same schema + name are equal even though
+        // catalog_key is a derived field.
+        let a = QualifiedName::qualified("public", "orders");
+        let b = QualifiedName::qualified("public", "orders");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_display_unqualified() {
+        let name = QualifiedName::unqualified("orders");
+        assert_eq!(format!("{}", name), "orders");
+    }
+
+    #[test]
+    fn test_display_qualified() {
+        let name = QualifiedName::qualified("myschema", "orders");
+        assert_eq!(format!("{}", name), "myschema.orders");
+    }
+
+    #[test]
+    fn test_display_after_set_default_schema() {
+        let mut name = QualifiedName::unqualified("orders");
+        name.set_default_schema("public");
+        // Display should now show the schema since it was set
+        assert_eq!(format!("{}", name), "public.orders");
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        use std::collections::HashSet;
+        let a = QualifiedName::qualified("public", "orders");
+        let b = QualifiedName::qualified("public", "orders");
+        let mut set = HashSet::new();
+        set.insert(a);
+        assert!(set.contains(&b));
+    }
 }

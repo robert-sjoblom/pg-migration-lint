@@ -6,6 +6,7 @@ use pg_migration_lint::catalog::replay;
 use pg_migration_lint::input::liquibase_xml::XmlFallbackLoader;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
+use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter};
 use pg_migration_lint::rules::{Finding, LintContext, RuleRegistry, cap_for_down_migration};
 use pg_migration_lint::suppress::parse_suppressions;
@@ -15,15 +16,27 @@ use std::path::PathBuf;
 /// Run the full lint pipeline on a fixture repo.
 /// If `changed_files` is empty, all files are linted.
 fn lint_fixture(fixture_name: &str, changed_filenames: &[&str]) -> Vec<Finding> {
+    lint_fixture_with_schema(fixture_name, changed_filenames, "public")
+}
+
+/// Run the full lint pipeline on a fixture repo with a custom default schema.
+/// If `changed_files` is empty, all files are linted.
+fn lint_fixture_with_schema(
+    fixture_name: &str,
+    changed_filenames: &[&str],
+    default_schema: &str,
+) -> Vec<Finding> {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos")
         .join(fixture_name)
         .join("migrations");
 
     let loader = SqlLoader;
-    let history = loader
+    let mut history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load fixture");
+
+    normalize::normalize_schemas(&mut history.units, default_schema);
 
     let changed: HashSet<PathBuf> = changed_filenames.iter().map(|f| base.join(f)).collect();
 
@@ -614,10 +627,12 @@ fn lint_xml_fixture(fixture_name: &str, changed_ids: &[&str]) -> Vec<Finding> {
     let raw_units = loader.load(&base).expect("Failed to load XML fixture");
 
     // Convert RawMigrationUnit -> MigrationUnit
-    let units: Vec<MigrationUnit> = raw_units
+    let mut units: Vec<MigrationUnit> = raw_units
         .into_iter()
         .map(|r| r.into_migration_unit())
         .collect();
+
+    normalize::normalize_schemas(&mut units, "public");
 
     let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
 
@@ -1914,5 +1929,159 @@ fn test_fk_cross_file_all_changed() {
         pgm003[0].message.contains("customer_id"),
         "PGM003 message should mention 'customer_id'. Got: {}",
         pgm003[0].message
+    );
+}
+
+// ===========================================================================
+// Schema-qualified name integration tests
+// ===========================================================================
+
+#[test]
+fn test_schema_qualified_no_collision() {
+    // Lint V002 and V003 as changed; V001 is replayed as baseline.
+    // V001 creates myschema.customers and (unqualified) orders.
+    // After normalization: myschema.customers stays myschema.customers,
+    // orders becomes public.orders. They must be distinct catalog entries.
+    //
+    // V002 adds FK + covering index (no PGM003).
+    // V003 creates index on myschema.customers without CONCURRENTLY -> PGM001.
+    // V002's index on orders also fires PGM001 (orders is pre-existing from V001).
+    let findings = lint_fixture(
+        "schema-qualified",
+        &["V002__add_fk_and_index.sql", "V003__alter_schema_table.sql"],
+    );
+
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+
+    // Two PGM001 findings: one for idx_orders_customer_id on public.orders,
+    // one for idx_customers_name on myschema.customers.
+    assert_eq!(
+        pgm001.len(),
+        2,
+        "Expected 2 PGM001 findings (one per pre-existing table). Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // Verify one mentions myschema.customers (schema-qualified) and the other
+    // mentions orders (normalized to public.orders in catalog).
+    let mentions_myschema = pgm001
+        .iter()
+        .any(|f| f.message.contains("myschema.customers"));
+    let mentions_orders = pgm001.iter().any(|f| f.message.contains("public.orders"));
+    assert!(
+        mentions_myschema,
+        "Expected a PGM001 finding mentioning 'myschema.customers'. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        mentions_orders,
+        "Expected a PGM001 finding mentioning 'public.orders' (normalized). Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM003 should NOT fire: the covering index is in V002.
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    assert!(
+        pgm003.is_empty(),
+        "PGM003 should not fire (covering index present). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_schema_qualified_cross_schema_fk() {
+    // Lint only V002. V001 is replayed as history.
+    // V002 adds FK on orders.customer_id referencing myschema.customers(id).
+    // myschema.customers exists in catalog_before (from V001 replay).
+    // The covering index idx_orders_customer_id is added in the same file.
+    // Expect no PGM003 finding.
+    // V002's CREATE INDEX on pre-existing orders fires PGM001.
+    let findings = lint_fixture("schema-qualified", &["V002__add_fk_and_index.sql"]);
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+
+    assert!(
+        pgm003.is_empty(),
+        "PGM003 should not fire (covering index in same file). Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // PGM001 fires exactly once for CREATE INDEX on pre-existing orders table
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    assert_eq!(
+        pgm001.len(),
+        1,
+        "Expected exactly 1 PGM001 finding for CREATE INDEX on pre-existing orders. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // Total findings should equal the PGM001 count (no unexpected findings)
+    assert_eq!(
+        findings.len(),
+        pgm001.len(),
+        "Total findings should equal PGM001 count (no unexpected findings). Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_schema_qualified_pgm001_fires() {
+    // Lint only V003. V001 and V002 are replayed as history.
+    // myschema.customers exists in catalog_before (from V001).
+    // V003 creates index on myschema.customers without CONCURRENTLY -> PGM001.
+    let findings = lint_fixture("schema-qualified", &["V003__alter_schema_table.sql"]);
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+
+    assert_eq!(
+        pgm001.len(),
+        1,
+        "Expected exactly 1 PGM001 finding. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm001[0].message.contains("myschema.customers"),
+        "PGM001 message should mention 'myschema.customers'. Got: {}",
+        pgm001[0].message
+    );
+    assert!(
+        pgm001[0].message.contains("CONCURRENTLY"),
+        "PGM001 message should mention CONCURRENTLY. Got: {}",
+        pgm001[0].message
+    );
+}
+
+#[test]
+fn test_schema_qualified_custom_default_schema() {
+    // Use default_schema = "myschema" instead of "public".
+    // With this setting:
+    //   - V001's unqualified `orders` normalizes to `myschema.orders`
+    //   - V001's `myschema.customers` stays `myschema.customers`
+    //   - V002's CREATE INDEX on `orders` targets `myschema.orders`
+    //   - V003's CREATE INDEX on `myschema.customers` targets `myschema.customers`
+    //
+    // Lint V002 and V003 as changed; V001 is replayed as baseline.
+    // Both tables are pre-existing (from V001 replay), so PGM001 fires
+    // for both indexes.
+    let findings = lint_fixture_with_schema(
+        "schema-qualified",
+        &["V002__add_fk_and_index.sql", "V003__alter_schema_table.sql"],
+        "myschema",
+    );
+
+    // PGM001 should fire for the myschema.customers index (V003)
+    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    assert!(
+        pgm001
+            .iter()
+            .any(|f| f.message.contains("myschema.customers")),
+        "Expected PGM001 for myschema.customers index. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // No PGM003 (covering index exists for the FK)
+    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    assert!(
+        pgm003.is_empty(),
+        "PGM003 should not fire (covering index present). Got:\n  {}",
+        format_findings(&findings)
     );
 }

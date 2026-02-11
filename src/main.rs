@@ -16,6 +16,7 @@ use pg_migration_lint::catalog::replay;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationHistory, MigrationLoader};
+use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter, TextReporter};
 use pg_migration_lint::rules::{self, LintContext};
 use pg_migration_lint::suppress::parse_suppressions;
@@ -90,7 +91,12 @@ fn run(args: Args) -> Result<bool> {
     let changed_files = parse_changed_files(&args)?;
 
     // --- Step 1: Load migration files ---
-    let history = load_migrations(&config)?;
+    let mut history = load_migrations(&config)?;
+
+    // --- Step 1b: Normalize schemas ---
+    // Assign the configured default schema to every unqualified QualifiedName
+    // so that catalog keys are always schema-qualified.
+    normalize::normalize_schemas(&mut history.units, &config.migrations.default_schema);
 
     // --- Step 2: Build changed files set for O(1) lookup ---
     // Convert the Vec<PathBuf> into a HashSet<PathBuf>.
