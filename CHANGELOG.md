@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.0...v1.2.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* **liquibase:** resolve XML includes relative to classpath root ([1fee1ae](https://github.com/robert-sjoblom/pg-migration-lint/commit/1fee1ae9ab84503e74354d97c33b50c9172172e1))
+
 ## [1.2.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.1.0...v1.2.0) (2026-02-11)
 
 
