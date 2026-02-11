@@ -71,7 +71,7 @@ impl Rule for Pgm011 {
                                  The DDL is cheap but ensure no application code references \
                                  this column.",
                                 col = name,
-                                table = at.name,
+                                table = at.name.display_name(),
                             ),
                             ctx.file,
                             &stmt.span,

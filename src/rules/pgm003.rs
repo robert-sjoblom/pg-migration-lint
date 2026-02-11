@@ -15,6 +15,7 @@ pub struct Pgm003;
 /// enough context to report a finding.
 struct FkInfo {
     table_name: String,
+    display_name: String,
     columns: Vec<String>,
     span: SourceSpan,
 }
@@ -78,6 +79,7 @@ impl Rule for Pgm003 {
                         if let TableConstraint::ForeignKey { columns, .. } = constraint {
                             fks.push(FkInfo {
                                 table_name: ct.name.catalog_key().to_string(),
+                                display_name: ct.name.display_name(),
                                 columns: columns.clone(),
                                 span: stmt.span.clone(),
                             });
@@ -95,6 +97,7 @@ impl Rule for Pgm003 {
                         {
                             fks.push(FkInfo {
                                 table_name: at.name.catalog_key().to_string(),
+                                display_name: at.name.display_name(),
                                 columns: columns.clone(),
                                 span: stmt.span.clone(),
                             });
@@ -123,7 +126,7 @@ impl Rule for Pgm003 {
                         "Foreign key on '{table}({cols})' has no covering index. \
                          Sequential scans on the referencing table during deletes/updates \
                          on the referenced table will cause performance issues.",
-                        table = fk.table_name,
+                        table = fk.display_name,
                         cols = cols_display,
                     ),
                     ctx.file,

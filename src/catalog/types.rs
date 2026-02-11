@@ -78,6 +78,8 @@ impl Catalog {
 #[derive(Debug, Clone)]
 pub struct TableState {
     pub name: String,
+    /// User-facing name (omits synthetic schema prefix).
+    pub display_name: String,
     pub columns: Vec<ColumnState>,
     pub indexes: Vec<IndexState>,
     pub constraints: Vec<ConstraintState>,
@@ -208,6 +210,8 @@ pub enum ConstraintState {
         name: Option<String>,
         columns: Vec<String>,
         ref_table: String,
+        /// User-facing referenced table name (omits synthetic schema prefix).
+        ref_table_display: String,
         ref_columns: Vec<String>,
     },
     Unique {

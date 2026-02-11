@@ -78,7 +78,7 @@ impl Rule for Pgm010 {
                                      without a DEFAULT will fail if the table has any rows. \
                                      Add a DEFAULT value, or add the column as nullable and backfill.",
                                     col = col.name,
-                                    table = at.name,
+                                    table = at.name.display_name(),
                                 ),
                                 ctx.file,
                                 &stmt.span,

@@ -73,7 +73,11 @@ impl Rule for Pgm002 {
                     format!(
                         "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
                          to avoid holding an exclusive lock.",
-                        di.index_name, table_name
+                        di.index_name,
+                        ctx.catalog_before
+                            .get_table(table_name)
+                            .map(|t| t.display_name.as_str())
+                            .unwrap_or(table_name)
                     ),
                     ctx.file,
                     &stmt.span,

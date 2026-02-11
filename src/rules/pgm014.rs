@@ -78,7 +78,7 @@ impl Rule for Pgm014 {
                                          have no row identity. Add a new primary key or \
                                          reconsider the column drop.",
                                         col = name,
-                                        table = at.name,
+                                        table = at.name.display_name(),
                                     ),
                                     ctx.file,
                                     &stmt.span,

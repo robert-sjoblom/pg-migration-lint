@@ -68,7 +68,7 @@ impl Rule for Pgm015 {
                             if let ConstraintState::ForeignKey {
                                 name: constraint_name,
                                 columns,
-                                ref_table,
+                                ref_table_display,
                                 ..
                             } = constraint
                                 && columns.iter().any(|c| c == name)
@@ -84,9 +84,9 @@ impl Rule for Pgm015 {
                                          '{ref_table}'. Verify that the referential integrity \
                                          guarantee is no longer needed.",
                                         col = name,
-                                        table = at.name,
+                                        table = at.name.display_name(),
                                         constraint = display_name,
-                                        ref_table = ref_table,
+                                        ref_table = ref_table_display,
                                     ),
                                     ctx.file,
                                     &stmt.span,
@@ -243,6 +243,7 @@ mod tests {
             name: None,
             columns: vec!["customer_id".to_string()],
             ref_table: "customers".to_string(),
+            ref_table_display: "customers".to_string(),
             ref_columns: vec!["id".to_string()],
         });
 

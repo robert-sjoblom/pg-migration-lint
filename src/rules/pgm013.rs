@@ -83,7 +83,7 @@ impl Rule for Pgm013 {
                                          removes unique constraint '{constraint}'. Verify that \
                                          the uniqueness guarantee is no longer needed.",
                                         col = name,
-                                        table = at.name,
+                                        table = at.name.display_name(),
                                         constraint = display_name,
                                     ),
                                     ctx.file,
@@ -107,7 +107,7 @@ impl Rule for Pgm013 {
                                          removes unique constraint '{constraint}'. Verify that \
                                          the uniqueness guarantee is no longer needed.",
                                         col = name,
-                                        table = at.name,
+                                        table = at.name.display_name(),
                                         constraint = idx.name,
                                     ),
                                     ctx.file,

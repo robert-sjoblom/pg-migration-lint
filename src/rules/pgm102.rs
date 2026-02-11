@@ -65,7 +65,9 @@ impl Rule for Pgm102 {
                      rounding, not truncation \u{2014} a value of '23:59:59.9' \
                      rounds to the next day. Use full precision and format on \
                      output instead.",
-                    col, table, tn.name,
+                    col,
+                    table.display_name(),
+                    tn.name,
                 )
             },
         )

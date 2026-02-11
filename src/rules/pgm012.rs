@@ -77,7 +77,7 @@ impl Rule for Pgm012 {
                                          prior UNIQUE constraint or unique index on column(s) \
                                          [{columns}]. Create a unique index CONCURRENTLY first, \
                                          then use ADD PRIMARY KEY USING INDEX.",
-                                table = at.name,
+                                table = at.name.display_name(),
                                 columns = columns.join(", "),
                             ),
                             ctx.file,

@@ -254,7 +254,7 @@ impl Rule for Pgm009 {
                                  under an ACCESS EXCLUSIVE lock. For large tables, this causes \
                                  extended downtime. Consider creating a new column, backfilling, \
                                  and swapping instead.",
-                                table = at.name,
+                                table = at.name.display_name(),
                                 col = column_name,
                                 old = old_display,
                                 new = new_type,
