@@ -5,7 +5,8 @@ CREATE TABLE customers (
 );
 CREATE TABLE products (
     id bigint PRIMARY KEY,
-    name text NOT NULL
+    name text NOT NULL,
+    product_code text NOT NULL UNIQUE
 );
 CREATE TABLE events (
     id bigint NOT NULL,
