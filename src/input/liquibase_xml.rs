@@ -328,30 +328,83 @@ fn handle_start_tag(
                     Ok(ParseState::InChangeSet(cs))
                 }
                 "dropIndex" => {
-                    let index_name = get_attr(attrs, "indexName").unwrap_or_default();
+                    let Some(index_name) = get_attr(attrs, "indexName") else {
+                        eprintln!(
+                            "Warning: <dropIndex> missing required 'indexName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
                     let schema_name = get_attr(attrs, "schemaName");
                     let qualified = qualify_name(&schema_name, &index_name);
                     cs.sql_parts.push(format!("DROP INDEX {};", qualified));
                     Ok(ParseState::InChangeSet(cs))
                 }
                 "addForeignKeyConstraint" => {
-                    let sql = generate_add_fk_sql(attrs);
+                    let Some(base_table) = get_attr(attrs, "baseTableName") else {
+                        eprintln!(
+                            "Warning: <addForeignKeyConstraint> missing required 'baseTableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(ref_table) = get_attr(attrs, "referencedTableName") else {
+                        eprintln!(
+                            "Warning: <addForeignKeyConstraint> missing required 'referencedTableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(base_columns) = get_attr(attrs, "baseColumnNames") else {
+                        eprintln!(
+                            "Warning: <addForeignKeyConstraint> missing required 'baseColumnNames' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(ref_columns) = get_attr(attrs, "referencedColumnNames") else {
+                        eprintln!(
+                            "Warning: <addForeignKeyConstraint> missing required 'referencedColumnNames' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let sql = generate_add_fk_sql(
+                        attrs,
+                        &base_table,
+                        &base_columns,
+                        &ref_table,
+                        &ref_columns,
+                    );
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))
                 }
                 "addPrimaryKey" => {
-                    if get_attr(attrs, "tableName").is_none() {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
                         eprintln!(
                             "Warning: <addPrimaryKey> missing required 'tableName' attribute, skipping"
                         );
                         return Ok(ParseState::InChangeSet(cs));
-                    }
-                    let sql = generate_add_pk_sql(attrs);
+                    };
+                    let Some(column_names) = get_attr(attrs, "columnNames") else {
+                        eprintln!(
+                            "Warning: <addPrimaryKey> missing required 'columnNames' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let sql = generate_add_pk_sql(attrs, &table_name, &column_names);
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))
                 }
                 "addUniqueConstraint" => {
-                    let sql = generate_add_unique_sql(attrs);
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <addUniqueConstraint> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(column_names) = get_attr(attrs, "columnNames") else {
+                        eprintln!(
+                            "Warning: <addUniqueConstraint> missing required 'columnNames' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let sql = generate_add_unique_sql(attrs, &table_name, &column_names);
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))
                 }
@@ -689,32 +742,51 @@ fn generate_create_index_sql(ci: &CreateIndexState) -> String {
 }
 
 /// Generate an ALTER TABLE ADD CONSTRAINT ... FOREIGN KEY SQL statement.
-fn generate_add_fk_sql(attrs: &[(String, String)]) -> String {
+///
+/// Required fields (`base_table`, `base_columns`, `ref_table`, `ref_columns`)
+/// are passed as pre-validated parameters. Optional fields (`constraintName`,
+/// schema names) are extracted from `attrs`.
+fn generate_add_fk_sql(
+    attrs: &[(String, String)],
+    base_table: &str,
+    base_columns: &str,
+    ref_table: &str,
+    ref_columns: &str,
+) -> String {
     let constraint_name = get_attr(attrs, "constraintName").unwrap_or_default();
-    let base_table = get_attr(attrs, "baseTableName").unwrap_or_default();
     let base_schema = get_attr(attrs, "baseTableSchemaName");
-    let base_columns = get_attr(attrs, "baseColumnNames").unwrap_or_default();
-    let ref_table = get_attr(attrs, "referencedTableName").unwrap_or_default();
     let ref_schema = get_attr(attrs, "referencedTableSchemaName");
-    let ref_columns = get_attr(attrs, "referencedColumnNames").unwrap_or_default();
 
-    let base_qualified = qualify_name(&base_schema, &base_table);
-    let ref_qualified = qualify_name(&ref_schema, &ref_table);
+    let base_qualified = qualify_name(&base_schema, base_table);
+    let ref_qualified = qualify_name(&ref_schema, ref_table);
 
-    format!(
-        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({});",
-        base_qualified, constraint_name, base_columns, ref_qualified, ref_columns
-    )
+    if constraint_name.is_empty() {
+        format!(
+            "ALTER TABLE {} ADD FOREIGN KEY ({}) REFERENCES {} ({});",
+            base_qualified, base_columns, ref_qualified, ref_columns
+        )
+    } else {
+        format!(
+            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({});",
+            base_qualified, constraint_name, base_columns, ref_qualified, ref_columns
+        )
+    }
 }
 
 /// Generate an ALTER TABLE ADD CONSTRAINT ... PRIMARY KEY SQL statement.
-fn generate_add_pk_sql(attrs: &[(String, String)]) -> String {
+///
+/// Required fields (`table_name`, `column_names`) are passed as pre-validated
+/// parameters. Optional fields (`constraintName`, `schemaName`) are extracted
+/// from `attrs`.
+fn generate_add_pk_sql(
+    attrs: &[(String, String)],
+    table_name: &str,
+    column_names: &str,
+) -> String {
     let constraint_name = get_attr(attrs, "constraintName").unwrap_or_default();
-    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
     let schema_name = get_attr(attrs, "schemaName");
-    let column_names = get_attr(attrs, "columnNames").unwrap_or_default();
 
-    let qualified = qualify_name(&schema_name, &table_name);
+    let qualified = qualify_name(&schema_name, table_name);
 
     if constraint_name.is_empty() {
         format!(
@@ -730,13 +802,19 @@ fn generate_add_pk_sql(attrs: &[(String, String)]) -> String {
 }
 
 /// Generate an ALTER TABLE ADD CONSTRAINT ... UNIQUE SQL statement.
-fn generate_add_unique_sql(attrs: &[(String, String)]) -> String {
+///
+/// Required fields (`table_name`, `column_names`) are passed as pre-validated
+/// parameters. Optional fields (`constraintName`, `schemaName`) are extracted
+/// from `attrs`.
+fn generate_add_unique_sql(
+    attrs: &[(String, String)],
+    table_name: &str,
+    column_names: &str,
+) -> String {
     let constraint_name = get_attr(attrs, "constraintName").unwrap_or_default();
-    let table_name = get_attr(attrs, "tableName").unwrap_or_default();
     let schema_name = get_attr(attrs, "schemaName");
-    let column_names = get_attr(attrs, "columnNames").unwrap_or_default();
 
-    let qualified = qualify_name(&schema_name, &table_name);
+    let qualified = qualify_name(&schema_name, table_name);
 
     if constraint_name.is_empty() {
         format!("ALTER TABLE {} ADD UNIQUE ({});", qualified, column_names)
@@ -1386,6 +1464,139 @@ mod tests {
             .expect("Should default to run_in_transaction=true");
         assert_eq!(units.len(), 1);
         assert!(units[0].run_in_transaction);
+    }
+
+    #[test]
+    fn test_add_fk_without_constraint_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addForeignKeyConstraint
+            baseTableName="orders"
+            baseColumnNames="user_id"
+            referencedTableName="users"
+            referencedColumnNames="id"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse addForeignKeyConstraint without constraintName");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert_eq!(
+            sql,
+            "ALTER TABLE orders ADD FOREIGN KEY (user_id) REFERENCES users (id);",
+            "Expected valid FK SQL without CONSTRAINT keyword, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_drop_index_missing_index_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropIndex/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle dropIndex without indexName");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            !sql.contains("DROP INDEX"),
+            "Expected no DROP INDEX for missing indexName, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("SELECT 1;"),
+            "Expected subsequent SQL to still be processed, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_add_fk_missing_base_table_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addForeignKeyConstraint
+            constraintName="fk_test"
+            baseColumnNames="user_id"
+            referencedTableName="users"
+            referencedColumnNames="id"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle addForeignKeyConstraint without baseTableName");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            !sql.contains("FOREIGN KEY"),
+            "Expected no FK SQL for missing baseTableName, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("SELECT 1;"),
+            "Expected subsequent SQL to still be processed, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_add_primary_key_missing_column_names() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addPrimaryKey tableName="orders"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle addPrimaryKey without columnNames");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            !sql.contains("PRIMARY KEY"),
+            "Expected no PRIMARY KEY SQL for missing columnNames, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("SELECT 1;"),
+            "Expected subsequent SQL to still be processed, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_add_unique_constraint_missing_table_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addUniqueConstraint columnNames="email" constraintName="uq_test"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle addUniqueConstraint without tableName");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            !sql.contains("UNIQUE"),
+            "Expected no UNIQUE SQL for missing tableName, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("SELECT 1;"),
+            "Expected subsequent SQL to still be processed, got: {}",
+            sql
+        );
     }
 
     #[test]
