@@ -286,9 +286,16 @@ mod tests {
 
     #[test]
     fn test_severity_parse() {
+        assert_eq!(Severity::parse("blocker"), Some(Severity::Blocker));
         assert_eq!(Severity::parse("critical"), Some(Severity::Critical));
-        assert_eq!(Severity::parse("CRITICAL"), Some(Severity::Critical));
+        assert_eq!(Severity::parse("major"), Some(Severity::Major));
+        assert_eq!(Severity::parse("minor"), Some(Severity::Minor));
         assert_eq!(Severity::parse("info"), Some(Severity::Info));
+        // Case-insensitive
+        assert_eq!(Severity::parse("CRITICAL"), Some(Severity::Critical));
+        assert_eq!(Severity::parse("Blocker"), Some(Severity::Blocker));
+        // Invalid
         assert_eq!(Severity::parse("garbage"), None);
+        assert_eq!(Severity::parse("none"), None);
     }
 }
