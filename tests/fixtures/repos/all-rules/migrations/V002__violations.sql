@@ -28,3 +28,6 @@ ALTER TABLE products DROP COLUMN product_code;
 
 -- PGM014: DROP COLUMN silently removes primary key (account_id is the PK from V001)
 ALTER TABLE accounts DROP COLUMN account_id;
+
+-- PGM015: DROP COLUMN silently removes foreign key (account_id references accounts from V001)
+ALTER TABLE addresses DROP COLUMN account_id;

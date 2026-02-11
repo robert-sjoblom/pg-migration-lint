@@ -17,4 +17,9 @@ CREATE TABLE accounts (
     account_id bigint PRIMARY KEY,
     account_name text NOT NULL
 );
+CREATE TABLE addresses (
+    address_id bigint PRIMARY KEY,
+    account_id bigint REFERENCES accounts(account_id)
+);
+CREATE INDEX idx_addresses_account_id ON addresses (account_id);
 CREATE INDEX idx_customers_email ON customers (email);
