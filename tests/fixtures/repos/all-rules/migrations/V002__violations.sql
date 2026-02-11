@@ -25,3 +25,6 @@ ALTER TABLE products DROP COLUMN name;
 
 -- PGM013: DROP COLUMN silently removes unique constraint (product_code has inline UNIQUE from V001)
 ALTER TABLE products DROP COLUMN product_code;
+
+-- PGM014: DROP COLUMN silently removes primary key (account_id is the PK from V001)
+ALTER TABLE accounts DROP COLUMN account_id;
