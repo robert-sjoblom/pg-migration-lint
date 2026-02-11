@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.2...v1.3.0) (2026-02-11)
+
+
+### Features
+
+* post-evaluation improvements (display names, config suppression, changed-files ([0b37adb](https://github.com/robert-sjoblom/pg-migration-lint/commit/0b37adb80f2349815ad44b61c540e32e7b9e57fb))
+
 ## [1.2.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.1...v1.2.2) (2026-02-11)
 
 
