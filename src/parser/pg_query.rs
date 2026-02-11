@@ -753,14 +753,16 @@ fn extract_table_hint_from_raw(sql: &str) -> Option<String> {
     let upper = sql.to_uppercase();
 
     // Try to find "ALTER TABLE <name>" pattern
-    if let Some(pos) = upper.find("ALTER TABLE") {
-        let rest = &sql[pos + 11..];
+    let kw = "ALTER TABLE";
+    if let Some(pos) = upper.find(kw) {
+        let rest = &sql[pos + kw.len()..];
         return extract_first_identifier(rest);
     }
 
     // Try to find "CREATE TABLE <name>" pattern
-    if let Some(pos) = upper.find("CREATE TABLE") {
-        let rest = &sql[pos + 12..];
+    let kw = "CREATE TABLE";
+    if let Some(pos) = upper.find(kw) {
+        let rest = &sql[pos + kw.len()..];
         return extract_first_identifier(rest);
     }
 
@@ -771,15 +773,19 @@ fn extract_table_hint_from_raw(sql: &str) -> Option<String> {
 fn extract_first_identifier(s: &str) -> Option<String> {
     let trimmed = s.trim();
 
-    // Skip "IF NOT EXISTS" / "IF EXISTS"
-    let trimmed = if trimmed.to_uppercase().starts_with("IF NOT EXISTS") {
-        trimmed[13..].trim()
-    } else if trimmed.to_uppercase().starts_with("IF EXISTS") {
-        trimmed[9..].trim()
-    } else if trimmed.to_uppercase().starts_with("ONLY") {
-        trimmed[4..].trim()
-    } else {
-        trimmed
+    // Skip optional keywords before the identifier
+    let trimmed = {
+        let upper = trimmed.to_uppercase();
+        let skip_len = if upper.starts_with("IF NOT EXISTS") {
+            "IF NOT EXISTS".len()
+        } else if upper.starts_with("IF EXISTS") {
+            "IF EXISTS".len()
+        } else if upper.starts_with("ONLY") {
+            "ONLY".len()
+        } else {
+            0
+        };
+        trimmed[skip_len..].trim()
     };
 
     // Take characters that could be part of an identifier (letters, digits, _, .)
@@ -1443,6 +1449,30 @@ mod tests {
     #[test]
     fn test_extract_table_hint_create() {
         let hint = extract_table_hint_from_raw("CREATE TABLE IF NOT EXISTS orders (id int);");
+        assert_eq!(hint.as_deref(), Some("orders"));
+    }
+
+    #[test]
+    fn test_extract_table_hint_alter_lowercase() {
+        let hint = extract_table_hint_from_raw("alter table orders add column x int;");
+        assert_eq!(hint.as_deref(), Some("orders"));
+    }
+
+    #[test]
+    fn test_extract_table_hint_create_if_exists() {
+        let hint = extract_table_hint_from_raw("CREATE TABLE IF EXISTS orders (id int);");
+        assert_eq!(hint.as_deref(), Some("orders"));
+    }
+
+    #[test]
+    fn test_extract_table_hint_alter_only() {
+        let hint = extract_table_hint_from_raw("ALTER TABLE ONLY orders ADD COLUMN x int;");
+        assert_eq!(hint.as_deref(), Some("orders"));
+    }
+
+    #[test]
+    fn test_extract_table_hint_schema_qualified() {
+        let hint = extract_table_hint_from_raw("ALTER TABLE public.orders ADD COLUMN x int;");
         assert_eq!(hint.as_deref(), Some("orders"));
     }
 
