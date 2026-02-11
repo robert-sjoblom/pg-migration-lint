@@ -155,6 +155,62 @@ impl Config {
     pub fn from_file(path: &PathBuf) -> Result<Self, ConfigError> {
         let contents = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&contents)?;
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Validate configuration values.
+    fn validate(&self) -> Result<(), ConfigError> {
+        let fail_on = &self.cli.fail_on;
+        if !fail_on.eq_ignore_ascii_case("none")
+            && crate::rules::Severity::parse(fail_on).is_none()
+        {
+            return Err(ConfigError::Validation(format!(
+                "invalid fail_on value '{}'. Valid values: blocker, critical, major, minor, info, none",
+                fail_on
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: parse TOML into Config and run validation.
+    fn parse_and_validate(toml_str: &str) -> Result<Config, ConfigError> {
+        let config: Config = toml::from_str(toml_str)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    #[test]
+    fn test_valid_fail_on_values() {
+        for value in &["blocker", "critical", "major", "minor", "info", "none"] {
+            let toml = format!("[cli]\nfail_on = \"{}\"", value);
+            assert!(
+                parse_and_validate(&toml).is_ok(),
+                "fail_on = '{}' should be valid",
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_fail_on_rejected() {
+        let toml = "[cli]\nfail_on = \"garbage\"";
+        let err = parse_and_validate(toml).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid fail_on"),
+            "Expected validation error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_default_fail_on_is_valid() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
     }
 }
