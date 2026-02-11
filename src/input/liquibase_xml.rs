@@ -778,11 +778,7 @@ fn generate_add_fk_sql(
 /// Required fields (`table_name`, `column_names`) are passed as pre-validated
 /// parameters. Optional fields (`constraintName`, `schemaName`) are extracted
 /// from `attrs`.
-fn generate_add_pk_sql(
-    attrs: &[(String, String)],
-    table_name: &str,
-    column_names: &str,
-) -> String {
+fn generate_add_pk_sql(attrs: &[(String, String)], table_name: &str, column_names: &str) -> String {
     let constraint_name = get_attr(attrs, "constraintName").unwrap_or_default();
     let schema_name = get_attr(attrs, "schemaName");
 
@@ -1484,8 +1480,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert_eq!(
-            sql,
-            "ALTER TABLE orders ADD FOREIGN KEY (user_id) REFERENCES users (id);",
+            sql, "ALTER TABLE orders ADD FOREIGN KEY (user_id) REFERENCES users (id);",
             "Expected valid FK SQL without CONSTRAINT keyword, got: {}",
             sql
         );
