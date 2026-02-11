@@ -259,6 +259,82 @@ fn test_pgm004_finding_details() {
 }
 
 #[test]
+fn test_pgm002_finding_details() {
+    // V003 drops idx_customers_email WITHOUT CONCURRENTLY.
+    // V001 is replayed as baseline (creates the index), V002 and V003 are changed.
+    let findings = lint_fixture("all-rules", &["V002__violations.sql", "V003__more_violations.sql"]);
+    let pgm002: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM002").collect();
+
+    assert_eq!(pgm002.len(), 1, "Expected exactly 1 PGM002 finding");
+    assert_eq!(
+        pgm002[0].severity,
+        pg_migration_lint::rules::Severity::Critical,
+        "PGM002 severity should be Critical"
+    );
+    assert!(
+        pgm002[0].message.contains("idx_customers_email"),
+        "PGM002 message should mention 'idx_customers_email' index"
+    );
+    assert!(
+        pgm002[0].message.contains("customers"),
+        "PGM002 message should mention 'customers' table"
+    );
+    assert!(
+        pgm002[0].message.contains("CONCURRENTLY"),
+        "PGM002 message should mention CONCURRENTLY"
+    );
+}
+
+#[test]
+fn test_pgm005_finding_details() {
+    // V003 creates the 'settings' table with UNIQUE NOT NULL but no PK.
+    let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
+    let pgm005: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM005").collect();
+
+    assert_eq!(pgm005.len(), 1, "Expected exactly 1 PGM005 finding");
+    assert_eq!(
+        pgm005[0].severity,
+        pg_migration_lint::rules::Severity::Info,
+        "PGM005 severity should be Info"
+    );
+    assert!(
+        pgm005[0].message.contains("settings"),
+        "PGM005 message should mention 'settings' table"
+    );
+    assert!(
+        pgm005[0].message.contains("UNIQUE NOT NULL"),
+        "PGM005 message should mention 'UNIQUE NOT NULL'"
+    );
+    assert!(
+        pgm005[0].message.contains("PRIMARY KEY"),
+        "PGM005 message should mention 'PRIMARY KEY'"
+    );
+}
+
+#[test]
+fn test_pgm006_finding_details() {
+    // V003 uses CREATE INDEX CONCURRENTLY inside a transaction (SqlLoader
+    // sets run_in_transaction=true by default).
+    let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
+    let pgm006: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM006").collect();
+
+    assert_eq!(pgm006.len(), 1, "Expected exactly 1 PGM006 finding");
+    assert_eq!(
+        pgm006[0].severity,
+        pg_migration_lint::rules::Severity::Critical,
+        "PGM006 severity should be Critical"
+    );
+    assert!(
+        pgm006[0].message.contains("CONCURRENTLY"),
+        "PGM006 message should mention 'CONCURRENTLY'"
+    );
+    assert!(
+        pgm006[0].message.contains("transaction"),
+        "PGM006 message should mention 'transaction'"
+    );
+}
+
+#[test]
 fn test_all_rules_changed_files_all_empty() {
     // When all files are changed (empty changed_files), tables created in V001
     // are in tables_created_in_change, so PGM001/009/010/011 won't fire for
@@ -502,17 +578,19 @@ fn test_enterprise_finding_count_reasonable() {
         ],
     );
 
-    // Should have a significant number of findings
+    // Should have a significant number of findings.
+    // Actual count is 45 as of 2026-02-11; allow ±3 for minor rule tuning.
     assert!(
-        findings.len() >= 10,
-        "Expected at least 10 findings from V005-V015, got {}: \n  {}",
+        findings.len() >= 42,
+        "Expected at least 42 findings from V005-V015, got {}: \n  {}",
         findings.len(),
         format_findings(&findings)
     );
     assert!(
-        findings.len() <= 60,
-        "Expected at most 60 findings from V005-V015, got {}",
-        findings.len()
+        findings.len() <= 48,
+        "Expected at most 48 findings from V005-V015, got {}:\n  {}",
+        findings.len(),
+        format_findings(&findings)
     );
 }
 
