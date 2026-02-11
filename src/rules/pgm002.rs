@@ -57,28 +57,27 @@ impl Rule for Pgm002 {
                     continue;
                 }
 
-                // Find which table this index belongs to by searching catalog_before.
-                let owning_table = ctx.catalog_before.tables().find(|table| {
-                    // Skip tables created in the current change set.
-                    if ctx.tables_created_in_change.contains(&table.name) {
-                        return false;
-                    }
-                    table.indexes.iter().any(|idx| idx.name == di.index_name)
-                });
+                // Look up which table owns this index via the catalog's reverse index.
+                let Some(table_name) = ctx.catalog_before.table_for_index(&di.index_name) else {
+                    continue;
+                };
 
-                if let Some(table) = owning_table {
-                    findings.push(Finding::new(
-                        self.id(),
-                        self.default_severity(),
-                        format!(
-                            "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
-                             to avoid holding an exclusive lock.",
-                            di.index_name, table.name
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
+                // Skip tables created in the current change set.
+                if ctx.tables_created_in_change.contains(table_name) {
+                    continue;
                 }
+
+                findings.push(Finding::new(
+                    self.id(),
+                    self.default_severity(),
+                    format!(
+                        "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
+                         to avoid holding an exclusive lock.",
+                        di.index_name, table_name
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                ));
             }
         }
 

@@ -78,42 +78,70 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
 
     // If the table doesn't exist, silently skip. It may be in a different
     // schema or managed outside our tracked migrations.
-    let Some(table) = catalog.get_table_mut(&table_key) else {
+    if !catalog.has_table(&table_key) {
         return;
-    };
+    }
 
-    for action in &at.actions {
-        match action {
-            AlterTableAction::AddColumn(col_def) => {
-                table.columns.push(column_def_to_state(col_def));
+    // Collect indexes to register/unregister so we can update the reverse map
+    // after releasing the mutable borrow on the table.
+    let mut indexes_to_register: Vec<String> = Vec::new();
+    let mut indexes_to_unregister: Vec<String> = Vec::new();
 
-                // Handle inline PK on the added column
-                if col_def.is_inline_pk {
-                    apply_table_constraint(
-                        table,
-                        &TableConstraint::PrimaryKey {
-                            columns: vec![col_def.name.clone()],
-                        },
-                    );
+    {
+        let table = catalog.get_table_mut(&table_key).unwrap();
+
+        for action in &at.actions {
+            match action {
+                AlterTableAction::AddColumn(col_def) => {
+                    table.columns.push(column_def_to_state(col_def));
+
+                    // Handle inline PK on the added column
+                    if col_def.is_inline_pk {
+                        apply_table_constraint(
+                            table,
+                            &TableConstraint::PrimaryKey {
+                                columns: vec![col_def.name.clone()],
+                            },
+                        );
+                        indexes_to_register.push(format!("{}_pkey", table.name));
+                    }
                 }
-            }
-            AlterTableAction::DropColumn { name } => {
-                table.remove_column(name);
-            }
-            AlterTableAction::AddConstraint(constraint) => {
-                apply_table_constraint(table, constraint);
-            }
-            AlterTableAction::AlterColumnType {
-                column_name,
-                new_type,
-                ..
-            } => {
-                if let Some(col) = table.get_column_mut(column_name) {
-                    col.type_name = new_type.clone();
+                AlterTableAction::DropColumn { name } => {
+                    // Collect index names that will be removed by the column drop.
+                    for idx in &table.indexes {
+                        if idx.columns.iter().any(|c| c == name) {
+                            indexes_to_unregister.push(idx.name.clone());
+                        }
+                    }
+                    table.remove_column(name);
                 }
+                AlterTableAction::AddConstraint(constraint) => {
+                    // Track synthetic PK indexes created by apply_table_constraint.
+                    if matches!(constraint, TableConstraint::PrimaryKey { .. }) {
+                        indexes_to_register.push(format!("{}_pkey", table.name));
+                    }
+                    apply_table_constraint(table, constraint);
+                }
+                AlterTableAction::AlterColumnType {
+                    column_name,
+                    new_type,
+                    ..
+                } => {
+                    if let Some(col) = table.get_column_mut(column_name) {
+                        col.type_name = new_type.clone();
+                    }
+                }
+                AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
             }
-            AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
         }
+    }
+
+    // Update reverse map outside the table borrow.
+    for name in indexes_to_unregister {
+        catalog.unregister_index(&name);
+    }
+    for name in indexes_to_register {
+        catalog.register_index(&name, &table_key);
     }
 }
 
@@ -130,26 +158,25 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
     let columns: Vec<String> = ci.columns.iter().map(|ic| ic.name.clone()).collect();
 
     table.indexes.push(IndexState {
-        name: index_name,
+        name: index_name.clone(),
         columns,
         unique: ci.unique,
     });
+
+    // Register after confirming the table exists, to avoid ghost entries.
+    catalog.register_index(&index_name, &table_key);
 }
 
 /// Handle DROP INDEX: find and remove the named index from whichever table has it.
 /// If no table has the index, silently skip.
 fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
-    // DropIndex doesn't carry the table name, so we must search all tables
-    // to find which one owns this index. We first find the table name using
-    // an immutable scan, then mutate via get_table_mut.
-    let owning_table = catalog
-        .tables()
-        .find(|t| t.indexes.iter().any(|idx| idx.name == di.index_name))
-        .map(|t| t.name.clone());
+    let Some(table_name) = catalog.table_for_index(&di.index_name).map(str::to_string) else {
+        return;
+    };
 
-    if let Some(table_name) = owning_table
-        && let Some(table) = catalog.get_table_mut(&table_name)
-    {
+    catalog.unregister_index(&di.index_name);
+
+    if let Some(table) = catalog.get_table_mut(&table_name) {
         table.indexes.retain(|idx| idx.name != di.index_name);
     }
 }
@@ -296,9 +323,18 @@ mod tests {
         let unit = make_unit(vec![
             IrNode::CreateTable(CreateTable {
                 name: qname("t"),
-                columns: vec![col("id", "integer", false)],
+                columns: vec![col_pk("id", "integer")],
                 constraints: vec![],
                 temporary: false,
+            }),
+            IrNode::CreateIndex(CreateIndex {
+                index_name: Some("idx_id".to_string()),
+                table_name: qname("t"),
+                columns: vec![IndexColumn {
+                    name: "id".to_string(),
+                }],
+                unique: false,
+                concurrent: false,
             }),
             IrNode::DropTable(DropTable { name: qname("t") }),
         ]);
@@ -308,6 +344,14 @@ mod tests {
         assert!(
             !catalog.has_table("t"),
             "Table should be gone after DROP TABLE"
+        );
+        assert!(
+            catalog.table_for_index("t_pkey").is_none(),
+            "Reverse map should be cleared for PK index after DROP TABLE"
+        );
+        assert!(
+            catalog.table_for_index("idx_id").is_none(),
+            "Reverse map should be cleared for regular index after DROP TABLE"
         );
     }
 
@@ -464,6 +508,10 @@ mod tests {
             table.indexes.is_empty(),
             "Indexes should be empty after DROP INDEX"
         );
+        assert!(
+            catalog.table_for_index("idx_a").is_none(),
+            "Reverse map should be cleared after DROP INDEX"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -541,6 +589,10 @@ mod tests {
         assert!(
             table.indexes.is_empty(),
             "Index referencing dropped column should be removed"
+        );
+        assert!(
+            catalog.table_for_index("idx_ab").is_none(),
+            "Reverse map should be cleared after DROP COLUMN removes index"
         );
     }
 
@@ -1002,6 +1054,11 @@ mod tests {
             table.constraints.len(),
             3,
             "Should have PK, Unique, and Check constraints"
+        );
+        assert_eq!(
+            catalog.table_for_index("t_pkey"),
+            Some("t"),
+            "Synthetic PK index should be in reverse map after ALTER TABLE ADD PRIMARY KEY"
         );
     }
 

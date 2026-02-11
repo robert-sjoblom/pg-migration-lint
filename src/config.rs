@@ -162,8 +162,7 @@ impl Config {
     /// Validate configuration values.
     fn validate(&self) -> Result<(), ConfigError> {
         let fail_on = &self.cli.fail_on;
-        if !fail_on.eq_ignore_ascii_case("none")
-            && crate::rules::Severity::parse(fail_on).is_none()
+        if !fail_on.eq_ignore_ascii_case("none") && crate::rules::Severity::parse(fail_on).is_none()
         {
             return Err(ConfigError::Validation(format!(
                 "invalid fail_on value '{}'. Valid values: blocker, critical, major, minor, info, none",
