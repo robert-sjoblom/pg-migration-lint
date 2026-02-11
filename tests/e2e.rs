@@ -8,11 +8,7 @@ use std::process::{Command, Output};
 
 /// Locate the compiled binary built by `cargo test`.
 fn binary_path() -> PathBuf {
-    let mut path = std::env::current_exe().expect("current_exe");
-    path.pop(); // remove test binary name
-    path.pop(); // remove `deps`
-    path.push("pg-migration-lint");
-    path
+    PathBuf::from(env!("CARGO_BIN_EXE_pg-migration-lint"))
 }
 
 /// Root of the test fixtures directory.
