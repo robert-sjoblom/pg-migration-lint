@@ -54,7 +54,11 @@ impl Rule for Pgm102 {
             ctx,
             self.id(),
             self.default_severity(),
-            |tn| (tn.name == "timestamp" || tn.name == "timestamptz") && tn.modifiers == [0],
+            |tn| {
+                (tn.name.eq_ignore_ascii_case("timestamp")
+                    || tn.name.eq_ignore_ascii_case("timestamptz"))
+                    && tn.modifiers == [0]
+            },
             |col, table, tn| {
                 format!(
                     "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \

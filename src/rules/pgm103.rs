@@ -55,7 +55,7 @@ impl Rule for Pgm103 {
             ctx,
             self.id(),
             self.default_severity(),
-            |tn| tn.name == "bpchar",
+            |tn| tn.name.eq_ignore_ascii_case("bpchar"),
             |col, table, tn| {
                 let display = if let Some(&n) = tn.modifiers.first() {
                     format!("char({})", n)

@@ -55,7 +55,7 @@ impl Rule for Pgm101 {
             ctx,
             self.id(),
             self.default_severity(),
-            |tn| tn.name == "timestamp",
+            |tn| tn.name.eq_ignore_ascii_case("timestamp"),
             |col, table, _tn| {
                 format!(
                     "Column '{}' on '{}' uses 'timestamp without time zone'. \

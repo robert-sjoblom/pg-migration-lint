@@ -56,7 +56,7 @@ impl Rule for Pgm104 {
             ctx,
             self.id(),
             self.default_severity(),
-            |tn| tn.name == "money",
+            |tn| tn.name.eq_ignore_ascii_case("money"),
             |col, table, _tn| {
                 format!(
                     "Column '{}' on '{}' uses the 'money' type. The money type \
