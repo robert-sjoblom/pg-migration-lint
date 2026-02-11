@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.1.0...v1.2.0) (2026-02-11)
+
+
+### Features
+
+* **rules:** add PGM013 — DROP COLUMN silently removes unique constraint ([c1c9bd8](https://github.com/robert-sjoblom/pg-migration-lint/commit/c1c9bd8981a9d2a25146c5bcba79dd70bffd6c95))
+* **rules:** add PGM014 — DROP COLUMN silently removes primary key ([0ce1364](https://github.com/robert-sjoblom/pg-migration-lint/commit/0ce136463d89aaeb2cda1aefa081e2e3ccc001e9))
+* **rules:** add PGM015 — DROP COLUMN silently removes foreign key ([8ff1d90](https://github.com/robert-sjoblom/pg-migration-lint/commit/8ff1d900819be73bc2235a121cf832e6cdfd436a))
+* schema-aware catalog with configurable default_schema ([4c79fec](https://github.com/robert-sjoblom/pg-migration-lint/commit/4c79fecab8c03d1b251da57b4a74b4ceb25da4f9))
+
+
+### Bug Fixes
+
+* **catalog:** remove_column now cleans up constraints ([33c7728](https://github.com/robert-sjoblom/pg-migration-lint/commit/33c77287bd549ad584c7df54a7e3aa78ccb582ef))
+
 ## [1.1.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.0.1...v1.1.0) (2026-02-11)
 
 
