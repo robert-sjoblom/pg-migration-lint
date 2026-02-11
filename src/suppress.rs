@@ -20,6 +20,15 @@ pub struct Suppressions {
 }
 
 impl Suppressions {
+    /// Return all distinct rule IDs referenced by any suppression directive.
+    pub fn rule_ids(&self) -> HashSet<&str> {
+        let mut ids: HashSet<&str> = self.file_level.iter().map(|s| s.as_str()).collect();
+        for rules in self.line_level.values() {
+            ids.extend(rules.iter().map(|s| s.as_str()));
+        }
+        ids
+    }
+
     /// Check if a rule is suppressed at a given line.
     pub fn is_suppressed(&self, rule_id: &str, statement_line: usize) -> bool {
         // Check file-level suppressions
