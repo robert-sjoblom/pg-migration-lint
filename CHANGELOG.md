@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.1...v1.2.2) (2026-02-11)
+
+
+### Bug Fixes
+
+* **liquibase:** skip duplicate includes and support formatted SQL ([6f7c415](https://github.com/robert-sjoblom/pg-migration-lint/commit/6f7c415be907b6c749ccc50e648e8616d2496b96))
+
 ## [1.2.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.0...v1.2.1) (2026-02-11)
 
 
