@@ -10,6 +10,7 @@ This directory contains test fixtures for pg-migration-lint.
   - `suppressed/` - All violations suppressed, expect 0 findings
   - `fk-with-later-index/` - Tests PGM003 FK detection across migration boundaries
   - `liquibase-xml/` - Tests Liquibase fallback parser
+  - `schema-qualified/` - Tests schema-qualified names and cross-schema references
 
 ## Usage
 

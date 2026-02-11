@@ -1132,6 +1132,54 @@ mod tests {
     }
 
     #[test]
+    fn test_different_schemas_stored_separately() {
+        let mut catalog = Catalog::new();
+
+        // Create "public.orders"
+        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
+            name: QualifiedName::qualified("public", "orders"),
+            columns: vec![col_pk("id", "integer")],
+            constraints: vec![],
+            temporary: false,
+        })]);
+        apply(&mut catalog, &unit1);
+
+        // Create "audit.orders" — same table name, different schema
+        let unit2 = make_unit(vec![IrNode::CreateTable(CreateTable {
+            name: QualifiedName::qualified("audit", "orders"),
+            columns: vec![col("log_id", "integer", false), col("data", "text", true)],
+            constraints: vec![],
+            temporary: false,
+        })]);
+        apply(&mut catalog, &unit2);
+
+        // Both should exist as separate entries
+        assert!(
+            catalog.has_table("public.orders"),
+            "public.orders should exist"
+        );
+        assert!(
+            catalog.has_table("audit.orders"),
+            "audit.orders should exist"
+        );
+
+        // Verify they have different column structures
+        let public_orders = catalog
+            .get_table("public.orders")
+            .expect("public.orders should exist");
+        assert_eq!(public_orders.columns.len(), 1);
+        assert_eq!(public_orders.columns[0].name, "id");
+        assert!(public_orders.has_primary_key);
+
+        let audit_orders = catalog
+            .get_table("audit.orders")
+            .expect("audit.orders should exist");
+        assert_eq!(audit_orders.columns.len(), 2);
+        assert_eq!(audit_orders.columns[0].name, "log_id");
+        assert!(!audit_orders.has_primary_key);
+    }
+
+    #[test]
     fn test_create_index_without_name() {
         let mut catalog = Catalog::new();
 

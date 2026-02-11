@@ -37,16 +37,17 @@ cargo run -- --format text
 ### Core Pipeline
 
 ```
-Input Files → Parser → IR → Replay Engine → Rule Engine → Reporter
-                         ↓
-                   Table Catalog
+Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine → Reporter
+                                            ↓
+                                      Table Catalog
 ```
 
 1. **Input Layer** (`src/input/`): Loads raw SQL and Liquibase migrations
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
-3. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-4. **Rules** (`src/rules/`): Lints changed files against 11 rules (PGM001-PGM011)
-5. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
+3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
+4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM012, PGM101-PGM105)
+6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
 
@@ -66,7 +67,7 @@ pub enum IrNode {
 ```
 
 Supporting types:
-- `QualifiedName` - schema-qualified name with `catalog_key()` method for lookup
+- `QualifiedName` - schema-qualified name with `catalog_key()` returning `"schema.name"` after normalization
 - `ColumnDef { name, type_name, nullable, default_expr, is_inline_pk }`
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
@@ -256,6 +257,7 @@ paths = ["db/migrations", "db/changelog.xml"]
 strategy = "liquibase"  # or "filename_lexicographic"
 include = ["*.sql", "*.xml"]
 exclude = ["**/test/**"]
+default_schema = "public"  # Schema for unqualified table names
 
 [liquibase]
 bridge_jar_path = "tools/liquibase-bridge.jar"
