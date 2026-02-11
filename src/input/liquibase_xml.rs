@@ -52,24 +52,34 @@ impl XmlFallbackLoader {
         root_dir: &Path,
         visited: &mut HashSet<PathBuf>,
     ) -> Result<Vec<RawMigrationUnit>, LoadError> {
-        // Detect circular includes.
+        // Skip files already processed (Liquibase silently ignores
+        // duplicate includes). This also prevents true circular includes
+        // from looping infinitely.
         let canonical = path.to_path_buf();
         if !visited.insert(canonical) {
-            return Err(LoadError::Parse {
-                path: path.to_path_buf(),
-                message: format!("Circular include detected: {}", path.display()),
-            });
+            return Ok(Vec::new());
         }
 
-        let xml = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
+        let content = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let mut units = parse_changelog_xml(&xml, path)?;
+
+        // Liquibase changelogs can include .sql files that use the
+        // "--liquibase formatted sql" format. Route these to a dedicated
+        // parser instead of the XML parser.
+        let is_sql = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("sql"));
+        if is_sql {
+            return parse_liquibase_formatted_sql(&content, path);
+        }
+
+        let mut units = parse_changelog_xml(&content, path)?;
 
         // Process <include> directives by loading referenced files.
         // Paths are resolved relative to root_dir (classpath root).
-        let include_paths = extract_include_paths(&xml, root_dir, path)?;
+        let include_paths = extract_include_paths(&content, root_dir, path)?;
         for include_path in include_paths {
             let included_units = self.load_with_root(&include_path, root_dir, visited)?;
             units.extend(included_units);
@@ -191,7 +201,102 @@ impl Default for ColumnConstraints {
     }
 }
 
-/// Parse a Liquibase XML changelog into `RawMigrationUnit` entries.
+/// Parse a `--liquibase formatted sql` file into `RawMigrationUnit`s.
+///
+/// Each `--changeset author:id` comment starts a new changeset. All SQL
+/// lines between changeset markers (or until EOF) form that changeset's SQL.
+fn parse_liquibase_formatted_sql(
+    content: &str,
+    source_path: &Path,
+) -> Result<Vec<RawMigrationUnit>, LoadError> {
+    let mut units = Vec::new();
+    let mut current_id: Option<String> = None;
+    let mut current_sql = String::new();
+    let mut current_line_offset: usize = 0;
+    let mut run_in_transaction = true;
+
+    for (line_idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        // Skip the header line
+        if trimmed.eq_ignore_ascii_case("--liquibase formatted sql") {
+            continue;
+        }
+
+        // Check for changeset marker: --changeset author:id
+        if let Some(rest) = trimmed
+            .strip_prefix("--changeset ")
+            .or_else(|| trimmed.strip_prefix("--changeSet "))
+        {
+            // Flush previous changeset
+            if let Some(id) = current_id.take() {
+                let sql = current_sql.trim().to_string();
+                if !sql.is_empty() {
+                    units.push(RawMigrationUnit {
+                        id,
+                        sql,
+                        source_file: source_path.to_path_buf(),
+                        source_line_offset: current_line_offset,
+                        run_in_transaction,
+                        is_down: false,
+                    });
+                }
+            }
+
+            // Parse "author:id [attributes...]" — the id is between the
+            // first ':' and the next whitespace (attributes follow after).
+            current_id = Some(
+                rest.split_once(':')
+                    .map(|(_, after_colon)| {
+                        after_colon
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| rest.trim().to_string()),
+            );
+            current_sql = String::new();
+            current_line_offset = line_idx + 1; // 1-based
+            run_in_transaction = !rest.contains("runInTransaction:false");
+            continue;
+        }
+
+        // Skip other Liquibase comment directives
+        if trimmed.starts_with("--rollback ")
+            || trimmed.starts_with("--preconditions ")
+            || trimmed.starts_with("--comment ")
+        {
+            continue;
+        }
+
+        // Accumulate SQL lines
+        if current_id.is_some() {
+            if !current_sql.is_empty() {
+                current_sql.push('\n');
+            }
+            current_sql.push_str(line);
+        }
+    }
+
+    // Flush last changeset
+    if let Some(id) = current_id {
+        let sql = current_sql.trim().to_string();
+        if !sql.is_empty() {
+            units.push(RawMigrationUnit {
+                id,
+                sql,
+                source_file: source_path.to_path_buf(),
+                source_line_offset: current_line_offset,
+                run_in_transaction,
+                is_down: false,
+            });
+        }
+    }
+
+    Ok(units)
+}
+
 ///
 /// Iterates through XML events using a state machine to track position
 /// within the document structure. Each `<changeSet>` produces one
@@ -1647,6 +1752,209 @@ mod tests {
             sql.contains("SELECT 1;"),
             "Expected subsequent SQL to still be processed, got: {}",
             sql
+        );
+    }
+
+    #[test]
+    fn test_duplicate_include_loads_changeset_only_once() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+
+        // child.xml contains one changeset
+        let child_path = dir.path().join("child.xml");
+        std::fs::write(
+            &child_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="child-1" author="dev">
+        <sql>CREATE TABLE widgets (id int);</sql>
+    </changeSet>
+</databaseChangeLog>"#,
+        )
+        .expect("Failed to write child.xml");
+
+        // master.xml includes child.xml twice
+        let master_path = dir.path().join("master.xml");
+        std::fs::write(
+            &master_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <include file="child.xml"/>
+    <include file="child.xml"/>
+</databaseChangeLog>"#,
+        )
+        .expect("Failed to write master.xml");
+
+        let loader = XmlFallbackLoader;
+        let units = loader
+            .load(&master_path)
+            .expect("Should handle duplicate includes");
+
+        // The changeset from child.xml must appear exactly once
+        assert_eq!(
+            units.len(),
+            1,
+            "Expected 1 unit (duplicate include should be skipped), got {}",
+            units.len()
+        );
+        assert_eq!(units[0].id, "child-1");
+        assert!(
+            units[0].sql.contains("CREATE TABLE widgets"),
+            "Expected child changeset SQL, got: {}",
+            units[0].sql
+        );
+    }
+
+    #[test]
+    fn test_circular_include_does_not_loop() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+
+        // file_a.xml includes file_b.xml and has its own changeset
+        let file_a_path = dir.path().join("file_a.xml");
+        let file_b_path = dir.path().join("file_b.xml");
+
+        std::fs::write(
+            &file_a_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="a-1" author="dev">
+        <sql>CREATE TABLE alpha (id int);</sql>
+    </changeSet>
+    <include file="file_b.xml"/>
+</databaseChangeLog>"#,
+        )
+        .expect("Failed to write file_a.xml");
+
+        // file_b.xml includes file_a.xml (circular) and has its own changeset
+        std::fs::write(
+            &file_b_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="b-1" author="dev">
+        <sql>CREATE TABLE beta (id int);</sql>
+    </changeSet>
+    <include file="file_a.xml"/>
+</databaseChangeLog>"#,
+        )
+        .expect("Failed to write file_b.xml");
+
+        let loader = XmlFallbackLoader;
+        let units = loader
+            .load(&file_a_path)
+            .expect("Should handle circular includes without infinite loop");
+
+        // Both changesets should appear exactly once
+        assert_eq!(
+            units.len(),
+            2,
+            "Expected 2 units (one from each file), got {}",
+            units.len()
+        );
+
+        let ids: Vec<&str> = units.iter().map(|u| u.id.as_str()).collect();
+        assert!(
+            ids.contains(&"a-1"),
+            "Expected changeset a-1, got: {:?}",
+            ids
+        );
+        assert!(
+            ids.contains(&"b-1"),
+            "Expected changeset b-1, got: {:?}",
+            ids
+        );
+
+        // Verify SQL content
+        let a_unit = units.iter().find(|u| u.id == "a-1").unwrap();
+        assert!(
+            a_unit.sql.contains("CREATE TABLE alpha"),
+            "Expected alpha SQL, got: {}",
+            a_unit.sql
+        );
+        let b_unit = units.iter().find(|u| u.id == "b-1").unwrap();
+        assert!(
+            b_unit.sql.contains("CREATE TABLE beta"),
+            "Expected beta SQL, got: {}",
+            b_unit.sql
+        );
+    }
+
+    #[test]
+    fn test_parse_liquibase_formatted_sql() {
+        let content = "\
+--liquibase formatted sql
+
+--changeset alice:create-users
+CREATE TABLE users (id int PRIMARY KEY);
+
+--changeset bob:add-email runInTransaction:false
+ALTER TABLE users ADD COLUMN email text;
+
+--changeset carol:seed-data
+INSERT INTO users (id, email) VALUES (1, 'test@example.com');
+";
+        let path = Path::new("test.sql");
+        let units =
+            parse_liquibase_formatted_sql(content, path).expect("Should parse formatted SQL");
+
+        assert_eq!(units.len(), 3, "Expected 3 changesets, got {}", units.len());
+
+        // First changeset
+        assert_eq!(units[0].id, "create-users");
+        assert!(units[0].sql.contains("CREATE TABLE users"));
+        assert!(units[0].run_in_transaction);
+
+        // Second changeset — runInTransaction:false
+        assert_eq!(units[1].id, "add-email");
+        assert!(units[1].sql.contains("ALTER TABLE users ADD COLUMN email"));
+        assert!(!units[1].run_in_transaction);
+
+        // Third changeset
+        assert_eq!(units[2].id, "seed-data");
+        assert!(units[2].sql.contains("INSERT INTO users"));
+        assert!(units[2].run_in_transaction);
+    }
+
+    #[test]
+    fn test_parse_liquibase_formatted_sql_skips_directives() {
+        let content = "\
+--liquibase formatted sql
+
+--changeset dev:create-table
+CREATE TABLE things (id int);
+--rollback DROP TABLE things;
+--comment This adds the things table
+";
+        let path = Path::new("test.sql");
+        let units =
+            parse_liquibase_formatted_sql(content, path).expect("Should parse formatted SQL");
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].id, "create-table");
+        assert!(
+            !units[0].sql.contains("rollback"),
+            "Rollback directive should be skipped, got: {}",
+            units[0].sql
+        );
+        assert!(
+            !units[0].sql.contains("comment"),
+            "Comment directive should be skipped, got: {}",
+            units[0].sql
+        );
+    }
+
+    #[test]
+    fn test_parse_liquibase_formatted_sql_no_changesets() {
+        let content = "\
+--liquibase formatted sql
+-- just a comment, no changesets
+";
+        let path = Path::new("test.sql");
+        let units =
+            parse_liquibase_formatted_sql(content, path).expect("Should parse formatted SQL");
+
+        assert_eq!(
+            units.len(),
+            0,
+            "Expected 0 changesets for file with no --changeset markers"
         );
     }
 
