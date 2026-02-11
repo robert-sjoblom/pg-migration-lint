@@ -243,7 +243,7 @@ fn run(args: Args) -> Result<bool> {
         match Severity::parse(fail_on_str) {
             Some(s) => Some(s),
             None => anyhow::bail!(
-                "Unknown severity '{}' for --fail-on. Valid values: critical, major, minor, info, none",
+                "Unknown severity '{}' for --fail-on. Valid values: blocker, critical, major, minor, info, none",
                 fail_on_str
             ),
         }
