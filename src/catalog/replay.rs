@@ -1210,4 +1210,255 @@ mod tests {
             "Unnamed index should have empty string name"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Tests: DROP COLUMN constraint cleanup
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_column_removes_pk_constraint() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("t"),
+                columns: vec![col_pk("id", "integer")],
+                constraints: vec![],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("t"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "id".to_string(),
+                }],
+            }),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("t").expect("table should exist");
+        assert!(
+            !table
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::PrimaryKey { .. })),
+            "PK constraint should be removed after dropping PK column"
+        );
+        assert!(
+            !table.has_primary_key,
+            "has_primary_key should be false after dropping PK column"
+        );
+    }
+
+    #[test]
+    fn test_drop_column_removes_multi_column_pk() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("t"),
+                columns: vec![col("a", "integer", false), col("b", "integer", false)],
+                constraints: vec![TableConstraint::PrimaryKey {
+                    columns: vec!["a".to_string(), "b".to_string()],
+                }],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("t"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "a".to_string(),
+                }],
+            }),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("t").expect("table should exist");
+        assert!(
+            !table
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::PrimaryKey { .. })),
+            "Entire multi-column PK constraint should be removed when one column is dropped"
+        );
+        assert!(
+            !table.has_primary_key,
+            "has_primary_key should be false after dropping a column from composite PK"
+        );
+    }
+
+    #[test]
+    fn test_drop_column_removes_fk_constraint() {
+        let mut catalog = Catalog::new();
+
+        // Create referenced table first
+        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
+            name: qname("parent"),
+            columns: vec![col_pk("id", "integer")],
+            constraints: vec![],
+            temporary: false,
+        })]);
+        apply(&mut catalog, &unit1);
+
+        // Create child table with FK, then drop the FK column
+        let unit2 = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("child"),
+                columns: vec![
+                    col("id", "integer", false),
+                    col("customer_id", "integer", true),
+                ],
+                constraints: vec![TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                }],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("child"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "customer_id".to_string(),
+                }],
+            }),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let child = catalog.get_table("child").expect("child should exist");
+        assert!(
+            !child
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::ForeignKey { .. })),
+            "FK constraint should be removed after dropping the FK column"
+        );
+    }
+
+    #[test]
+    fn test_drop_column_removes_unique_constraint() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("t"),
+                columns: vec![col("id", "integer", false), col("email", "text", false)],
+                constraints: vec![TableConstraint::Unique {
+                    name: Some("uk_email".to_string()),
+                    columns: vec!["email".to_string()],
+                }],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("t"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "email".to_string(),
+                }],
+            }),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("t").expect("table should exist");
+        assert!(
+            !table
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::Unique { .. })),
+            "Unique constraint should be removed after dropping the constrained column"
+        );
+    }
+
+    #[test]
+    fn test_drop_column_preserves_unrelated_constraints() {
+        let mut catalog = Catalog::new();
+
+        // Create referenced table
+        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
+            name: qname("parent"),
+            columns: vec![col_pk("id", "integer")],
+            constraints: vec![],
+            temporary: false,
+        })]);
+        apply(&mut catalog, &unit1);
+
+        // Create table with PK on (id) and FK on (customer_id), then drop customer_id
+        let unit2 = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("orders"),
+                columns: vec![col_pk("id", "integer"), col("customer_id", "integer", true)],
+                constraints: vec![TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                }],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("orders"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "customer_id".to_string(),
+                }],
+            }),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let table = catalog.get_table("orders").expect("orders should exist");
+        assert!(
+            !table
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::ForeignKey { .. })),
+            "FK constraint should be removed"
+        );
+        assert!(
+            table
+                .constraints
+                .iter()
+                .any(|c| matches!(c, ConstraintState::PrimaryKey { .. })),
+            "PK constraint should be preserved (unrelated to dropped column)"
+        );
+        assert!(
+            table.has_primary_key,
+            "has_primary_key should still be true"
+        );
+    }
+
+    #[test]
+    fn test_drop_column_preserves_check_constraint() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            IrNode::CreateTable(CreateTable {
+                name: qname("t"),
+                columns: vec![
+                    col("id", "integer", false),
+                    col("amount", "integer", false),
+                    col("extra", "text", true),
+                ],
+                constraints: vec![TableConstraint::Check {
+                    name: Some("chk_positive".to_string()),
+                    expression: "amount > 0".to_string(),
+                }],
+                temporary: false,
+            }),
+            IrNode::AlterTable(AlterTable {
+                name: qname("t"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "extra".to_string(),
+                }],
+            }),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("t").expect("table should exist");
+        assert!(
+            table.constraints.iter().any(
+                |c| matches!(c, ConstraintState::Check { name: Some(n) } if n == "chk_positive")
+            ),
+            "Check constraint should be preserved when dropping an unrelated column"
+        );
+    }
 }
