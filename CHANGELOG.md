@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.6.0...v1.7.0) (2026-02-12)
+
+
+### Features
+
+* **liquibase-xml:** support `references` shorthand on inline FK constraints ([a23e110](https://github.com/robert-sjoblom/pg-migration-lint/commit/a23e110503c9c8f0558c23f7e9c6bf44949a4404))
+
+
+### Bug Fixes
+
+* **bridge:** fix suppress warnings parser error in bridge runs due to relative path ([744f910](https://github.com/robert-sjoblom/pg-migration-lint/commit/744f910ee158a28ad6d9238c3f07c375ddcd13ce))
+
 ## [1.6.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.5.0...v1.6.0) (2026-02-12)
 
 
