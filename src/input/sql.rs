@@ -14,15 +14,21 @@ use std::path::{Path, PathBuf};
 /// lexicographically by filename. Each file becomes one `MigrationUnit`.
 ///
 /// Down migrations are detected by filename patterns: `.down.sql` or `_down.sql`.
-#[derive(Default)]
-pub struct SqlLoader;
+pub struct SqlLoader {
+    run_in_transaction: bool,
+}
 
 impl SqlLoader {
+    /// Create a new `SqlLoader` with the given default `run_in_transaction` value.
+    pub fn new(run_in_transaction: bool) -> Self {
+        Self { run_in_transaction }
+    }
+
     /// Load a single SQL file and parse it into a `MigrationUnit`.
     ///
     /// The file is read entirely into memory, parsed into IR nodes, and
     /// wrapped in a `MigrationUnit` with metadata derived from the filename.
-    pub fn load_file(path: &Path) -> Result<MigrationUnit, LoadError> {
+    pub fn load_file(&self, path: &Path) -> Result<MigrationUnit, LoadError> {
         let source = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
             path: path.to_path_buf(),
             source: e,
@@ -42,9 +48,17 @@ impl SqlLoader {
             statements,
             source_file: path.to_path_buf(),
             source_line_offset: 1,
-            run_in_transaction: true,
+            run_in_transaction: self.run_in_transaction,
             is_down,
         })
+    }
+}
+
+impl Default for SqlLoader {
+    fn default() -> Self {
+        Self {
+            run_in_transaction: true,
+        }
     }
 }
 
@@ -89,7 +103,7 @@ impl MigrationLoader for SqlLoader {
 
         let mut units = Vec::new();
         for file in &sql_files {
-            let unit = SqlLoader::load_file(file)?;
+            let unit = self.load_file(file)?;
             units.push(unit);
         }
 
@@ -153,7 +167,9 @@ mod tests {
         )
         .expect("Failed to write test file");
 
-        let unit = SqlLoader::load_file(&file_path).expect("Failed to load file");
+        let unit = SqlLoader::default()
+            .load_file(&file_path)
+            .expect("Failed to load file");
         assert_eq!(unit.id, "V001__create_users.sql");
         assert_eq!(unit.source_file, file_path);
         assert_eq!(unit.source_line_offset, 1);
@@ -168,7 +184,9 @@ mod tests {
         let file_path = dir.path().join("V001__create_users.down.sql");
         fs::write(&file_path, "DROP TABLE users;").expect("Failed to write test file");
 
-        let unit = SqlLoader::load_file(&file_path).expect("Failed to load file");
+        let unit = SqlLoader::default()
+            .load_file(&file_path)
+            .expect("Failed to load file");
         assert!(unit.is_down);
     }
 
@@ -178,7 +196,9 @@ mod tests {
         let file_path = dir.path().join("V001__create_users_down.sql");
         fs::write(&file_path, "DROP TABLE users;").expect("Failed to write test file");
 
-        let unit = SqlLoader::load_file(&file_path).expect("Failed to load file");
+        let unit = SqlLoader::default()
+            .load_file(&file_path)
+            .expect("Failed to load file");
         assert!(unit.is_down);
     }
 
@@ -188,13 +208,15 @@ mod tests {
         let file_path = dir.path().join("V001__create_users.sql");
         fs::write(&file_path, "CREATE TABLE users (id int);").expect("Failed to write test file");
 
-        let unit = SqlLoader::load_file(&file_path).expect("Failed to load file");
+        let unit = SqlLoader::default()
+            .load_file(&file_path)
+            .expect("Failed to load file");
         assert!(!unit.is_down);
     }
 
     #[test]
     fn test_load_file_nonexistent() {
-        let result = SqlLoader::load_file(Path::new("/nonexistent/path/migration.sql"));
+        let result = SqlLoader::default().load_file(Path::new("/nonexistent/path/migration.sql"));
         assert!(result.is_err());
         match result {
             Err(LoadError::Io { path, .. }) => {
@@ -214,7 +236,9 @@ mod tests {
         )
         .expect("Failed to write test file");
 
-        let unit = SqlLoader::load_file(&file_path).expect("Failed to load file");
+        let unit = SqlLoader::default()
+            .load_file(&file_path)
+            .expect("Failed to load file");
         assert_eq!(unit.statements.len(), 3);
     }
 
@@ -242,7 +266,7 @@ mod tests {
         // Also create a non-SQL file that should be ignored
         fs::write(dir.path().join("README.md"), "# Migrations").expect("write");
 
-        let loader = SqlLoader;
+        let loader = SqlLoader::default();
         let history = loader
             .load(&[dir.path().to_path_buf()])
             .expect("Failed to load migrations");
@@ -261,21 +285,21 @@ mod tests {
         let file_path = dir.path().join("migration.sql");
         fs::write(&file_path, "CREATE TABLE t (id int);").expect("write");
 
-        let loader = SqlLoader;
+        let loader = SqlLoader::default();
         let history = loader.load(&[file_path]).expect("Failed to load migration");
         assert_eq!(history.units.len(), 1);
     }
 
     #[test]
     fn test_loader_nonexistent_path() {
-        let loader = SqlLoader;
+        let loader = SqlLoader::default();
         let result = loader.load(&[PathBuf::from("/nonexistent/path")]);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_loader_empty_paths() {
-        let loader = SqlLoader;
+        let loader = SqlLoader::default();
         let history = loader.load(&[]).expect("Empty paths should succeed");
         assert!(history.units.is_empty());
     }
@@ -296,12 +320,36 @@ mod tests {
         )
         .expect("write");
 
-        let loader = SqlLoader;
+        let loader = SqlLoader::default();
         let history = loader
             .load(&[dir1.path().to_path_buf(), dir2.path().to_path_buf()])
             .expect("Failed to load migrations");
 
         assert_eq!(history.units.len(), 2);
+    }
+
+    #[test]
+    fn test_loader_new_false_produces_no_transaction() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = dir.path().join("V001__create_users.sql");
+        fs::write(&file_path, "CREATE TABLE users (id integer PRIMARY KEY);")
+            .expect("Failed to write test file");
+
+        let loader = SqlLoader::new(false);
+        let unit = loader.load_file(&file_path).expect("Failed to load file");
+        assert!(!unit.run_in_transaction);
+    }
+
+    #[test]
+    fn test_loader_default_produces_transaction_true() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = dir.path().join("V001__create_users.sql");
+        fs::write(&file_path, "CREATE TABLE users (id integer PRIMARY KEY);")
+            .expect("Failed to write test file");
+
+        let loader = SqlLoader::default();
+        let unit = loader.load_file(&file_path).expect("Failed to load file");
+        assert!(unit.run_in_transaction);
     }
 
     #[test]
