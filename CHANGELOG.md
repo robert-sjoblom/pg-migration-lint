@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.4.0...v1.5.0) (2026-02-12)
+
+
+### Features
+
+* **cli:** add --explain-config flag for built-in config reference ([c781454](https://github.com/robert-sjoblom/pg-migration-lint/commit/c7814549745c79e848fa675dd2382cb93922e612))
+* **liquibase-xml:** add renameColumn, dropForeignKeyConstraint, dropPrimaryKey, dropUniqueConstraint, renameTable change types ([82dc036](https://github.com/robert-sjoblom/pg-migration-lint/commit/82dc036ace7753c274d01b603e42f1b0cb552ac5))
+
+
+### Bug Fixes
+
+* **pgm013,pgm015:** show constraint shape instead of '&lt;unnamed&gt;' for unnamed constraints ([a50f51f](https://github.com/robert-sjoblom/pg-migration-lint/commit/a50f51f5a3ebdd7a9bfd859f98a90677d0625bd8))
+
 ## [1.4.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.3.0...v1.4.0) (2026-02-12)
 
 
