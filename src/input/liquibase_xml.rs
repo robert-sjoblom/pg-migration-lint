@@ -1061,9 +1061,24 @@ fn parse_column_constraints(attrs: &[(String, String)]) -> ColumnConstraints {
         .map(|v| v == "true")
         .unwrap_or(false);
     let foreign_key_name = get_attr(attrs, "foreignKeyName");
-    let referenced_table = get_attr(attrs, "referencedTableName");
-    let referenced_schema = get_attr(attrs, "referencedTableSchemaName");
-    let referenced_columns = get_attr(attrs, "referencedColumnNames");
+    let mut referenced_table = get_attr(attrs, "referencedTableName");
+    let mut referenced_schema = get_attr(attrs, "referencedTableSchemaName");
+    let mut referenced_columns = get_attr(attrs, "referencedColumnNames");
+
+    // Fall back to the `references` shorthand attribute, e.g. references="table_name (col1, col2)"
+    if referenced_table.is_none()
+        && let Some(refs) = get_attr(attrs, "references")
+        && let Some((table, cols)) = parse_references_attr(&refs)
+    {
+        // Handle schema-qualified table: "myschema.table" → schema + table
+        if let Some(dot) = table.find('.') {
+            referenced_schema = Some(table[..dot].to_string());
+            referenced_table = Some(table[dot + 1..].to_string());
+        } else {
+            referenced_table = Some(table);
+        }
+        referenced_columns = Some(cols);
+    }
 
     ColumnConstraints {
         nullable,
@@ -1074,6 +1089,28 @@ fn parse_column_constraints(attrs: &[(String, String)]) -> ColumnConstraints {
         referenced_schema,
         referenced_columns,
     }
+}
+
+/// Parse the Liquibase `references` shorthand attribute.
+///
+/// Format: `"table_name (col1, col2)"` → `Some(("table_name", "col1, col2"))`
+///
+/// Schema-qualified references like `"myschema.table (col)"` are returned with
+/// the dot-separated prefix in the table component. The caller splits on `.`
+/// to populate `referenced_schema` and `referenced_table` separately.
+fn parse_references_attr(refs: &str) -> Option<(String, String)> {
+    let refs = refs.trim();
+    let paren_start = refs.find('(')?;
+    let paren_end = refs.rfind(')')?;
+    if paren_end <= paren_start {
+        return None;
+    }
+    let table = refs[..paren_start].trim().to_string();
+    let cols = refs[paren_start + 1..paren_end].trim().to_string();
+    if table.is_empty() || cols.is_empty() {
+        return None;
+    }
+    Some((table, cols))
 }
 
 /// Result of parsing a `<column>` element's attributes.
@@ -3325,6 +3362,102 @@ CREATE TABLE things (id int);
             !units[0].sql.contains("FOREIGN KEY"),
             "Expected no FK without referencedColumnNames, got: {}",
             units[0].sql
+        );
+    }
+
+    #[test]
+    fn test_parse_references_attr() {
+        assert_eq!(
+            parse_references_attr("companies (id)"),
+            Some(("companies".to_string(), "id".to_string()))
+        );
+        assert_eq!(
+            parse_references_attr("sni_codes (sni_code)"),
+            Some(("sni_codes".to_string(), "sni_code".to_string()))
+        );
+        assert_eq!(
+            parse_references_attr(" table_name ( col1, col2 ) "),
+            Some(("table_name".to_string(), "col1, col2".to_string()))
+        );
+        assert_eq!(parse_references_attr("no_parens"), None);
+        assert_eq!(parse_references_attr("()"), None);
+        assert_eq!(parse_references_attr("table ()"), None);
+    }
+
+    #[test]
+    fn test_inline_fk_via_references_shorthand() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <createTable tableName="boards">
+            <column name="id" type="uuid">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="company_id" type="uuid">
+                <constraints foreignKeyName="boards__fk__company_id"
+                             references="companies (id)" nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse references shorthand");
+        assert_eq!(units.len(), 1);
+        assert!(
+            units[0].sql.contains("FOREIGN KEY"),
+            "Expected FK from references shorthand, got: {}",
+            units[0].sql
+        );
+        assert!(
+            units[0].sql.contains("boards__fk__company_id"),
+            "Expected FK constraint name, got: {}",
+            units[0].sql
+        );
+        assert!(
+            units[0].sql.contains("REFERENCES \"companies\""),
+            "Expected REFERENCES companies, got: {}",
+            units[0].sql
+        );
+    }
+
+    #[test]
+    fn test_inline_fk_via_references_multi_column() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <createTable tableName="parent">
+            <column name="region" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="id" type="integer">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createTable tableName="child">
+            <column name="id" type="integer">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="parent_region" type="text">
+                <constraints foreignKeyName="fk_child_parent"
+                             references="parent (region, id)" nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse multi-column references shorthand");
+        let sql = &units[0].sql;
+        assert!(
+            sql.contains("FOREIGN KEY"),
+            "Expected FK from multi-column references, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("REFERENCES \"parent\" (\"region\", \"id\")"),
+            "Expected multi-column REFERENCES, got: {}",
+            sql
         );
     }
 }
