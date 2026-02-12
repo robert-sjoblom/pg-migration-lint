@@ -109,6 +109,20 @@ pub fn parse_bridge_json(json_str: &str) -> Result<Vec<RawMigrationUnit>, LoadEr
     Ok(units)
 }
 
+/// Resolve relative `source_file` paths in migration units against a base directory.
+///
+/// The bridge JAR and `update-sql` strategies return `source_file` paths relative to the
+/// changelog's parent directory. This function joins those relative paths with `base_dir`
+/// so that downstream code (suppression reading, output) can find the actual files.
+/// Absolute paths are left unchanged.
+pub fn resolve_source_paths(units: &mut [RawMigrationUnit], base_dir: &Path) {
+    for unit in units {
+        if unit.source_file.is_relative() {
+            unit.source_file = base_dir.join(&unit.source_file);
+        }
+    }
+}
+
 /// Load Liquibase migrations using the configured strategy.
 ///
 /// Strategy selection:
@@ -176,7 +190,9 @@ fn load_with_bridge(
     let mut all_units = Vec::new();
 
     for path in paths {
-        let units = loader.load(path)?;
+        let mut units = loader.load(path)?;
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        resolve_source_paths(&mut units, base_dir);
         all_units.extend(units);
     }
 
@@ -202,7 +218,9 @@ fn load_with_updatesql(
     let mut all_units = Vec::new();
 
     for path in paths {
-        let units = loader.load(path)?;
+        let mut units = loader.load(path)?;
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        resolve_source_paths(&mut units, base_dir);
         all_units.extend(units);
     }
 
@@ -346,6 +364,64 @@ mod tests {
             }
             other => panic!("Expected BridgeError, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_resolve_relative_paths() {
+        let mut units = vec![
+            RawMigrationUnit {
+                id: "1".into(),
+                sql: "SELECT 1;".into(),
+                source_file: PathBuf::from("migrations/foo.xml"),
+                source_line_offset: 1,
+                run_in_transaction: true,
+                is_down: false,
+            },
+            RawMigrationUnit {
+                id: "2".into(),
+                sql: "SELECT 2;".into(),
+                source_file: PathBuf::from("/absolute/bar.xml"),
+                source_line_offset: 1,
+                run_in_transaction: true,
+                is_down: false,
+            },
+        ];
+        resolve_source_paths(&mut units, Path::new("db/changelog"));
+        assert_eq!(
+            units[0].source_file,
+            PathBuf::from("db/changelog/migrations/foo.xml")
+        );
+        // Absolute path should be unchanged
+        assert_eq!(units[1].source_file, PathBuf::from("/absolute/bar.xml"));
+    }
+
+    #[test]
+    fn test_resolve_paths_empty_base() {
+        let mut units = vec![RawMigrationUnit {
+            id: "1".into(),
+            sql: "SELECT 1;".into(),
+            source_file: PathBuf::from("foo.xml"),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down: false,
+        }];
+        // Empty base dir (changelog at repo root) should leave path unchanged
+        resolve_source_paths(&mut units, Path::new(""));
+        assert_eq!(units[0].source_file, PathBuf::from("foo.xml"));
+    }
+
+    #[test]
+    fn test_resolve_paths_dot_base() {
+        let mut units = vec![RawMigrationUnit {
+            id: "1".into(),
+            sql: "SELECT 1;".into(),
+            source_file: PathBuf::from("foo.xml"),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down: false,
+        }];
+        resolve_source_paths(&mut units, Path::new("."));
+        assert_eq!(units[0].source_file, PathBuf::from("./foo.xml"));
     }
 
     #[test]
