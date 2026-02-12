@@ -216,6 +216,13 @@ Default config file: `pg-migration-lint.toml` in the working directory. Override
 
 If no config file is found at the default path, the tool uses built-in defaults and prints a warning.
 
+You can also view this reference from the CLI with `--explain-config`:
+
+```bash
+./pg-migration-lint --explain-config              # all sections
+./pg-migration-lint --explain-config migrations    # just [migrations]
+```
+
 ```toml
 [migrations]
 # Paths to migration sources. Scanned in order.
@@ -341,6 +348,9 @@ OPTIONS:
   --fail-on <severity>             Override exit code threshold:
                                    blocker, critical, major, minor, info, none
   --explain <rule>                 Print detailed explanation of a rule and exit
+  --explain-config [section]       Print configuration reference and exit.
+                                   Omit section to print all; valid sections:
+                                   migrations, liquibase, output, cli, rules
   -V, --version                    Print version and exit
   -h, --help                       Print help
 ```
