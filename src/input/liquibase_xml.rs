@@ -18,6 +18,11 @@
 //! - `<modifyDataType>` - generates ALTER TABLE ALTER COLUMN TYPE SQL
 //! - `<addNotNullConstraint>` - generates ALTER TABLE ALTER COLUMN SET NOT NULL SQL
 //! - `<dropNotNullConstraint>` - generates ALTER TABLE ALTER COLUMN DROP NOT NULL SQL
+//! - `<renameColumn>` - generates ALTER TABLE RENAME COLUMN SQL
+//! - `<dropForeignKeyConstraint>` - generates ALTER TABLE DROP CONSTRAINT SQL
+//! - `<dropPrimaryKey>` - generates ALTER TABLE DROP CONSTRAINT SQL
+//! - `<dropUniqueConstraint>` - generates ALTER TABLE DROP CONSTRAINT SQL
+//! - `<renameTable>` - generates ALTER TABLE RENAME TO SQL
 //!
 //! Supports `<include>` and `<includeAll>` for loading changelogs from
 //! referenced files and directories.
@@ -658,6 +663,119 @@ fn handle_start_tag(
                         "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;",
                         qualified,
                         quote_ident(&column_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "renameColumn" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <renameColumn> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(old_column) = get_attr(attrs, "oldColumnName") else {
+                        eprintln!(
+                            "Warning: <renameColumn> missing required 'oldColumnName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(new_column) = get_attr(attrs, "newColumnName") else {
+                        eprintln!(
+                            "Warning: <renameColumn> missing required 'newColumnName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} RENAME COLUMN {} TO {};",
+                        qualified,
+                        quote_ident(&old_column),
+                        quote_ident(&new_column)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "dropForeignKeyConstraint" => {
+                    let Some(base_table) = get_attr(attrs, "baseTableName") else {
+                        eprintln!(
+                            "Warning: <dropForeignKeyConstraint> missing required 'baseTableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(constraint_name) = get_attr(attrs, "constraintName") else {
+                        eprintln!(
+                            "Warning: <dropForeignKeyConstraint> missing required 'constraintName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "baseTableSchemaName");
+                    let qualified = qualify_name(&schema_name, &base_table);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {};",
+                        qualified,
+                        quote_ident(&constraint_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "dropPrimaryKey" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <dropPrimaryKey> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let constraint_name = get_attr(attrs, "constraintName")
+                        .unwrap_or_else(|| format!("{}_pkey", table_name));
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {};",
+                        qualified,
+                        quote_ident(&constraint_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "dropUniqueConstraint" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <dropUniqueConstraint> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(constraint_name) = get_attr(attrs, "constraintName") else {
+                        eprintln!(
+                            "Warning: <dropUniqueConstraint> missing required 'constraintName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} DROP CONSTRAINT {};",
+                        qualified,
+                        quote_ident(&constraint_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "renameTable" => {
+                    let Some(old_table) = get_attr(attrs, "oldTableName") else {
+                        eprintln!(
+                            "Warning: <renameTable> missing required 'oldTableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(new_table) = get_attr(attrs, "newTableName") else {
+                        eprintln!(
+                            "Warning: <renameTable> missing required 'newTableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &old_table);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} RENAME TO {};",
+                        qualified,
+                        quote_ident(&new_table)
                     ));
                     Ok(ParseState::InChangeSet(cs))
                 }
@@ -2538,5 +2656,328 @@ CREATE TABLE things (id int);
             units[0].sql,
             r#"ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL;"#
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // renameColumn
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rename_column() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameColumn tableName="users" oldColumnName="fname" newColumnName="first_name"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse renameColumn");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" RENAME COLUMN "fname" TO "first_name";"#
+        );
+    }
+
+    #[test]
+    fn test_rename_column_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameColumn tableName="users" oldColumnName="fname" newColumnName="first_name" schemaName="myschema"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse renameColumn with schema");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."users" RENAME COLUMN "fname" TO "first_name";"#
+        );
+    }
+
+    #[test]
+    fn test_rename_column_missing_old_column_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameColumn tableName="users" newColumnName="first_name"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle renameColumn without oldColumnName");
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units[0].sql.contains("RENAME COLUMN"),
+            "Expected no RENAME COLUMN for missing oldColumnName, got: {}",
+            units[0].sql
+        );
+        assert!(units[0].sql.contains("SELECT 1;"));
+    }
+
+    // -----------------------------------------------------------------------
+    // dropForeignKeyConstraint
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_foreign_key_constraint() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropForeignKeyConstraint baseTableName="orders" constraintName="fk_order_user"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropForeignKeyConstraint");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "orders" DROP CONSTRAINT "fk_order_user";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_foreign_key_constraint_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropForeignKeyConstraint baseTableName="orders" constraintName="fk_order_user" baseTableSchemaName="myschema"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropForeignKeyConstraint with schema");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."orders" DROP CONSTRAINT "fk_order_user";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_foreign_key_constraint_missing_constraint_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropForeignKeyConstraint baseTableName="orders"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle dropForeignKeyConstraint without constraintName");
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units[0].sql.contains("DROP CONSTRAINT"),
+            "Expected no DROP CONSTRAINT for missing constraintName, got: {}",
+            units[0].sql
+        );
+        assert!(units[0].sql.contains("SELECT 1;"));
+    }
+
+    // -----------------------------------------------------------------------
+    // dropPrimaryKey
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_primary_key() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropPrimaryKey tableName="orders" constraintName="pk_orders"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropPrimaryKey");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "orders" DROP CONSTRAINT "pk_orders";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_primary_key_synthesized_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropPrimaryKey tableName="orders"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropPrimaryKey with synthesized name");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "orders" DROP CONSTRAINT "orders_pkey";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_primary_key_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropPrimaryKey tableName="orders" constraintName="pk_orders" schemaName="myschema"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropPrimaryKey with schema");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."orders" DROP CONSTRAINT "pk_orders";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_primary_key_missing_table_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropPrimaryKey constraintName="pk_orders"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle dropPrimaryKey without tableName");
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units[0].sql.contains("DROP CONSTRAINT"),
+            "Expected no DROP CONSTRAINT for missing tableName, got: {}",
+            units[0].sql
+        );
+        assert!(units[0].sql.contains("SELECT 1;"));
+    }
+
+    // -----------------------------------------------------------------------
+    // dropUniqueConstraint
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_unique_constraint() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropUniqueConstraint tableName="users" constraintName="uq_users_email"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropUniqueConstraint");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" DROP CONSTRAINT "uq_users_email";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_unique_constraint_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropUniqueConstraint tableName="users" constraintName="uq_users_email" schemaName="myschema"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropUniqueConstraint with schema");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."users" DROP CONSTRAINT "uq_users_email";"#
+        );
+    }
+
+    #[test]
+    fn test_drop_unique_constraint_missing_constraint_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropUniqueConstraint tableName="users"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle dropUniqueConstraint without constraintName");
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units[0].sql.contains("DROP CONSTRAINT"),
+            "Expected no DROP CONSTRAINT for missing constraintName, got: {}",
+            units[0].sql
+        );
+        assert!(units[0].sql.contains("SELECT 1;"));
+    }
+
+    // -----------------------------------------------------------------------
+    // renameTable
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rename_table() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameTable oldTableName="users" newTableName="app_users"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse renameTable");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" RENAME TO "app_users";"#
+        );
+    }
+
+    #[test]
+    fn test_rename_table_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameTable oldTableName="users" newTableName="app_users" schemaName="myschema"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse renameTable with schema");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."users" RENAME TO "app_users";"#
+        );
+    }
+
+    #[test]
+    fn test_rename_table_missing_new_table_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <renameTable oldTableName="users"/>
+        <sql>SELECT 1;</sql>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should handle renameTable without newTableName");
+        assert_eq!(units.len(), 1);
+        assert!(
+            !units[0].sql.contains("RENAME TO"),
+            "Expected no RENAME TO for missing newTableName, got: {}",
+            units[0].sql
+        );
+        assert!(units[0].sql.contains("SELECT 1;"));
     }
 }
