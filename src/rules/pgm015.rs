@@ -73,20 +73,27 @@ impl Rule for Pgm015 {
                             } = constraint
                                 && columns.iter().any(|c| c == name)
                             {
-                                let display_name =
-                                    constraint_name.as_deref().unwrap_or("<unnamed>");
+                                let fk_description = match constraint_name {
+                                    Some(n) => format!(
+                                        "'{n}' referencing '{ref_tbl}'",
+                                        ref_tbl = ref_table_display,
+                                    ),
+                                    None => format!(
+                                        "({cols}) \u{2192} {ref_tbl}",
+                                        cols = columns.join(", "),
+                                        ref_tbl = ref_table_display,
+                                    ),
+                                };
                                 findings.push(Finding::new(
                                     self.id(),
                                     self.default_severity(),
                                     format!(
                                         "Dropping column '{col}' from table '{table}' silently \
-                                         removes foreign key '{constraint}' referencing \
-                                         '{ref_table}'. Verify that the referential integrity \
-                                         guarantee is no longer needed.",
+                                         removes foreign key {constraint}. Verify that the \
+                                         referential integrity guarantee is no longer needed.",
                                         col = name,
                                         table = at.name.display_name(),
-                                        constraint = display_name,
-                                        ref_table = ref_table_display,
+                                        constraint = fk_description,
                                     ),
                                     ctx.file,
                                     &stmt.span,
@@ -227,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unnamed_fk_shows_unnamed() {
+    fn test_unnamed_fk_shows_column_arrow_description() {
         let before = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "integer", false)
@@ -261,7 +268,10 @@ mod tests {
 
         let findings = Pgm015.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("<unnamed>"));
-        assert!(findings[0].message.contains("customers"));
+        assert!(
+            findings[0].message.contains("(customer_id) → customers"),
+            "Expected column→table description, got: {}",
+            findings[0].message,
+        );
     }
 }
