@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.7.0...v1.8.0) (2026-02-12)
+
+
+### Features
+
+* **rules:** implement PGM016–PGM020 and PGM108 lint rules ([120e9c3](https://github.com/robert-sjoblom/pg-migration-lint/commit/120e9c3050a7c8cbd8026bec4708f70b368dfbae))
+
 ## [1.7.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.6.0...v1.7.0) (2026-02-12)
 
 
