@@ -206,7 +206,7 @@ The tool uses a three-tier approach for Liquibase XML processing:
 
 2. **`liquibase update-sql` (secondary)** -- If the bridge JAR is unavailable but the Liquibase binary is on the PATH, the tool invokes `liquibase update-sql` for less structured but functional output.
 
-3. **XML fallback** -- If Java is unavailable, a lightweight built-in XML parser handles common change types (`<createTable>`, `<addColumn>`, `<createIndex>`, etc.). Exotic change types are skipped and the catalog is marked as potentially incomplete.
+3. **XML fallback** -- If Java is unavailable, a lightweight built-in XML parser handles common change types (`<createTable>`, `<addColumn>`, `<createIndex>`, etc.). Exotic change types are skipped and the catalog is marked as potentially incomplete. Note: `<includeAll>` does not recurse into subdirectories in this mode — use the bridge JAR or `liquibase update-sql` for nested directory layouts.
 
 Set `strategy = "xml-only"` under `[liquibase]` to skip Java entirely.
 

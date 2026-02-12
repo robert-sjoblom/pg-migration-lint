@@ -31,7 +31,7 @@ fn lint_fixture_with_schema(
         .join(fixture_name)
         .join("migrations");
 
-    let loader = SqlLoader;
+    let loader = SqlLoader::default();
     let mut history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load fixture");
@@ -485,7 +485,7 @@ fn test_enterprise_parses_all_migrations() {
     // Verify all 30 migrations load and parse without errors
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/enterprise/migrations");
-    let loader = SqlLoader;
+    let loader = SqlLoader::default();
     let history = loader
         .load(&[base])
         .expect("Failed to load enterprise fixture");
@@ -1160,7 +1160,7 @@ fn test_xml_suppression_does_not_suppress_other_files() {
 fn test_gomigrate_parses_all_migrations() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/go-migrate/migrations");
-    let loader = SqlLoader;
+    let loader = SqlLoader::default();
     let history = loader
         .load(&[base])
         .expect("Failed to load go-migrate fixture");
@@ -1176,7 +1176,7 @@ fn test_gomigrate_parses_all_migrations() {
 fn test_gomigrate_up_down_detection() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/go-migrate/migrations");
-    let loader = SqlLoader;
+    let loader = SqlLoader::default();
     let history = loader
         .load(&[base])
         .expect("Failed to load go-migrate fixture");
@@ -2213,7 +2213,7 @@ fn lint_fixture_with_disabled(
         .join(fixture_name)
         .join("migrations");
 
-    let loader = SqlLoader;
+    let loader = SqlLoader::default();
     let mut history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load fixture");

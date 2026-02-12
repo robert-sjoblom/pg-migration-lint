@@ -388,7 +388,8 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
         }
         "filename_lexicographic" => {
             eprintln!("pg-migration-lint: using filename_lexicographic strategy");
-            let loader = SqlLoader;
+            let run_in_tx = config.migrations.run_in_transaction.unwrap_or(true);
+            let loader = SqlLoader::new(run_in_tx);
             let history = loader
                 .load(&config.migrations.paths)
                 .context("Failed to load migrations")?;
@@ -399,7 +400,8 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
                 "pg-migration-lint: unknown strategy '{}', falling back to filename_lexicographic",
                 other
             );
-            let loader = SqlLoader;
+            let run_in_tx = config.migrations.run_in_transaction.unwrap_or(true);
+            let loader = SqlLoader::new(run_in_tx);
             let history = loader
                 .load(&config.migrations.paths)
                 .context("Failed to load migrations")?;

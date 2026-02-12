@@ -8,12 +8,22 @@
 //! - `<sql>` - raw SQL content
 //! - `<createTable>` - generates CREATE TABLE SQL
 //! - `<addColumn>` - generates ALTER TABLE ADD COLUMN SQL
+//! - `<dropColumn>` - generates ALTER TABLE DROP COLUMN SQL (single and multi-column)
 //! - `<createIndex>` - generates CREATE INDEX SQL
 //! - `<dropTable>` - generates DROP TABLE SQL
 //! - `<dropIndex>` - generates DROP INDEX SQL
 //! - `<addForeignKeyConstraint>` - generates ALTER TABLE ADD CONSTRAINT SQL
 //! - `<addPrimaryKey>` - generates ALTER TABLE ADD CONSTRAINT ... PRIMARY KEY SQL
 //! - `<addUniqueConstraint>` - generates ALTER TABLE ADD CONSTRAINT ... UNIQUE SQL
+//! - `<modifyDataType>` - generates ALTER TABLE ALTER COLUMN TYPE SQL
+//! - `<addNotNullConstraint>` - generates ALTER TABLE ALTER COLUMN SET NOT NULL SQL
+//! - `<dropNotNullConstraint>` - generates ALTER TABLE ALTER COLUMN DROP NOT NULL SQL
+//!
+//! Supports `<include>` and `<includeAll>` for loading changelogs from
+//! referenced files and directories.
+//!
+//! All identifiers (table, column, index, constraint names) are quoted with
+//! double quotes in generated SQL to handle reserved words safely.
 //!
 //! Unknown change types are skipped with a SQL comment indicating they were
 //! not processed, so the catalog can be flagged as potentially incomplete.
@@ -108,6 +118,8 @@ enum ParseState {
     InAddColumnColumn(ChangeSetInfo, AddColumnState, ColumnState),
     /// Inside a <createIndex> element, collecting columns.
     InCreateIndex(ChangeSetInfo, CreateIndexState),
+    /// Inside a <dropColumn> element (multi-column form), collecting columns.
+    InDropColumn(ChangeSetInfo, DropColumnState),
 }
 
 /// Information about the current changeSet being parsed.
@@ -159,6 +171,14 @@ struct CreateIndexState {
     table_name: String,
     schema_name: Option<String>,
     unique: bool,
+    columns: Vec<String>,
+}
+
+/// State for parsing a <dropColumn> element (multi-column form).
+#[derive(Debug, Clone)]
+struct DropColumnState {
+    table_name: String,
+    schema_name: Option<String>,
     columns: Vec<String>,
 }
 
@@ -539,6 +559,108 @@ fn handle_start_tag(
                     cs.sql_parts.push(sql);
                     Ok(ParseState::InChangeSet(cs))
                 }
+                "dropColumn" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <dropColumn> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+
+                    // Single-column form: columnName on parent element
+                    if let Some(column_name) = get_attr(attrs, "columnName") {
+                        let qualified = qualify_name(&schema_name, &table_name);
+                        cs.sql_parts.push(format!(
+                            "ALTER TABLE {} DROP COLUMN {};",
+                            qualified,
+                            quote_ident(&column_name)
+                        ));
+                        Ok(ParseState::InChangeSet(cs))
+                    } else if is_empty {
+                        eprintln!(
+                            "Warning: <dropColumn> has no columnName and no child elements, skipping"
+                        );
+                        Ok(ParseState::InChangeSet(cs))
+                    } else {
+                        // Multi-column form: collect from child <column> elements
+                        Ok(ParseState::InDropColumn(
+                            cs,
+                            DropColumnState {
+                                table_name,
+                                schema_name,
+                                columns: Vec::new(),
+                            },
+                        ))
+                    }
+                }
+                "modifyDataType" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!(
+                            "Warning: <modifyDataType> missing required 'tableName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(column_name) = get_attr(attrs, "columnName") else {
+                        eprintln!(
+                            "Warning: <modifyDataType> missing required 'columnName' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(new_data_type) = get_attr(attrs, "newDataType") else {
+                        eprintln!(
+                            "Warning: <modifyDataType> missing required 'newDataType' attribute, skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN {} TYPE {};",
+                        qualified,
+                        quote_ident(&column_name),
+                        new_data_type
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "addNotNullConstraint" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!("Warning: <addNotNullConstraint> missing 'tableName', skipping");
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(column_name) = get_attr(attrs, "columnName") else {
+                        eprintln!("Warning: <addNotNullConstraint> missing 'columnName', skipping");
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL;",
+                        qualified,
+                        quote_ident(&column_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
+                "dropNotNullConstraint" => {
+                    let Some(table_name) = get_attr(attrs, "tableName") else {
+                        eprintln!("Warning: <dropNotNullConstraint> missing 'tableName', skipping");
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let Some(column_name) = get_attr(attrs, "columnName") else {
+                        eprintln!(
+                            "Warning: <dropNotNullConstraint> missing 'columnName', skipping"
+                        );
+                        return Ok(ParseState::InChangeSet(cs));
+                    };
+                    let schema_name = get_attr(attrs, "schemaName");
+                    let qualified = qualify_name(&schema_name, &table_name);
+                    cs.sql_parts.push(format!(
+                        "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;",
+                        qualified,
+                        quote_ident(&column_name)
+                    ));
+                    Ok(ParseState::InChangeSet(cs))
+                }
                 "rollback" | "preConditions" | "comment" | "tagDatabase" | "validCheckSum"
                 | "property" => {
                     // Known non-SQL elements; skip silently
@@ -675,6 +797,14 @@ fn handle_start_tag(
             }
             Ok(ParseState::InCreateIndex(cs, ci))
         }
+        ParseState::InDropColumn(cs, mut dc) => {
+            if tag_name == "column"
+                && let Some(name) = get_attr(attrs, "name")
+            {
+                dc.columns.push(name);
+            }
+            Ok(ParseState::InDropColumn(cs, dc))
+        }
     }
 }
 
@@ -779,6 +909,28 @@ fn handle_end_tag(
                 Ok(ParseState::InCreateIndex(cs, ci))
             }
         }
+        ParseState::InDropColumn(mut cs, dc) => {
+            if tag_name == "dropColumn" {
+                if dc.columns.is_empty() {
+                    eprintln!(
+                        "Warning: <dropColumn> for table '{}' has no column children, skipping",
+                        dc.table_name
+                    );
+                } else {
+                    let qualified = qualify_name(&dc.schema_name, &dc.table_name);
+                    for col in &dc.columns {
+                        cs.sql_parts.push(format!(
+                            "ALTER TABLE {} DROP COLUMN {};",
+                            qualified,
+                            quote_ident(col)
+                        ));
+                    }
+                }
+                Ok(ParseState::InChangeSet(cs))
+            } else {
+                Ok(ParseState::InDropColumn(cs, dc))
+            }
+        }
     }
 }
 
@@ -806,7 +958,7 @@ fn generate_create_table_sql(ct: &CreateTableState) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     for col in &ct.columns {
-        let mut col_sql = format!("{} {}", col.name, col.type_name);
+        let mut col_sql = format!("{} {}", quote_ident(&col.name), col.type_name);
 
         if col.primary_key {
             col_sql.push_str(" PRIMARY KEY");
@@ -840,7 +992,9 @@ fn generate_add_column_sql(
     let qualified = qualify_name(schema_name, table_name);
     let mut sql = format!(
         "ALTER TABLE {} ADD COLUMN {} {}",
-        qualified, col.name, col.type_name
+        qualified,
+        quote_ident(&col.name),
+        col.type_name
     );
 
     if !col.nullable {
@@ -864,11 +1018,19 @@ fn generate_add_column_sql(
 fn generate_create_index_sql(ci: &CreateIndexState) -> String {
     let table_qualified = qualify_name(&ci.schema_name, &ci.table_name);
     let unique_str = if ci.unique { "UNIQUE " } else { "" };
-    let columns = ci.columns.join(", ");
+    let columns = ci
+        .columns
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     format!(
         "CREATE {}INDEX {} ON {} ({});",
-        unique_str, ci.index_name, table_qualified, columns
+        unique_str,
+        quote_ident(&ci.index_name),
+        table_qualified,
+        columns
     )
 }
 
@@ -891,15 +1053,22 @@ fn generate_add_fk_sql(
     let base_qualified = qualify_name(&base_schema, base_table);
     let ref_qualified = qualify_name(&ref_schema, ref_table);
 
+    let quoted_base_cols = quote_column_list(base_columns);
+    let quoted_ref_cols = quote_column_list(ref_columns);
+
     if constraint_name.is_empty() {
         format!(
             "ALTER TABLE {} ADD FOREIGN KEY ({}) REFERENCES {} ({});",
-            base_qualified, base_columns, ref_qualified, ref_columns
+            base_qualified, quoted_base_cols, ref_qualified, quoted_ref_cols
         )
     } else {
         format!(
             "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({});",
-            base_qualified, constraint_name, base_columns, ref_qualified, ref_columns
+            base_qualified,
+            quote_ident(&constraint_name),
+            quoted_base_cols,
+            ref_qualified,
+            quoted_ref_cols
         )
     }
 }
@@ -914,16 +1083,19 @@ fn generate_add_pk_sql(attrs: &[(String, String)], table_name: &str, column_name
     let schema_name = get_attr(attrs, "schemaName");
 
     let qualified = qualify_name(&schema_name, table_name);
+    let quoted_cols = quote_column_list(column_names);
 
     if constraint_name.is_empty() {
         format!(
             "ALTER TABLE {} ADD PRIMARY KEY ({});",
-            qualified, column_names
+            qualified, quoted_cols
         )
     } else {
         format!(
             "ALTER TABLE {} ADD CONSTRAINT {} PRIMARY KEY ({});",
-            qualified, constraint_name, column_names
+            qualified,
+            quote_ident(&constraint_name),
+            quoted_cols
         )
     }
 }
@@ -942,13 +1114,16 @@ fn generate_add_unique_sql(
     let schema_name = get_attr(attrs, "schemaName");
 
     let qualified = qualify_name(&schema_name, table_name);
+    let quoted_cols = quote_column_list(column_names);
 
     if constraint_name.is_empty() {
-        format!("ALTER TABLE {} ADD UNIQUE ({});", qualified, column_names)
+        format!("ALTER TABLE {} ADD UNIQUE ({});", qualified, quoted_cols)
     } else {
         format!(
             "ALTER TABLE {} ADD CONSTRAINT {} UNIQUE ({});",
-            qualified, constraint_name, column_names
+            qualified,
+            quote_ident(&constraint_name),
+            quoted_cols
         )
     }
 }
@@ -957,13 +1132,33 @@ fn generate_add_unique_sql(
 // Utility helpers
 // ---------------------------------------------------------------------------
 
-/// Qualify a name with an optional schema prefix.
+/// Quote a SQL identifier (table, column, index, constraint name).
 ///
-/// Returns `schema.name` if schema is present, or just `name` otherwise.
+/// Always quotes to be safe — handles reserved words and special characters.
+/// Embedded double quotes are escaped by doubling them.
+fn quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Quote each element of a comma-separated column name list.
+///
+/// Splits on comma, trims whitespace, quotes each name individually,
+/// then rejoins with `, `.
+fn quote_column_list(columns: &str) -> String {
+    columns
+        .split(',')
+        .map(|c| quote_ident(c.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Qualify a name with an optional schema prefix, quoting both parts.
+///
+/// Returns `"schema"."name"` if schema is present, or just `"name"` otherwise.
 fn qualify_name(schema: &Option<String>, name: &str) -> String {
     match schema {
-        Some(s) if !s.is_empty() => format!("{}.{}", s, name),
-        _ => name.to_string(),
+        Some(s) if !s.is_empty() => format!("{}.{}", quote_ident(s), quote_ident(name)),
+        _ => quote_ident(name),
     }
 }
 
@@ -1043,8 +1238,73 @@ fn extract_include_paths(
                         // not filesystem-absolute. Strip it so Path::join
                         // resolves relative to base_dir.
                         let cleaned = file_attr.strip_prefix('/').unwrap_or(&file_attr);
-                        let resolved = base_dir.join(cleaned);
+
+                        let relative_to_file = get_attr(&attrs, "relativeToChangelogFile")
+                            .is_some_and(|v| v == "true");
+                        let resolve_base = if relative_to_file {
+                            source_file.parent().unwrap_or(base_dir)
+                        } else {
+                            base_dir
+                        };
+
+                        let resolved = resolve_base.join(cleaned);
                         paths.push(resolved);
+                    }
+                } else if tag_name == "includeAll" {
+                    let attrs = collect_attributes(e)?;
+                    if let Some(dir_attr) = get_attr(&attrs, "path") {
+                        let cleaned = dir_attr.strip_prefix('/').unwrap_or(&dir_attr);
+
+                        let relative_to_file = get_attr(&attrs, "relativeToChangelogFile")
+                            .is_some_and(|v| v == "true");
+                        let resolve_base = if relative_to_file {
+                            source_file.parent().unwrap_or(base_dir)
+                        } else {
+                            base_dir
+                        };
+                        let resolved = resolve_base.join(cleaned);
+
+                        if resolved.is_dir() {
+                            let dir_entries: Vec<PathBuf> = std::fs::read_dir(&resolved)
+                                .map_err(|e| LoadError::Io {
+                                    path: resolved.clone(),
+                                    source: e,
+                                })?
+                                .filter_map(|entry| entry.ok())
+                                .map(|entry| entry.path())
+                                .collect();
+
+                            let has_subdirs = dir_entries.iter().any(|p| p.is_dir());
+                            if has_subdirs {
+                                eprintln!(
+                                    "Warning: <includeAll> directory '{}' contains subdirectories which will not be scanned (the XML fallback parser does not support recursive includeAll — use the bridge JAR or liquibase update-sql strategy for nested layouts)",
+                                    resolved.display()
+                                );
+                            }
+
+                            let mut entries: Vec<PathBuf> = dir_entries
+                                .into_iter()
+                                .filter(|p| {
+                                    p.is_file()
+                                        && p.extension().is_some_and(|ext| {
+                                            ext.eq_ignore_ascii_case("xml")
+                                                || ext.eq_ignore_ascii_case("sql")
+                                        })
+                                })
+                                .collect();
+                            entries.sort_by(|a, b| {
+                                a.file_name()
+                                    .unwrap_or_default()
+                                    .cmp(b.file_name().unwrap_or_default())
+                            });
+                            paths.extend(entries);
+                        } else {
+                            eprintln!(
+                                "Warning: <includeAll> directory not found: {} (resolved from '{}')",
+                                resolved.display(),
+                                dir_attr
+                            );
+                        }
                     }
                 }
             }
@@ -1104,22 +1364,22 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("CREATE TABLE users"),
+            sql.contains("CREATE TABLE \"users\""),
             "Expected CREATE TABLE, got: {}",
             sql
         );
         assert!(
-            sql.contains("id integer PRIMARY KEY NOT NULL"),
+            sql.contains("\"id\" integer PRIMARY KEY NOT NULL"),
             "Expected PK column, got: {}",
             sql
         );
         assert!(
-            sql.contains("name varchar(100) NOT NULL"),
+            sql.contains("\"name\" varchar(100) NOT NULL"),
             "Expected NOT NULL column, got: {}",
             sql
         );
         assert!(
-            sql.contains("email varchar(255)"),
+            sql.contains("\"email\" varchar(255)"),
             "Expected nullable column, got: {}",
             sql
         );
@@ -1143,7 +1403,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("ALTER TABLE users ADD COLUMN age integer NOT NULL;"),
+            sql.contains(r#"ALTER TABLE "users" ADD COLUMN "age" integer NOT NULL;"#),
             "Expected ADD COLUMN, got: {}",
             sql
         );
@@ -1165,7 +1425,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("CREATE UNIQUE INDEX idx_users_email ON users (email);"),
+            sql.contains(r#"CREATE UNIQUE INDEX "idx_users_email" ON "users" ("email");"#),
             "Expected CREATE UNIQUE INDEX, got: {}",
             sql
         );
@@ -1209,13 +1469,13 @@ mod tests {
         assert_eq!(units.len(), 3);
 
         assert_eq!(units[0].id, "1");
-        assert!(units[0].sql.contains("CREATE TABLE users"));
+        assert!(units[0].sql.contains("CREATE TABLE \"users\""));
 
         assert_eq!(units[1].id, "2");
         assert!(units[1].sql.contains("CREATE INDEX idx_users_name"));
 
         assert_eq!(units[2].id, "3");
-        assert_eq!(units[2].sql, "DROP TABLE old_users;");
+        assert_eq!(units[2].sql, r#"DROP TABLE "old_users";"#);
     }
 
     #[test]
@@ -1245,7 +1505,7 @@ mod tests {
         let units =
             parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropTable");
         assert_eq!(units.len(), 1);
-        assert_eq!(units[0].sql, "DROP TABLE old_table;");
+        assert_eq!(units[0].sql, r#"DROP TABLE "old_table";"#);
     }
 
     #[test]
@@ -1260,7 +1520,7 @@ mod tests {
         let units =
             parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropIndex");
         assert_eq!(units.len(), 1);
-        assert_eq!(units[0].sql, "DROP INDEX idx_old;");
+        assert_eq!(units[0].sql, r#"DROP INDEX "idx_old";"#);
     }
 
     #[test]
@@ -1282,7 +1542,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("ALTER TABLE orders ADD CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES users (id);"),
+            sql.contains(r#"ALTER TABLE "orders" ADD CONSTRAINT "fk_order_user" FOREIGN KEY ("user_id") REFERENCES "users" ("id");"#),
             "Expected FK SQL, got: {}",
             sql
         );
@@ -1302,7 +1562,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("ALTER TABLE orders ADD CONSTRAINT pk_orders PRIMARY KEY (id);"),
+            sql.contains(r#"ALTER TABLE "orders" ADD CONSTRAINT "pk_orders" PRIMARY KEY ("id");"#),
             "Expected PK SQL, got: {}",
             sql
         );
@@ -1322,7 +1582,9 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("ALTER TABLE users ADD CONSTRAINT uq_users_email UNIQUE (email);"),
+            sql.contains(
+                r#"ALTER TABLE "users" ADD CONSTRAINT "uq_users_email" UNIQUE ("email");"#
+            ),
             "Expected UNIQUE SQL, got: {}",
             sql
         );
@@ -1345,7 +1607,7 @@ mod tests {
             .expect("Should parse schema-qualified createTable");
         assert_eq!(units.len(), 1);
         assert!(
-            units[0].sql.contains("CREATE TABLE myschema.users"),
+            units[0].sql.contains(r#"CREATE TABLE "myschema"."users""#),
             "Expected schema-qualified name, got: {}",
             units[0].sql
         );
@@ -1356,7 +1618,7 @@ mod tests {
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
     <changeSet id="1" author="dev">
-        <modifyDataType tableName="users" columnName="name" newDataType="text"/>
+        <loadData tableName="users" file="data.csv"/>
     </changeSet>
 </databaseChangeLog>"#;
 
@@ -1389,11 +1651,11 @@ mod tests {
         let units = parse_changelog_xml(xml, Path::new("test.xml"))
             .expect("Should parse changeset with multiple changes");
         assert_eq!(units.len(), 1);
-        assert!(units[0].sql.contains("CREATE TABLE users"));
+        assert!(units[0].sql.contains("CREATE TABLE \"users\""));
         assert!(
             units[0]
                 .sql
-                .contains("CREATE INDEX idx_users_id ON users (id);")
+                .contains(r#"CREATE INDEX "idx_users_id" ON "users" ("id");"#)
         );
     }
 
@@ -1415,7 +1677,7 @@ mod tests {
         assert!(
             units[0]
                 .sql
-                .contains("CREATE TABLE simple (id integer, name text);"),
+                .contains(r#"CREATE TABLE "simple" ("id" integer, "name" text);"#),
             "Expected simple CREATE TABLE, got: {}",
             units[0].sql
         );
@@ -1497,9 +1759,9 @@ mod tests {
             .expect("Should parse multi-column index");
         assert_eq!(units.len(), 1);
         assert!(
-            units[0]
-                .sql
-                .contains("CREATE INDEX idx_orders_composite ON orders (user_id, created_at);"),
+            units[0].sql.contains(
+                r#"CREATE INDEX "idx_orders_composite" ON "orders" ("user_id", "created_at");"#
+            ),
             "Expected multi-column index, got: {}",
             units[0].sql
         );
@@ -1526,7 +1788,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert!(
-            sql.contains("ALTER TABLE sales.orders ADD CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES accounts.users (id);"),
+            sql.contains(r#"ALTER TABLE "sales"."orders" ADD CONSTRAINT "fk_order_user" FOREIGN KEY ("user_id") REFERENCES "accounts"."users" ("id");"#),
             "Expected schema-qualified FK, got: {}",
             sql
         );
@@ -1544,7 +1806,10 @@ mod tests {
         let units = parse_changelog_xml(xml, Path::new("test.xml"))
             .expect("Should parse addPrimaryKey without name");
         assert_eq!(units.len(), 1);
-        assert_eq!(units[0].sql, "ALTER TABLE orders ADD PRIMARY KEY (id);");
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "orders" ADD PRIMARY KEY ("id");"#
+        );
     }
 
     #[test]
@@ -1558,12 +1823,29 @@ mod tests {
 
     #[test]
     fn test_qualify_name() {
-        assert_eq!(qualify_name(&None, "users"), "users");
+        assert_eq!(qualify_name(&None, "users"), "\"users\"");
         assert_eq!(
             qualify_name(&Some("public".to_string()), "users"),
-            "public.users"
+            "\"public\".\"users\""
         );
-        assert_eq!(qualify_name(&Some("".to_string()), "users"), "users");
+        assert_eq!(qualify_name(&Some("".to_string()), "users"), "\"users\"");
+    }
+
+    #[test]
+    fn test_quote_ident() {
+        assert_eq!(quote_ident("users"), "\"users\"");
+        assert_eq!(quote_ident("order"), "\"order\"");
+        assert_eq!(quote_ident("has\"quote"), "\"has\"\"quote\"");
+    }
+
+    #[test]
+    fn test_quote_column_list() {
+        assert_eq!(quote_column_list("col1,col2"), "\"col1\", \"col2\"");
+        assert_eq!(
+            quote_column_list("col1, col2, col3"),
+            "\"col1\", \"col2\", \"col3\""
+        );
+        assert_eq!(quote_column_list("single"), "\"single\"");
     }
 
     #[test]
@@ -1609,6 +1891,137 @@ mod tests {
     }
 
     #[test]
+    fn test_include_relative_to_changelog_file() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <include file="001-create-tables.xml" relativeToChangelogFile="true"/>
+</databaseChangeLog>"#;
+
+        let paths = extract_include_paths(
+            xml,
+            Path::new("/project"),
+            Path::new("/project/db/changelog/master.xml"),
+        )
+        .expect("Should resolve relative to changelog file");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(
+            paths[0],
+            PathBuf::from("/project/db/changelog/001-create-tables.xml")
+        );
+    }
+
+    #[test]
+    fn test_include_without_relative_flag_uses_base_dir() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <include file="001-create-tables.xml"/>
+</databaseChangeLog>"#;
+
+        let paths = extract_include_paths(
+            xml,
+            Path::new("/project"),
+            Path::new("/project/db/changelog/master.xml"),
+        )
+        .expect("Should resolve relative to base dir");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], PathBuf::from("/project/001-create-tables.xml"));
+    }
+
+    #[test]
+    fn test_include_all_discovers_files_sorted() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let changesets_dir = dir.path().join("changesets");
+        std::fs::create_dir(&changesets_dir).expect("mkdir");
+
+        // Create files in non-alphabetical order
+        std::fs::write(
+            changesets_dir.join("003-third.xml"),
+            r#"<?xml version="1.0"?><databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"/>"#,
+        )
+        .expect("write");
+        std::fs::write(
+            changesets_dir.join("001-first.xml"),
+            r#"<?xml version="1.0"?><databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"/>"#,
+        )
+        .expect("write");
+        std::fs::write(changesets_dir.join("002-second.sql"), "SELECT 1;").expect("write");
+        // Non-matching file should be ignored
+        std::fs::write(changesets_dir.join("readme.txt"), "ignore me").expect("write");
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <includeAll path="changesets/"/>
+</databaseChangeLog>"#;
+
+        let source_file = dir.path().join("master.xml");
+        let paths = extract_include_paths(xml, dir.path(), &source_file)
+            .expect("Should extract includeAll paths");
+        assert_eq!(paths.len(), 3, "Expected 3 files, got: {:?}", paths);
+        // Should be sorted by filename
+        assert!(
+            paths[0].ends_with("001-first.xml"),
+            "First should be 001, got: {:?}",
+            paths[0]
+        );
+        assert!(
+            paths[1].ends_with("002-second.sql"),
+            "Second should be 002, got: {:?}",
+            paths[1]
+        );
+        assert!(
+            paths[2].ends_with("003-third.xml"),
+            "Third should be 003, got: {:?}",
+            paths[2]
+        );
+    }
+
+    #[test]
+    fn test_include_all_missing_dir_does_not_error() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <includeAll path="nonexistent/"/>
+</databaseChangeLog>"#;
+
+        let paths = extract_include_paths(
+            xml,
+            Path::new("/tmp/fake"),
+            Path::new("/tmp/fake/master.xml"),
+        )
+        .expect("Missing dir should not error");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_include_all_relative_to_changelog_file() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let sub_dir = dir.path().join("sub");
+        std::fs::create_dir(&sub_dir).expect("mkdir sub");
+        let changesets_dir = sub_dir.join("changesets");
+        std::fs::create_dir(&changesets_dir).expect("mkdir changesets");
+
+        std::fs::write(
+            changesets_dir.join("001.xml"),
+            r#"<?xml version="1.0"?><databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"/>"#,
+        )
+        .expect("write");
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <includeAll path="changesets/" relativeToChangelogFile="true"/>
+</databaseChangeLog>"#;
+
+        let source_file = sub_dir.join("changelog.xml");
+        let paths = extract_include_paths(xml, dir.path(), &source_file)
+            .expect("Should resolve relative to changelog file");
+        assert_eq!(paths.len(), 1);
+        assert!(
+            paths[0].ends_with("001.xml"),
+            "Expected 001.xml, got: {:?}",
+            paths[0]
+        );
+    }
+
+    #[test]
     fn test_run_in_transaction_default_true() {
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
@@ -1641,7 +2054,7 @@ mod tests {
         assert_eq!(units.len(), 1);
         let sql = &units[0].sql;
         assert_eq!(
-            sql, "ALTER TABLE orders ADD FOREIGN KEY (user_id) REFERENCES users (id);",
+            sql, r#"ALTER TABLE "orders" ADD FOREIGN KEY ("user_id") REFERENCES "users" ("id");"#,
             "Expected valid FK SQL without CONSTRAINT keyword, got: {}",
             sql
         );
@@ -1980,5 +2393,150 @@ CREATE TABLE things (id int);
                 // Also acceptable: some quick-xml versions may error on truncated input
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 1: dropColumn
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_column_single() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropColumn tableName="users" columnName="email"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse dropColumn");
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].sql, r#"ALTER TABLE "users" DROP COLUMN "email";"#);
+    }
+
+    #[test]
+    fn test_drop_column_multi() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropColumn tableName="users">
+            <column name="email"/>
+            <column name="phone"/>
+        </dropColumn>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse multi dropColumn");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            sql.contains(r#"ALTER TABLE "users" DROP COLUMN "email";"#),
+            "Expected DROP COLUMN email, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains(r#"ALTER TABLE "users" DROP COLUMN "phone";"#),
+            "Expected DROP COLUMN phone, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_drop_column_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropColumn tableName="users" schemaName="myschema" columnName="email"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse schema-qualified dropColumn");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."users" DROP COLUMN "email";"#
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 2: modifyDataType
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_modify_data_type() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <modifyDataType tableName="users" columnName="name" newDataType="text"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units =
+            parse_changelog_xml(xml, Path::new("test.xml")).expect("Should parse modifyDataType");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" ALTER COLUMN "name" TYPE text;"#
+        );
+    }
+
+    #[test]
+    fn test_modify_data_type_with_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <modifyDataType tableName="users" schemaName="myschema" columnName="name" newDataType="varchar(500)"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse schema-qualified modifyDataType");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "myschema"."users" ALTER COLUMN "name" TYPE varchar(500);"#
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 5: addNotNullConstraint / dropNotNullConstraint
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_not_null_constraint() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addNotNullConstraint tableName="users" columnName="email"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse addNotNullConstraint");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL;"#
+        );
+    }
+
+    #[test]
+    fn test_drop_not_null_constraint() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <dropNotNullConstraint tableName="users" columnName="email"/>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse dropNotNullConstraint");
+        assert_eq!(units.len(), 1);
+        assert_eq!(
+            units[0].sql,
+            r#"ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL;"#
+        );
     }
 }

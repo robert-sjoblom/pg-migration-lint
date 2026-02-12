@@ -60,6 +60,12 @@ pub struct MigrationsConfig {
     /// `public.orders` resolve to the same catalog entry.
     #[serde(default = "default_schema")]
     pub default_schema: String,
+
+    /// Default `run_in_transaction` for plain SQL files.
+    /// When `None`, defaults to `true` (backward compatible).
+    /// Set to `false` for golang-migrate repos where files run outside transactions.
+    #[serde(default)]
+    pub run_in_transaction: Option<bool>,
 }
 
 impl Default for MigrationsConfig {
@@ -70,6 +76,7 @@ impl Default for MigrationsConfig {
             include: default_include(),
             exclude: vec![],
             default_schema: default_schema(),
+            run_in_transaction: None,
         }
     }
 }
@@ -254,5 +261,32 @@ mod tests {
         let toml = "[cli]\nfail_on = \"critical\"";
         let config = parse_and_validate(toml).unwrap();
         assert!(config.rules.disabled.is_empty());
+    }
+
+    #[test]
+    fn test_run_in_transaction_defaults_to_none() {
+        let config = Config::default();
+        assert_eq!(config.migrations.run_in_transaction, None);
+    }
+
+    #[test]
+    fn test_run_in_transaction_parses_true() {
+        let toml = "[migrations]\nrun_in_transaction = true";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.migrations.run_in_transaction, Some(true));
+    }
+
+    #[test]
+    fn test_run_in_transaction_parses_false() {
+        let toml = "[migrations]\nrun_in_transaction = false";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.migrations.run_in_transaction, Some(false));
+    }
+
+    #[test]
+    fn test_run_in_transaction_absent_is_none() {
+        let toml = "[migrations]\nstrategy = \"filename_lexicographic\"";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.migrations.run_in_transaction, None);
     }
 }
