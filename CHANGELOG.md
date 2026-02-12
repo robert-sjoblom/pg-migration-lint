@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.5.0...v1.6.0) (2026-02-12)
+
+
+### Features
+
+* **liquibase-xml:** extract inline FK constraints and map Liquibase types ([c8c9447](https://github.com/robert-sjoblom/pg-migration-lint/commit/c8c9447f059b2e9d38c29fda8703f002e3457598))
+
 ## [1.5.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.4.0...v1.5.0) (2026-02-12)
 
 
