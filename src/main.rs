@@ -49,6 +49,10 @@ struct Args {
     #[arg(long)]
     format: Option<String>,
 
+    /// Show configuration reference. Optionally specify a section name.
+    #[arg(long, num_args = 0..=1, default_missing_value = "all")]
+    explain_config: Option<String>,
+
     /// Override exit code threshold (critical, major, minor, info, none)
     #[arg(long)]
     fail_on: Option<String>,
@@ -79,6 +83,12 @@ fn run(args: Args) -> Result<bool> {
     // Handle --explain early exit
     if let Some(rule_id) = args.explain {
         explain_rule(&rule_id)?;
+        return Ok(false);
+    }
+
+    // Handle --explain-config early exit
+    if let Some(ref section) = args.explain_config {
+        pg_migration_lint::config::explain_config(section)?;
         return Ok(false);
     }
 

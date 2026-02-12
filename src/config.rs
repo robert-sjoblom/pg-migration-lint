@@ -180,6 +180,140 @@ fn default_fail_on() -> String {
     "critical".to_string()
 }
 
+/// Valid section names for `--explain-config`.
+const VALID_SECTIONS: &[&str] = &["migrations", "liquibase", "output", "cli", "rules"];
+
+const SECTION_MIGRATIONS: &str = "\
+[migrations]
+
+  paths = [\"db/migrations\"]
+    Paths to migration directories or changelog files.
+    Type: list of paths
+    Default: [\"db/migrations\"]
+
+  strategy = \"filename_lexicographic\"
+    Migration ordering strategy.
+    Type: string
+    Values: \"filename_lexicographic\", \"liquibase\"
+    Default: \"filename_lexicographic\"
+
+  include = [\"*.sql\", \"*.xml\"]
+    Glob patterns for files to include.
+    Type: list of strings
+    Default: [\"*.sql\", \"*.xml\"]
+
+  exclude = []
+    Glob patterns for files to exclude.
+    Type: list of strings
+    Default: []
+
+  default_schema = \"public\"
+    Schema applied to unqualified table names so that `orders` and
+    `public.orders` resolve to the same catalog entry.
+    Type: string
+    Default: \"public\"
+
+  run_in_transaction = true
+    Whether plain SQL files run inside a transaction by default.
+    Set to false for golang-migrate repos where files run outside transactions.
+    Type: boolean (optional)
+    Default: true (when absent)
+";
+
+const SECTION_LIQUIBASE: &str = "\
+[liquibase]
+
+  bridge_jar_path = \"tools/liquibase-bridge.jar\"
+    Path to the liquibase-bridge.jar for structured SQL extraction.
+    Type: path (optional)
+    Default: \"tools/liquibase-bridge.jar\"
+
+  binary_path = \"liquibase\"
+    Path to the liquibase binary for update-sql fallback.
+    Type: path (optional)
+    Default: \"liquibase\"
+
+  properties_file
+    Path to liquibase properties file (passed as --defaults-file).
+    Type: path (optional)
+    Default: none
+
+  strategy = \"auto\"
+    Liquibase sub-strategy: which method to use for SQL extraction.
+    Type: string
+    Values: \"auto\", \"bridge\", \"update-sql\", \"xml-fallback\"
+    Default: \"auto\" (tries bridge -> update-sql -> xml-fallback)
+";
+
+const SECTION_OUTPUT: &str = "\
+[output]
+
+  formats = [\"sarif\"]
+    Output report formats to generate.
+    Type: list of strings
+    Values: \"sarif\", \"sonarqube\", \"text\"
+    Default: [\"sarif\"]
+
+  dir = \"build/reports/migration-lint\"
+    Directory where report files are written.
+    Type: path
+    Default: \"build/reports/migration-lint\"
+";
+
+const SECTION_CLI: &str = "\
+[cli]
+
+  fail_on = \"critical\"
+    Exit non-zero if any finding meets or exceeds this severity.
+    Set to \"none\" to always exit 0.
+    Type: string
+    Values: \"blocker\", \"critical\", \"major\", \"minor\", \"info\", \"none\"
+    Default: \"critical\"
+";
+
+const SECTION_RULES: &str = "\
+[rules]
+
+  disabled = []
+    Rule IDs to disable globally. Findings from disabled rules are not emitted.
+    Example: [\"PGM007\", \"PGM101\"]
+    Type: list of strings
+    Default: []
+";
+
+/// Print configuration reference for a specific section, or all sections.
+///
+/// Pass `"all"` to print everything, or a section name like `"migrations"`.
+/// Returns an error for unknown section names.
+pub fn explain_config(section: &str) -> Result<(), ConfigError> {
+    let sections: &[(&str, &str)] = &[
+        ("migrations", SECTION_MIGRATIONS),
+        ("liquibase", SECTION_LIQUIBASE),
+        ("output", SECTION_OUTPUT),
+        ("cli", SECTION_CLI),
+        ("rules", SECTION_RULES),
+    ];
+
+    if section == "all" {
+        for (i, (_, text)) in sections.iter().enumerate() {
+            if i > 0 {
+                println!();
+            }
+            print!("{text}");
+        }
+    } else if let Some((_, text)) = sections.iter().find(|(name, _)| *name == section) {
+        print!("{text}");
+    } else {
+        return Err(ConfigError::Validation(format!(
+            "unknown config section '{}'. Valid sections: {}",
+            section,
+            VALID_SECTIONS.join(", ")
+        )));
+    }
+
+    Ok(())
+}
+
 impl Config {
     /// Load configuration from a file
     pub fn from_file(path: &PathBuf) -> Result<Self, ConfigError> {
