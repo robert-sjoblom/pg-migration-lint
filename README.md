@@ -7,7 +7,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 19 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, silent constraint removal, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 25 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -36,7 +36,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 19 rules across two categories: migration safety rules (PGM001-PGM015) and PostgreSQL type anti-pattern rules (PGM101-PGM105).
+pg-migration-lint ships with 25 rules across two categories: migration safety rules (PGM001-PGM020) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
 
 ### Migration Safety Rules
 
@@ -57,10 +57,19 @@ pg-migration-lint ships with 19 rules across two categories: migration safety ru
 | PGM013 | Minor | `DROP COLUMN` silently removes unique constraint | `ALTER TABLE users DROP COLUMN email;` (where `email` has a UNIQUE constraint) |
 | PGM014 | Major | `DROP COLUMN` silently removes primary key | `ALTER TABLE orders DROP COLUMN id;` (where `id` is the PK) |
 | PGM015 | Minor | `DROP COLUMN` silently removes foreign key | `ALTER TABLE orders DROP COLUMN customer_id;` (where `customer_id` is an FK) |
+| PGM016 | Critical | `SET NOT NULL` requires ACCESS EXCLUSIVE lock | `ALTER TABLE orders ALTER COLUMN status SET NOT NULL;` |
+| PGM017 | Critical | `ADD FOREIGN KEY` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (cust_id) REFERENCES customers (id);` |
+| PGM018 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
+| PGM019 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
+| PGM020 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 
 PGM003 and PGM004 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives.
+
+PGM016, PGM017, and PGM018 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
+
+PGM019 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
 
 PGM008 is not a standalone rule -- it is a behavior modifier. All findings produced by other rules on `.down.sql` or rollback migrations are automatically capped to Info severity.
 
@@ -75,6 +84,7 @@ These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.
 | PGM103 | Minor | Don't use `char(n)` | `CREATE TABLE t (code char(3));` |
 | PGM104 | Minor | Don't use the `money` type | `CREATE TABLE t (price money);` |
 | PGM105 | Info | Don't use `serial` / `bigserial` | `CREATE TABLE t (id serial PRIMARY KEY);` |
+| PGM108 | Minor | Don't use `json` (use `jsonb`) | `CREATE TABLE t (data json);` |
 
 Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why it is dangerous and how to fix it:
 
