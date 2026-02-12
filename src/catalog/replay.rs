@@ -29,6 +29,12 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
         IrNode::CreateIndex(ci) => apply_create_index(catalog, ci),
         IrNode::DropIndex(di) => apply_drop_index(catalog, di),
         IrNode::DropTable(dt) => apply_drop_table(catalog, dt),
+        IrNode::RenameTable { name, new_name } => apply_rename_table(catalog, name, new_name),
+        IrNode::RenameColumn {
+            table,
+            old_name,
+            new_name,
+        } => apply_rename_column(catalog, table, old_name, new_name),
         IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint),
         IrNode::Ignored { .. } => { /* no-op */ }
     }
@@ -132,6 +138,11 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                         col.type_name = new_type.clone();
                     }
                 }
+                AlterTableAction::SetNotNull { column_name } => {
+                    if let Some(col) = table.get_column_mut(column_name) {
+                        col.nullable = false;
+                    }
+                }
                 AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
             }
         }
@@ -188,6 +199,91 @@ fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
     catalog.remove_table(table_key);
 }
 
+/// Handle RENAME TABLE: move the table state to a new key.
+fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &str) {
+    let old_key = name.catalog_key().to_string();
+    if let Some(mut table) = catalog.remove_table(&old_key) {
+        // Build the new key using the same schema as the old name.
+        let new_key = match &name.schema {
+            Some(schema) => format!("{}.{}", schema, new_name),
+            None => {
+                // After normalization, schema should always be set. Fall back to
+                // extracting it from the old catalog key ("schema.name" format).
+                if let Some(dot) = old_key.find('.') {
+                    format!("{}.{}", &old_key[..dot], new_name)
+                } else {
+                    new_name.to_string()
+                }
+            }
+        };
+        table.name = new_key.clone();
+        table.display_name = new_name.to_string();
+        catalog.insert_table(table);
+    }
+}
+
+/// Handle RENAME COLUMN: rename a column in a table, updating indexes and constraints.
+fn apply_rename_column(
+    catalog: &mut Catalog,
+    table_name: &QualifiedName,
+    old_name: &str,
+    new_name: &str,
+) {
+    let table_key = table_name.catalog_key().to_string();
+    let Some(table) = catalog.get_table_mut(&table_key) else {
+        return;
+    };
+
+    // Rename the column itself.
+    if let Some(col) = table.get_column_mut(old_name) {
+        col.name = new_name.to_string();
+    }
+
+    // Update indexes that reference the old column name.
+    for idx in &mut table.indexes {
+        for col in &mut idx.columns {
+            if *col == old_name {
+                *col = new_name.to_string();
+            }
+        }
+    }
+
+    // Update constraints that reference the old column name.
+    let table_name_key = table.name.clone();
+    for constraint in &mut table.constraints {
+        match constraint {
+            ConstraintState::PrimaryKey { columns } | ConstraintState::Unique { columns, .. } => {
+                for col in columns {
+                    if *col == old_name {
+                        *col = new_name.to_string();
+                    }
+                }
+            }
+            ConstraintState::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                ..
+            } => {
+                for col in columns.iter_mut() {
+                    if *col == old_name {
+                        *col = new_name.to_string();
+                    }
+                }
+                // For self-referencing FKs, also rename matching ref_columns.
+                if *ref_table == table_name_key {
+                    for col in ref_columns.iter_mut() {
+                        if *col == old_name {
+                            *col = new_name.to_string();
+                        }
+                    }
+                }
+            }
+            ConstraintState::Check { .. } => {}
+        }
+    }
+}
+
 /// Handle Unparseable: if a table_hint is provided, mark that table as incomplete.
 fn apply_unparseable(catalog: &mut Catalog, table_hint: &Option<String>) {
     if let Some(hint) = table_hint
@@ -230,6 +326,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             columns,
             ref_table,
             ref_columns,
+            not_valid,
         } => {
             table.constraints.push(ConstraintState::ForeignKey {
                 name: name.clone(),
@@ -237,6 +334,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 ref_table: ref_table.catalog_key().to_string(),
                 ref_table_display: ref_table.display_name(),
                 ref_columns: ref_columns.clone(),
+                not_valid: *not_valid,
             });
         }
         TableConstraint::Unique { name, columns } => {
@@ -245,10 +343,13 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 columns: columns.clone(),
             });
         }
-        TableConstraint::Check { name, .. } => {
-            table
-                .constraints
-                .push(ConstraintState::Check { name: name.clone() });
+        TableConstraint::Check {
+            name, not_valid, ..
+        } => {
+            table.constraints.push(ConstraintState::Check {
+                name: name.clone(),
+                not_valid: *not_valid,
+            });
         }
     }
 }
@@ -256,6 +357,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::builder::CatalogBuilder;
     use std::path::PathBuf;
 
     /// Helper to create a MigrationUnit from a list of IR nodes.
@@ -422,6 +524,7 @@ mod tests {
                 columns: vec!["pid".to_string()],
                 ref_table: qname("parent"),
                 ref_columns: vec!["id".to_string()],
+                not_valid: false,
             }],
             temporary: false,
         })]);
@@ -760,6 +863,7 @@ mod tests {
                 columns: vec!["pid".to_string()],
                 ref_table: qname("parent"),
                 ref_columns: vec!["id".to_string()],
+                not_valid: false,
             }],
             temporary: false,
         })]);
@@ -804,6 +908,7 @@ mod tests {
                 columns: vec!["pid".to_string()],
                 ref_table: qname("parent"),
                 ref_columns: vec!["id".to_string()],
+                not_valid: false,
             }],
             temporary: false,
         })]);
@@ -1045,6 +1150,7 @@ mod tests {
                     AlterTableAction::AddConstraint(TableConstraint::Check {
                         name: Some("ck_email".to_string()),
                         expression: "email <> ''".to_string(),
+                        not_valid: false,
                     }),
                 ],
             }),
@@ -1317,6 +1423,7 @@ mod tests {
                     columns: vec!["customer_id".to_string()],
                     ref_table: qname("parent"),
                     ref_columns: vec!["id".to_string()],
+                    not_valid: false,
                 }],
                 temporary: false,
             }),
@@ -1396,6 +1503,7 @@ mod tests {
                     columns: vec!["customer_id".to_string()],
                     ref_table: qname("parent"),
                     ref_columns: vec!["id".to_string()],
+                    not_valid: false,
                 }],
                 temporary: false,
             }),
@@ -1444,6 +1552,7 @@ mod tests {
                 constraints: vec![TableConstraint::Check {
                     name: Some("chk_positive".to_string()),
                     expression: "amount > 0".to_string(),
+                    not_valid: false,
                 }],
                 temporary: false,
             }),
@@ -1460,9 +1569,253 @@ mod tests {
         let table = catalog.get_table("t").expect("table should exist");
         assert!(
             table.constraints.iter().any(
-                |c| matches!(c, ConstraintState::Check { name: Some(n) } if n == "chk_positive")
+                |c| matches!(c, ConstraintState::Check { name: Some(n), .. } if n == "chk_positive")
             ),
             "Check constraint should be preserved when dropping an unrelated column"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: SET NOT NULL via ALTER TABLE
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_apply_set_not_null() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", true);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::qualified("public", "orders"),
+            actions: vec![AlterTableAction::SetNotNull {
+                column_name: "status".to_string(),
+            }],
+        })]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.orders")
+            .expect("table should exist");
+        let col = table.get_column("status").expect("column should exist");
+        assert!(
+            !col.nullable,
+            "Column 'status' should be NOT NULL after SET NOT NULL"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: RENAME TABLE
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_apply_rename_table() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", true)
+                    .index("idx_orders_status", &["status"], false);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameTable {
+            name: QualifiedName::qualified("public", "orders"),
+            new_name: "orders_archive".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        assert!(
+            !catalog.has_table("public.orders"),
+            "Old table name should no longer exist"
+        );
+        assert!(
+            catalog.has_table("public.orders_archive"),
+            "New table name should exist"
+        );
+
+        let table = catalog
+            .get_table("public.orders_archive")
+            .expect("renamed table should exist");
+        assert_eq!(table.columns.len(), 2, "Renamed table should keep columns");
+        assert_eq!(table.columns[0].name, "id");
+        assert_eq!(table.columns[1].name, "status");
+        assert_eq!(
+            table.indexes.len(),
+            1,
+            "Renamed table should keep its indexes"
+        );
+        assert_eq!(table.indexes[0].name, "idx_orders_status");
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: RENAME COLUMN updates column and index references
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_apply_rename_column() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", true)
+                    .index("idx_orders_status", &["status"], false);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::qualified("public", "orders"),
+            old_name: "status".to_string(),
+            new_name: "order_status".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.orders")
+            .expect("table should exist");
+
+        // Column should be renamed
+        assert!(
+            table.get_column("status").is_none(),
+            "Old column name should not exist"
+        );
+        let col = table
+            .get_column("order_status")
+            .expect("renamed column should exist");
+        assert_eq!(col.name, "order_status");
+
+        // Index should reference the new column name
+        assert_eq!(
+            table.indexes[0].columns,
+            vec!["order_status".to_string()],
+            "Index should reference the new column name"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: RENAME COLUMN updates FK constraint references
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_apply_rename_column_updates_constraints() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("public.orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .fk("fk_customer", &["customer_id"], "public.customers", &["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::qualified("public", "orders"),
+            old_name: "customer_id".to_string(),
+            new_name: "cust_id".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.orders")
+            .expect("table should exist");
+
+        // Find the FK constraint and check that its columns were updated
+        let fk = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::ForeignKey { .. }))
+            .expect("FK constraint should exist");
+
+        match fk {
+            ConstraintState::ForeignKey { columns, .. } => {
+                assert_eq!(
+                    columns,
+                    &["cust_id".to_string()],
+                    "FK constraint columns should reference 'cust_id' instead of 'customer_id'"
+                );
+            }
+            other => panic!("Expected ForeignKey constraint, got {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: RENAME COLUMN updates ref_columns on self-referencing FK
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_apply_rename_column_updates_self_referencing_fk_ref_columns() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.employees", |t| {
+                t.column("id", "bigint", false)
+                    .column("manager_id", "bigint", true)
+                    .pk(&["id"])
+                    .fk("fk_manager", &["manager_id"], "public.employees", &["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::qualified("public", "employees"),
+            old_name: "id".to_string(),
+            new_name: "employee_id".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.employees")
+            .expect("table should exist");
+
+        // The column should be renamed
+        assert!(
+            table.get_column("id").is_none(),
+            "Old column name 'id' should not exist"
+        );
+        assert!(
+            table.get_column("employee_id").is_some(),
+            "New column name 'employee_id' should exist"
+        );
+
+        // The PK constraint should reference the new column name
+        let pk = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
+            .expect("PK constraint should exist");
+        match pk {
+            ConstraintState::PrimaryKey { columns } => {
+                assert_eq!(
+                    columns,
+                    &["employee_id".to_string()],
+                    "PK constraint should reference 'employee_id' (not 'id')"
+                );
+            }
+            other => panic!("Expected PrimaryKey constraint, got {:?}", other),
+        }
+
+        // The FK constraint columns should be unchanged (we renamed "id", not "manager_id")
+        let fk = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::ForeignKey { .. }))
+            .expect("FK constraint should exist");
+        match fk {
+            ConstraintState::ForeignKey {
+                columns,
+                ref_columns,
+                ..
+            } => {
+                assert_eq!(
+                    columns,
+                    &["manager_id".to_string()],
+                    "FK columns should still be 'manager_id' (unchanged)"
+                );
+                assert_eq!(
+                    ref_columns,
+                    &["employee_id".to_string()],
+                    "FK ref_columns should be 'employee_id' (not 'id') for self-referencing FK"
+                );
+            }
+            other => panic!("Expected ForeignKey constraint, got {:?}", other),
+        }
     }
 }

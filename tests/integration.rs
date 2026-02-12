@@ -123,25 +123,29 @@ fn test_clean_repo_no_findings() {
 
 #[test]
 fn test_all_rules_trigger() {
-    // V002, V003, and V004 are changed; V001 is just replayed as baseline.
+    // V002-V006 are changed; V001 is just replayed as baseline.
     // This ensures tables from V001 are in catalog_before but NOT in
     // tables_created_in_change, so rules that check for pre-existing tables
-    // (PGM001, PGM002, PGM009, PGM010, PGM011) will fire.
+    // (PGM001, PGM002, PGM009, PGM010, PGM011, PGM016-PGM020) will fire.
     // V004 introduces "Don't Do This" type anti-patterns (PGM101-PGM105).
+    // V005 introduces PGM016-PGM020 violations.
+    // V006 introduces PGM108 (json type).
     let findings = lint_fixture(
         "all-rules",
         &[
             "V002__violations.sql",
             "V003__more_violations.sql",
             "V004__dont_do_this_types.sql",
+            "V005__new_violations.sql",
+            "V006__json_type.sql",
         ],
     );
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     for expected in &[
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM101", "PGM102", "PGM103", "PGM104",
-        "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
+        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ] {
         assert!(
             rule_ids.contains(expected),
@@ -158,13 +162,15 @@ fn test_all_rules_trigger() {
 
 #[test]
 fn test_suppressed_repo_no_findings() {
-    // Only V002, V003, and V004 are changed; V001 just replays.
+    // Only V002-V006 are changed; V001 just replays.
     let findings = lint_fixture(
         "suppressed",
         &[
             "V002__suppressed.sql",
             "V003__suppressed.sql",
             "V004__suppressed.sql",
+            "V005__suppressed.sql",
+            "V006__suppressed.sql",
         ],
     );
     assert!(
@@ -472,6 +478,148 @@ fn test_pgm105_serial_type() {
             .any(|f| f.message.to_lowercase().contains("serial")
                 || f.message.to_lowercase().contains("identity")),
         "PGM105 message should mention 'serial' or 'identity'. Got:\n  {}",
+        format_findings(&findings)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// New rules: PGM016-PGM020, PGM108
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pgm016_finding_details() {
+    let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
+    let pgm016: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM016").collect();
+
+    assert_eq!(pgm016.len(), 1, "Expected exactly 1 PGM016 finding");
+    assert_eq!(
+        pgm016[0].severity,
+        pg_migration_lint::rules::Severity::Critical,
+        "PGM016 severity should be Critical"
+    );
+    assert!(
+        pgm016[0].message.contains("customer_id"),
+        "PGM016 message should mention 'customer_id' column"
+    );
+    assert!(
+        pgm016[0].message.contains("customers"),
+        "PGM016 message should mention 'customers' table"
+    );
+    assert!(
+        pgm016[0].message.contains("NOT NULL"),
+        "PGM016 message should mention 'NOT NULL'"
+    );
+}
+
+#[test]
+fn test_pgm017_finding_details() {
+    let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
+    let pgm017: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM017").collect();
+
+    assert_eq!(pgm017.len(), 1, "Expected exactly 1 PGM017 finding");
+    assert_eq!(
+        pgm017[0].severity,
+        pg_migration_lint::rules::Severity::Critical,
+        "PGM017 severity should be Critical"
+    );
+    assert!(
+        pgm017[0].message.contains("events"),
+        "PGM017 message should mention 'events' table"
+    );
+    assert!(
+        pgm017[0].message.contains("NOT VALID"),
+        "PGM017 message should mention 'NOT VALID'"
+    );
+}
+
+#[test]
+fn test_pgm018_finding_details() {
+    let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
+    let pgm018: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM018").collect();
+
+    assert_eq!(pgm018.len(), 1, "Expected exactly 1 PGM018 finding");
+    assert_eq!(
+        pgm018[0].severity,
+        pg_migration_lint::rules::Severity::Critical,
+        "PGM018 severity should be Critical"
+    );
+    assert!(
+        pgm018[0].message.contains("customers"),
+        "PGM018 message should mention 'customers' table"
+    );
+    assert!(
+        pgm018[0].message.contains("NOT VALID"),
+        "PGM018 message should mention 'NOT VALID'"
+    );
+}
+
+#[test]
+fn test_pgm019_finding_details() {
+    let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
+    let pgm019: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM019").collect();
+
+    assert_eq!(pgm019.len(), 1, "Expected exactly 1 PGM019 finding");
+    assert_eq!(
+        pgm019[0].severity,
+        pg_migration_lint::rules::Severity::Info,
+        "PGM019 severity should be Info"
+    );
+    assert!(
+        pgm019[0].message.contains("accounts"),
+        "PGM019 message should mention 'accounts' table"
+    );
+    assert!(
+        pgm019[0].message.contains("accounts_old"),
+        "PGM019 message should mention the new name 'accounts_old'"
+    );
+}
+
+#[test]
+fn test_pgm020_finding_details() {
+    let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
+    let pgm020: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM020").collect();
+
+    assert_eq!(pgm020.len(), 1, "Expected exactly 1 PGM020 finding");
+    assert_eq!(
+        pgm020[0].severity,
+        pg_migration_lint::rules::Severity::Info,
+        "PGM020 severity should be Info"
+    );
+    assert!(
+        pgm020[0].message.contains("address_id"),
+        "PGM020 message should mention 'address_id' column"
+    );
+    assert!(
+        pgm020[0].message.contains("addr_id"),
+        "PGM020 message should mention the new column name 'addr_id'"
+    );
+    assert!(
+        pgm020[0].message.contains("addresses"),
+        "PGM020 message should mention 'addresses' table"
+    );
+}
+
+#[test]
+fn test_pgm108_finding_details() {
+    let findings = lint_fixture("all-rules", &["V006__json_type.sql"]);
+    let pgm108: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM108").collect();
+
+    assert!(
+        !pgm108.is_empty(),
+        "Expected PGM108 findings for 'json' type"
+    );
+    assert!(
+        pgm108
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("json")),
+        "PGM108 message should mention 'json'. Got:\n  {}",
+        format_findings(&findings)
+    );
+    assert!(
+        pgm108
+            .iter()
+            .any(|f| f.message.to_lowercase().contains("jsonb")),
+        "PGM108 message should mention 'jsonb'. Got:\n  {}",
         format_findings(&findings)
     );
 }
@@ -1533,6 +1681,8 @@ fn test_sarif_output_valid_structure() {
             "V002__violations.sql",
             "V003__more_violations.sql",
             "V004__dont_do_this_types.sql",
+            "V005__new_violations.sql",
+            "V006__json_type.sql",
         ],
     );
     assert!(
@@ -1582,8 +1732,8 @@ fn test_sarif_output_valid_structure() {
     // Verify all results have correct ruleIds from our rule set
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM101", "PGM102", "PGM103", "PGM104",
-        "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
+        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();
@@ -1729,6 +1879,8 @@ fn test_sonarqube_output_valid_structure() {
             "V002__violations.sql",
             "V003__more_violations.sql",
             "V004__dont_do_this_types.sql",
+            "V005__new_violations.sql",
+            "V006__json_type.sql",
         ],
     );
     assert!(
@@ -1759,8 +1911,8 @@ fn test_sonarqube_output_valid_structure() {
     // Verify each issue has the required fields
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM101", "PGM102", "PGM103", "PGM104",
-        "PGM105",
+        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
+        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();
@@ -1909,6 +2061,8 @@ fn test_sarif_and_sonarqube_finding_counts_match() {
             "V002__violations.sql",
             "V003__more_violations.sql",
             "V004__dont_do_this_types.sql",
+            "V005__new_violations.sql",
+            "V006__json_type.sql",
         ],
     );
 
@@ -2126,11 +2280,20 @@ fn test_schema_qualified_cross_schema_fk() {
         format_findings(&findings)
     );
 
-    // Total findings should equal the PGM001 count (no unexpected findings)
+    // PGM017 fires for the FK without NOT VALID on pre-existing orders table
+    let pgm017: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM017").collect();
+    assert_eq!(
+        pgm017.len(),
+        1,
+        "Expected exactly 1 PGM017 finding for FK without NOT VALID. Got:\n  {}",
+        format_findings(&findings)
+    );
+
+    // Total findings should be PGM001 + PGM017
     assert_eq!(
         findings.len(),
-        pgm001.len(),
-        "Total findings should equal PGM001 count (no unexpected findings). Got:\n  {}",
+        pgm001.len() + pgm017.len(),
+        "Total findings should equal PGM001 + PGM017 count (no unexpected findings). Got:\n  {}",
         format_findings(&findings)
     );
 }

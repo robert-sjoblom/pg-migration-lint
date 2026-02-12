@@ -139,6 +139,7 @@ impl TableBuilder {
             ref_table: ref_table.to_string(),
             ref_table_display: ref_table.to_string(),
             ref_columns: ref_columns.iter().map(|s| s.to_string()).collect(),
+            not_valid: false,
         });
         self
     }

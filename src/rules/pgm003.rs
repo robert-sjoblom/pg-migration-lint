@@ -185,6 +185,7 @@ mod tests {
                     columns: vec!["pid".to_string()],
                     ref_table: QualifiedName::unqualified("parent"),
                     ref_columns: vec!["id".to_string()],
+                    not_valid: false,
                 },
             )],
         }))];
@@ -233,6 +234,7 @@ mod tests {
                     columns: vec!["pid".to_string()],
                     ref_table: QualifiedName::unqualified("parent"),
                     ref_columns: vec!["id".to_string()],
+                    not_valid: false,
                 },
             )],
         }))];
@@ -282,6 +284,7 @@ mod tests {
                 columns: vec!["a".to_string(), "b".to_string()],
                 ref_table: QualifiedName::unqualified("parent"),
                 ref_columns: vec!["x".to_string(), "y".to_string()],
+                not_valid: false,
             }],
             temporary: false,
         }))];
@@ -316,6 +319,7 @@ mod tests {
                     columns: vec!["a".to_string(), "b".to_string()],
                     ref_table: QualifiedName::unqualified("parent"),
                     ref_columns: vec!["x".to_string(), "y".to_string()],
+                    not_valid: false,
                 },
             )],
         }))];

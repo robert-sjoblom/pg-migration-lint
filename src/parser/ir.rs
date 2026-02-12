@@ -15,6 +15,17 @@ pub enum IrNode {
     CreateIndex(CreateIndex),
     DropIndex(DropIndex),
     DropTable(DropTable),
+    /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
+    RenameTable {
+        name: QualifiedName,
+        new_name: String,
+    },
+    /// Rename a column on an existing table. pg_query emits `RenameStmt`.
+    RenameColumn {
+        table: QualifiedName,
+        old_name: String,
+        new_name: String,
+    },
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
     Ignored {
@@ -55,6 +66,10 @@ pub enum AlterTableAction {
         /// Only available if catalog provides it — not from the SQL itself.
         /// Rules that need old_type must look it up in the catalog.
         old_type: Option<TypeName>,
+    },
+    /// SET NOT NULL on an existing column (requires ACCESS EXCLUSIVE lock).
+    SetNotNull {
+        column_name: String,
     },
     /// Catch-all for ALTER TABLE actions we parse but don't model.
     Other {
@@ -250,6 +265,7 @@ pub enum TableConstraint {
         columns: Vec<String>,
         ref_table: QualifiedName,
         ref_columns: Vec<String>,
+        not_valid: bool,
     },
     Unique {
         name: Option<String>,
@@ -258,6 +274,7 @@ pub enum TableConstraint {
     Check {
         name: Option<String>,
         expression: String,
+        not_valid: bool,
     },
 }
 

@@ -1,0 +1,160 @@
+//! PGM108 — Don't use `json` type (use `jsonb` instead)
+//!
+//! The `json` type stores an exact copy of the input text and must re-parse it on
+//! every operation. `jsonb` stores a decomposed binary format that is significantly
+//! faster for queries, supports indexing (GIN), and supports containment/existence
+//! operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving
+//! exact key order and duplicate keys — both rarely needed.
+
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::column_type_check;
+use crate::rules::{Finding, LintContext, Rule, Severity};
+
+/// Rule that flags the use of the `json` type instead of `jsonb`.
+pub struct Pgm108;
+
+impl Rule for Pgm108 {
+    fn id(&self) -> &'static str {
+        "PGM108"
+    }
+
+    fn default_severity(&self) -> Severity {
+        Severity::Minor
+    }
+
+    fn description(&self) -> &'static str {
+        "Column uses json type instead of jsonb"
+    }
+
+    fn explain(&self) -> &'static str {
+        "PGM108 — Don't use `json` (prefer `jsonb`)\n\
+         \n\
+         What it detects:\n\
+         A column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\
+         \n\
+         Why it's problematic:\n\
+         The `json` type stores an exact copy of the input text and must re-parse\n\
+         it on every operation. `jsonb` stores a decomposed binary format that is\n\
+         significantly faster for queries, supports indexing (GIN), and supports\n\
+         containment/existence operators (`@>`, `?`, `?|`, `?&`). The only\n\
+         advantages of `json` are preserving exact key order and duplicate keys\n\
+         — both rarely needed.\n\
+         \n\
+         Example (bad):\n\
+           CREATE TABLE events (payload json NOT NULL);\n\
+         \n\
+         Fix:\n\
+           CREATE TABLE events (payload jsonb NOT NULL);"
+    }
+
+    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
+        column_type_check::check_column_types(
+            statements,
+            ctx,
+            self.id(),
+            self.default_severity(),
+            |tn| tn.name.eq_ignore_ascii_case("json"),
+            |col, table, _tn| {
+                format!(
+                    "Column '{}' on '{}' uses 'json'. Use 'jsonb' instead — \
+                     it's faster, smaller, indexable, and supports containment \
+                     operators. Only use 'json' if you need to preserve exact \
+                     text representation or key order.",
+                    col,
+                    table.display_name(),
+                )
+            },
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::Catalog;
+    use crate::parser::ir::*;
+    use crate::rules::test_helpers::{located, make_ctx};
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_create_table_json_fires() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(CreateTable {
+            name: QualifiedName::unqualified("events"),
+            columns: vec![ColumnDef {
+                name: "payload".to_string(),
+                type_name: TypeName::simple("json"),
+                nullable: true,
+                default_expr: None,
+                is_inline_pk: false,
+                is_serial: false,
+            }],
+            constraints: vec![],
+            temporary: false,
+        }))];
+
+        let findings = Pgm108.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "PGM108");
+        assert_eq!(findings[0].severity, Severity::Minor);
+        assert!(findings[0].message.contains("payload"));
+        assert!(findings[0].message.contains("events"));
+    }
+
+    #[test]
+    fn test_jsonb_no_finding() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(CreateTable {
+            name: QualifiedName::unqualified("events"),
+            columns: vec![ColumnDef {
+                name: "payload".to_string(),
+                type_name: TypeName::simple("jsonb"),
+                nullable: true,
+                default_expr: None,
+                is_inline_pk: false,
+                is_serial: false,
+            }],
+            constraints: vec![],
+            temporary: false,
+        }))];
+
+        let findings = Pgm108.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_add_column_json_fires() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("events"),
+            actions: vec![AlterTableAction::AddColumn(ColumnDef {
+                name: "metadata".to_string(),
+                type_name: TypeName::simple("json"),
+                nullable: true,
+                default_expr: None,
+                is_inline_pk: false,
+                is_serial: false,
+            })],
+        }))];
+
+        let findings = Pgm108.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("metadata"));
+    }
+}
