@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.3.0...v1.4.0) (2026-02-12)
+
+
+### Features
+
+* **liquibase-xml:** add 5 change types, identifier quoting, run_in_transaction config ([44a843b](https://github.com/robert-sjoblom/pg-migration-lint/commit/44a843b454ee528a3895c74a2a04d93ac56b3ced))
+
 ## [1.3.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.2.2...v1.3.0) (2026-02-11)
 
 
