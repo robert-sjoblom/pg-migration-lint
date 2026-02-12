@@ -104,6 +104,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> IrNode {
         NodeEnum::AlterTableStmt(alter) => convert_alter_table(alter, raw_sql),
         NodeEnum::IndexStmt(idx) => convert_create_index(idx),
         NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql),
+        NodeEnum::RenameStmt(rename) => convert_rename_stmt(rename, raw_sql),
         NodeEnum::DoStmt(_) => IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -224,6 +225,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                     columns: vec![col_name.clone()],
                     ref_table,
                     ref_columns,
+                    not_valid: con.skip_validation,
                 });
             }
             pg_query::protobuf::ConstrType::ConstrUnique => {
@@ -241,6 +243,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 constraints.push(TableConstraint::Check {
                     name: optional_name(&con.conname),
                     expression,
+                    not_valid: con.skip_validation,
                 });
             }
             _ => {}
@@ -466,15 +469,49 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                 old_type: None, // Must be filled in from catalog during linting
             }]
         }
-        pg_query::protobuf::AlterTableType::AtSetNotNull => vec![AlterTableAction::Other {
-            description: format!("SET NOT NULL on {}", cmd.name),
-        }],
+        pg_query::protobuf::AlterTableType::AtSetNotNull => {
+            vec![AlterTableAction::SetNotNull {
+                column_name: cmd.name.clone(),
+            }]
+        }
         pg_query::protobuf::AlterTableType::AtDropNotNull => vec![AlterTableAction::Other {
             description: format!("DROP NOT NULL on {}", cmd.name),
         }],
         other => vec![AlterTableAction::Other {
             description: format!("{:?}", other),
         }],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RENAME TABLE / RENAME COLUMN
+// ---------------------------------------------------------------------------
+
+/// Convert a pg_query `RenameStmt` to the appropriate IR node.
+///
+/// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
+/// - `ObjectType::ObjectColumn` → `IrNode::RenameColumn`
+/// - Everything else → `IrNode::Ignored`
+fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -> IrNode {
+    match rename.rename_type() {
+        pg_query::protobuf::ObjectType::ObjectTable => {
+            let name = relation_to_qualified_name(rename.relation.as_ref());
+            IrNode::RenameTable {
+                name,
+                new_name: rename.newname.clone(),
+            }
+        }
+        pg_query::protobuf::ObjectType::ObjectColumn => {
+            let table = relation_to_qualified_name(rename.relation.as_ref());
+            IrNode::RenameColumn {
+                table,
+                old_name: rename.subname.clone(),
+                new_name: rename.newname.clone(),
+            }
+        }
+        _ => IrNode::Ignored {
+            raw_sql: raw_sql.to_string(),
+        },
     }
 }
 
@@ -517,6 +554,7 @@ fn convert_table_constraint(
                 columns,
                 ref_table,
                 ref_columns,
+                not_valid: con.skip_validation,
             })
         }
         pg_query::protobuf::ConstrType::ConstrUnique => {
@@ -534,7 +572,11 @@ fn convert_table_constraint(
                 .as_ref()
                 .map(|e| deparse_node(e))
                 .unwrap_or_default();
-            Some(TableConstraint::Check { name, expression })
+            Some(TableConstraint::Check {
+                name,
+                expression,
+                not_valid: con.skip_validation,
+            })
         }
         _ => None,
     }
@@ -1175,6 +1217,7 @@ mod tests {
                             columns,
                             ref_table,
                             ref_columns,
+                            ..
                         } => {
                             assert_eq!(name.as_deref(), Some("fk_customer"));
                             assert_eq!(columns, &["customer_id"]);
@@ -1223,14 +1266,10 @@ mod tests {
             IrNode::AlterTable(at) => {
                 assert_eq!(at.actions.len(), 1);
                 match &at.actions[0] {
-                    AlterTableAction::Other { description } => {
-                        assert!(
-                            description.contains("SET NOT NULL"),
-                            "Expected 'SET NOT NULL' in description, got: {}",
-                            description
-                        );
+                    AlterTableAction::SetNotNull { column_name } => {
+                        assert_eq!(column_name, "price");
                     }
-                    other => panic!("Expected Other, got: {:?}", other),
+                    other => panic!("Expected SetNotNull, got: {:?}", other),
                 }
             }
             other => panic!("Expected AlterTable, got: {:?}", other),
@@ -1610,6 +1649,154 @@ mod tests {
                 other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
             },
             other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // NOT VALID constraints
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_add_fk_not_valid() {
+        let sql = "ALTER TABLE orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
+                        name,
+                        columns,
+                        ref_table,
+                        ref_columns,
+                        not_valid,
+                    }) => {
+                        assert_eq!(name.as_deref(), Some("fk_customer"));
+                        assert_eq!(columns, &["customer_id"]);
+                        assert_eq!(ref_table, &QualifiedName::unqualified("customers"));
+                        assert_eq!(ref_columns, &["id"]);
+                        assert!(*not_valid, "Expected not_valid to be true");
+                    }
+                    other => panic!("Expected AddConstraint ForeignKey, got: {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_fk_without_not_valid() {
+        let sql = "ALTER TABLE orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
+                        not_valid,
+                        ..
+                    }) => {
+                        assert!(!*not_valid, "Expected not_valid to be false");
+                    }
+                    other => panic!("Expected AddConstraint ForeignKey, got: {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_check_not_valid() {
+        let sql = "ALTER TABLE orders ADD CONSTRAINT chk_amount CHECK (amount > 0) NOT VALID;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::AddConstraint(TableConstraint::Check {
+                        name,
+                        not_valid,
+                        ..
+                    }) => {
+                        assert_eq!(name.as_deref(), Some("chk_amount"));
+                        assert!(*not_valid, "Expected not_valid to be true");
+                    }
+                    other => panic!("Expected AddConstraint Check, got: {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_check_without_not_valid() {
+        let sql = "ALTER TABLE orders ADD CONSTRAINT chk_amount CHECK (amount > 0);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::AddConstraint(TableConstraint::Check {
+                        not_valid, ..
+                    }) => {
+                        assert!(!*not_valid, "Expected not_valid to be false");
+                    }
+                    other => panic!("Expected AddConstraint Check, got: {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // RENAME TABLE / RENAME COLUMN / RENAME INDEX
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_rename_table() {
+        let sql = "ALTER TABLE orders RENAME TO orders_v2;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::RenameTable { name, new_name } => {
+                assert_eq!(name.name, "orders");
+                assert_eq!(new_name, "orders_v2");
+            }
+            other => panic!("Expected RenameTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_rename_column() {
+        let sql = "ALTER TABLE orders RENAME COLUMN status TO order_status;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::RenameColumn {
+                table,
+                old_name,
+                new_name,
+            } => {
+                assert_eq!(table.name, "orders");
+                assert_eq!(old_name, "status");
+                assert_eq!(new_name, "order_status");
+            }
+            other => panic!("Expected RenameColumn, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_rename_index_ignored() {
+        let sql = "ALTER INDEX idx_foo RENAME TO idx_bar;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Ignored { .. } => {} // Expected
+            other => panic!("Expected Ignored for ALTER INDEX RENAME, got: {:?}", other),
         }
     }
 }

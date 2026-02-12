@@ -213,6 +213,7 @@ pub enum ConstraintState {
         /// User-facing referenced table name (omits synthetic schema prefix).
         ref_table_display: String,
         ref_columns: Vec<String>,
+        not_valid: bool,
     },
     Unique {
         name: Option<String>,
@@ -220,5 +221,6 @@ pub enum ConstraintState {
     },
     Check {
         name: Option<String>,
+        not_valid: bool,
     },
 }

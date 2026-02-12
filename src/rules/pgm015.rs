@@ -252,6 +252,7 @@ mod tests {
             ref_table: "customers".to_string(),
             ref_table_display: "customers".to_string(),
             ref_columns: vec!["id".to_string()],
+            not_valid: false,
         });
 
         let after = before.clone();

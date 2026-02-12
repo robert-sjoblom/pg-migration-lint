@@ -52,6 +52,12 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
                 *hint = format!("{}.{}", default_schema, hint);
             }
         }
+        IrNode::RenameTable { name, .. } => {
+            name.set_default_schema(default_schema);
+        }
+        IrNode::RenameColumn { table, .. } => {
+            table.set_default_schema(default_schema);
+        }
         // DropIndex only has index_name: String — no QualifiedName to normalize.
         IrNode::DropIndex(_) | IrNode::Ignored { .. } => {}
     }
@@ -140,6 +146,7 @@ mod tests {
                 columns: vec!["customer_id".to_string()],
                 ref_table: QualifiedName::unqualified("customers"),
                 ref_columns: vec!["id".to_string()],
+                not_valid: false,
             }],
             temporary: false,
         })])];
@@ -190,6 +197,7 @@ mod tests {
                     columns: vec!["customer_id".to_string()],
                     ref_table: QualifiedName::unqualified("customers"),
                     ref_columns: vec!["id".to_string()],
+                    not_valid: false,
                 },
             )],
         })])];
@@ -344,6 +352,41 @@ mod tests {
             assert_eq!(ct.name.schema, Some("order".to_string()));
         } else {
             panic!("Expected CreateTable");
+        }
+    }
+
+    #[test]
+    fn test_normalize_rename_table() {
+        let mut units = vec![make_unit(vec![IrNode::RenameTable {
+            name: QualifiedName::unqualified("orders"),
+            new_name: "orders_v2".to_string(),
+        }])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::RenameTable { name, .. } = &units[0].statements[0].node {
+            assert_eq!(name.schema, Some("public".to_string()));
+            assert_eq!(name.catalog_key(), "public.orders");
+        } else {
+            panic!("Expected RenameTable");
+        }
+    }
+
+    #[test]
+    fn test_normalize_rename_column() {
+        let mut units = vec![make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::unqualified("orders"),
+            old_name: "status".to_string(),
+            new_name: "order_status".to_string(),
+        }])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::RenameColumn { table, .. } = &units[0].statements[0].node {
+            assert_eq!(table.schema, Some("public".to_string()));
+            assert_eq!(table.catalog_key(), "public.orders");
+        } else {
+            panic!("Expected RenameColumn");
         }
     }
 }
