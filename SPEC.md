@@ -306,10 +306,97 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes foreign key '{constraint}' referencing '{ref_table}'. Verify that the referential integrity guarantee is no longer needed.`
 
+#### PGM016 — `SET NOT NULL` on existing column
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Acquires an `ACCESS EXCLUSIVE` lock and performs a full table scan to verify no NULL values exist. On large tables, this blocks all reads and writes for the duration of the scan. The scan is skipped if a valid `CHECK (col IS NOT NULL)` constraint already exists, but the linter cannot verify this.
+- **Safe alternative**:
+  ```sql
+  -- Migration 1: add check constraint (instant, lightweight lock)
+  ALTER TABLE orders ADD CONSTRAINT orders_status_nn
+    CHECK (status IS NOT NULL) NOT VALID;
+  -- Migration 2: validate (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
+  -- Migration 3: scan is skipped due to validated CHECK
+  ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
+  ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
+  ```
+- **Does not fire when**:
+  - The table is created in the same set of changed files
+  - The table does not exist in `catalog_before`
+- **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans the table. Add a CHECK (col IS NOT NULL) NOT VALID constraint first, validate it separately, then SET NOT NULL.`
+- **IR impact**: Requires new `AlterTableAction::SetNotNull { column_name: String }` variant. Currently falls into `Other`.
+
+#### PGM017 — `ADD FOREIGN KEY` without `NOT VALID` on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Acquires `SHARE ROW EXCLUSIVE` lock on the table (blocking writes) and scans all existing rows to validate references. On large tables this means minutes of blocked writes.
+- **Safe alternative**:
+  ```sql
+  -- Migration 1: add constraint without validation (instant)
+  ALTER TABLE orders ADD CONSTRAINT fk_customer
+    FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;
+  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;
+  ```
+- **Does not fire when**:
+  - The table is created in the same set of changed files
+  - The table does not exist in `catalog_before`
+  - The constraint includes `NOT VALID`
+- **Interaction with PGM003**: PGM003 (missing FK index) fires independently. The rules are complementary.
+- **Message**: `Adding foreign key '{constraint}' on existing table '{table}' validates all rows, blocking writes. Use NOT VALID and validate in a separate migration.`
+- **IR impact**: Requires `not_valid: bool` field on `TableConstraint::ForeignKey`.
+
+#### PGM018 — `ADD CHECK` without `NOT VALID` on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to validate the expression.
+- **Safe alternative**:
+  ```sql
+  -- Migration 1: add constraint without validation (instant)
+  ALTER TABLE orders ADD CONSTRAINT orders_status_valid
+    CHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;
+  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  ALTER TABLE orders VALIDATE CONSTRAINT orders_status_valid;
+  ```
+- **Does not fire when**:
+  - The table is created in the same set of changed files
+  - The table does not exist in `catalog_before`
+  - The constraint includes `NOT VALID`
+- **Message**: `Adding CHECK constraint '{constraint}' on existing table '{table}' validates all rows under ACCESS EXCLUSIVE lock. Use NOT VALID and validate in a separate migration.`
+- **IR impact**: Requires `not_valid: bool` field on `TableConstraint::Check`.
+
+#### PGM019 — `RENAME TABLE`
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... RENAME TO ...` on a table that exists in `catalog_before`.
+- **Why**: Renames are instant DDL (metadata-only), but silently break any application queries, views, functions, or triggers that reference the old name.
+- **Replacement detection**: Does **not** fire if, within the same migration unit, a `CREATE TABLE` with the old name appears after the rename. This is a common pattern (rename old table away, create replacement with the original name).
+- **Does not fire when**:
+  - The table does not exist in `catalog_before`
+  - A replacement table with the old name is created in the same migration unit
+- **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
+- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new IR support — either `AlterTableAction::RenameTable { new_name: String }` or a new top-level `IrNode` variant.
+- **Catalog impact**: Replay should update the table name in the catalog so subsequent rules see the new name.
+
+#### PGM020 — `RENAME COLUMN`
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... RENAME COLUMN ... TO ...` on a table that exists in `catalog_before`.
+- **Why**: Column renames are instant DDL but silently break application queries that reference the old column name.
+- **Does not fire when**:
+  - The table does not exist in `catalog_before`
+- **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
+- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
+- **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
+
 #### PGM008 — Down migration issues
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM015) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules (PGM001–PGM020) apply to `.down.sql` / rollback SQL, but findings are informational only.
 
 ### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
 
@@ -368,6 +455,13 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 - **Why**: The `serial` pseudo-types create an implicit sequence with several problems: the sequence ownership is weaker than identity columns, `INSERT` with explicit values doesn't advance the sequence (causing future conflicts), and grants/ownership are separate. Identity columns (`GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY`, SQL standard, PG 10+) handle all these edge cases correctly.
 - **Interaction with PGM007**: Both PGM105 and PGM007 fire on `nextval()` defaults. This is intentional — PGM007 warns about the volatile default aspect, PGM105 recommends the identity column alternative.
 - **Message**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach.`
+
+#### PGM108 — Don't use `json` (prefer `jsonb`)
+
+- **Severity**: WARNING
+- **Triggers**: Column type with `TypeName.name == "json"` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
+- **Why**: The `json` type stores an exact copy of the input text and must re-parse it on every operation. `jsonb` stores a decomposed binary format that is significantly faster for queries, supports indexing (GIN), and supports containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving exact key order and duplicate keys — both rarely needed.
+- **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
 
 #### Deferred "Don't Do This" Rules
 
@@ -621,3 +715,4 @@ pg-migration-lint/
 | 1.2     | 2026-02-11 | Specified PGM013 (DROP COLUMN removes unique constraint, WARNING), PGM014 (DROP COLUMN removes primary key, MAJOR), PGM015 (DROP COLUMN removes foreign key, WARNING). Noted prerequisite catalog fix: `remove_column` must also clean up constraints, not just indexes. |
 | 1.3     | 2026-02-11 | Implemented PGM013, PGM014, PGM015. Fixed `remove_column` to clean up constraints. Added schema-aware catalog with configurable `default_schema` (default: `"public"`). Unqualified table names are normalized to `<schema>.<name>` for catalog lookups, so `orders` and `public.orders` resolve to the same table. Total: 19 rules. |
 | 1.4     | 2026-02-12 | Documented recursive `<includeAll>` as non-goal for XML fallback parser. Improved warning message to direct users toward bridge JAR or `liquibase update-sql` for nested directory layouts. |
+| 1.5     | 2026-02-12 | Added PGM016 (SET NOT NULL on existing column, CRITICAL), PGM017 (ADD FOREIGN KEY without NOT VALID, CRITICAL), PGM018 (ADD CHECK without NOT VALID, CRITICAL), PGM019 (RENAME TABLE with replacement detection, INFO), PGM020 (RENAME COLUMN, INFO), PGM108 (Don't use json, WARNING). Target PostgreSQL 14+. IR impacts: new `SetNotNull` action, `not_valid` field on FK/CHECK constraints, rename support via `RenameStmt` mapping. |
