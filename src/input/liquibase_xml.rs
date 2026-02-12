@@ -205,6 +205,10 @@ struct ColumnDef {
     primary_key: bool,
     unique: bool,
     default_value: Option<String>,
+    foreign_key_name: Option<String>,
+    referenced_table: Option<String>,
+    referenced_schema: Option<String>,
+    referenced_columns: Option<String>,
 }
 
 /// Constraints parsed from a <constraints> element within a column.
@@ -213,15 +217,23 @@ struct ColumnConstraints {
     nullable: bool,
     primary_key: bool,
     unique: bool,
+    foreign_key_name: Option<String>,
+    referenced_table: Option<String>,
+    referenced_schema: Option<String>,
+    referenced_columns: Option<String>,
 }
 
 impl Default for ColumnConstraints {
-    /// Default constraints: nullable=true (standard SQL default), no PK, no unique.
+    /// Default constraints: nullable=true (standard SQL default), no PK, no unique, no FK.
     fn default() -> Self {
         Self {
             nullable: true,
             primary_key: false,
             unique: false,
+            foreign_key_name: None,
+            referenced_table: None,
+            referenced_schema: None,
+            referenced_columns: None,
         }
     }
 }
@@ -612,12 +624,13 @@ fn handle_start_tag(
                         );
                         return Ok(ParseState::InChangeSet(cs));
                     };
-                    let Some(new_data_type) = get_attr(attrs, "newDataType") else {
+                    let Some(raw_data_type) = get_attr(attrs, "newDataType") else {
                         eprintln!(
                             "Warning: <modifyDataType> missing required 'newDataType' attribute, skipping"
                         );
                         return Ok(ParseState::InChangeSet(cs));
                     };
+                    let new_data_type = map_liquibase_type(&raw_data_type);
                     let schema_name = get_attr(attrs, "schemaName");
                     let qualified = qualify_name(&schema_name, &table_name);
                     cs.sql_parts.push(format!(
@@ -804,32 +817,12 @@ fn handle_start_tag(
         }
         ParseState::InCreateTable(cs, mut ct) => {
             if tag_name == "column" {
-                let name = get_attr(attrs, "name").unwrap_or_default();
-                let type_name = get_attr(attrs, "type").unwrap_or_default();
-                let default_value = get_attr(attrs, "defaultValue")
-                    .or_else(|| get_attr(attrs, "defaultValueNumeric"))
-                    .or_else(|| get_attr(attrs, "defaultValueBoolean"))
-                    .or_else(|| get_attr(attrs, "defaultValueComputed"));
-
-                if is_empty {
-                    // Self-closing <column .../> with no constraints child
-                    ct.columns.push(ColumnDef {
-                        name,
-                        type_name,
-                        nullable: true,
-                        primary_key: false,
-                        unique: false,
-                        default_value,
-                    });
-                    Ok(ParseState::InCreateTable(cs, ct))
-                } else {
-                    let col = ColumnState {
-                        name,
-                        type_name,
-                        constraints: ColumnConstraints::default(),
-                        default_value,
-                    };
-                    Ok(ParseState::InCreateTableColumn(cs, ct, col))
+                match parse_column_element(attrs, is_empty) {
+                    ParsedColumn::Complete(def) => {
+                        ct.columns.push(def);
+                        Ok(ParseState::InCreateTable(cs, ct))
+                    }
+                    ParsedColumn::Pending(col) => Ok(ParseState::InCreateTableColumn(cs, ct, col)),
                 }
             } else {
                 // Unknown child of createTable, ignore
@@ -838,50 +831,18 @@ fn handle_start_tag(
         }
         ParseState::InCreateTableColumn(cs, ct, mut col) => {
             if tag_name == "constraints" {
-                let nullable = get_attr(attrs, "nullable")
-                    .map(|v| v != "false")
-                    .unwrap_or(true);
-                let primary_key = get_attr(attrs, "primaryKey")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                let unique = get_attr(attrs, "unique")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                col.constraints = ColumnConstraints {
-                    nullable,
-                    primary_key,
-                    unique,
-                };
+                col.constraints = parse_column_constraints(attrs);
             }
             Ok(ParseState::InCreateTableColumn(cs, ct, col))
         }
         ParseState::InAddColumn(cs, mut ac) => {
             if tag_name == "column" {
-                let name = get_attr(attrs, "name").unwrap_or_default();
-                let type_name = get_attr(attrs, "type").unwrap_or_default();
-                let default_value = get_attr(attrs, "defaultValue")
-                    .or_else(|| get_attr(attrs, "defaultValueNumeric"))
-                    .or_else(|| get_attr(attrs, "defaultValueBoolean"))
-                    .or_else(|| get_attr(attrs, "defaultValueComputed"));
-
-                if is_empty {
-                    ac.columns.push(ColumnDef {
-                        name,
-                        type_name,
-                        nullable: true,
-                        primary_key: false,
-                        unique: false,
-                        default_value,
-                    });
-                    Ok(ParseState::InAddColumn(cs, ac))
-                } else {
-                    let col_state = ColumnState {
-                        name,
-                        type_name,
-                        constraints: ColumnConstraints::default(),
-                        default_value,
-                    };
-                    Ok(ParseState::InAddColumnColumn(cs, ac, col_state))
+                match parse_column_element(attrs, is_empty) {
+                    ParsedColumn::Complete(def) => {
+                        ac.columns.push(def);
+                        Ok(ParseState::InAddColumn(cs, ac))
+                    }
+                    ParsedColumn::Pending(col) => Ok(ParseState::InAddColumnColumn(cs, ac, col)),
                 }
             } else {
                 Ok(ParseState::InAddColumn(cs, ac))
@@ -889,20 +850,7 @@ fn handle_start_tag(
         }
         ParseState::InAddColumnColumn(cs, ac, mut col) => {
             if tag_name == "constraints" {
-                let nullable = get_attr(attrs, "nullable")
-                    .map(|v| v != "false")
-                    .unwrap_or(true);
-                let primary_key = get_attr(attrs, "primaryKey")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                let unique = get_attr(attrs, "unique")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                col.constraints = ColumnConstraints {
-                    nullable,
-                    primary_key,
-                    unique,
-                };
+                col.constraints = parse_column_constraints(attrs);
             }
             Ok(ParseState::InAddColumnColumn(cs, ac, col))
         }
@@ -970,8 +918,8 @@ fn handle_end_tag(
         }
         ParseState::InCreateTable(mut cs, ct) => {
             if tag_name == "createTable" {
-                let sql = generate_create_table_sql(&ct);
-                cs.sql_parts.push(sql);
+                let stmts = generate_create_table_sql(&ct);
+                cs.sql_parts.extend(stmts);
                 Ok(ParseState::InChangeSet(cs))
             } else {
                 Ok(ParseState::InCreateTable(cs, ct))
@@ -979,14 +927,7 @@ fn handle_end_tag(
         }
         ParseState::InCreateTableColumn(cs, mut ct, col) => {
             if tag_name == "column" {
-                ct.columns.push(ColumnDef {
-                    name: col.name,
-                    type_name: col.type_name,
-                    nullable: col.constraints.nullable,
-                    primary_key: col.constraints.primary_key,
-                    unique: col.constraints.unique,
-                    default_value: col.default_value,
-                });
+                ct.columns.push(column_def_from_state(col));
                 Ok(ParseState::InCreateTable(cs, ct))
             } else {
                 Ok(ParseState::InCreateTableColumn(cs, ct, col))
@@ -997,6 +938,11 @@ fn handle_end_tag(
                 for col_def in &ac.columns {
                     let sql = generate_add_column_sql(&ac.table_name, &ac.schema_name, col_def);
                     cs.sql_parts.push(sql);
+                    if let Some(fk_sql) =
+                        generate_inline_fk_sql(&ac.table_name, &ac.schema_name, col_def)
+                    {
+                        cs.sql_parts.push(fk_sql);
+                    }
                 }
                 Ok(ParseState::InChangeSet(cs))
             } else {
@@ -1005,14 +951,7 @@ fn handle_end_tag(
         }
         ParseState::InAddColumnColumn(cs, mut ac, col) => {
             if tag_name == "column" {
-                ac.columns.push(ColumnDef {
-                    name: col.name,
-                    type_name: col.type_name,
-                    nullable: col.constraints.nullable,
-                    primary_key: col.constraints.primary_key,
-                    unique: col.constraints.unique,
-                    default_value: col.default_value,
-                });
+                ac.columns.push(column_def_from_state(col));
                 Ok(ParseState::InAddColumn(cs, ac))
             } else {
                 Ok(ParseState::InAddColumnColumn(cs, ac, col))
@@ -1067,13 +1006,182 @@ fn handle_text(state: ParseState, text: &str) -> ParseState {
 }
 
 // ---------------------------------------------------------------------------
+// Liquibase type mapping
+// ---------------------------------------------------------------------------
+
+/// Map Liquibase abstract type names to PostgreSQL types.
+///
+/// Liquibase uses abstract/Java-flavoured type names that don't correspond 1:1
+/// to PostgreSQL types. The bridge JAR performs this mapping via the real
+/// Liquibase engine; we need to replicate the important cases here so that the
+/// XML fallback produces SQL that `pg_query` can parse and that rules like
+/// PGM101 (timestamp without time zone) can detect.
+fn map_liquibase_type(raw: &str) -> String {
+    // Normalise to lowercase for matching, but preserve modifiers like (10,2)
+    let lower = raw.to_ascii_lowercase();
+    let (base, modifiers) = match lower.find('(') {
+        Some(pos) => (&lower[..pos], &raw[pos..]),
+        None => (lower.as_str(), ""),
+    };
+
+    let mapped = match base.trim() {
+        "datetime" => "timestamp without time zone",
+        "int" => "integer",
+        "number" | "decimal" | "currency" => "numeric",
+        "clob" | "nclob" => "text",
+        "blob" => "bytea",
+        "tinyint" => "smallint",
+        "mediumint" => "integer",
+        "double" => "double precision",
+        "nvarchar" => "varchar",
+        "nchar" => "char",
+        "java.sql.types.timestamp" => "timestamp without time zone",
+        "java.sql.types.date" => "date",
+        "java.sql.types.time" => "time",
+        "java.sql.types.varchar" => "varchar",
+        _ => return raw.to_string(),
+    };
+
+    format!("{mapped}{modifiers}")
+}
+
+// ---------------------------------------------------------------------------
+// Constraint / column helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a `<constraints>` element's attributes into a `ColumnConstraints`.
+fn parse_column_constraints(attrs: &[(String, String)]) -> ColumnConstraints {
+    let nullable = get_attr(attrs, "nullable")
+        .map(|v| v != "false")
+        .unwrap_or(true);
+    let primary_key = get_attr(attrs, "primaryKey")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let unique = get_attr(attrs, "unique")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let foreign_key_name = get_attr(attrs, "foreignKeyName");
+    let referenced_table = get_attr(attrs, "referencedTableName");
+    let referenced_schema = get_attr(attrs, "referencedTableSchemaName");
+    let referenced_columns = get_attr(attrs, "referencedColumnNames");
+
+    ColumnConstraints {
+        nullable,
+        primary_key,
+        unique,
+        foreign_key_name,
+        referenced_table,
+        referenced_schema,
+        referenced_columns,
+    }
+}
+
+/// Result of parsing a `<column>` element's attributes.
+enum ParsedColumn {
+    /// Self-closing `<column .../>` — fully resolved to a `ColumnDef`.
+    Complete(ColumnDef),
+    /// Open `<column>` — needs child elements (e.g. `<constraints>`) before closing.
+    Pending(ColumnState),
+}
+
+/// Parse a `<column>` element's attributes into either a complete `ColumnDef`
+/// (self-closing) or a pending `ColumnState` (has children like `<constraints>`).
+fn parse_column_element(attrs: &[(String, String)], is_empty: bool) -> ParsedColumn {
+    let name = get_attr(attrs, "name").unwrap_or_default();
+    let type_name = map_liquibase_type(&get_attr(attrs, "type").unwrap_or_default());
+    let default_value = get_attr(attrs, "defaultValue")
+        .or_else(|| get_attr(attrs, "defaultValueNumeric"))
+        .or_else(|| get_attr(attrs, "defaultValueBoolean"))
+        .or_else(|| get_attr(attrs, "defaultValueComputed"));
+
+    if is_empty {
+        ParsedColumn::Complete(ColumnDef {
+            name,
+            type_name,
+            nullable: true,
+            primary_key: false,
+            unique: false,
+            default_value,
+            foreign_key_name: None,
+            referenced_table: None,
+            referenced_schema: None,
+            referenced_columns: None,
+        })
+    } else {
+        ParsedColumn::Pending(ColumnState {
+            name,
+            type_name,
+            constraints: ColumnConstraints::default(),
+            default_value,
+        })
+    }
+}
+
+/// Convert a `ColumnState` (parsing temp) into a `ColumnDef` (for SQL gen).
+fn column_def_from_state(col: ColumnState) -> ColumnDef {
+    ColumnDef {
+        name: col.name,
+        type_name: col.type_name,
+        nullable: col.constraints.nullable,
+        primary_key: col.constraints.primary_key,
+        unique: col.constraints.unique,
+        default_value: col.default_value,
+        foreign_key_name: col.constraints.foreign_key_name,
+        referenced_table: col.constraints.referenced_table,
+        referenced_schema: col.constraints.referenced_schema,
+        referenced_columns: col.constraints.referenced_columns,
+    }
+}
+
+/// Generate inline FK SQL for a column, if it has FK constraints.
+/// Returns `None` if the column has no FK reference.
+fn generate_inline_fk_sql(
+    table_name: &str,
+    schema_name: &Option<String>,
+    col: &ColumnDef,
+) -> Option<String> {
+    let ref_table = col.referenced_table.as_deref()?;
+    let Some(ref_columns) = col.referenced_columns.as_deref() else {
+        eprintln!(
+            "Warning: inline FK on column '{}' references table '{}' but is missing \
+             referencedColumnNames, skipping FK",
+            col.name, ref_table
+        );
+        return None;
+    };
+
+    let base_qualified = qualify_name(schema_name, table_name);
+    let ref_qualified = qualify_name(&col.referenced_schema, ref_table);
+    let quoted_base_col = quote_ident(&col.name);
+    let quoted_ref_cols = quote_column_list(ref_columns);
+
+    let sql = if let Some(ref fk_name) = col.foreign_key_name {
+        format!(
+            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({});",
+            base_qualified,
+            quote_ident(fk_name),
+            quoted_base_col,
+            ref_qualified,
+            quoted_ref_cols
+        )
+    } else {
+        format!(
+            "ALTER TABLE {} ADD FOREIGN KEY ({}) REFERENCES {} ({});",
+            base_qualified, quoted_base_col, ref_qualified, quoted_ref_cols
+        )
+    };
+    Some(sql)
+}
+
+// ---------------------------------------------------------------------------
 // SQL generation helpers
 // ---------------------------------------------------------------------------
 
-/// Generate a CREATE TABLE SQL statement from parsed XML state.
-fn generate_create_table_sql(ct: &CreateTableState) -> String {
+/// Generate CREATE TABLE and any inline FK SQL statements from parsed XML state.
+/// Returns one or more SQL statements.
+fn generate_create_table_sql(ct: &CreateTableState) -> Vec<String> {
     let qualified = qualify_name(&ct.schema_name, &ct.table_name);
-    let mut parts: Vec<String> = Vec::new();
+    let mut col_parts: Vec<String> = Vec::new();
 
     for col in &ct.columns {
         let mut col_sql = format!("{} {}", quote_ident(&col.name), col.type_name);
@@ -1095,10 +1203,23 @@ fn generate_create_table_sql(ct: &CreateTableState) -> String {
             col_sql.push_str(default_val);
         }
 
-        parts.push(col_sql);
+        col_parts.push(col_sql);
     }
 
-    format!("CREATE TABLE {} ({});", qualified, parts.join(", "))
+    let mut stmts = vec![format!(
+        "CREATE TABLE {} ({});",
+        qualified,
+        col_parts.join(", ")
+    )];
+
+    // Emit ALTER TABLE ADD CONSTRAINT for any inline FK constraints
+    for col in &ct.columns {
+        if let Some(fk_sql) = generate_inline_fk_sql(&ct.table_name, &ct.schema_name, col) {
+            stmts.push(fk_sql);
+        }
+    }
+
+    stmts
 }
 
 /// Generate an ALTER TABLE ADD COLUMN SQL statement.
@@ -2979,5 +3100,231 @@ CREATE TABLE things (id int);
             units[0].sql
         );
         assert!(units[0].sql.contains("SELECT 1;"));
+    }
+
+    #[test]
+    fn test_create_table_with_inline_foreign_key() {
+        // Based on real migration: add_proposal + add_proposal_validation_error
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="add_proposal" author="jeff">
+        <createTable tableName="proposal">
+            <column name="proposal_id" type="uuid">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="status" type="varchar(30)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+    <changeSet id="add_proposal_validation_error" author="victor">
+        <createTable tableName="proposal_validation_error">
+            <column name="proposal_id" type="uuid">
+                <constraints nullable="false" referencedTableName="proposal" referencedColumnNames="proposal_id"
+                             foreignKeyName="fk_proposal"/>
+            </column>
+            <column name="error_type" type="varchar(30)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse createTable with inline FK");
+        assert_eq!(units.len(), 2);
+
+        // First changeset: just a CREATE TABLE, no FK
+        assert!(
+            !units[0].sql.contains("FOREIGN KEY"),
+            "proposal should have no FK, got: {}",
+            units[0].sql
+        );
+
+        // Second changeset: CREATE TABLE + ALTER TABLE ADD CONSTRAINT FK
+        let sql = &units[1].sql;
+        assert!(
+            sql.contains("CREATE TABLE \"proposal_validation_error\""),
+            "Expected CREATE TABLE, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("FOREIGN KEY"),
+            "Expected FOREIGN KEY statement, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("REFERENCES \"proposal\""),
+            "Expected REFERENCES proposal, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("\"fk_proposal\""),
+            "Expected constraint name fk_proposal, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_add_column_with_inline_foreign_key() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <addColumn tableName="invoice">
+            <column name="client_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_invoice_client"
+                             referencedTableName="client"
+                             referencedColumnNames="client_id"/>
+            </column>
+        </addColumn>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse addColumn with inline FK");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            sql.contains("ADD COLUMN"),
+            "Expected ADD COLUMN, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("FOREIGN KEY (\"client_id\") REFERENCES \"client\""),
+            "Expected FK referencing client, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("\"fk_invoice_client\""),
+            "Expected constraint name, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_inline_fk_without_constraint_name() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <createTable tableName="order_item">
+            <column name="order_id" type="uuid">
+                <constraints nullable="false"
+                             referencedTableName="orders"
+                             referencedColumnNames="order_id"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse FK without constraint name");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        // Should use unnamed FK syntax (no CONSTRAINT name)
+        assert!(
+            sql.contains("ADD FOREIGN KEY (\"order_id\") REFERENCES \"orders\""),
+            "Expected unnamed FK, got: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("ADD CONSTRAINT"),
+            "Expected no CONSTRAINT keyword for unnamed FK, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_inline_fk_with_referenced_schema() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <createTable tableName="audit_log">
+            <column name="user_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_audit_user"
+                             referencedTableSchemaName="accounts"
+                             referencedTableName="users"
+                             referencedColumnNames="user_id"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse FK with referenced schema");
+        assert_eq!(units.len(), 1);
+        let sql = &units[0].sql;
+        assert!(
+            sql.contains("REFERENCES \"accounts\".\"users\""),
+            "Expected schema-qualified reference, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_map_liquibase_type_datetime() {
+        assert_eq!(
+            map_liquibase_type("datetime"),
+            "timestamp without time zone"
+        );
+        assert_eq!(
+            map_liquibase_type("DATETIME"),
+            "timestamp without time zone"
+        );
+    }
+
+    #[test]
+    fn test_map_liquibase_type_with_modifiers() {
+        assert_eq!(map_liquibase_type("decimal(10,2)"), "numeric(10,2)");
+        assert_eq!(map_liquibase_type("number(5)"), "numeric(5)");
+        assert_eq!(map_liquibase_type("nvarchar(255)"), "varchar(255)");
+    }
+
+    #[test]
+    fn test_map_liquibase_type_passthrough() {
+        // Types that PostgreSQL understands natively should pass through unchanged
+        assert_eq!(map_liquibase_type("uuid"), "uuid");
+        assert_eq!(map_liquibase_type("text"), "text");
+        assert_eq!(map_liquibase_type("boolean"), "boolean");
+        assert_eq!(map_liquibase_type("bigint"), "bigint");
+        assert_eq!(map_liquibase_type("varchar(100)"), "varchar(100)");
+        assert_eq!(map_liquibase_type("jsonb"), "jsonb");
+    }
+
+    #[test]
+    fn test_map_liquibase_type_aliases() {
+        assert_eq!(map_liquibase_type("int"), "integer");
+        assert_eq!(map_liquibase_type("currency"), "numeric");
+        assert_eq!(map_liquibase_type("clob"), "text");
+        assert_eq!(map_liquibase_type("blob"), "bytea");
+        assert_eq!(map_liquibase_type("tinyint"), "smallint");
+        assert_eq!(map_liquibase_type("double"), "double precision");
+    }
+
+    #[test]
+    fn test_inline_fk_skipped_without_referenced_columns() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+    <changeSet id="1" author="dev">
+        <createTable tableName="child">
+            <column name="parent_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_parent"
+                             referencedTableName="parent"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>"#;
+
+        let units = parse_changelog_xml(xml, Path::new("test.xml"))
+            .expect("Should parse without referencedColumnNames");
+        assert_eq!(units.len(), 1);
+        // FK should be skipped (no referencedColumnNames), only CREATE TABLE emitted
+        assert!(
+            !units[0].sql.contains("FOREIGN KEY"),
+            "Expected no FK without referencedColumnNames, got: {}",
+            units[0].sql
+        );
     }
 }
