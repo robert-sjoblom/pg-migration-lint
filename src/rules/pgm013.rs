@@ -73,18 +73,20 @@ impl Rule for Pgm013 {
                             } = constraint
                                 && columns.iter().any(|c| c == name)
                             {
-                                let display_name =
-                                    constraint_name.as_deref().unwrap_or("<unnamed>");
+                                let constraint_description = match constraint_name {
+                                    Some(n) => format!("'{n}'"),
+                                    None => format!("UNIQUE({})", columns.join(", "),),
+                                };
                                 findings.push(Finding::new(
                                     self.id(),
                                     self.default_severity(),
                                     format!(
                                         "Dropping column '{col}' from table '{table}' silently \
-                                         removes unique constraint '{constraint}'. Verify that \
+                                         removes unique constraint {constraint}. Verify that \
                                          the uniqueness guarantee is no longer needed.",
                                         col = name,
                                         table = at.name.display_name(),
-                                        constraint = display_name,
+                                        constraint = constraint_description,
                                     ),
                                     ctx.file,
                                     &stmt.span,
