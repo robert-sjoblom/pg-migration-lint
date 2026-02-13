@@ -8,7 +8,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
 
 /// Rule that flags dropping a column that participates in the table's primary key.
 pub struct Pgm014;
@@ -50,47 +50,38 @@ impl Rule for Pgm014 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
+            let AlterTableAction::DropColumn { name } = action else {
+                return vec![];
+            };
 
-        for stmt in statements {
-            if let IrNode::AlterTable(ref at) = stmt.node {
-                let table_key = at.name.catalog_key();
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                // Only check if the table exists in catalog_before.
-                let table = match ctx.catalog_before.get_table(table_key) {
-                    Some(t) => t,
-                    None => continue,
-                };
+            let mut findings = Vec::new();
 
-                for action in &at.actions {
-                    if let AlterTableAction::DropColumn { name } = action {
-                        // Check PrimaryKey constraints that include this column.
-                        for constraint in &table.constraints {
-                            if let ConstraintState::PrimaryKey { columns } = constraint
-                                && columns.iter().any(|c| c == name)
-                            {
-                                findings.push(Finding::new(
-                                    self.id(),
-                                    self.default_severity(),
-                                    format!(
-                                        "Dropping column '{col}' from table '{table}' \
-                                         silently removes the primary key. The table will \
-                                         have no row identity. Add a new primary key or \
-                                         reconsider the column drop.",
-                                        col = name,
-                                        table = at.name.display_name(),
-                                    ),
-                                    ctx.file,
-                                    &stmt.span,
-                                ));
-                            }
-                        }
-                    }
+            // Check PrimaryKey constraints that include this column.
+            for constraint in table.constraints_involving_column(name) {
+                if let ConstraintState::PrimaryKey { .. } = constraint {
+                    findings.push(self.make_finding(
+                        format!(
+                            "Dropping column '{col}' from table '{table}' \
+                             silently removes the primary key. The table will \
+                             have no row identity. Add a new primary key or \
+                             reconsider the column drop.",
+                            col = name,
+                            table = at.name.display_name(),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
-        }
 
-        findings
+            findings
+        })
     }
 }
 

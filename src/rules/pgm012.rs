@@ -6,7 +6,7 @@
 //! primary key using that index.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
 
 /// Rule that flags adding a PRIMARY KEY to an existing table without a prior
 /// unique index or UNIQUE constraint on the PK columns.
@@ -52,43 +52,34 @@ impl Rule for Pgm012 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
+            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) = action
+            else {
+                return vec![];
+            };
 
-        for stmt in statements {
-            if let IrNode::AlterTable(ref at) = stmt.node {
-                let table_key = at.name.catalog_key();
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.is_existing_table(table_key) {
-                    continue;
-                }
-
-                for action in &at.actions {
-                    if let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) =
-                        action
-                        && let Some(table) = ctx.catalog_before.get_table(table_key)
-                        && !table.has_unique_covering(columns)
-                    {
-                        findings.push(Finding::new(
-                            self.id(),
-                            self.default_severity(),
-                            format!(
-                                "ADD PRIMARY KEY on existing table '{table}' without a \
-                                         prior UNIQUE constraint or unique index on column(s) \
-                                         [{columns}]. Create a unique index CONCURRENTLY first, \
-                                         then use ADD PRIMARY KEY USING INDEX.",
-                                table = at.name.display_name(),
-                                columns = columns.join(", "),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
-                }
+            if table.has_unique_covering(columns) {
+                return vec![];
             }
-        }
 
-        findings
+            vec![self.make_finding(
+                format!(
+                    "ADD PRIMARY KEY on existing table '{table}' without a \
+                     prior UNIQUE constraint or unique index on column(s) \
+                     [{columns}]. Create a unique index CONCURRENTLY first, \
+                     then use ADD PRIMARY KEY USING INDEX.",
+                    table = at.name.display_name(),
+                    columns = columns.join(", "),
+                ),
+                ctx.file,
+                &stmt.span,
+            )]
+        })
     }
 }
 

@@ -66,16 +66,16 @@ impl Rule for Pgm006 {
             };
 
             if is_concurrent {
-                findings.push(Finding::new(
-                    self.id(),
-                    self.default_severity(),
-                    "CONCURRENTLY cannot run inside a transaction. \
+                findings.push(
+                    self.make_finding(
+                        "CONCURRENTLY cannot run inside a transaction. \
                          Set runInTransaction=\"false\" (Liquibase) or disable \
                          transactions for this migration."
-                        .to_string(),
-                    ctx.file,
-                    &stmt.span,
-                ));
+                            .to_string(),
+                        ctx.file,
+                        &stmt.span,
+                    ),
+                );
             }
         }
 

@@ -66,9 +66,7 @@ impl Rule for Pgm001 {
                 // Only flag if table exists in catalog_before (pre-existing)
                 // AND was not created in the current set of changed files.
                 if ctx.is_existing_table(table_key) {
-                    findings.push(Finding::new(
-                        self.id(),
-                        self.default_severity(),
+                    findings.push(self.make_finding(
                         format!(
                             "CREATE INDEX on existing table '{}' should use CONCURRENTLY \
                              to avoid holding an exclusive lock.",

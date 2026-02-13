@@ -182,6 +182,22 @@ impl TableState {
             }
         })
     }
+
+    /// Returns all constraints that involve the given column.
+    pub fn constraints_involving_column(&self, col: &str) -> Vec<&ConstraintState> {
+        self.constraints
+            .iter()
+            .filter(|c| c.involves_column(col))
+            .collect()
+    }
+
+    /// Returns all indexes whose column list includes the given column.
+    pub fn indexes_involving_column(&self, col: &str) -> Vec<&IndexState> {
+        self.indexes
+            .iter()
+            .filter(|idx| idx.columns.iter().any(|c| c == col))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -223,4 +239,16 @@ pub enum ConstraintState {
         name: Option<String>,
         not_valid: bool,
     },
+}
+
+impl ConstraintState {
+    /// Returns true if this constraint involves the given column name.
+    pub fn involves_column(&self, col: &str) -> bool {
+        match self {
+            ConstraintState::PrimaryKey { columns }
+            | ConstraintState::ForeignKey { columns, .. }
+            | ConstraintState::Unique { columns, .. } => columns.iter().any(|c| c == col),
+            ConstraintState::Check { .. } => false,
+        }
+    }
 }

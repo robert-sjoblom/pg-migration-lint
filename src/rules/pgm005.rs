@@ -75,9 +75,7 @@ impl Rule for Pgm005 {
                         .unwrap_or(false);
 
                     if has_unique_not_null {
-                        findings.push(Finding::new(
-                            self.id(),
-                            self.default_severity(),
+                        findings.push(self.make_finding(
                             format!(
                                 "Table '{}' uses UNIQUE NOT NULL instead of PRIMARY KEY. \
                                  Functionally equivalent but PRIMARY KEY is conventional \

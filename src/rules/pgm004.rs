@@ -77,9 +77,7 @@ impl Rule for Pgm004 {
                         .unwrap_or(false);
 
                     if !has_unique_not_null {
-                        findings.push(Finding::new(
-                            self.id(),
-                            self.default_severity(),
+                        findings.push(self.make_finding(
                             format!("Table '{}' has no primary key.", ct.name.display_name()),
                             ctx.file,
                             &stmt.span,

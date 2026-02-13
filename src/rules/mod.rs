@@ -6,6 +6,7 @@
 #[cfg(test)]
 pub mod test_helpers;
 
+pub mod alter_table_check;
 pub mod column_type_check;
 pub mod pgm001;
 pub mod pgm002;
@@ -168,6 +169,11 @@ pub trait Rule: Send + Sync {
     /// Some rules (e.g. PGM007, PGM009) may use per-finding severity.
     /// The caller handles down-migration severity capping and suppression filtering.
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>;
+
+    /// Convenience method to construct a Finding with this rule's ID and default severity.
+    fn make_finding(&self, message: String, file: &std::path::Path, span: &SourceSpan) -> Finding {
+        Finding::new(self.id(), self.default_severity(), message, file, span)
+    }
 }
 
 /// Cap all finding severities to INFO for down/rollback migrations (PGM008).

@@ -4,7 +4,7 @@
 //! exist. The safe pattern is ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
 
 /// Rule that flags adding a FOREIGN KEY constraint on an existing table
 /// without the `NOT VALID` modifier.
@@ -57,44 +57,28 @@ impl Rule for Pgm017 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            if let IrNode::AlterTable(ref at) = stmt.node {
-                let table_key = at.name.catalog_key();
-
-                // Only flag if the table existed before this migration unit
-                // and was not created in the current set of changed files.
-                if !ctx.is_existing_table(table_key) {
-                    continue;
-                }
-
-                for action in &at.actions {
-                    if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
-                        not_valid: false,
-                        ..
-                    }) = action
-                    {
-                        findings.push(Finding::new(
-                            self.id(),
-                            self.default_severity(),
-                            format!(
-                                "Adding FOREIGN KEY constraint on existing table '{}' \
-                                 without NOT VALID will scan the entire table while \
-                                 holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT \
-                                 ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
-                                 statement.",
-                                at.name.display_name(),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
-                }
+        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
+            if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
+                not_valid: false,
+                ..
+            }) = action
+            {
+                vec![self.make_finding(
+                    format!(
+                        "Adding FOREIGN KEY constraint on existing table '{}' \
+                         without NOT VALID will scan the entire table while \
+                         holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT \
+                         ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
+                         statement.",
+                        at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
             }
-        }
-
-        findings
+        })
     }
 }
 

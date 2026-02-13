@@ -119,9 +119,7 @@ impl Rule for Pgm003 {
 
             if !has_index {
                 let cols_display = fk.columns.join(", ");
-                findings.push(Finding::new(
-                    self.id(),
-                    self.default_severity(),
+                findings.push(self.make_finding(
                     format!(
                         "Foreign key on '{table}({cols})' has no covering index. \
                          Sequential scans on the referencing table during deletes/updates \
