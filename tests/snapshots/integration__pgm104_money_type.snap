@@ -1,0 +1,11 @@
+---
+source: tests/integration.rs
+assertion_line: 377
+expression: pgm104
+---
+- rule_id: PGM104
+  severity: Minor
+  message: "Column 'fee' on 'audit_log_v2' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead."
+  file: repos/all-rules/migrations/V004__dont_do_this_types.sql
+  start_line: 16
+  end_line: 17

@@ -1,0 +1,11 @@
+---
+source: tests/integration.rs
+assertion_line: 369
+expression: pgm103
+---
+- rule_id: PGM103
+  severity: Minor
+  message: "Column 'country_code' on 'audit_log_v2' uses 'char(2)'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead."
+  file: repos/all-rules/migrations/V004__dont_do_this_types.sql
+  start_line: 13
+  end_line: 14
