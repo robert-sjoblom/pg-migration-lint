@@ -58,7 +58,7 @@ public class LiquibaseBridge {
         }
     }
 
-    private static List<ChangesetEntry> processChangelog(String changelogPath) throws Exception {
+    static List<ChangesetEntry> processChangelog(String changelogPath) throws Exception {
         File changelogFile = new File(changelogPath).getAbsoluteFile();
         if (!changelogFile.exists()) {
             throw new IllegalArgumentException("Changelog file not found: " + changelogFile);

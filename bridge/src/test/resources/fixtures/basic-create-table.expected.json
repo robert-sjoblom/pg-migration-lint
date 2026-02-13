@@ -1,0 +1,10 @@
+[
+  {
+    "changeset_id": "1",
+    "author": "testauthor",
+    "sql": "CREATE TABLE widgets (id BIGINT NOT NULL, name VARCHAR(200) NOT NULL, description TEXT, CONSTRAINT widgets_pkey PRIMARY KEY (id));",
+    "xml_file": "basic-create-table.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  }
+]

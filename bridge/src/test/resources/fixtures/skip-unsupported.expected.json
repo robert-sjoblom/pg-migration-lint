@@ -1,0 +1,18 @@
+[
+  {
+    "changeset_id": "skip-1",
+    "author": "alice",
+    "sql": "CREATE TABLE before_skip (id INTEGER NOT NULL, CONSTRAINT before_skip_pkey PRIMARY KEY (id));",
+    "xml_file": "skip-unsupported.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "skip-3",
+    "author": "alice",
+    "sql": "CREATE TABLE after_skip (id INTEGER NOT NULL, CONSTRAINT after_skip_pkey PRIMARY KEY (id));",
+    "xml_file": "skip-unsupported.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  }
+]
