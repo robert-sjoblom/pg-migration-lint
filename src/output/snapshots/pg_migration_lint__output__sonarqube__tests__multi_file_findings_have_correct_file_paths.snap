@@ -1,0 +1,51 @@
+---
+source: src/output/sonarqube.rs
+assertion_line: 223
+expression: parsed
+---
+{
+  "issues": [
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/migrations/V001__create_tables.sql",
+        "message": "index issue in file A",
+        "textRange": {
+          "endLine": 5,
+          "startLine": 5
+        }
+      },
+      "ruleId": "PGM001",
+      "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/migrations/V002__add_fk.sql",
+        "message": "missing FK index in file B",
+        "textRange": {
+          "endLine": 12,
+          "startLine": 10
+        }
+      },
+      "ruleId": "PGM003",
+      "severity": "MAJOR",
+      "type": "BUG"
+    },
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/changelog/003_audit.sql",
+        "message": "no primary key in file C",
+        "textRange": {
+          "endLine": 1,
+          "startLine": 1
+        }
+      },
+      "ruleId": "PGM004",
+      "severity": "MAJOR",
+      "type": "BUG"
+    }
+  ]
+}

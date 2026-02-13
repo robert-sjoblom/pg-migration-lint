@@ -1,0 +1,169 @@
+---
+source: src/output/sarif.rs
+assertion_line: 297
+expression: parsed
+---
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "a.sql"
+                },
+                "region": {
+                  "endLine": 1,
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "blocker finding"
+          },
+          "ruleId": "PGM001"
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "b.sql"
+                },
+                "region": {
+                  "endLine": 2,
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "critical finding"
+          },
+          "ruleId": "PGM002"
+        },
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "c.sql"
+                },
+                "region": {
+                  "endLine": 3,
+                  "startLine": 3
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "major finding"
+          },
+          "ruleId": "PGM003"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "d.sql"
+                },
+                "region": {
+                  "endLine": 4,
+                  "startLine": 4
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "minor finding"
+          },
+          "ruleId": "PGM004"
+        },
+        {
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "e.sql"
+                },
+                "region": {
+                  "endLine": 5,
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "info finding"
+          },
+          "ruleId": "PGM005"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/robert-sjoblom/pg-migration-lint",
+          "name": "pg-migration-lint",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "id": "PGM001",
+              "shortDescription": {
+                "text": "blocker finding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "id": "PGM002",
+              "shortDescription": {
+                "text": "critical finding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "id": "PGM003",
+              "shortDescription": {
+                "text": "major finding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "id": "PGM004",
+              "shortDescription": {
+                "text": "minor finding"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "id": "PGM005",
+              "shortDescription": {
+                "text": "info finding"
+              }
+            }
+          ],
+          "version": "[version]"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

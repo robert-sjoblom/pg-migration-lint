@@ -1,0 +1,51 @@
+---
+source: src/output/sonarqube.rs
+assertion_line: 310
+expression: parsed
+---
+{
+  "issues": [
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/migrations/V042__add_index.sql",
+        "message": "CREATE INDEX on 'orders' should use CONCURRENTLY.",
+        "textRange": {
+          "endLine": 3,
+          "startLine": 3
+        }
+      },
+      "ruleId": "PGM001",
+      "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/migrations/V043__add_fk.sql",
+        "message": "FK on 'orders.customer_id' has no covering index.",
+        "textRange": {
+          "endLine": 12,
+          "startLine": 10
+        }
+      },
+      "ruleId": "PGM003",
+      "severity": "MAJOR",
+      "type": "BUG"
+    },
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "db/migrations/V042__add_index.sql",
+        "message": "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.",
+        "textRange": {
+          "endLine": 20,
+          "startLine": 20
+        }
+      },
+      "ruleId": "PGM005",
+      "severity": "INFO",
+      "type": "BUG"
+    }
+  ]
+}

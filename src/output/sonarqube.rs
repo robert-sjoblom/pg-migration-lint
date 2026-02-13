@@ -93,31 +93,20 @@ mod tests {
     use crate::rules::{Finding, Severity};
     use std::path::PathBuf;
 
-    #[test]
-    fn single_finding_produces_valid_json() {
+    /// Helper: emit findings via the reporter and return the parsed JSON.
+    fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
         let dir = tempfile::tempdir().expect("tempdir");
         let reporter = SonarQubeReporter;
-        let findings = vec![test_finding()];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
+        reporter.emit(findings, dir.path()).expect("emit");
         let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        serde_json::from_str(&content).expect("parse json")
+    }
 
-        let issues = parsed["issues"].as_array().expect("issues array");
-        assert_eq!(issues.len(), 1);
-
-        let issue = &issues[0];
-        assert_eq!(issue["engineId"], "pg-migration-lint");
-        assert_eq!(issue["ruleId"], "PGM001");
-        assert_eq!(issue["severity"], "CRITICAL");
-        assert_eq!(issue["type"], "BUG");
-        assert_eq!(
-            issue["primaryLocation"]["filePath"],
-            "db/migrations/V042__add_index.sql"
-        );
-        assert_eq!(issue["primaryLocation"]["textRange"]["startLine"], 3);
-        assert_eq!(issue["primaryLocation"]["textRange"]["endLine"], 3);
+    #[test]
+    fn single_finding_produces_valid_json() {
+        let findings = vec![test_finding()];
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
@@ -158,9 +147,6 @@ mod tests {
 
     #[test]
     fn multiple_findings_all_present() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -180,22 +166,12 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let issues = parsed["issues"].as_array().expect("issues array");
-        assert_eq!(issues.len(), 2);
-        assert_eq!(issues[0]["ruleId"], "PGM001");
-        assert_eq!(issues[1]["ruleId"], "PGM003");
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
     fn file_paths_use_forward_slashes() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![Finding {
             rule_id: "PGM001".to_string(),
             severity: Severity::Critical,
@@ -205,10 +181,7 @@ mod tests {
             end_line: 1,
         }];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        let parsed = emit_and_parse(&findings);
 
         let file_path = parsed["issues"][0]["primaryLocation"]["filePath"]
             .as_str()
@@ -219,9 +192,6 @@ mod tests {
 
     #[test]
     fn multi_file_findings_have_correct_file_paths() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -249,34 +219,12 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let issues = parsed["issues"].as_array().expect("issues array");
-        assert_eq!(issues.len(), 3);
-
-        // Verify each issue has the correct file path
-        assert_eq!(
-            issues[0]["primaryLocation"]["filePath"],
-            "db/migrations/V001__create_tables.sql"
-        );
-        assert_eq!(
-            issues[1]["primaryLocation"]["filePath"],
-            "db/migrations/V002__add_fk.sql"
-        );
-        assert_eq!(
-            issues[2]["primaryLocation"]["filePath"],
-            "db/changelog/003_audit.sql"
-        );
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
     fn message_content_is_preserved() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let msg = "CREATE INDEX on existing table 'orders' should use CONCURRENTLY. This is a long message with special characters: <>, &, \"quotes\".";
         let findings = vec![Finding {
             rule_id: "PGM001".to_string(),
@@ -287,18 +235,8 @@ mod tests {
             end_line: 1,
         }];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        assert_eq!(
-            parsed["issues"][0]["primaryLocation"]["message"]
-                .as_str()
-                .unwrap(),
-            msg,
-            "Message text should be preserved exactly"
-        );
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
@@ -341,9 +279,6 @@ mod tests {
 
     #[test]
     fn round_trip_sonarqube_all_fields_verified() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -371,77 +306,14 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        // Top-level structure
-        let issues = parsed["issues"].as_array().expect("issues array");
-        assert_eq!(issues.len(), 3);
-
-        // Verify issue 0: PGM001, CRITICAL, BUG
-        let issue0 = &issues[0];
-        assert_eq!(issue0["engineId"], "pg-migration-lint");
-        assert_eq!(issue0["ruleId"], "PGM001");
-        assert_eq!(issue0["severity"], "CRITICAL");
-        assert_eq!(issue0["type"], "BUG");
-        assert_eq!(
-            issue0["primaryLocation"]["message"],
-            "CREATE INDEX on 'orders' should use CONCURRENTLY."
-        );
-        assert_eq!(
-            issue0["primaryLocation"]["filePath"],
-            "db/migrations/V042__add_index.sql"
-        );
-        assert_eq!(issue0["primaryLocation"]["textRange"]["startLine"], 3);
-        assert_eq!(issue0["primaryLocation"]["textRange"]["endLine"], 3);
-
-        // Verify issue 1: PGM003, MAJOR, BUG
-        let issue1 = &issues[1];
-        assert_eq!(issue1["engineId"], "pg-migration-lint");
-        assert_eq!(issue1["ruleId"], "PGM003");
-        assert_eq!(issue1["severity"], "MAJOR");
-        assert_eq!(issue1["type"], "BUG");
-        assert_eq!(
-            issue1["primaryLocation"]["message"],
-            "FK on 'orders.customer_id' has no covering index."
-        );
-        assert_eq!(
-            issue1["primaryLocation"]["filePath"],
-            "db/migrations/V043__add_fk.sql"
-        );
-        assert_eq!(issue1["primaryLocation"]["textRange"]["startLine"], 10);
-        assert_eq!(issue1["primaryLocation"]["textRange"]["endLine"], 12);
-
-        // Verify issue 2: PGM005, INFO, BUG
-        let issue2 = &issues[2];
-        assert_eq!(issue2["engineId"], "pg-migration-lint");
-        assert_eq!(issue2["ruleId"], "PGM005");
-        assert_eq!(issue2["severity"], "INFO");
-        assert_eq!(issue2["type"], "BUG");
-        assert_eq!(
-            issue2["primaryLocation"]["message"],
-            "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY."
-        );
-        assert_eq!(
-            issue2["primaryLocation"]["filePath"],
-            "db/migrations/V042__add_index.sql"
-        );
-        assert_eq!(issue2["primaryLocation"]["textRange"]["startLine"], 20);
-        assert_eq!(issue2["primaryLocation"]["textRange"]["endLine"], 20);
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
     fn no_findings_produces_empty_issues() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
         let findings: Vec<Finding> = vec![];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        let parsed = emit_and_parse(&findings);
 
         let issues = parsed["issues"].as_array().expect("issues array");
         assert!(issues.is_empty());
@@ -449,9 +321,6 @@ mod tests {
 
     #[test]
     fn engine_id_is_consistent() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -471,25 +340,12 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let issues = parsed["issues"].as_array().expect("issues array");
-        for issue in issues {
-            assert_eq!(
-                issue["engineId"], "pg-migration-lint",
-                "All issues should have engineId 'pg-migration-lint'"
-            );
-        }
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 
     #[test]
     fn line_numbers_are_correct() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -509,17 +365,7 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let issues = parsed["issues"].as_array().expect("issues array");
-
-        assert_eq!(issues[0]["primaryLocation"]["textRange"]["startLine"], 42);
-        assert_eq!(issues[0]["primaryLocation"]["textRange"]["endLine"], 42);
-
-        assert_eq!(issues[1]["primaryLocation"]["textRange"]["startLine"], 100);
-        assert_eq!(issues[1]["primaryLocation"]["textRange"]["endLine"], 105);
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
     }
 }

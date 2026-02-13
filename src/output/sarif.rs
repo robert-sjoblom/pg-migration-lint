@@ -213,45 +213,28 @@ mod tests {
     use crate::rules::{Finding, Severity};
     use std::path::PathBuf;
 
-    #[test]
-    fn single_finding_produces_valid_sarif() {
+    /// Helper: emit findings via SarifReporter and parse the resulting JSON.
+    fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
         let dir = tempfile::tempdir().expect("tempdir");
         let reporter = SarifReporter;
-        let findings = vec![test_finding()];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
+        reporter.emit(findings, dir.path()).expect("emit");
         let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        serde_json::from_str(&content).expect("parse json")
+    }
 
-        assert_eq!(parsed["version"], "2.1.0");
-        assert_eq!(
-            parsed["runs"][0]["tool"]["driver"]["name"],
-            "pg-migration-lint"
-        );
-        assert_eq!(parsed["runs"][0]["results"][0]["ruleId"], "PGM001");
-        assert_eq!(parsed["runs"][0]["results"][0]["level"], "error");
-        assert_eq!(
-            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]["startLine"],
-            3
-        );
-        assert_eq!(
-            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
-                ["uri"],
-            "db/migrations/V042__add_index.sql"
-        );
+    #[test]
+    fn single_finding_produces_valid_sarif() {
+        let parsed = emit_and_parse(&[test_finding()]);
+
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn no_findings_produces_empty_results() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
         let findings: Vec<Finding> = vec![];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        let parsed = emit_and_parse(&findings);
 
         assert_eq!(parsed["version"], "2.1.0");
         let results = parsed["runs"][0]["results"]
@@ -266,9 +249,6 @@ mod tests {
 
     #[test]
     fn severity_mapping_produces_correct_levels() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -312,26 +292,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-        let results = parsed["runs"][0]["results"]
-            .as_array()
-            .expect("results array");
-
-        assert_eq!(results[0]["level"], "error"); // Blocker
-        assert_eq!(results[1]["level"], "error"); // Critical
-        assert_eq!(results[2]["level"], "warning"); // Major
-        assert_eq!(results[3]["level"], "note"); // Minor
-        assert_eq!(results[4]["level"], "note"); // Info
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn file_paths_use_forward_slashes() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![Finding {
             rule_id: "PGM001".to_string(),
             severity: Severity::Critical,
@@ -341,10 +310,7 @@ mod tests {
             end_line: 1,
         }];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
+        let parsed = emit_and_parse(&findings);
 
         let uri =
             parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
@@ -357,9 +323,6 @@ mod tests {
 
     #[test]
     fn unique_rules_appear_in_driver_rules() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -387,24 +350,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
-            .as_array()
-            .expect("rules array");
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0]["id"], "PGM001");
-        assert_eq!(rules[1]["id"], "PGM003");
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn multi_file_findings_reference_correct_paths() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -432,43 +386,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let results = parsed["runs"][0]["results"]
-            .as_array()
-            .expect("results array");
-        assert_eq!(results.len(), 3);
-
-        // Verify each result references the correct file path
-        let uri_0 = results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-            .as_str()
-            .expect("uri 0");
-        assert_eq!(uri_0, "db/migrations/V001__create_tables.sql");
-
-        let uri_1 = results[1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-            .as_str()
-            .expect("uri 1");
-        assert_eq!(uri_1, "db/migrations/V002__add_fk.sql");
-
-        let uri_2 = results[2]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-            .as_str()
-            .expect("uri 2");
-        assert_eq!(uri_2, "db/changelog/003_audit.sql");
-
-        // Verify messages are preserved per result
-        assert_eq!(results[0]["message"]["text"], "index issue in file A");
-        assert_eq!(results[1]["message"]["text"], "missing FK index in file B");
-        assert_eq!(results[2]["message"]["text"], "no primary key in file C");
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn rule_metadata_has_correct_fields() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -496,38 +422,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let rules = parsed["runs"][0]["tool"]["driver"]["rules"]
-            .as_array()
-            .expect("rules array");
-        assert_eq!(rules.len(), 3);
-
-        // PGM001: Critical -> error
-        assert_eq!(rules[0]["id"], "PGM001");
-        assert!(rules[0]["shortDescription"]["text"].is_string());
-        assert_eq!(rules[0]["shortDescription"]["text"], "critical finding");
-        assert_eq!(rules[0]["defaultConfiguration"]["level"], "error");
-
-        // PGM003: Major -> warning
-        assert_eq!(rules[1]["id"], "PGM003");
-        assert!(rules[1]["shortDescription"]["text"].is_string());
-        assert_eq!(rules[1]["defaultConfiguration"]["level"], "warning");
-
-        // PGM005: Info -> note
-        assert_eq!(rules[2]["id"], "PGM005");
-        assert!(rules[2]["shortDescription"]["text"].is_string());
-        assert_eq!(rules[2]["defaultConfiguration"]["level"], "note");
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn line_numbers_are_correct() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -555,36 +458,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        let results = parsed["runs"][0]["results"]
-            .as_array()
-            .expect("results array");
-
-        // First finding: line 7
-        let region_0 = &results[0]["locations"][0]["physicalLocation"]["region"];
-        assert_eq!(region_0["startLine"], 7);
-        assert_eq!(region_0["endLine"], 7);
-
-        // Second finding: lines 15-20
-        let region_1 = &results[1]["locations"][0]["physicalLocation"]["region"];
-        assert_eq!(region_1["startLine"], 15);
-        assert_eq!(region_1["endLine"], 20);
-
-        // Third finding: line 1
-        let region_2 = &results[2]["locations"][0]["physicalLocation"]["region"];
-        assert_eq!(region_2["startLine"], 1);
-        assert_eq!(region_2["endLine"], 1);
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 
     #[test]
     fn round_trip_sarif_all_fields_verified() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SarifReporter;
-
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -612,96 +494,10 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
+        let parsed = emit_and_parse(&findings);
 
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-        // Top-level SARIF structure
-        assert_eq!(
-            parsed["$schema"],
-            "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
-        );
-        assert_eq!(parsed["version"], "2.1.0");
-
-        let runs = parsed["runs"].as_array().expect("runs array");
-        assert_eq!(runs.len(), 1);
-
-        // Tool metadata
-        let driver = &runs[0]["tool"]["driver"];
-        assert_eq!(driver["name"], "pg-migration-lint");
-        assert_eq!(driver["version"], env!("CARGO_PKG_VERSION"));
-        assert!(driver["informationUri"].is_string());
-
-        // Rules array: 3 distinct rules
-        let rules = driver["rules"].as_array().expect("rules array");
-        assert_eq!(rules.len(), 3);
-
-        let rule_ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
-        assert!(rule_ids.contains(&"PGM001"));
-        assert!(rule_ids.contains(&"PGM003"));
-        assert!(rule_ids.contains(&"PGM005"));
-
-        // Each rule has required fields
-        for rule in rules {
-            assert!(rule["id"].is_string(), "rule must have id");
-            assert!(
-                rule["shortDescription"]["text"].is_string(),
-                "rule must have shortDescription.text"
-            );
-            assert!(
-                rule["defaultConfiguration"]["level"].is_string(),
-                "rule must have defaultConfiguration.level"
-            );
-        }
-
-        // Results array: 3 findings
-        let results = runs[0]["results"].as_array().expect("results array");
-        assert_eq!(results.len(), 3);
-
-        // Verify result 0: PGM001, error, file A, line 3
-        assert_eq!(results[0]["ruleId"], "PGM001");
-        assert_eq!(results[0]["level"], "error");
-        assert_eq!(
-            results[0]["message"]["text"],
-            "CREATE INDEX on 'orders' should use CONCURRENTLY."
-        );
-        let loc0 = &results[0]["locations"][0]["physicalLocation"];
-        assert_eq!(
-            loc0["artifactLocation"]["uri"],
-            "db/migrations/V042__add_index.sql"
-        );
-        assert_eq!(loc0["region"]["startLine"], 3);
-        assert_eq!(loc0["region"]["endLine"], 3);
-
-        // Verify result 1: PGM003, warning, file B, lines 10-12
-        assert_eq!(results[1]["ruleId"], "PGM003");
-        assert_eq!(results[1]["level"], "warning");
-        assert_eq!(
-            results[1]["message"]["text"],
-            "FK on 'orders.customer_id' has no covering index."
-        );
-        let loc1 = &results[1]["locations"][0]["physicalLocation"];
-        assert_eq!(
-            loc1["artifactLocation"]["uri"],
-            "db/migrations/V043__add_fk.sql"
-        );
-        assert_eq!(loc1["region"]["startLine"], 10);
-        assert_eq!(loc1["region"]["endLine"], 12);
-
-        // Verify result 2: PGM005, note, file A again, line 20
-        assert_eq!(results[2]["ruleId"], "PGM005");
-        assert_eq!(results[2]["level"], "note");
-        assert_eq!(
-            results[2]["message"]["text"],
-            "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY."
-        );
-        let loc2 = &results[2]["locations"][0]["physicalLocation"];
-        assert_eq!(
-            loc2["artifactLocation"]["uri"],
-            "db/migrations/V042__add_index.sql"
-        );
-        assert_eq!(loc2["region"]["startLine"], 20);
-        assert_eq!(loc2["region"]["endLine"], 20);
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
     }
 }

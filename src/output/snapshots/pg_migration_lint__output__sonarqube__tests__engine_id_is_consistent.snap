@@ -1,0 +1,37 @@
+---
+source: src/output/sonarqube.rs
+assertion_line: 344
+expression: parsed
+---
+{
+  "issues": [
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "a.sql",
+        "message": "first",
+        "textRange": {
+          "endLine": 1,
+          "startLine": 1
+        }
+      },
+      "ruleId": "PGM001",
+      "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "b.sql",
+        "message": "second",
+        "textRange": {
+          "endLine": 2,
+          "startLine": 2
+        }
+      },
+      "ruleId": "PGM003",
+      "severity": "MAJOR",
+      "type": "BUG"
+    }
+  ]
+}
