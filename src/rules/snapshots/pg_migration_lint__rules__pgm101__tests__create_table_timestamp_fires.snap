@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm101.rs
+assertion_line: 104
+expression: findings
+---
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created_at' on 'events' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

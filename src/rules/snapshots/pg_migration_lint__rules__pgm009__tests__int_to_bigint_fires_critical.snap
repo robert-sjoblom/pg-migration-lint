@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm009.rs
+assertion_line: 459
+expression: findings
+---
+- rule_id: PGM009
+  severity: Critical
+  message: "Changing column type on existing table 'orders' ('amount': integer → bigint) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

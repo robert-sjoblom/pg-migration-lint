@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm014.rs
+assertion_line: 120
+expression: findings
+---
+- rule_id: PGM014
+  severity: Major
+  message: "Dropping column 'id' from table 'orders' silently removes the primary key. The table will have no row identity. Add a new primary key or reconsider the column drop."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

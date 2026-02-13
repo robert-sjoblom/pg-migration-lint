@@ -119,11 +119,7 @@ mod tests {
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
         let findings = Pgm012.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM012");
-        assert_eq!(findings[0].severity, Severity::Major);
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("id"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -213,7 +209,6 @@ mod tests {
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
         let findings = Pgm012.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM012");
+        insta::assert_yaml_snapshot!(findings);
     }
 }

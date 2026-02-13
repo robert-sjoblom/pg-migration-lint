@@ -133,13 +133,7 @@ mod tests {
         }))];
 
         let findings = Pgm015.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM015");
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("customer_id"));
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("fk_orders_customer"));
-        assert!(findings[0].message.contains("customers"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -171,11 +165,7 @@ mod tests {
         }))];
 
         let findings = Pgm015.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM015");
-        assert!(findings[0].message.contains("order_id"));
-        assert!(findings[0].message.contains("fk_order_product"));
-        assert!(findings[0].message.contains("order_products"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -259,11 +249,6 @@ mod tests {
         }))];
 
         let findings = Pgm015.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(
-            findings[0].message.contains("(customer_id) → customers"),
-            "Expected column→table description, got: {}",
-            findings[0].message,
-        );
+        insta::assert_yaml_snapshot!(findings);
     }
 }

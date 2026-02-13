@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm104.rs
+assertion_line: 105
+expression: findings
+---
+- rule_id: PGM104
+  severity: Minor
+  message: "Column 'total' on 'orders' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

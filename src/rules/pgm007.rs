@@ -216,10 +216,7 @@ mod tests {
         }))];
 
         let findings = Pgm007.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("now()"));
-        assert!(findings[0].message.contains("volatile"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -244,9 +241,7 @@ mod tests {
         }))];
 
         let findings = Pgm007.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("gen_random_uuid()"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -293,10 +288,7 @@ mod tests {
         }))];
 
         let findings = Pgm007.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].message.contains("my_custom_func()"));
-        assert!(findings[0].message.contains("volatility"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -319,9 +311,7 @@ mod tests {
         }))];
 
         let findings = Pgm007.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("serial/bigserial"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

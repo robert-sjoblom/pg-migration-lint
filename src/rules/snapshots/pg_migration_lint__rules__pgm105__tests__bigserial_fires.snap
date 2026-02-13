@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm105.rs
+assertion_line: 168
+expression: findings
+---
+- rule_id: PGM105
+  severity: Info
+  message: "Column 'id' on 'orders' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

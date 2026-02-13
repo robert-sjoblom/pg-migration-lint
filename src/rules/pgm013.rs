@@ -146,12 +146,7 @@ mod tests {
         }))];
 
         let findings = Pgm013.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM013");
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("email"));
-        assert!(findings[0].message.contains("users"));
-        assert!(findings[0].message.contains("uq_users_email"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -177,10 +172,7 @@ mod tests {
         }))];
 
         let findings = Pgm013.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM013");
-        assert!(findings[0].message.contains("code"));
-        assert!(findings[0].message.contains("idx_products_code_unique"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -279,9 +271,6 @@ mod tests {
         }))];
 
         let findings = Pgm013.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM013");
-        assert!(findings[0].message.contains("'a'"));
-        assert!(findings[0].message.contains("uq_subscriptions_a_b"));
+        insta::assert_yaml_snapshot!(findings);
     }
 }

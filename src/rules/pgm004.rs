@@ -139,10 +139,7 @@ mod tests {
         }))];
 
         let findings = Pgm004.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM004");
-        assert_eq!(findings[0].severity, Severity::Major);
-        assert!(findings[0].message.contains("events"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

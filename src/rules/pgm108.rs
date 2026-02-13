@@ -100,11 +100,7 @@ mod tests {
         }))];
 
         let findings = Pgm108.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM108");
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("payload"));
-        assert!(findings[0].message.contains("events"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -154,7 +150,6 @@ mod tests {
         }))];
 
         let findings = Pgm108.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("metadata"));
+        insta::assert_yaml_snapshot!(findings);
     }
 }

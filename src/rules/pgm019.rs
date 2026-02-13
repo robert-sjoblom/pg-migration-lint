@@ -141,16 +141,7 @@ mod tests {
         })];
 
         let findings = Pgm019.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM019");
-        assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("orders_archive"));
-        assert!(
-            findings[0]
-                .message
-                .contains("queries, views, and functions")
-        );
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

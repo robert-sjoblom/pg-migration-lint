@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm007.rs
+assertion_line: 314
+expression: findings
+---
+- rule_id: PGM007
+  severity: Minor
+  message: "Column 'id' on 'orders' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

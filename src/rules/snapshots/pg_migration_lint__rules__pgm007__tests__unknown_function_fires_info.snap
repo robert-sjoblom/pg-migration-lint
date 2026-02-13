@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm007.rs
+assertion_line: 291
+expression: findings
+---
+- rule_id: PGM007
+  severity: Info
+  message: "Column 'computed' on 'orders' uses function 'my_custom_func()' as default. If this function is volatile (the default for user-defined functions), it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead of a cheap catalog-only change. Verify the function's volatility classification."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

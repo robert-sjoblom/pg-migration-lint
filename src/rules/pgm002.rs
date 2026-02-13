@@ -118,11 +118,7 @@ mod tests {
         }))];
 
         let findings = Pgm002.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM002");
-        assert_eq!(findings[0].severity, Severity::Critical);
-        assert!(findings[0].message.contains("idx_orders_status"));
-        assert!(findings[0].message.contains("orders"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

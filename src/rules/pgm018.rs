@@ -107,12 +107,7 @@ mod tests {
         }))];
 
         let findings = Pgm018.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM018");
-        assert_eq!(findings[0].severity, Severity::Critical);
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("NOT VALID"));
-        assert!(findings[0].message.contains("ACCESS EXCLUSIVE"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
