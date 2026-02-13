@@ -117,12 +117,7 @@ mod tests {
         }))];
 
         let findings = Pgm014.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM014");
-        assert_eq!(findings[0].severity, Severity::Major);
-        assert!(findings[0].message.contains("id"));
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("primary key"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -148,10 +143,7 @@ mod tests {
         }))];
 
         let findings = Pgm014.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM014");
-        assert!(findings[0].message.contains("'a'"));
-        assert!(findings[0].message.contains("order_items"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

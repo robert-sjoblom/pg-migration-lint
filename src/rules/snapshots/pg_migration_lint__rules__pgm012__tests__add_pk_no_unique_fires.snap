@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm012.rs
+assertion_line: 122
+expression: findings
+---
+- rule_id: PGM012
+  severity: Major
+  message: "ADD PRIMARY KEY on existing table 'orders' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

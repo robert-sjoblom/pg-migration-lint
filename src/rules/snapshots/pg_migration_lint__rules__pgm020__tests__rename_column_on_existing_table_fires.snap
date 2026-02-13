@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm020.rs
+assertion_line: 125
+expression: findings
+---
+- rule_id: PGM020
+  severity: Info
+  message: "Renaming column 'status' to 'order_status' on existing table 'orders' will break queries referencing the old column name."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

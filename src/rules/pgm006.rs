@@ -111,10 +111,7 @@ mod tests {
         }))];
 
         let findings = Pgm006.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM006");
-        assert_eq!(findings[0].severity, Severity::Critical);
-        assert!(findings[0].message.contains("CONCURRENTLY"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -175,7 +172,6 @@ mod tests {
         }))];
 
         let findings = Pgm006.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM006");
+        insta::assert_yaml_snapshot!(findings);
     }
 }

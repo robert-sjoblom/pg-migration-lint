@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm108.rs
+assertion_line: 153
+expression: findings
+---
+- rule_id: PGM108
+  severity: Minor
+  message: "Column 'metadata' on 'events' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

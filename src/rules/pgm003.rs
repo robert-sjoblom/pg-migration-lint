@@ -189,10 +189,7 @@ mod tests {
         }))];
 
         let findings = Pgm003.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM003");
-        assert_eq!(findings[0].severity, Severity::Major);
-        assert!(findings[0].message.contains("child(pid)"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -288,8 +285,7 @@ mod tests {
         }))];
 
         let findings = Pgm003.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("child(a, b)"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

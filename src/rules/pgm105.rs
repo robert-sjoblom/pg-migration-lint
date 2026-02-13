@@ -136,11 +136,7 @@ mod tests {
         }))];
 
         let findings = Pgm105.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM105");
-        assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].message.contains("id"));
-        assert!(findings[0].message.contains("serial/bigserial"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -169,8 +165,7 @@ mod tests {
         }))];
 
         let findings = Pgm105.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("serial/bigserial"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -224,7 +219,6 @@ mod tests {
         }))];
 
         let findings = Pgm105.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("seq_id"));
+        insta::assert_yaml_snapshot!(findings);
     }
 }

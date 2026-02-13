@@ -456,10 +456,7 @@ mod tests {
         }))];
 
         let findings = Pgm009.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Critical);
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("amount"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -484,8 +481,7 @@ mod tests {
         }))];
 
         let findings = Pgm009.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, Severity::Info);
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

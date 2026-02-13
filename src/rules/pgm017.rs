@@ -124,11 +124,7 @@ mod tests {
         let stmts = vec![add_fk_stmt("orders", false)];
 
         let findings = Pgm017.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM017");
-        assert_eq!(findings[0].severity, Severity::Critical);
-        assert!(findings[0].message.contains("orders"));
-        assert!(findings[0].message.contains("NOT VALID"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

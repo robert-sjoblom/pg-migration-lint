@@ -1,0 +1,11 @@
+---
+source: src/rules/pgm102.rs
+assertion_line: 109
+expression: findings
+---
+- rule_id: PGM102
+  severity: Minor
+  message: "Column 'created_at' on 'events' uses 'timestamptz(0)'. Precision 0 causes rounding, not truncation — a value of '23:59:59.9' rounds to the next day. Use full precision and format on output instead."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

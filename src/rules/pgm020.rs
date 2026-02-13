@@ -122,17 +122,7 @@ mod tests {
         })];
 
         let findings = Pgm020.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM020");
-        assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].message.contains("status"));
-        assert!(findings[0].message.contains("order_status"));
-        assert!(findings[0].message.contains("orders"));
-        assert!(
-            findings[0]
-                .message
-                .contains("will break queries referencing the old column name")
-        );
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

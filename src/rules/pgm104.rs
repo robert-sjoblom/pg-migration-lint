@@ -102,12 +102,7 @@ mod tests {
         }))];
 
         let findings = Pgm104.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM104");
-        assert_eq!(findings[0].severity, Severity::Minor);
-        assert!(findings[0].message.contains("total"));
-        assert!(findings[0].message.contains("money"));
-        assert!(findings[0].message.contains("numeric"));
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
@@ -157,8 +152,6 @@ mod tests {
         }))];
 
         let findings = Pgm104.check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("discount"));
-        assert!(findings[0].message.contains("money"));
+        insta::assert_yaml_snapshot!(findings);
     }
 }

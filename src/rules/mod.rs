@@ -36,11 +36,12 @@ pub mod pgm108;
 
 use crate::catalog::Catalog;
 use crate::parser::ir::{IrNode, Located, SourceSpan};
+use serde::Serialize;
 use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum Severity {
     Info,
     Minor,
@@ -80,14 +81,23 @@ impl fmt::Display for Severity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Finding {
     pub rule_id: String,
     pub severity: Severity,
     pub message: String,
+    #[serde(serialize_with = "serialize_path_forward_slash")]
     pub file: PathBuf,
     pub start_line: usize,
     pub end_line: usize,
+}
+
+#[allow(clippy::ptr_arg)] // serde serialize_with requires &PathBuf, not &Path
+fn serialize_path_forward_slash<S: serde::Serializer>(
+    path: &std::path::PathBuf,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&path.to_string_lossy().replace('\\', "/"))
 }
 
 impl Finding {
