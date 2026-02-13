@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.8.0...v1.8.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* **bridge:** skip changesets that fail SQL generation instead of aborting ([334299a](https://github.com/robert-sjoblom/pg-migration-lint/commit/334299a2ca8913c06e22417a7ec9ff0667ac2d86))
+
 ## [1.8.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.7.0...v1.8.0) (2026-02-12)
 
 
