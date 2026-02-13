@@ -1,0 +1,17 @@
+---
+source: tests/matrix.rs
+assertion_line: 355
+expression: findings
+---
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'orders(customer_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM017
+  severity: Critical
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

@@ -1,0 +1,29 @@
+---
+source: tests/matrix.rs
+assertion_line: 562
+expression: findings
+---
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created_at' on 'bad_types' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM103
+  severity: Minor
+  message: "Column 'code' on 'bad_types' uses 'char(10)'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM104
+  severity: Minor
+  message: "Column 'price' on 'bad_types' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM105
+  severity: Info
+  message: "Column 'id' on 'bad_types' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

@@ -99,6 +99,24 @@ fn format_findings(findings: &[Finding]) -> String {
         .join("\n  ")
 }
 
+/// Normalize finding paths for snapshot stability across machines.
+///
+/// Strips the machine-specific prefix from each finding's file path, keeping
+/// only the portion starting from `repos/{fixture_name}/...`.
+fn normalize_findings(findings: Vec<Finding>, fixture_name: &str) -> Vec<Finding> {
+    let marker = format!("repos/{}/", fixture_name);
+    findings
+        .into_iter()
+        .map(|mut f| {
+            let path_str = f.file.to_string_lossy().to_string();
+            if let Some(pos) = path_str.find(&marker) {
+                f.file = std::path::PathBuf::from(&path_str[pos..]);
+            }
+            f
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Clean repo: all migrations correct, expect 0 findings
 // ---------------------------------------------------------------------------
@@ -234,33 +252,23 @@ fn test_changed_file_sees_catalog_from_history() {
 #[test]
 fn test_pgm001_finding_details() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
-
-    assert_eq!(pgm001.len(), 1, "Expected exactly 1 PGM001 finding");
-    assert!(
-        pgm001[0].message.contains("products"),
-        "PGM001 message should mention 'products' table"
-    );
-    assert!(
-        pgm001[0].message.contains("CONCURRENTLY"),
-        "PGM001 message should mention CONCURRENTLY"
-    );
+    let pgm001: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM001")
+        .collect();
+    let pgm001 = normalize_findings(pgm001, "all-rules");
+    insta::assert_yaml_snapshot!(pgm001);
 }
 
 #[test]
 fn test_pgm003_finding_details() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
-
-    assert_eq!(pgm003.len(), 1, "Expected exactly 1 PGM003 finding");
-    assert!(
-        pgm003[0].message.contains("customers"),
-        "PGM003 message should mention 'customers' table"
-    );
-    assert!(
-        pgm003[0].message.contains("customer_id"),
-        "PGM003 message should mention 'customer_id' column"
-    );
+    let pgm003: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM003")
+        .collect();
+    let pgm003 = normalize_findings(pgm003, "all-rules");
+    insta::assert_yaml_snapshot!(pgm003);
 }
 
 #[test]
@@ -269,13 +277,12 @@ fn test_pgm004_finding_details() {
     // is in tables_created_in_change, but PGM004 does not check that set --
     // it only checks catalog_after for has_primary_key.
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
-    let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
-
-    assert_eq!(pgm004.len(), 1, "Expected exactly 1 PGM004 finding");
-    assert!(
-        pgm004[0].message.contains("audit_log"),
-        "PGM004 message should mention 'audit_log' table"
-    );
+    let pgm004: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM004")
+        .collect();
+    let pgm004 = normalize_findings(pgm004, "all-rules");
+    insta::assert_yaml_snapshot!(pgm004);
 }
 
 #[test]
@@ -286,52 +293,24 @@ fn test_pgm002_finding_details() {
         "all-rules",
         &["V002__violations.sql", "V003__more_violations.sql"],
     );
-    let pgm002: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM002").collect();
-
-    assert_eq!(pgm002.len(), 1, "Expected exactly 1 PGM002 finding");
-    assert_eq!(
-        pgm002[0].severity,
-        pg_migration_lint::rules::Severity::Critical,
-        "PGM002 severity should be Critical"
-    );
-    assert!(
-        pgm002[0].message.contains("idx_customers_email"),
-        "PGM002 message should mention 'idx_customers_email' index"
-    );
-    assert!(
-        pgm002[0].message.contains("customers"),
-        "PGM002 message should mention 'customers' table"
-    );
-    assert!(
-        pgm002[0].message.contains("CONCURRENTLY"),
-        "PGM002 message should mention CONCURRENTLY"
-    );
+    let pgm002: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM002")
+        .collect();
+    let pgm002 = normalize_findings(pgm002, "all-rules");
+    insta::assert_yaml_snapshot!(pgm002);
 }
 
 #[test]
 fn test_pgm005_finding_details() {
     // V003 creates the 'settings' table with UNIQUE NOT NULL but no PK.
     let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
-    let pgm005: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM005").collect();
-
-    assert_eq!(pgm005.len(), 1, "Expected exactly 1 PGM005 finding");
-    assert_eq!(
-        pgm005[0].severity,
-        pg_migration_lint::rules::Severity::Info,
-        "PGM005 severity should be Info"
-    );
-    assert!(
-        pgm005[0].message.contains("settings"),
-        "PGM005 message should mention 'settings' table"
-    );
-    assert!(
-        pgm005[0].message.contains("UNIQUE NOT NULL"),
-        "PGM005 message should mention 'UNIQUE NOT NULL'"
-    );
-    assert!(
-        pgm005[0].message.contains("PRIMARY KEY"),
-        "PGM005 message should mention 'PRIMARY KEY'"
-    );
+    let pgm005: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM005")
+        .collect();
+    let pgm005 = normalize_findings(pgm005, "all-rules");
+    insta::assert_yaml_snapshot!(pgm005);
 }
 
 #[test]
@@ -339,22 +318,12 @@ fn test_pgm006_finding_details() {
     // V003 uses CREATE INDEX CONCURRENTLY inside a transaction (SqlLoader
     // sets run_in_transaction=true by default).
     let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
-    let pgm006: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM006").collect();
-
-    assert_eq!(pgm006.len(), 1, "Expected exactly 1 PGM006 finding");
-    assert_eq!(
-        pgm006[0].severity,
-        pg_migration_lint::rules::Severity::Critical,
-        "PGM006 severity should be Critical"
-    );
-    assert!(
-        pgm006[0].message.contains("CONCURRENTLY"),
-        "PGM006 message should mention 'CONCURRENTLY'"
-    );
-    assert!(
-        pgm006[0].message.contains("transaction"),
-        "PGM006 message should mention 'transaction'"
-    );
+    let pgm006: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM006")
+        .collect();
+    let pgm006 = normalize_findings(pgm006, "all-rules");
+    insta::assert_yaml_snapshot!(pgm006);
 }
 
 #[test]
@@ -397,89 +366,56 @@ fn test_all_rules_changed_files_all_empty() {
 #[test]
 fn test_pgm101_timestamp_without_tz() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
-    let pgm101: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM101").collect();
-
-    assert!(
-        !pgm101.is_empty(),
-        "Expected PGM101 findings for 'timestamp' without time zone"
-    );
-    assert!(
-        pgm101
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("timestamp")),
-        "PGM101 message should mention 'timestamp'. Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm101: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM101")
+        .collect();
+    let pgm101 = normalize_findings(pgm101, "all-rules");
+    insta::assert_yaml_snapshot!(pgm101);
 }
 
 #[test]
 fn test_pgm102_timestamptz_zero_precision() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
-    let pgm102: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM102").collect();
-
-    assert!(
-        !pgm102.is_empty(),
-        "Expected PGM102 findings for 'timestamptz(0)'"
-    );
-    assert!(
-        pgm102
-            .iter()
-            .any(|f| f.message.contains("0") || f.message.to_lowercase().contains("precision")),
-        "PGM102 message should mention precision or (0). Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm102: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM102")
+        .collect();
+    let pgm102 = normalize_findings(pgm102, "all-rules");
+    insta::assert_yaml_snapshot!(pgm102);
 }
 
 #[test]
 fn test_pgm103_char_n_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
-    let pgm103: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM103").collect();
-
-    assert!(!pgm103.is_empty(), "Expected PGM103 findings for 'char(n)'");
-    assert!(
-        pgm103
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("char")),
-        "PGM103 message should mention 'char'. Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm103: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM103")
+        .collect();
+    let pgm103 = normalize_findings(pgm103, "all-rules");
+    insta::assert_yaml_snapshot!(pgm103);
 }
 
 #[test]
 fn test_pgm104_money_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
-    let pgm104: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM104").collect();
-
-    assert!(
-        !pgm104.is_empty(),
-        "Expected PGM104 findings for 'money' type"
-    );
-    assert!(
-        pgm104
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("money")),
-        "PGM104 message should mention 'money'. Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm104: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM104")
+        .collect();
+    let pgm104 = normalize_findings(pgm104, "all-rules");
+    insta::assert_yaml_snapshot!(pgm104);
 }
 
 #[test]
 fn test_pgm105_serial_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
-    let pgm105: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM105").collect();
-
-    assert!(
-        !pgm105.is_empty(),
-        "Expected PGM105 findings for 'serial' type"
-    );
-    assert!(
-        pgm105
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("serial")
-                || f.message.to_lowercase().contains("identity")),
-        "PGM105 message should mention 'serial' or 'identity'. Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm105: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM105")
+        .collect();
+    let pgm105 = normalize_findings(pgm105, "all-rules");
+    insta::assert_yaml_snapshot!(pgm105);
 }
 
 // ---------------------------------------------------------------------------
@@ -489,139 +425,67 @@ fn test_pgm105_serial_type() {
 #[test]
 fn test_pgm016_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
-    let pgm016: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM016").collect();
-
-    assert_eq!(pgm016.len(), 1, "Expected exactly 1 PGM016 finding");
-    assert_eq!(
-        pgm016[0].severity,
-        pg_migration_lint::rules::Severity::Critical,
-        "PGM016 severity should be Critical"
-    );
-    assert!(
-        pgm016[0].message.contains("customer_id"),
-        "PGM016 message should mention 'customer_id' column"
-    );
-    assert!(
-        pgm016[0].message.contains("customers"),
-        "PGM016 message should mention 'customers' table"
-    );
-    assert!(
-        pgm016[0].message.contains("NOT NULL"),
-        "PGM016 message should mention 'NOT NULL'"
-    );
+    let pgm016: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM016")
+        .collect();
+    let pgm016 = normalize_findings(pgm016, "all-rules");
+    insta::assert_yaml_snapshot!(pgm016);
 }
 
 #[test]
 fn test_pgm017_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
-    let pgm017: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM017").collect();
-
-    assert_eq!(pgm017.len(), 1, "Expected exactly 1 PGM017 finding");
-    assert_eq!(
-        pgm017[0].severity,
-        pg_migration_lint::rules::Severity::Critical,
-        "PGM017 severity should be Critical"
-    );
-    assert!(
-        pgm017[0].message.contains("events"),
-        "PGM017 message should mention 'events' table"
-    );
-    assert!(
-        pgm017[0].message.contains("NOT VALID"),
-        "PGM017 message should mention 'NOT VALID'"
-    );
+    let pgm017: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM017")
+        .collect();
+    let pgm017 = normalize_findings(pgm017, "all-rules");
+    insta::assert_yaml_snapshot!(pgm017);
 }
 
 #[test]
 fn test_pgm018_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
-    let pgm018: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM018").collect();
-
-    assert_eq!(pgm018.len(), 1, "Expected exactly 1 PGM018 finding");
-    assert_eq!(
-        pgm018[0].severity,
-        pg_migration_lint::rules::Severity::Critical,
-        "PGM018 severity should be Critical"
-    );
-    assert!(
-        pgm018[0].message.contains("customers"),
-        "PGM018 message should mention 'customers' table"
-    );
-    assert!(
-        pgm018[0].message.contains("NOT VALID"),
-        "PGM018 message should mention 'NOT VALID'"
-    );
+    let pgm018: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM018")
+        .collect();
+    let pgm018 = normalize_findings(pgm018, "all-rules");
+    insta::assert_yaml_snapshot!(pgm018);
 }
 
 #[test]
 fn test_pgm019_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
-    let pgm019: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM019").collect();
-
-    assert_eq!(pgm019.len(), 1, "Expected exactly 1 PGM019 finding");
-    assert_eq!(
-        pgm019[0].severity,
-        pg_migration_lint::rules::Severity::Info,
-        "PGM019 severity should be Info"
-    );
-    assert!(
-        pgm019[0].message.contains("accounts"),
-        "PGM019 message should mention 'accounts' table"
-    );
-    assert!(
-        pgm019[0].message.contains("accounts_old"),
-        "PGM019 message should mention the new name 'accounts_old'"
-    );
+    let pgm019: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM019")
+        .collect();
+    let pgm019 = normalize_findings(pgm019, "all-rules");
+    insta::assert_yaml_snapshot!(pgm019);
 }
 
 #[test]
 fn test_pgm020_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
-    let pgm020: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM020").collect();
-
-    assert_eq!(pgm020.len(), 1, "Expected exactly 1 PGM020 finding");
-    assert_eq!(
-        pgm020[0].severity,
-        pg_migration_lint::rules::Severity::Info,
-        "PGM020 severity should be Info"
-    );
-    assert!(
-        pgm020[0].message.contains("address_id"),
-        "PGM020 message should mention 'address_id' column"
-    );
-    assert!(
-        pgm020[0].message.contains("addr_id"),
-        "PGM020 message should mention the new column name 'addr_id'"
-    );
-    assert!(
-        pgm020[0].message.contains("addresses"),
-        "PGM020 message should mention 'addresses' table"
-    );
+    let pgm020: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM020")
+        .collect();
+    let pgm020 = normalize_findings(pgm020, "all-rules");
+    insta::assert_yaml_snapshot!(pgm020);
 }
 
 #[test]
 fn test_pgm108_finding_details() {
     let findings = lint_fixture("all-rules", &["V006__json_type.sql"]);
-    let pgm108: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM108").collect();
-
-    assert!(
-        !pgm108.is_empty(),
-        "Expected PGM108 findings for 'json' type"
-    );
-    assert!(
-        pgm108
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("json")),
-        "PGM108 message should mention 'json'. Got:\n  {}",
-        format_findings(&findings)
-    );
-    assert!(
-        pgm108
-            .iter()
-            .any(|f| f.message.to_lowercase().contains("jsonb")),
-        "PGM108 message should mention 'jsonb'. Got:\n  {}",
-        format_findings(&findings)
-    );
+    let pgm108: Vec<_> = findings
+        .into_iter()
+        .filter(|f| f.rule_id == "PGM108")
+        .collect();
+    let pgm108 = normalize_findings(pgm108, "all-rules");
+    insta::assert_yaml_snapshot!(pgm108);
 }
 
 // ---------------------------------------------------------------------------

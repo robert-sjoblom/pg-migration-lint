@@ -1,0 +1,23 @@
+---
+source: tests/matrix.rs
+assertion_line: 500
+expression: findings
+---
+- rule_id: PGM001
+  severity: Info
+  message: Missing CONCURRENTLY on CREATE INDEX
+  file: migrations/002.down.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM003
+  severity: Info
+  message: FK without covering index
+  file: migrations/002.down.sql
+  start_line: 3
+  end_line: 3
+- rule_id: PGM007
+  severity: Info
+  message: Volatile default on column
+  file: migrations/002.down.sql
+  start_line: 5
+  end_line: 5

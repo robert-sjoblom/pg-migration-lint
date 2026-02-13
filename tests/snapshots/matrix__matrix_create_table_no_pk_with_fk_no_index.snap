@@ -1,0 +1,17 @@
+---
+source: tests/matrix.rs
+assertion_line: 258
+expression: findings
+---
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'orders(customer_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1
+- rule_id: PGM004
+  severity: Major
+  message: "Table 'orders' has no primary key."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

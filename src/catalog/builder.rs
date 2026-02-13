@@ -16,7 +16,7 @@
 //!          .column("status", "text", true)
 //!          .index("idx_status", &["status"], false)
 //!          .pk(&["id"])
-//!          .fk("fk_customer", &["customer_id"], "customers", &["id"])
+//!          .fk("fk_customer", &["customer_id"], "customers", &["id"]);
 //!     })
 //!     .build();
 //! ```

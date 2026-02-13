@@ -1,0 +1,11 @@
+---
+source: tests/integration.rs
+assertion_line: 257
+expression: pgm001
+---
+- rule_id: PGM001
+  severity: Critical
+  message: "CREATE INDEX on existing table 'products' should use CONCURRENTLY to avoid holding an exclusive lock."
+  file: repos/all-rules/migrations/V002__violations.sql
+  start_line: 1
+  end_line: 2

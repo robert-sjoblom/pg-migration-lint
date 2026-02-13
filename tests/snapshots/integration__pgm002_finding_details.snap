@@ -1,0 +1,11 @@
+---
+source: tests/integration.rs
+assertion_line: 289
+expression: pgm002
+---
+- rule_id: PGM002
+  severity: Critical
+  message: "DROP INDEX 'idx_customers_email' on existing table 'customers' should use CONCURRENTLY to avoid holding an exclusive lock."
+  file: repos/all-rules/migrations/V003__more_violations.sql
+  start_line: 1
+  end_line: 2
