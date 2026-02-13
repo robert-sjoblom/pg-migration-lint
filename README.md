@@ -7,7 +7,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 25 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 28 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -36,7 +36,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 25 rules across two categories: migration safety rules (PGM001-PGM020) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
+pg-migration-lint ships with 28 rules across two categories: migration safety rules (PGM001-PGM022) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
 
 ### Migration Safety Rules
 
@@ -62,6 +62,8 @@ pg-migration-lint ships with 25 rules across two categories: migration safety ru
 | PGM018 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
 | PGM019 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
 | PGM020 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
+| PGM021 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
+| PGM022 | Minor | `DROP TABLE` on existing table | `DROP TABLE legacy_orders;` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 
@@ -70,6 +72,10 @@ PGM003 and PGM004 check the catalog state *after* the entire file is processed, 
 PGM016, PGM017, and PGM018 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
 
 PGM019 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
+
+PGM021 follows the same pattern as PGM012: create the unique index `CONCURRENTLY` first, then use `ADD CONSTRAINT ... UNIQUE USING INDEX` to promote it. This avoids a full table scan under an `ACCESS EXCLUSIVE` lock.
+
+PGM022 only fires on tables that existed before the current set of changed files. Dropping a table created in the same changeset is harmless.
 
 PGM008 is not a standalone rule -- it is a behavior modifier. All findings produced by other rules on `.down.sql` or rollback migrations are automatically capped to Info severity.
 

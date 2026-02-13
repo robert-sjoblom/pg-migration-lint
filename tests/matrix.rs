@@ -545,3 +545,65 @@ fn test_matrix_create_table_with_bad_types() {
     let findings = run_selected_rules(&stmts, &ctx, &["PGM101", "PGM103", "PGM104", "PGM105"]);
     insta::assert_yaml_snapshot!(findings);
 }
+
+// ---------------------------------------------------------------------------
+// (m) ADD PRIMARY KEY fires PGM012 only, not PGM021
+// ---------------------------------------------------------------------------
+#[test]
+fn test_matrix_add_pk_fires_pgm012_not_pgm021() {
+    let before = CatalogBuilder::new()
+        .table("orders", |t| {
+            t.column("id", "bigint", false)
+                .column("email", "text", false);
+        })
+        .build();
+    let after = before.clone();
+    let file = PathBuf::from("migrations/002.sql");
+    let created = HashSet::new();
+    let ctx = make_ctx(&before, &after, &file, &created);
+
+    let stmts = vec![located(IrNode::AlterTable(AlterTable {
+        name: QualifiedName::unqualified("orders"),
+        actions: vec![AlterTableAction::AddConstraint(
+            TableConstraint::PrimaryKey {
+                columns: vec!["id".to_string()],
+            },
+        )],
+    }))];
+
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM012", "PGM021"]);
+    insta::assert_yaml_snapshot!(findings);
+}
+
+// ---------------------------------------------------------------------------
+// (n) Multi-action ALTER TABLE: ADD PK + ADD UNIQUE fires both PGM012 and PGM021
+// ---------------------------------------------------------------------------
+#[test]
+fn test_matrix_add_pk_and_add_unique_both_fire() {
+    let before = CatalogBuilder::new()
+        .table("orders", |t| {
+            t.column("id", "bigint", false)
+                .column("email", "text", false);
+        })
+        .build();
+    let after = before.clone();
+    let file = PathBuf::from("migrations/002.sql");
+    let created = HashSet::new();
+    let ctx = make_ctx(&before, &after, &file, &created);
+
+    let stmts = vec![located(IrNode::AlterTable(AlterTable {
+        name: QualifiedName::unqualified("orders"),
+        actions: vec![
+            AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                columns: vec!["id".to_string()],
+            }),
+            AlterTableAction::AddConstraint(TableConstraint::Unique {
+                name: Some("uq_orders_email".to_string()),
+                columns: vec!["email".to_string()],
+            }),
+        ],
+    }))];
+
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM012", "PGM021"]);
+    insta::assert_yaml_snapshot!(findings);
+}
