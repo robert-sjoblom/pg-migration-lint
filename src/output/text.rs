@@ -87,8 +87,7 @@ mod tests {
 
         let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
 
-        let expected = "CRITICAL PGM001 db/migrations/V042__add_index.sql:3\n  CREATE INDEX on existing table 'orders' should use CONCURRENTLY.\n";
-        assert_eq!(content, expected);
+        insta::assert_snapshot!(content);
     }
 
     #[test]
@@ -119,9 +118,7 @@ mod tests {
 
         let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
 
-        let expected =
-            "CRITICAL PGM001 a.sql:1\n  first finding\n\nMAJOR PGM003 b.sql:7\n  second finding\n";
-        assert_eq!(content, expected);
+        insta::assert_snapshot!(content);
     }
 
     #[test]

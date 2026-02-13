@@ -1,0 +1,7 @@
+---
+source: src/output/text.rs
+assertion_line: 90
+expression: content
+---
+CRITICAL PGM001 db/migrations/V042__add_index.sql:3
+  CREATE INDEX on existing table 'orders' should use CONCURRENTLY.

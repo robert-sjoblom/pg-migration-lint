@@ -1,0 +1,23 @@
+---
+source: src/output/sonarqube.rs
+assertion_line: 239
+expression: parsed
+---
+{
+  "issues": [
+    {
+      "engineId": "pg-migration-lint",
+      "primaryLocation": {
+        "filePath": "a.sql",
+        "message": "CREATE INDEX on existing table 'orders' should use CONCURRENTLY. This is a long message with special characters: <>, &, \"quotes\".",
+        "textRange": {
+          "endLine": 1,
+          "startLine": 1
+        }
+      },
+      "ruleId": "PGM001",
+      "severity": "CRITICAL",
+      "type": "BUG"
+    }
+  ]
+}

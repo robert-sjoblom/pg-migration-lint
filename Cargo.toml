@@ -36,7 +36,7 @@ anyhow = "1.0"
 
 [dev-dependencies]
 # Snapshot testing
-insta = { version = "1.34", features = ["json", "yaml"] }
+insta = { version = "1.34", features = ["json", "yaml", "redactions"] }
 
 # Property-based testing
 proptest = "1.4"
