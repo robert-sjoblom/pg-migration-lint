@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <changeSet id="mix-1" author="alice">
+        <createTable tableName="customers">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="email" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="mix-2" author="bob">
+        <createTable tableName="invoices">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="customer_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="amount" type="NUMERIC(12,2)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="mix-3" author="bob">
+        <addColumn tableName="customers">
+            <column name="phone" type="VARCHAR(50)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="mix-4" author="alice">
+        <createIndex indexName="idx_invoices_customer" tableName="invoices">
+            <column name="customer_id"/>
+        </createIndex>
+        <addForeignKeyConstraint constraintName="fk_invoices_customer"
+                                 baseTableName="invoices"
+                                 baseColumnNames="customer_id"
+                                 referencedTableName="customers"
+                                 referencedColumnNames="id"/>
+    </changeSet>
+
+    <changeSet id="mix-5" author="alice" runInTransaction="false">
+        <sql>
+            CREATE INDEX CONCURRENTLY idx_customers_email ON customers (email);
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <changeSet id="raw-1" author="bob">
+        <sql>
+            CREATE INDEX CONCURRENTLY idx_foo ON bar (baz);
+        </sql>
+    </changeSet>
+
+    <changeSet id="raw-2" author="bob">
+        <sql><![CDATA[
+            ALTER TABLE orders
+            ADD CONSTRAINT check_status
+            CHECK (status IN ('ACTIVE', 'CLOSED'));
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

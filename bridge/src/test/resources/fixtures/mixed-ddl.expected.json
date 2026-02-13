@@ -1,0 +1,42 @@
+[
+  {
+    "changeset_id": "mix-1",
+    "author": "alice",
+    "sql": "CREATE TABLE customers (id BIGINT NOT NULL, email VARCHAR(255) NOT NULL, CONSTRAINT customers_pkey PRIMARY KEY (id));",
+    "xml_file": "mixed-ddl.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "mix-2",
+    "author": "bob",
+    "sql": "CREATE TABLE invoices (id BIGINT NOT NULL, customer_id BIGINT NOT NULL, amount numeric(12, 2) NOT NULL, CONSTRAINT invoices_pkey PRIMARY KEY (id));",
+    "xml_file": "mixed-ddl.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "mix-3",
+    "author": "bob",
+    "sql": "ALTER TABLE customers ADD phone VARCHAR(50);",
+    "xml_file": "mixed-ddl.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "mix-4",
+    "author": "alice",
+    "sql": "CREATE INDEX idx_invoices_customer ON invoices(customer_id);\nALTER TABLE invoices ADD CONSTRAINT fk_invoices_customer FOREIGN KEY (customer_id) REFERENCES customers (id);",
+    "xml_file": "mixed-ddl.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "mix-5",
+    "author": "alice",
+    "sql": "CREATE INDEX CONCURRENTLY idx_customers_email ON customers (email);",
+    "xml_file": "mixed-ddl.xml",
+    "xml_line": 1,
+    "run_in_transaction": false
+  }
+]

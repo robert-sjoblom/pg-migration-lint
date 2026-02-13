@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <changeSet id="skip-1" author="alice">
+        <createTable tableName="before_skip">
+            <column name="id" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- This changeset should be skipped: loadData needs a CSV file -->
+    <changeSet id="skip-2" author="alice">
+        <loadData tableName="before_skip" file="nonexistent.csv">
+            <column name="id" type="NUMERIC"/>
+        </loadData>
+    </changeSet>
+
+    <changeSet id="skip-3" author="alice">
+        <createTable tableName="after_skip">
+            <column name="id" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

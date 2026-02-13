@@ -66,7 +66,7 @@ jobs:
             -v "$PWD/bridge:/build" \
             -w /build \
             maven:3.9-eclipse-temurin-21 \
-            sh -c 'mvn package -q -DskipTests && cp target/liquibase-bridge-1.0.0.jar target/liquibase-bridge.jar'
+            sh -c 'mvn package -q && cp target/liquibase-bridge-1.0.0.jar target/liquibase-bridge.jar'
 
       - name: Upload bridge JAR
         uses: actions/upload-artifact@v6
