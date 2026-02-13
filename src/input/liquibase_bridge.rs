@@ -79,6 +79,12 @@ impl BridgeLoader {
             });
         }
 
+        // Forward any bridge warnings (e.g., skipped changesets) to stderr
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprint!("{}", stderr);
+        }
+
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_bridge_json(&stdout)
     }

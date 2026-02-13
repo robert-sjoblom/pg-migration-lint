@@ -85,54 +85,67 @@ public class LiquibaseBridge {
                 new ChangeLogParameters(database), resourceAccessor);
 
         List<ChangesetEntry> entries = new ArrayList<>();
+        int skippedCount = 0;
 
         for (ChangeSet changeSet : changeLog.getChangeSets()) {
-            StringBuilder sqlBuilder = new StringBuilder();
+            try {
+                StringBuilder sqlBuilder = new StringBuilder();
 
-            // Generate SQL for each change within the changeset.
-            for (var change : changeSet.getChanges()) {
-                SqlStatement[] statements = change.generateStatements(database);
-                for (SqlStatement statement : statements) {
-                    Sql[] sqls = SqlGeneratorFactory.getInstance()
-                            .generateSql(statement, database);
-                    for (Sql sql : sqls) {
-                        if (sqlBuilder.length() > 0) {
-                            sqlBuilder.append("\n");
+                // Generate SQL for each change within the changeset.
+                for (var change : changeSet.getChanges()) {
+                    SqlStatement[] statements = change.generateStatements(database);
+                    for (SqlStatement statement : statements) {
+                        Sql[] sqls = SqlGeneratorFactory.getInstance()
+                                .generateSql(statement, database);
+                        for (Sql sql : sqls) {
+                            if (sqlBuilder.length() > 0) {
+                                sqlBuilder.append("\n");
+                            }
+                            sqlBuilder.append(sql.toSql()).append(";");
                         }
-                        sqlBuilder.append(sql.toSql()).append(";");
                     }
                 }
+
+                // Also capture any raw SQL blocks within the changeset.
+                // Liquibase <sql> tags store their content differently.
+                String generatedSql = sqlBuilder.toString();
+                if (generatedSql.isEmpty()) {
+                    // Skip changesets that produce no SQL (e.g., preconditions-only).
+                    continue;
+                }
+
+                ChangesetEntry entry = new ChangesetEntry();
+                entry.changeset_id = changeSet.getId();
+                entry.author = changeSet.getAuthor() != null ? changeSet.getAuthor() : "";
+                entry.sql = generatedSql;
+
+                // Resolve the XML file path relative to the original changelog location,
+                // preserving the path the user provided.
+                String filePath = changeSet.getFilePath();
+                if (filePath != null) {
+                    entry.xml_file = filePath;
+                } else {
+                    entry.xml_file = changelogPath;
+                }
+
+                // Liquibase does not expose the XML line number directly in all versions,
+                // so we default to 1 if unavailable. The Rust side handles this gracefully.
+                entry.xml_line = 1;
+
+                entry.run_in_transaction = changeSet.isRunInTransaction();
+
+                entries.add(entry);
+            } catch (Exception e) {
+                skippedCount++;
+                System.err.println("WARNING: Skipped changeset '"
+                    + changeSet.getId() + "' (" + changeSet.getFilePath()
+                    + "): " + e.getMessage());
             }
+        }
 
-            // Also capture any raw SQL blocks within the changeset.
-            // Liquibase <sql> tags store their content differently.
-            String generatedSql = sqlBuilder.toString();
-            if (generatedSql.isEmpty()) {
-                // Skip changesets that produce no SQL (e.g., preconditions-only).
-                continue;
-            }
-
-            ChangesetEntry entry = new ChangesetEntry();
-            entry.changeset_id = changeSet.getId();
-            entry.author = changeSet.getAuthor() != null ? changeSet.getAuthor() : "";
-            entry.sql = generatedSql;
-
-            // Resolve the XML file path relative to the original changelog location,
-            // preserving the path the user provided.
-            String filePath = changeSet.getFilePath();
-            if (filePath != null) {
-                entry.xml_file = filePath;
-            } else {
-                entry.xml_file = changelogPath;
-            }
-
-            // Liquibase does not expose the XML line number directly in all versions,
-            // so we default to 1 if unavailable. The Rust side handles this gracefully.
-            entry.xml_line = 1;
-
-            entry.run_in_transaction = changeSet.isRunInTransaction();
-
-            entries.add(entry);
+        if (skippedCount > 0) {
+            System.err.println("WARNING: " + skippedCount
+                + " changeset(s) skipped due to SQL generation errors");
         }
 
         return entries;
