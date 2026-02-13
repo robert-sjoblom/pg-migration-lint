@@ -58,9 +58,7 @@ impl Rule for Pgm105 {
                 IrNode::CreateTable(ct) => {
                     for col in &ct.columns {
                         if col.is_serial {
-                            findings.push(Finding::new(
-                                self.id(),
-                                self.default_severity(),
+                            findings.push(self.make_finding(
                                 format!(
                                     "Column '{}' on '{}' uses a sequence default \
                                      (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \
@@ -80,9 +78,7 @@ impl Rule for Pgm105 {
                         if let AlterTableAction::AddColumn(col) = action
                             && col.is_serial
                         {
-                            findings.push(Finding::new(
-                                    self.id(),
-                                    self.default_severity(),
+                            findings.push(self.make_finding(
                                     format!(
                                         "Column '{}' on '{}' uses a sequence default \
                                          (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \

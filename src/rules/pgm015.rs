@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
 
 /// Rule that flags dropping a column that participates in a foreign key constraint.
 pub struct Pgm015;
@@ -49,63 +49,54 @@ impl Rule for Pgm015 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
+            let AlterTableAction::DropColumn { name } = action else {
+                return vec![];
+            };
 
-        for stmt in statements {
-            if let IrNode::AlterTable(ref at) = stmt.node {
-                let table_key = at.name.catalog_key();
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                // Only check if the table exists in catalog_before.
-                let table = match ctx.catalog_before.get_table(table_key) {
-                    Some(t) => t,
-                    None => continue,
-                };
+            let mut findings = Vec::new();
 
-                for action in &at.actions {
-                    if let AlterTableAction::DropColumn { name } = action {
-                        // Check ForeignKey constraints that include this column.
-                        for constraint in &table.constraints {
-                            if let ConstraintState::ForeignKey {
-                                name: constraint_name,
-                                columns,
-                                ref_table_display,
-                                ..
-                            } = constraint
-                                && columns.iter().any(|c| c == name)
-                            {
-                                let fk_description = match constraint_name {
-                                    Some(n) => format!(
-                                        "'{n}' referencing '{ref_tbl}'",
-                                        ref_tbl = ref_table_display,
-                                    ),
-                                    None => format!(
-                                        "({cols}) \u{2192} {ref_tbl}",
-                                        cols = columns.join(", "),
-                                        ref_tbl = ref_table_display,
-                                    ),
-                                };
-                                findings.push(Finding::new(
-                                    self.id(),
-                                    self.default_severity(),
-                                    format!(
-                                        "Dropping column '{col}' from table '{table}' silently \
-                                         removes foreign key {constraint}. Verify that the \
-                                         referential integrity guarantee is no longer needed.",
-                                        col = name,
-                                        table = at.name.display_name(),
-                                        constraint = fk_description,
-                                    ),
-                                    ctx.file,
-                                    &stmt.span,
-                                ));
-                            }
+            // Check ForeignKey constraints that include this column.
+            for constraint in table.constraints_involving_column(name) {
+                if let ConstraintState::ForeignKey {
+                    name: constraint_name,
+                    columns,
+                    ref_table_display,
+                    ..
+                } = constraint
+                {
+                    let fk_description = match constraint_name {
+                        Some(n) => {
+                            format!("'{n}' referencing '{ref_tbl}'", ref_tbl = ref_table_display,)
                         }
-                    }
+                        None => format!(
+                            "({cols}) \u{2192} {ref_tbl}",
+                            cols = columns.join(", "),
+                            ref_tbl = ref_table_display,
+                        ),
+                    };
+                    findings.push(self.make_finding(
+                        format!(
+                            "Dropping column '{col}' from table '{table}' silently \
+                             removes foreign key {constraint}. Verify that the \
+                             referential integrity guarantee is no longer needed.",
+                            col = name,
+                            table = at.name.display_name(),
+                            constraint = fk_description,
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
-        }
 
-        findings
+            findings
+        })
     }
 }
 

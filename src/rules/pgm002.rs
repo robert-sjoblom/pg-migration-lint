@@ -67,9 +67,7 @@ impl Rule for Pgm002 {
                     continue;
                 }
 
-                findings.push(Finding::new(
-                    self.id(),
-                    self.default_severity(),
+                findings.push(self.make_finding(
                     format!(
                         "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
                          to avoid holding an exclusive lock.",

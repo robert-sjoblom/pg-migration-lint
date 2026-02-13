@@ -6,7 +6,7 @@
 //! referencing the column will break.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
 
 /// Rule that flags dropping a column from an existing table.
 pub struct Pgm011;
@@ -50,38 +50,23 @@ impl Rule for Pgm011 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            if let IrNode::AlterTable(ref at) = stmt.node {
-                let table_key = at.name.catalog_key();
-
-                // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.is_existing_table(table_key) {
-                    continue;
-                }
-
-                for action in &at.actions {
-                    if let AlterTableAction::DropColumn { name } = action {
-                        findings.push(Finding::new(
-                            self.id(),
-                            self.default_severity(),
-                            format!(
-                                "Dropping column '{col}' from existing table '{table}'. \
-                                 The DDL is cheap but ensure no application code references \
-                                 this column.",
-                                col = name,
-                                table = at.name.display_name(),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
-                }
+        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
+            if let AlterTableAction::DropColumn { name } = action {
+                vec![self.make_finding(
+                    format!(
+                        "Dropping column '{col}' from existing table '{table}'. \
+                         The DDL is cheap but ensure no application code references \
+                         this column.",
+                        col = name,
+                        table = at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
             }
-        }
-
-        findings
+        })
     }
 }
 
