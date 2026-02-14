@@ -118,8 +118,12 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
-    # Only run on the weekly schedule
-    if: github.event_name == 'schedule'
+    needs: check
+    # Run on main push, scheduled, or when PR title contains [coverage]
+    if: >-
+      github.event_name == 'push'
+      || github.event_name == 'schedule'
+      || contains(github.event.pull_request.title, '[coverage]')
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -147,12 +151,11 @@ jobs:
       - name: Generate coverage
         run: cargo llvm-cov nextest --lcov --output-path lcov.info
 
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v6
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          name: coverage
-          path: lcov.info
-          retention-days: 14
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   mutants:
     name: Mutation testing
