@@ -118,9 +118,8 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
-    needs: check
-    # Skip on scheduled runs
-    if: github.event_name != 'schedule'
+    # Only run on the weekly schedule
+    if: github.event_name == 'schedule'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
