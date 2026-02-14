@@ -489,19 +489,19 @@ fn test_pgm108_finding_details() {
 }
 
 // ---------------------------------------------------------------------------
-// Enterprise fixture: realistic 30-file migration history
+// Enterprise fixture: realistic 31-file migration history
 // ---------------------------------------------------------------------------
 
 #[test]
 fn test_enterprise_parses_all_migrations() {
-    // Verify all 30 migrations load and parse without errors
+    // Verify all 31 migrations load and parse without errors
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/enterprise/migrations");
     let loader = SqlLoader::default();
     let history = loader
         .load(&[base])
         .expect("Failed to load enterprise fixture");
-    assert_eq!(history.units.len(), 30, "Should have 30 migration units");
+    assert_eq!(history.units.len(), 31, "Should have 31 migration units");
 }
 
 #[test]
@@ -618,6 +618,56 @@ fn test_enterprise_finding_count_reasonable() {
     assert!(
         findings.len() <= 48,
         "Expected at most 48 findings from V005-V015, got {}:\n  {}",
+        findings.len(),
+        format_findings(&findings)
+    );
+}
+
+/// Assert per-rule counts on the full enterprise run.
+///
+/// This test is a tripwire for regressions that silently change scope filters.
+/// For example, if PGM013/014/015 are accidentally switched to
+/// `ExcludeCreatedInChange`, their counts drop to 0 in the full run because
+/// every table is in `tables_created_in_change`.
+#[test]
+fn test_enterprise_full_run_per_rule_counts() {
+    use std::collections::HashMap;
+
+    let findings = lint_fixture("enterprise", &[]);
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for f in &findings {
+        *counts.entry(f.rule_id.as_str()).or_default() += 1;
+    }
+
+    // Baseline counts as of 2026-02-14 (31 migration files).
+    // Each entry: (rule_id, expected_count).
+    let expected: &[(&str, usize)] = &[
+        ("PGM003", 18),
+        ("PGM004", 9),
+        ("PGM005", 8),
+        ("PGM006", 7),
+        ("PGM007", 32),
+        ("PGM013", 2),
+        ("PGM014", 1),
+        ("PGM015", 3),
+        ("PGM101", 19),
+        ("PGM105", 22),
+    ];
+
+    for &(rule, expected_count) in expected {
+        let actual = counts.get(rule).copied().unwrap_or(0);
+        assert_eq!(
+            actual,
+            expected_count,
+            "Rule {rule}: expected {expected_count} findings, got {actual}.\n  All findings:\n  {}",
+            format_findings(&findings)
+        );
+    }
+
+    assert_eq!(
+        findings.len(),
+        121,
+        "Total finding count changed. Got {}:\n  {}",
         findings.len(),
         format_findings(&findings)
     );

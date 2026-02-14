@@ -122,6 +122,18 @@ impl Finding {
     }
 }
 
+/// Controls which tables a rule considers "existing".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableScope {
+    /// Table must exist in catalog_before AND not appear in tables_created_in_change.
+    /// For locking/performance rules where brand-new tables are exempt.
+    ExcludeCreatedInChange,
+    /// Table must exist in catalog_before only.
+    /// For side-effect/integrity rules where the warning matters even if the
+    /// table was created earlier in the same set of changed files.
+    AnyPreExisting,
+}
+
 /// Context available to rules during linting.
 pub struct LintContext<'a> {
     /// The catalog state BEFORE the current unit was applied.
@@ -155,6 +167,14 @@ impl<'a> LintContext<'a> {
     pub fn is_existing_table(&self, table_key: &str) -> bool {
         self.catalog_before.has_table(table_key)
             && !self.tables_created_in_change.contains(table_key)
+    }
+
+    /// Check if a table matches the given scope filter.
+    pub fn table_matches_scope(&self, table_key: &str, scope: TableScope) -> bool {
+        match scope {
+            TableScope::ExcludeCreatedInChange => self.is_existing_table(table_key),
+            TableScope::AnyPreExisting => self.catalog_before.has_table(table_key),
+        }
     }
 }
 

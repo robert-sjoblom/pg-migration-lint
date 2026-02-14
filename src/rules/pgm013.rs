@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags dropping a column that participates in a unique constraint or unique index.
 pub struct Pgm013;
@@ -51,65 +51,70 @@ impl Rule for Pgm013 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::AnyPreExisting,
+            |at, action, stmt, ctx| {
+                let AlterTableAction::DropColumn { name } = action else {
+                    return vec![];
+                };
 
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
+                let table_key = at.name.catalog_key();
+                let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                    return vec![];
+                };
 
-            let mut findings = Vec::new();
+                let mut findings = Vec::new();
 
-            // Check UNIQUE constraints that include this column.
-            for constraint in table.constraints_involving_column(name) {
-                if let ConstraintState::Unique {
-                    name: constraint_name,
-                    columns,
-                } = constraint
-                {
-                    let constraint_description = match constraint_name {
-                        Some(n) => format!("'{n}'"),
-                        None => format!("UNIQUE({})", columns.join(", ")),
-                    };
-                    findings.push(self.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' silently \
+                // Check UNIQUE constraints that include this column.
+                for constraint in table.constraints_involving_column(name) {
+                    if let ConstraintState::Unique {
+                        name: constraint_name,
+                        columns,
+                    } = constraint
+                    {
+                        let constraint_description = match constraint_name {
+                            Some(n) => format!("'{n}'"),
+                            None => format!("UNIQUE({})", columns.join(", ")),
+                        };
+                        findings.push(self.make_finding(
+                            format!(
+                                "Dropping column '{col}' from table '{table}' silently \
                              removes unique constraint {constraint}. Verify that \
                              the uniqueness guarantee is no longer needed.",
-                            col = name,
-                            table = at.name.display_name(),
-                            constraint = constraint_description,
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
+                                col = name,
+                                table = at.name.display_name(),
+                                constraint = constraint_description,
+                            ),
+                            ctx.file,
+                            &stmt.span,
+                        ));
+                    }
                 }
-            }
 
-            // Check unique indexes that include this column.
-            // Skip PK indexes (named *_pkey) since PGM014 handles those.
-            for idx in table.indexes_involving_column(name) {
-                if idx.unique && !idx.name.ends_with("_pkey") {
-                    findings.push(self.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' silently \
+                // Check unique indexes that include this column.
+                // Skip PK indexes (named *_pkey) since PGM014 handles those.
+                for idx in table.indexes_involving_column(name) {
+                    if idx.unique && !idx.name.ends_with("_pkey") {
+                        findings.push(self.make_finding(
+                            format!(
+                                "Dropping column '{col}' from table '{table}' silently \
                              removes unique constraint '{constraint}'. Verify that \
                              the uniqueness guarantee is no longer needed.",
-                            col = name,
-                            table = at.name.display_name(),
-                            constraint = idx.name,
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
+                                col = name,
+                                table = at.name.display_name(),
+                                constraint = idx.name,
+                            ),
+                            ctx.file,
+                            &stmt.span,
+                        ));
+                    }
                 }
-            }
 
-            findings
-        })
+                findings
+            },
+        )
     }
 }
 
@@ -245,6 +250,34 @@ mod tests {
         let findings = Pgm013.check(&stmts, &ctx);
         // PK constraints are ConstraintState::PrimaryKey, not Unique, so PGM013 ignores them.
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_fires_even_when_table_in_created_set() {
+        let before = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("id", "integer", false)
+                    .column("email", "text", false)
+                    .pk(&["id"])
+                    .unique("uq_users_email", &["email"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let mut created = HashSet::new();
+        created.insert("users".to_string()); // table was created in an earlier changed file
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("users"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "email".to_string(),
+            }],
+        }))];
+
+        let findings = Pgm013.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "PGM013");
     }
 
     #[test]
