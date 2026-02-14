@@ -925,3 +925,135 @@ fn test_multiple_format_outputs() {
         "SonarQube JSON file should exist"
     );
 }
+
+// ===========================================================================
+// Changed-file path matching tests (exercise suffix matching in main.rs)
+// ===========================================================================
+
+#[test]
+fn test_changed_files_relative_path_suffix_matching() {
+    // Exercise the suffix-matching fallback in changed-file detection (main.rs lines 155-159).
+    //
+    // The config points to an absolute path for the migrations directory, so the
+    // migration unit's source_file is absolute. We pass a RELATIVE path via
+    // --changed-files that does NOT exist on disk (so canonicalize fails) but IS
+    // a component-wise suffix of the absolute source_file path.
+    //
+    // This kills mutants:
+    //   - `||` -> `&&` on the second disjunction
+    //   - `>` -> `==` or `<` on cf.components().count() > 1
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+
+    // Use a relative path that is a suffix of the absolute source_file path.
+    // "repos/all-rules/migrations/V002__violations.sql" does NOT exist on disk
+    // (no "repos/" directory in the repo root), so canonicalize will fail.
+    // The path has 4 components (> 1), enabling the suffix match.
+    let relative_changed = "repos/all-rules/migrations/V002__violations.sql";
+
+    // Verify our assumption: the relative path does not exist on disk
+    assert!(
+        !std::path::Path::new(relative_changed).exists(),
+        "Relative path should NOT exist on disk for this test to be valid"
+    );
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        relative_changed,
+        "--format",
+        "text",
+    ]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // The suffix match should find V002__violations.sql, which contains PGM001
+    // (CREATE INDEX without CONCURRENTLY on existing table).
+    assert!(
+        stdout.contains("PGM001"),
+        "Suffix-matched file should produce PGM001 finding. stdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Should exit 1 when suffix-matched file has findings above threshold. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_changed_files_bare_filename_does_not_match() {
+    // Verify that a bare filename (single path component) does NOT trigger
+    // the suffix matching fallback. The guard `cf.components().count() > 1`
+    // on line 159 of main.rs should prevent bare filenames from matching
+    // across directories.
+    //
+    // This kills the `> 1` -> `>= 1` mutant
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+
+    // Pass ONLY a bare filename with no directory components.
+    // "V002__violations.sql" has 1 component, so components().count() > 1 is false,
+    // and the suffix match should NOT fire even though the absolute source_file
+    // ends with this filename.
+    let bare_filename = "V002__violations.sql";
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        bare_filename,
+        "--format",
+        "text",
+    ]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // The bare filename should NOT match, so no findings should be produced.
+    // V002 contains PGM001 -- if it matched, we would see it.
+    assert!(
+        !stdout.contains("PGM001"),
+        "Bare filename should NOT match via suffix. Expected no PGM001 finding.\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr
+    );
+
+    // With no matched files, we get 0 findings -> exit 0
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Should exit 0 when bare filename does not match any migration unit. stderr: {}",
+        stderr
+    );
+
+    // Verify that the summary confirms 0 findings
+    assert!(
+        stderr.contains("0 finding(s)"),
+        "Should report 0 findings when no files matched. stderr: {}",
+        stderr
+    );
+}

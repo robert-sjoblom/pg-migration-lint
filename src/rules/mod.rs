@@ -323,6 +323,61 @@ mod tests {
     }
 
     #[test]
+    fn test_all_rules_have_valid_description() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        for rule in registry.iter() {
+            let id = rule.id();
+            let desc = rule.description();
+            assert!(desc.len() > 10, "{id} description too short: {desc:?}");
+        }
+    }
+
+    #[test]
+    fn test_all_rules_have_valid_explain() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        for rule in registry.iter() {
+            let id = rule.id();
+            let explain = rule.explain();
+            assert!(
+                explain.len() > 20,
+                "{id} explain text too short: {explain:?}"
+            );
+            assert!(
+                explain.contains(id),
+                "{id} explain text should reference its own rule ID"
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_rules_have_valid_default_severity() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        for rule in registry.iter() {
+            let id = rule.id();
+            let severity = rule.default_severity();
+            // Severity must not be the Default (Info) for all rules — at least some should be higher
+            // But individually, just ensure it's a valid variant by matching
+            assert!(
+                matches!(
+                    severity,
+                    Severity::Blocker
+                        | Severity::Critical
+                        | Severity::Major
+                        | Severity::Minor
+                        | Severity::Info
+                ),
+                "{id} has unexpected severity"
+            );
+        }
+    }
+
+    #[test]
     fn test_severity_parse() {
         assert_eq!(Severity::parse("blocker"), Some(Severity::Blocker));
         assert_eq!(Severity::parse("critical"), Some(Severity::Critical));

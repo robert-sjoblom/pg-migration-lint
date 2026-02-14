@@ -509,4 +509,288 @@ mod tests {
         let findings = Pgm009.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
+
+    // --- Mutation-killing tests for is_safe_cast helper branches ---
+
+    // Mutant #1: line 55 replace && with || in numeric type check.
+    // If `||` were used, numeric->text would enter the numeric widening branch
+    // and return Safe (since numeric_constrained_to_bare is Safe).
+    // But numeric->text should be Unsafe.
+    #[test]
+    fn test_numeric_to_text_unsafe() {
+        // old is numeric, new is NOT numeric — must be Unsafe.
+        // With && -> ||, would incorrectly enter numeric branch.
+        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
+        let new = TypeName::simple("text");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_text_to_numeric_unsafe() {
+        // old is NOT numeric, new IS numeric — must be Unsafe.
+        // With && -> ||, would incorrectly enter numeric branch.
+        let old = TypeName::simple("text");
+        let new = TypeName::with_modifiers("numeric", vec![10, 2]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    // Mutants #2, #3, #4: line 60 bit == checks and && vs ||.
+    // Need a test proving bit(N)->bit(M) widening IS safe.
+    // With == -> != or && -> ||, these would break.
+    #[test]
+    fn test_bit_widening_safe() {
+        // bit(8) -> bit(16) should be Safe (widening).
+        // Killed by: == -> != on either operand (would skip the branch),
+        // and && -> || (would enter branch when only one side is "bit").
+        let old = TypeName::with_modifiers("bit", vec![8]);
+        let new = TypeName::with_modifiers("bit", vec![16]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_bit_narrowing_unsafe() {
+        // bit(16) -> bit(8) should be Unsafe (narrowing).
+        let old = TypeName::with_modifiers("bit", vec![16]);
+        let new = TypeName::with_modifiers("bit", vec![8]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_bit_to_varbit_unsafe() {
+        // bit -> varbit is NOT in the allowlist, should be Unsafe.
+        // With && -> || on line 60, "bit" on old_name alone would enter
+        // the bit branch and return Safe (since widening check with no
+        // modifiers returns Safe). This test ensures it stays Unsafe.
+        let old = TypeName::with_modifiers("bit", vec![8]);
+        let new = TypeName::with_modifiers("varbit", vec![16]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_varbit_to_bit_unsafe() {
+        // varbit -> bit is NOT in the allowlist, should be Unsafe.
+        // With && -> || on line 60, "bit" on new_name alone would enter
+        // the bit branch.
+        let old = TypeName::with_modifiers("varbit", vec![16]);
+        let new = TypeName::with_modifiers("bit", vec![8]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    // Mutants #5, #7: line 65 && -> || in varbit check, and line 89 is_varbit_type -> false.
+    #[test]
+    fn test_varbit_widening_safe() {
+        // varbit(8) -> varbit(16) should be Safe.
+        // Killed by is_varbit_type returning false (would fall through to Unsafe)
+        // and && -> || (would enter branch when only one side is varbit).
+        let old = TypeName::with_modifiers("varbit", vec![8]);
+        let new = TypeName::with_modifiers("varbit", vec![16]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_bit_varying_widening_safe() {
+        // "bit varying" is the alternate name for varbit; tests is_varbit_type.
+        let old = TypeName::with_modifiers("bit varying", vec![8]);
+        let new = TypeName::with_modifiers("bit varying", vec![16]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_varbit_narrowing_unsafe() {
+        let old = TypeName::with_modifiers("varbit", vec![16]);
+        let new = TypeName::with_modifiers("varbit", vec![8]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_varbit_to_text_unsafe() {
+        // old is varbit, new is NOT varbit — must be Unsafe.
+        // With && -> ||, would incorrectly enter varbit branch.
+        let old = TypeName::with_modifiers("varbit", vec![8]);
+        let new = TypeName::simple("text");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_text_to_varbit_unsafe() {
+        // old is NOT varbit, new IS varbit — must be Unsafe.
+        // With && -> ||, would incorrectly enter varbit branch.
+        let old = TypeName::simple("text");
+        let new = TypeName::with_modifiers("varbit", vec![16]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    // Mutants #6, #8, #9: line 70 && -> || in timestamp check,
+    // line 94 is_timestamp_type -> true, line 99 is_timestamptz_type -> true.
+    #[test]
+    fn test_timestamptz_to_timestamp_unsafe() {
+        // Reverse direction: timestamptz -> timestamp is NOT safe.
+        // With && -> ||, one side being timestamptz would incorrectly return Info.
+        // Also kills is_timestamptz_type -> true on the old side (old is timestamptz,
+        // is_timestamp_type(old) is false, but if is_timestamp_type always returned true
+        // this would incorrectly match).
+        let old = TypeName::simple("timestamptz");
+        let new = TypeName::simple("timestamp");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_timestamp_to_text_unsafe() {
+        // old is timestamp but new is NOT timestamptz.
+        // With && -> ||, is_timestamp_type(old) alone would match.
+        // Also kills is_timestamptz_type -> true (would incorrectly match "text").
+        let old = TypeName::simple("timestamp");
+        let new = TypeName::simple("text");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_text_to_timestamptz_unsafe() {
+        // old is NOT timestamp, new IS timestamptz.
+        // With && -> ||, is_timestamptz_type(new) alone would match -> Info.
+        // Also kills is_timestamp_type -> true (would incorrectly match "text").
+        let old = TypeName::simple("text");
+        let new = TypeName::simple("timestamptz");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_timestamp_without_tz_to_timestamptz_info() {
+        // Tests the long-form name for timestamp.
+        // Kills is_timestamp_type -> true if falsely matching non-timestamp types.
+        let old = TypeName::simple("timestamp without time zone");
+        let new = TypeName::simple("timestamp with time zone");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Info);
+    }
+
+    #[test]
+    fn test_integer_is_not_timestamp_type() {
+        // integer -> timestamptz should be Unsafe, not Info.
+        // Kills is_timestamp_type -> true (integer would match as timestamp).
+        let old = TypeName::simple("integer");
+        let new = TypeName::simple("timestamptz");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    #[test]
+    fn test_timestamp_to_integer_not_timestamptz() {
+        // timestamp -> integer should be Unsafe.
+        // Kills is_timestamptz_type -> true (integer would match as timestamptz).
+        let old = TypeName::simple("timestamp");
+        let new = TypeName::simple("integer");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    // --- Mutation-killing tests for normalize_numeric_modifiers ---
+
+    // Mutants #10, #11: line 127 delete - in (-1, -1) sentinel.
+    // With the mutation, empty modifiers return (1, 1) instead of (-1, -1).
+    // This sentinel is used in check_numeric_widening when both sides have
+    // modifiers but the input is unexpected (e.g., 3+ modifiers).
+    #[test]
+    fn test_normalize_numeric_modifiers_empty() {
+        // The _ branch should return (-1, -1) for empty modifiers.
+        // If the `-` sign is deleted, it returns (1, 1) instead.
+        assert_eq!(normalize_numeric_modifiers(&[]), (-1, -1));
+    }
+
+    #[test]
+    fn test_normalize_numeric_modifiers_single() {
+        assert_eq!(normalize_numeric_modifiers(&[10]), (10, 0));
+    }
+
+    #[test]
+    fn test_normalize_numeric_modifiers_double() {
+        assert_eq!(normalize_numeric_modifiers(&[10, 2]), (10, 2));
+    }
+
+    #[test]
+    fn test_normalize_numeric_modifiers_triple_falls_to_sentinel() {
+        // Three modifiers should hit the _ arm and return (-1, -1).
+        assert_eq!(normalize_numeric_modifiers(&[1, 2, 3]), (-1, -1));
+    }
+
+    // This exercises the sentinel path through is_safe_cast: if the sentinel
+    // becomes (1, 1), then numeric with 3 mods -> numeric(1, 1) would be Safe
+    // instead of Unsafe, because (1, 1) == (1, 1).
+    #[test]
+    fn test_numeric_weird_modifiers_to_numeric_1_1_unsafe() {
+        // numeric with 3 modifiers (normalizes to sentinel -1, -1)
+        // -> numeric(1, 1). Should be Unsafe because sentinels don't match.
+        // If sentinel were (1, 1) instead of (-1, -1), this would be Safe.
+        let old = TypeName {
+            name: "numeric".to_string(),
+            modifiers: vec![1, 2, 3],
+        };
+        let new = TypeName::with_modifiers("numeric", vec![1, 1]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
+
+    // --- Direct tests for type-classification helpers ---
+
+    #[test]
+    fn test_is_varbit_type_positive() {
+        assert!(is_varbit_type("varbit"));
+        assert!(is_varbit_type("bit varying"));
+    }
+
+    #[test]
+    fn test_is_varbit_type_negative() {
+        assert!(!is_varbit_type("bit"));
+        assert!(!is_varbit_type("text"));
+        assert!(!is_varbit_type("varchar"));
+    }
+
+    #[test]
+    fn test_is_timestamp_type_positive() {
+        assert!(is_timestamp_type("timestamp"));
+        assert!(is_timestamp_type("timestamp without time zone"));
+    }
+
+    #[test]
+    fn test_is_timestamp_type_negative() {
+        assert!(!is_timestamp_type("timestamptz"));
+        assert!(!is_timestamp_type("timestamp with time zone"));
+        assert!(!is_timestamp_type("integer"));
+        assert!(!is_timestamp_type("text"));
+    }
+
+    #[test]
+    fn test_is_timestamptz_type_positive() {
+        assert!(is_timestamptz_type("timestamptz"));
+        assert!(is_timestamptz_type("timestamp with time zone"));
+    }
+
+    #[test]
+    fn test_is_timestamptz_type_negative() {
+        assert!(!is_timestamptz_type("timestamp"));
+        assert!(!is_timestamptz_type("timestamp without time zone"));
+        assert!(!is_timestamptz_type("integer"));
+        assert!(!is_timestamptz_type("text"));
+    }
+
+    // Test that decimal (alias for numeric) also works through is_safe_cast.
+    #[test]
+    fn test_decimal_widening_safe() {
+        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
+        let new = TypeName::with_modifiers("decimal", vec![14, 2]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_decimal_to_numeric_widening_safe() {
+        // Cross-alias: decimal -> numeric widening
+        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
+        let new = TypeName::with_modifiers("numeric", vec![14, 2]);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    }
+
+    #[test]
+    fn test_decimal_to_text_unsafe() {
+        // decimal is numeric type but text is not — must be Unsafe.
+        // With && -> || on line 55, one side matching would incorrectly enter numeric branch.
+        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
+        let new = TypeName::simple("text");
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    }
 }
