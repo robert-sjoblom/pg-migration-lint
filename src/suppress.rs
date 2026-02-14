@@ -367,4 +367,131 @@ ALTER TABLE foo ADD COLUMN baz int;
             "Multi-line XML comment should NOT match"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Tests targeting surviving mutants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rule_ids_returns_file_level_rules() {
+        // Kills mutants on rule_ids(): replace return with HashSet::new(),
+        // HashSet::from_iter([""]), HashSet::from_iter(["xyzzy"])
+        let source = "-- pgm-lint:suppress-file PGM001,PGM003\nCREATE TABLE foo (id int);";
+        let suppressions = parse_suppressions(source);
+        let ids = suppressions.rule_ids();
+
+        assert_eq!(ids.len(), 2, "should contain exactly 2 rule IDs");
+        assert!(ids.contains("PGM001"), "should contain PGM001");
+        assert!(ids.contains("PGM003"), "should contain PGM003");
+        assert!(!ids.contains(""), "should not contain empty string");
+        assert!(!ids.contains("xyzzy"), "should not contain xyzzy");
+    }
+
+    #[test]
+    fn test_rule_ids_returns_line_level_rules() {
+        // Kills mutants on rule_ids(): ensures line-level rules are included
+        // in the returned set (not just file-level ones).
+        let source = "-- pgm-lint:suppress PGM002\nCREATE INDEX idx ON foo(bar);";
+        let suppressions = parse_suppressions(source);
+        let ids = suppressions.rule_ids();
+
+        assert_eq!(ids.len(), 1, "should contain exactly 1 rule ID");
+        assert!(ids.contains("PGM002"), "should contain PGM002");
+    }
+
+    #[test]
+    fn test_rule_ids_combines_file_and_line_level() {
+        // Kills mutants on rule_ids(): ensures both file-level and line-level
+        // sources are merged into the result.
+        let source = "-- pgm-lint:suppress-file PGM001\n-- pgm-lint:suppress PGM002\nCREATE INDEX idx ON foo(bar);";
+        let suppressions = parse_suppressions(source);
+        let ids = suppressions.rule_ids();
+
+        assert_eq!(ids.len(), 2, "should contain 2 distinct rule IDs");
+        assert!(ids.contains("PGM001"), "should contain file-level PGM001");
+        assert!(ids.contains("PGM002"), "should contain line-level PGM002");
+    }
+
+    #[test]
+    fn test_is_comment_line_requires_both_start_and_end_for_xml() {
+        // Kills mutant: replace && with || in is_comment_line (line 106).
+        //
+        // A line starting with "<!--" but NOT ending with "-->" should NOT
+        // be considered a comment line. With the correct &&, such a line is
+        // not a comment and becomes the target of a preceding suppress
+        // directive. With ||, it would be wrongly treated as a comment and
+        // skipped, leaving the suppress directive with no target.
+        let source = "-- pgm-lint:suppress PGM001\n<!-- unclosed xml tag";
+        let suppressions = parse_suppressions(source);
+
+        assert!(
+            suppressions.is_suppressed("PGM001", 2),
+            "Line starting with <!-- but not ending with --> is NOT a comment; \
+             it should be the target of the suppress directive"
+        );
+    }
+
+    #[test]
+    fn test_is_comment_line_xml_open_only_followed_by_real_statement() {
+        // Kills mutant: replace && with || in is_comment_line (line 106).
+        //
+        // With ||, a line ending with "-->" (but not starting with "<!--")
+        // would also be wrongly treated as a comment. Verify it is not.
+        let source = "-- pgm-lint:suppress PGM001\nsome content -->";
+        let suppressions = parse_suppressions(source);
+        assert!(
+            suppressions.is_suppressed("PGM001", 2),
+            "Line ending with --> but not starting with <!-- is NOT a comment; \
+             it should be the target of the suppress directive"
+        );
+    }
+
+    #[test]
+    fn test_is_comment_line_and_vs_or_with_intervening_unclosed_xml() {
+        // Kills mutant: replace && with || in is_comment_line (line 106).
+        //
+        // Suppress directive followed by an unclosed XML tag, then the real
+        // statement. With &&, the unclosed tag is NOT a comment, so the
+        // directive targets it (line 2). With ||, the unclosed tag IS
+        // wrongly treated as a comment and the directive would skip to
+        // line 3 instead.
+        let source = "-- pgm-lint:suppress PGM001\n<!-- not closed\nCREATE TABLE foo (id int);";
+        let suppressions = parse_suppressions(source);
+
+        assert!(
+            suppressions.is_suppressed("PGM001", 2),
+            "Unclosed XML tag (line 2) is not a comment; directive should target it"
+        );
+        assert!(
+            !suppressions.is_suppressed("PGM001", 3),
+            "Directive should NOT skip past unclosed XML to target line 3"
+        );
+    }
+
+    #[test]
+    fn test_skip_arithmetic_equivalent_mutant_coverage() {
+        // Targets mutant: replace + with * in skip(idx + 1) (line 136).
+        //
+        // Analysis: skip(idx + 1) vs skip(idx * 1) = skip(idx). The
+        // directive line at index idx is always a comment (detected by
+        // is_comment_line), so re-examining it via skip(idx) has no
+        // observable effect -- the comment is simply skipped again.
+        // This mutation is equivalent and cannot be killed by any test.
+        // This test documents the equivalence and verifies the basic
+        // arithmetic is correct for various directive positions.
+
+        // Directive on first line (idx=0):
+        // skip(0+1)=skip(1) vs skip(0*1)=skip(0): both find line 2
+        let s1 = parse_suppressions("-- pgm-lint:suppress PGM001\nCREATE TABLE t(id int);");
+        assert!(s1.is_suppressed("PGM001", 2));
+        assert!(!s1.is_suppressed("PGM001", 1));
+
+        // Directive on third line (idx=2):
+        // skip(2+1)=skip(3) vs skip(2*1)=skip(2): both find line 4
+        let s2 = parse_suppressions(
+            "CREATE TABLE t(id int);\n\n-- pgm-lint:suppress PGM001\nCREATE INDEX i ON t(id);",
+        );
+        assert!(s2.is_suppressed("PGM001", 4));
+        assert!(!s2.is_suppressed("PGM001", 3));
+    }
 }
