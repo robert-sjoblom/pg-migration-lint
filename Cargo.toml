@@ -1,6 +1,6 @@
 [package]
 name = "pg-migration-lint"
-version = "1.8.1"
+version = "1.9.0"
 edition = "2024"
 authors = ["pg-migration-lint contributors"]
 description = "Static analyzer for PostgreSQL migration files"
