@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.8.1...v1.9.0) (2026-02-14)
+
+
+### Features
+
+* **rules:** add PGM021 (ADD UNIQUE without USING INDEX) and PGM022 (DROP TABLE) ([45a7c7e](https://github.com/robert-sjoblom/pg-migration-lint/commit/45a7c7e37bd449e8975da3c4d880a255511fcd10))
+
 ## [1.8.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.8.0...v1.8.1) (2026-02-13)
 
 
