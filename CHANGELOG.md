@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.0...v1.9.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* **rules:** restore PGM013/014/015 scope to fire on any pre-existing table ([a080637](https://github.com/robert-sjoblom/pg-migration-lint/commit/a080637a26124dde1857e7e9d25ca3c7537c5d9f))
+
 ## [1.9.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.8.1...v1.9.0) (2026-02-14)
 
 
