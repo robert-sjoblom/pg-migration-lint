@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags dropping a column that participates in a foreign key constraint.
 pub struct Pgm015;
@@ -49,54 +49,62 @@ impl Rule for Pgm015 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::AnyPreExisting,
+            |at, action, stmt, ctx| {
+                let AlterTableAction::DropColumn { name } = action else {
+                    return vec![];
+                };
 
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
+                let table_key = at.name.catalog_key();
+                let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                    return vec![];
+                };
 
-            let mut findings = Vec::new();
+                let mut findings = Vec::new();
 
-            // Check ForeignKey constraints that include this column.
-            for constraint in table.constraints_involving_column(name) {
-                if let ConstraintState::ForeignKey {
-                    name: constraint_name,
-                    columns,
-                    ref_table_display,
-                    ..
-                } = constraint
-                {
-                    let fk_description = match constraint_name {
-                        Some(n) => {
-                            format!("'{n}' referencing '{ref_tbl}'", ref_tbl = ref_table_display,)
-                        }
-                        None => format!(
-                            "({cols}) \u{2192} {ref_tbl}",
-                            cols = columns.join(", "),
-                            ref_tbl = ref_table_display,
-                        ),
-                    };
-                    findings.push(self.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' silently \
+                // Check ForeignKey constraints that include this column.
+                for constraint in table.constraints_involving_column(name) {
+                    if let ConstraintState::ForeignKey {
+                        name: constraint_name,
+                        columns,
+                        ref_table_display,
+                        ..
+                    } = constraint
+                    {
+                        let fk_description = match constraint_name {
+                            Some(n) => {
+                                format!(
+                                    "'{n}' referencing '{ref_tbl}'",
+                                    ref_tbl = ref_table_display,
+                                )
+                            }
+                            None => format!(
+                                "({cols}) \u{2192} {ref_tbl}",
+                                cols = columns.join(", "),
+                                ref_tbl = ref_table_display,
+                            ),
+                        };
+                        findings.push(self.make_finding(
+                            format!(
+                                "Dropping column '{col}' from table '{table}' silently \
                              removes foreign key {constraint}. Verify that the \
                              referential integrity guarantee is no longer needed.",
-                            col = name,
-                            table = at.name.display_name(),
-                            constraint = fk_description,
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
+                                col = name,
+                                table = at.name.display_name(),
+                                constraint = fk_description,
+                            ),
+                            ctx.file,
+                            &stmt.span,
+                        ));
+                    }
                 }
-            }
 
-            findings
-        })
+                findings
+            },
+        )
     }
 }
 
@@ -134,6 +142,34 @@ mod tests {
 
         let findings = Pgm015.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_fires_even_when_table_in_created_set() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"])
+                    .fk("fk_orders_customer", &["customer_id"], "customers", &["id"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/025.sql");
+        let mut created = HashSet::new();
+        created.insert("orders".to_string()); // table was created in an earlier changed file
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "customer_id".to_string(),
+            }],
+        }))];
+
+        let findings = Pgm015.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "PGM015");
     }
 
     #[test]

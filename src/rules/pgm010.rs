@@ -5,7 +5,7 @@
 //! has any rows.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags adding a NOT NULL column without a DEFAULT to an existing table.
 pub struct Pgm010;
@@ -54,26 +54,31 @@ impl Rule for Pgm010 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            if let AlterTableAction::AddColumn(col) = action
-                && !col.nullable
-                && col.default_expr.is_none()
-            {
-                vec![self.make_finding(
-                    format!(
-                        "Adding NOT NULL column '{col}' to existing table '{table}' \
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::ExcludeCreatedInChange,
+            |at, action, stmt, ctx| {
+                if let AlterTableAction::AddColumn(col) = action
+                    && !col.nullable
+                    && col.default_expr.is_none()
+                {
+                    vec![self.make_finding(
+                        format!(
+                            "Adding NOT NULL column '{col}' to existing table '{table}' \
                          without a DEFAULT will fail if the table has any rows. \
                          Add a DEFAULT value, or add the column as nullable and backfill.",
-                        col = col.name,
-                        table = at.name.display_name(),
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                )]
-            } else {
-                vec![]
-            }
-        })
+                            col = col.name,
+                            table = at.name.display_name(),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    )]
+                } else {
+                    vec![]
+                }
+            },
+        )
     }
 }
 

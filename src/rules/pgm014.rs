@@ -8,7 +8,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags dropping a column that participates in the table's primary key.
 pub struct Pgm014;
@@ -50,38 +50,43 @@ impl Rule for Pgm014 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::AnyPreExisting,
+            |at, action, stmt, ctx| {
+                let AlterTableAction::DropColumn { name } = action else {
+                    return vec![];
+                };
 
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
+                let table_key = at.name.catalog_key();
+                let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                    return vec![];
+                };
 
-            let mut findings = Vec::new();
+                let mut findings = Vec::new();
 
-            // Check PrimaryKey constraints that include this column.
-            for constraint in table.constraints_involving_column(name) {
-                if let ConstraintState::PrimaryKey { .. } = constraint {
-                    findings.push(self.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' \
+                // Check PrimaryKey constraints that include this column.
+                for constraint in table.constraints_involving_column(name) {
+                    if let ConstraintState::PrimaryKey { .. } = constraint {
+                        findings.push(self.make_finding(
+                            format!(
+                                "Dropping column '{col}' from table '{table}' \
                              silently removes the primary key. The table will \
                              have no row identity. Add a new primary key or \
                              reconsider the column drop.",
-                            col = name,
-                            table = at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
+                                col = name,
+                                table = at.name.display_name(),
+                            ),
+                            ctx.file,
+                            &stmt.span,
+                        ));
+                    }
                 }
-            }
 
-            findings
-        })
+                findings
+            },
+        )
     }
 }
 
@@ -118,6 +123,33 @@ mod tests {
 
         let findings = Pgm014.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_fires_even_when_table_in_created_set() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", true)
+                    .pk(&["id"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/025.sql");
+        let mut created = HashSet::new();
+        created.insert("orders".to_string()); // table was created in an earlier changed file
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "id".to_string(),
+            }],
+        }))];
+
+        let findings = Pgm014.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "PGM014");
     }
 
     #[test]

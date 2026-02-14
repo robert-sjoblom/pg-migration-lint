@@ -6,7 +6,7 @@
 //! casts suppresses the finding for known safe conversions.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags column type changes on existing tables.
 pub struct Pgm009;
@@ -201,62 +201,67 @@ impl Rule for Pgm009 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            let AlterTableAction::AlterColumnType {
-                column_name,
-                new_type,
-                old_type,
-            } = action
-            else {
-                return vec![];
-            };
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::ExcludeCreatedInChange,
+            |at, action, stmt, ctx| {
+                let AlterTableAction::AlterColumnType {
+                    column_name,
+                    new_type,
+                    old_type,
+                } = action
+                else {
+                    return vec![];
+                };
 
-            let table_key = at.name.catalog_key();
+                let table_key = at.name.catalog_key();
 
-            // Resolve old_type: prefer the one from the IR, fall back to catalog.
-            let resolved_old_type = old_type.as_ref().or_else(|| {
-                ctx.catalog_before
-                    .get_table(table_key)
-                    .and_then(|t| t.get_column(column_name))
-                    .map(|c| &c.type_name)
-            });
+                // Resolve old_type: prefer the one from the IR, fall back to catalog.
+                let resolved_old_type = old_type.as_ref().or_else(|| {
+                    ctx.catalog_before
+                        .get_table(table_key)
+                        .and_then(|t| t.get_column(column_name))
+                        .map(|c| &c.type_name)
+                });
 
-            let safety = match resolved_old_type {
-                Some(old) => is_safe_cast(old, new_type),
-                None => {
-                    // Cannot determine old type — assume unsafe.
-                    CastSafety::Unsafe
-                }
-            };
+                let safety = match resolved_old_type {
+                    Some(old) => is_safe_cast(old, new_type),
+                    None => {
+                        // Cannot determine old type — assume unsafe.
+                        CastSafety::Unsafe
+                    }
+                };
 
-            let severity = match safety {
-                CastSafety::Safe => return vec![],
-                CastSafety::Info => Severity::Info,
-                CastSafety::Unsafe => self.default_severity(),
-            };
+                let severity = match safety {
+                    CastSafety::Safe => return vec![],
+                    CastSafety::Info => Severity::Info,
+                    CastSafety::Unsafe => self.default_severity(),
+                };
 
-            let old_display = resolved_old_type
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
+                let old_display = resolved_old_type
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
 
-            vec![Finding::new(
-                self.id(),
-                severity,
-                format!(
-                    "Changing column type on existing table '{table}' \
+                vec![Finding::new(
+                    self.id(),
+                    severity,
+                    format!(
+                        "Changing column type on existing table '{table}' \
                      ('{col}': {old} \u{2192} {new}) rewrites the entire table \
                      under an ACCESS EXCLUSIVE lock. For large tables, this causes \
                      extended downtime. Consider creating a new column, backfilling, \
                      and swapping instead.",
-                    table = at.name.display_name(),
-                    col = column_name,
-                    old = old_display,
-                    new = new_type,
-                ),
-                ctx.file,
-                &stmt.span,
-            )]
-        })
+                        table = at.name.display_name(),
+                        col = column_name,
+                        old = old_display,
+                        new = new_type,
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            },
+        )
     }
 }
 

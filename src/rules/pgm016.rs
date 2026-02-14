@@ -6,7 +6,7 @@
 //! with NOT VALID, validate it, then set NOT NULL.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags `SET NOT NULL` on an existing table column.
 pub struct Pgm016;
@@ -59,24 +59,29 @@ impl Rule for Pgm016 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            if let AlterTableAction::SetNotNull { column_name } = action {
-                vec![self.make_finding(
-                    format!(
-                        "SET NOT NULL on column '{col}' of existing table '{table}' \
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::ExcludeCreatedInChange,
+            |at, action, stmt, ctx| {
+                if let AlterTableAction::SetNotNull { column_name } = action {
+                    vec![self.make_finding(
+                        format!(
+                            "SET NOT NULL on column '{col}' of existing table '{table}' \
                          requires an ACCESS EXCLUSIVE lock and full table scan. \
                          Use a CHECK constraint with NOT VALID, validate it, \
                          then set NOT NULL.",
-                        col = column_name,
-                        table = at.name.display_name(),
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                )]
-            } else {
-                vec![]
-            }
-        })
+                            col = column_name,
+                            table = at.name.display_name(),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    )]
+                } else {
+                    vec![]
+                }
+            },
+        )
     }
 }
 

@@ -6,7 +6,7 @@
 //! add the constraint using that index.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags adding a UNIQUE constraint to an existing table without a
 /// pre-existing unique index on the constraint columns.
@@ -49,34 +49,40 @@ impl Rule for Pgm021 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            let AlterTableAction::AddConstraint(TableConstraint::Unique { columns, .. }) = action
-            else {
-                return vec![];
-            };
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::ExcludeCreatedInChange,
+            |at, action, stmt, ctx| {
+                let AlterTableAction::AddConstraint(TableConstraint::Unique { columns, .. }) =
+                    action
+                else {
+                    return vec![];
+                };
 
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
+                let table_key = at.name.catalog_key();
+                let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                    return vec![];
+                };
 
-            if table.has_unique_covering(columns) {
-                return vec![];
-            }
+                if table.has_unique_covering(columns) {
+                    return vec![];
+                }
 
-            vec![self.make_finding(
-                format!(
-                    "ADD UNIQUE on existing table '{table}' without a \
+                vec![self.make_finding(
+                    format!(
+                        "ADD UNIQUE on existing table '{table}' without a \
                      pre-existing unique index on column(s) [{columns}]. \
                      Create a unique index CONCURRENTLY first, then use \
                      ADD CONSTRAINT ... UNIQUE USING INDEX.",
-                    table = at.name.display_name(),
-                    columns = columns.join(", "),
-                ),
-                ctx.file,
-                &stmt.span,
-            )]
-        })
+                        table = at.name.display_name(),
+                        columns = columns.join(", "),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            },
+        )
     }
 }
 

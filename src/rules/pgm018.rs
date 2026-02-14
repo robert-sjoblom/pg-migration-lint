@@ -6,7 +6,7 @@
 //! which blocks all concurrent reads and writes.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 /// Rule that flags adding a CHECK constraint without NOT VALID on an existing table.
 pub struct Pgm018;
@@ -49,27 +49,32 @@ impl Rule for Pgm018 {
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(statements, ctx, |at, action, stmt, ctx| {
-            if let AlterTableAction::AddConstraint(TableConstraint::Check {
-                not_valid: false,
-                ..
-            }) = action
-            {
-                vec![self.make_finding(
-                    format!(
-                        "Adding CHECK constraint on existing table '{table}' without \
+        alter_table_check::check_alter_actions(
+            statements,
+            ctx,
+            TableScope::ExcludeCreatedInChange,
+            |at, action, stmt, ctx| {
+                if let AlterTableAction::AddConstraint(TableConstraint::Check {
+                    not_valid: false,
+                    ..
+                }) = action
+                {
+                    vec![self.make_finding(
+                        format!(
+                            "Adding CHECK constraint on existing table '{table}' without \
                          NOT VALID will scan the entire table while holding an ACCESS \
                          EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then \
                          VALIDATE CONSTRAINT in a separate statement.",
-                        table = at.name.display_name(),
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                )]
-            } else {
-                vec![]
-            }
-        })
+                            table = at.name.display_name(),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    )]
+                } else {
+                    vec![]
+                }
+            },
+        )
     }
 }
 

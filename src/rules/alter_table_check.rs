@@ -1,10 +1,10 @@
 //! Shared helper for rules that inspect ALTER TABLE actions on existing tables.
 //!
-//! Used by PGM009-PGM018, which all follow the same pattern: iterate statements,
+//! Used by PGM009-PGM018 and PGM021, which all follow the same pattern: iterate statements,
 //! filter to `AlterTable` on pre-existing tables, then check each action.
 
 use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext};
+use crate::rules::{Finding, LintContext, TableScope};
 
 /// Iterate ALTER TABLE statements targeting pre-existing tables and call `check_action`
 /// for each action. Returns all findings collected from the callback.
@@ -19,6 +19,7 @@ use crate::rules::{Finding, LintContext};
 pub fn check_alter_actions<F>(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
+    scope: TableScope,
     mut check_action: F,
 ) -> Vec<Finding>
 where
@@ -28,7 +29,7 @@ where
     for stmt in statements {
         if let IrNode::AlterTable(ref at) = stmt.node {
             let table_key = at.name.catalog_key();
-            if !ctx.is_existing_table(table_key) {
+            if !ctx.table_matches_scope(table_key, scope) {
                 continue;
             }
             for action in &at.actions {
