@@ -783,6 +783,117 @@ fn test_enterprise_full_vs_incremental_counts() {
 }
 
 // ===========================================================================
+// Enterprise sliding-window test: lint each migration individually
+// ===========================================================================
+
+/// Lint each enterprise migration as the sole changed file, with all prior
+/// migrations replayed as catalog history. This simulates the real CI workflow
+/// where each PR introduces one new migration file.
+///
+/// A single snapshot captures the findings for every step, making it easy to
+/// review what each migration triggers and catch regressions.
+#[test]
+fn test_enterprise_sliding_window() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/enterprise/migrations");
+
+    let loader = SqlLoader::default();
+    let mut history = loader
+        .load(std::slice::from_ref(&base))
+        .expect("Failed to load enterprise fixture");
+
+    normalize::normalize_schemas(&mut history.units, "public");
+
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+
+    // Collect (filename, findings) for each step
+    let mut steps: Vec<(String, Vec<Finding>)> = Vec::new();
+    let mut catalog = Catalog::new();
+
+    for (i, unit) in history.units.iter().enumerate() {
+        let catalog_before = catalog.clone();
+        replay::apply(&mut catalog, unit);
+
+        // Track tables created in this single-file change
+        let mut tables_created_in_change: HashSet<String> = HashSet::new();
+        for stmt in &unit.statements {
+            if let IrNode::CreateTable(ct) = &stmt.node {
+                tables_created_in_change.insert(ct.name.catalog_key().to_string());
+            }
+        }
+
+        let ctx = LintContext {
+            catalog_before: &catalog_before,
+            catalog_after: &catalog,
+            tables_created_in_change: &tables_created_in_change,
+            run_in_transaction: unit.run_in_transaction,
+            is_down: unit.is_down,
+            file: &unit.source_file,
+        };
+
+        let mut unit_findings: Vec<Finding> = Vec::new();
+        for rule in registry.iter() {
+            unit_findings.extend(rule.check(&unit.statements, &ctx));
+        }
+
+        if unit.is_down {
+            cap_for_down_migration(&mut unit_findings);
+        }
+
+        let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+        let suppressions = parse_suppressions(&source);
+        unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+
+        let filename = unit
+            .source_file
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        // Sort findings deterministically within each step
+        unit_findings.sort_by(|a, b| {
+            a.rule_id
+                .cmp(&b.rule_id)
+                .then_with(|| a.start_line.cmp(&b.start_line))
+        });
+
+        steps.push((
+            format!("step_{:02}_{}", i + 1, filename.trim_end_matches(".sql")),
+            unit_findings,
+        ));
+    }
+
+    // Build a structured snapshot: map of step name -> list of (rule_id, message)
+    // Using a lightweight representation to keep the snapshot readable.
+    let snapshot: Vec<_> = steps
+        .iter()
+        .filter(|(_, findings)| !findings.is_empty())
+        .map(|(step_name, findings)| {
+            let entries: Vec<_> = findings
+                .iter()
+                .map(|f| {
+                    serde_json::json!({
+                        "rule": f.rule_id,
+                        "severity": format!("{:?}", f.severity),
+                        "line": f.start_line,
+                        "message": f.message,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "step": step_name,
+                "findings": entries,
+            })
+        })
+        .collect();
+
+    insta::assert_yaml_snapshot!(snapshot);
+}
+
+// ===========================================================================
 // Liquibase XML integration tests
 // ===========================================================================
 
