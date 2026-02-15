@@ -95,7 +95,9 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     let mut indexes_to_unregister: Vec<String> = Vec::new();
 
     {
-        let table = catalog.get_table_mut(&table_key).unwrap();
+        let Some(table) = catalog.get_table_mut(&table_key) else {
+            return;
+        };
 
         for action in &at.actions {
             match action {
