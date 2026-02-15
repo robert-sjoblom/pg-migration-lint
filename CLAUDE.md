@@ -171,11 +171,10 @@ CREATE INDEX idx_foo ON bar (col);
 
 ### Liquibase Support
 
-Three-tier strategy for Liquibase XML processing:
+Two-tier strategy for Liquibase XML processing (JRE required):
 
 1. **Preferred**: `liquibase-bridge.jar` - Embeds Liquibase, produces JSON with exact changeset-to-SQL-to-line mapping
 2. **Secondary**: `liquibase update-sql` - Less structured output, heuristic parsing
-3. **Fallback**: Lightweight XML parser for common change types (when Java unavailable)
 
 The bridge jar (`bridge/`) is a separate Java subproject (~100 LOC) built with Maven.
 
@@ -262,7 +261,7 @@ default_schema = "public"  # Schema for unqualified table names
 [liquibase]
 bridge_jar_path = "tools/liquibase-bridge.jar"
 binary_path = "/usr/local/bin/liquibase"
-strategy = "auto"  # tries bridge → update-sql → xml-fallback
+strategy = "auto"  # tries bridge → update-sql
 
 [output]
 formats = ["sarif", "sonarqube"]
@@ -283,7 +282,7 @@ This project follows a phased multi-agent architecture (see `implementation_plan
 
 **Phase 1 (Parallel Subagents)**:
 - **Parser Agent**: `src/parser/pg_query.rs`, `src/input/sql.rs` - pg_query → IR conversion
-- **Liquibase Agent**: `src/input/liquibase_*.rs`, `bridge/` - Three-tier Liquibase support
+- **Liquibase Agent**: `src/input/liquibase_*.rs`, `bridge/` - Two-tier Liquibase support (bridge jar + update-sql)
 - **Catalog Agent**: `src/catalog/replay.rs` - Single-pass replay with `apply()` function
 - **Rules Agent**: `src/rules/pgm001.rs` through `pgm011.rs` - Implement all 11 rules
 - **Output Agent**: `src/output/sarif.rs`, `sonarqube.rs`, `text.rs`, `src/suppress.rs`
@@ -361,7 +360,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `clean/` - All migrations correct, expect 0 findings
 - `all-rules/` - One violation per rule, expect 11 findings
 - `suppressed/` - All violations suppressed, expect 0 findings
-- `liquibase-xml/` - Tests Liquibase fallback parser
+- `liquibase-xml/` - Tests Liquibase bridge/update-sql parsing
 
 See `test_plan.md` sections 3-5 for comprehensive test case coverage per rule.
 

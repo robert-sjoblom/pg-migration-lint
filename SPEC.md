@@ -12,7 +12,7 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
 - Declarative rule DSL / user-authored rules (deferred)
 - Incremental/cached replay (deferred; brute-force on every run)
 - Single-file Liquibase changelog support (deferred; when all changesets live in one file, changed-file detection cannot distinguish new vs. existing changesets without git diffing, which is out of scope — the tool's contract is "CI tells us what changed")
-- Recursive `<includeAll>` in XML fallback parser (deferred; the bridge JAR and `liquibase update-sql` strategies handle this natively — use those for nested directory layouts)
+- Lightweight XML fallback parser (dropped; if you use Liquibase, a JRE is available — use the bridge jar or `update-sql`)
 - Built-in git integration (explicitly rejected; weakens focus)
 
 ---
@@ -29,7 +29,7 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
 
 - **Raw SQL changesets**: parsed directly
 
-- **XML changelogs**: three strategies, tried in order:
+- **XML changelogs**: two strategies, tried in order:
 
   1. **Preferred**: `liquibase-bridge.jar` — a minimal Java CLI (~100 LOC) that embeds Liquibase as a library. Takes a changelog path, programmatically resolves all includes and preconditions, and emits a JSON mapping:
      ```json
@@ -48,9 +48,7 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
 
   2. **Secondary**: invoke `liquibase update-sql` directly if the bridge jar is unavailable but the Liquibase binary exists. Less structured output (raw SQL without changeset-to-line mapping), parsed heuristically.
 
-  3. **Fallback**: lightweight XML parsing of common change types: `<createTable>`, `<addColumn>`, `<createIndex>`, `<addForeignKeyConstraint>`, `<dropTable>`, `<dropIndex>`, `<addPrimaryKey>`, `<addUniqueConstraint>`. Unknown/exotic change types are skipped; the catalog is marked as potentially incomplete for that changeset. Used when Java is unavailable.
-
-- Single XML files containing multiple `<changeSet>` elements are supported across all three strategies.
+- Single XML files containing multiple `<changeSet>` elements are supported across both strategies.
 
 ### 2.3 Migration ordering
 
@@ -538,8 +536,7 @@ binary_path = "/usr/local/bin/liquibase"
 # Liquibase properties file (for update-sql connection info, secondary strategy only)
 properties_file = "liquibase.properties"
 
-# Strategy order: "bridge" → "update-sql" → "xml-fallback"
-# Set to "xml-only" to skip Java entirely
+# Strategy order: "bridge" → "update-sql"
 strategy = "auto"
 
 [rules]
@@ -631,7 +628,6 @@ EXIT CODES:
 - **Raw SQL files**: exact line numbers from `pg_query` parse positions.
 - **Liquibase XML (bridge jar)**: exact line numbers. The bridge emits `xml_line` per changeset, and `pg_query` gives statement offsets within the SQL. Combined, this maps findings to precise XML source locations.
 - **Liquibase XML (update-sql)**: changeset-level granularity only. Heuristic mapping from generated SQL comments back to changeset IDs.
-- **Liquibase XML (fallback parser)**: changeset-level granularity. The finding points to the opening `<changeSet>` tag line.
 
 ---
 
@@ -656,8 +652,7 @@ pg-migration-lint/
 │   │   ├── mod.rs
 │   │   ├── sql.rs           # Raw SQL file loading
 │   │   ├── liquibase_bridge.rs  # Shell out to bridge jar, parse JSON
-│   │   ├── liquibase_updatesql.rs # update-sql invocation
-│   │   └── liquibase_xml.rs # Lightweight XML fallback parser
+│   │   └── liquibase_updatesql.rs # update-sql invocation
 │   ├── parser/
 │   │   ├── mod.rs
 │   │   ├── pg_query.rs      # pg_query bindings → IR
@@ -716,3 +711,4 @@ pg-migration-lint/
 | 1.3     | 2026-02-11 | Implemented PGM013, PGM014, PGM015. Fixed `remove_column` to clean up constraints. Added schema-aware catalog with configurable `default_schema` (default: `"public"`). Unqualified table names are normalized to `<schema>.<name>` for catalog lookups, so `orders` and `public.orders` resolve to the same table. Total: 19 rules. |
 | 1.4     | 2026-02-12 | Documented recursive `<includeAll>` as non-goal for XML fallback parser. Improved warning message to direct users toward bridge JAR or `liquibase update-sql` for nested directory layouts. |
 | 1.5     | 2026-02-12 | Added PGM016 (SET NOT NULL on existing column, CRITICAL), PGM017 (ADD FOREIGN KEY without NOT VALID, CRITICAL), PGM018 (ADD CHECK without NOT VALID, CRITICAL), PGM019 (RENAME TABLE with replacement detection, INFO), PGM020 (RENAME COLUMN, INFO), PGM108 (Don't use json, WARNING). Target PostgreSQL 14+. IR impacts: new `SetNotNull` action, `not_valid` field on FK/CHECK constraints, rename support via `RenameStmt` mapping. |
+| 1.6     | 2026-02-15 | Dropped lightweight XML fallback parser. Liquibase now requires a JRE — two-tier strategy: bridge jar → update-sql. Removed `liquibase_xml.rs` from project structure, removed `"xml-only"` config option. |
