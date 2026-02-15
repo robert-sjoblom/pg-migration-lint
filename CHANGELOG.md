@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.4](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.3...v1.9.4) (2026-02-15)
+
+
+### Bug Fixes
+
+* add -DskipTests to release bridge build ([ffb7b5a](https://github.com/robert-sjoblom/pg-migration-lint/commit/ffb7b5a244380a323a33c847ef639b66b7e9e5f6))
+
 ## [1.9.3](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.2...v1.9.3) (2026-02-15)
 
 
