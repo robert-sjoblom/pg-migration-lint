@@ -1,0 +1,28 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: 006-table-no-pk.xml
+  start_line: 2
+  end_line: 2
+- rule_id: PGM004
+  severity: Major
+  message: "Table 'subscription_invoices' has no primary key."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM005
+  severity: Info
+  message: "Table 'event_log' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'event_log' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1

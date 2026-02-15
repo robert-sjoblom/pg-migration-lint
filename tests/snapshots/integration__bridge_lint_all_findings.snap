@@ -1,0 +1,130 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: 005-add-fk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: 006-table-no-pk.xml
+  start_line: 2
+  end_line: 2
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'price_plan_products(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: 007-volatile-defaults.xml
+  start_line: 2
+  end_line: 2
+- rule_id: PGM003
+  severity: Major
+  message: "Foreign key on 'price_plan_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: 007-volatile-defaults.xml
+  start_line: 3
+  end_line: 3
+- rule_id: PGM004
+  severity: Major
+  message: "Table 'subscription_invoices' has no primary key."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM005
+  severity: Info
+  message: "Table 'event_log' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM007
+  severity: Minor
+  message: "Column 'created_at' on 'price_plans' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+  file: 007-volatile-defaults.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM007
+  severity: Minor
+  message: "Column 'created_at' on 'products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+  file: 007-volatile-defaults.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM007
+  severity: Minor
+  message: "Column 'created_at' on 'price_plan_products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+  file: 007-volatile-defaults.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM007
+  severity: Minor
+  message: "Column 'updated_at' on 'products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+  file: 007-volatile-defaults.xml
+  start_line: 2
+  end_line: 2
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 001-base-tables.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'accounts' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 001-base-tables.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 001-base-tables.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 002-orders.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'updated' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 002-orders.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'order_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 002-orders.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'subscription_items' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 002-orders.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'created' on 'event_log' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'processed_at' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: 011-dont-do-this-types.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM103
+  severity: Minor
+  message: "Column 'region_code' on 'accounts' uses 'char(3)'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead."
+  file: 011-dont-do-this-types.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM108
+  severity: Minor
+  message: "Column 'price_structure' on 'products' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order."
+  file: 001-base-tables.xml
+  start_line: 1
+  end_line: 1
