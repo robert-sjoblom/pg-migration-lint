@@ -1,0 +1,690 @@
+---
+source: tests/integration.rs
+expression: snapshot
+---
+- findings:
+    - line: 1
+      message: "Table 'billing_lock' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 1
+      message: "Column 'lock_granted' on 'billing_lock' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 8
+      message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_01_V001__create_base_tables
+- findings:
+    - line: 1
+      message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 15
+      message: "Foreign key on 'internal_orders(approved_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 29
+      message: "Foreign key on 'order_actions(performed_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'created' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 1
+      message: "Column 'updated' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 29
+      message: "Column 'created' on 'order_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_02_V002__create_orders
+- findings:
+    - line: 23
+      message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 23
+      message: "Foreign key on 'subscription_invoices(payer_subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 23
+      message: "Table 'subscription_invoices' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 1
+      message: "Column 'created' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 13
+      message: "Column 'created' on 'subscription_items' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_03_V003__create_subscriptions
+- findings:
+    - line: 1
+      message: "Column 'created' on 'usage_events' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_04_V004__create_usage_events
+- findings:
+    - line: 7
+      message: "Foreign key on 'users(support_user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 7
+      message: "Adding FOREIGN KEY constraint on existing table 'users' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+      rule: PGM017
+      severity: Critical
+  step: step_05_V005__add_support_user_fields
+- findings:
+    - line: 7
+      message: "Foreign key on 'orders(status_updated_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 7
+      message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+      rule: PGM017
+      severity: Critical
+    - line: 5
+      message: "Column 'status_updated_at' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_06_V006__add_order_status_columns
+- findings:
+    - line: 1
+      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
+      rule: PGM001
+      severity: Critical
+    - line: 5
+      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
+      rule: PGM001
+      severity: Critical
+    - line: 6
+      message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
+      rule: PGM001
+      severity: Critical
+  step: step_07_V007__create_index_no_concurrently
+- findings:
+    - line: 1
+      message: "Adding NOT NULL column 'item_type' to existing table 'subscription_items' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
+      rule: PGM010
+      severity: Critical
+  step: step_08_V008__add_not_null_column
+- findings:
+    - line: 1
+      message: "Column 'created' on 'products' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_09_V009__create_products_tables
+- findings:
+    - line: 14
+      message: "Foreign key on 'promotion_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'created' on 'promotions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_10_V010__create_promotion_tables
+- findings:
+    - line: 1
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+    - line: 4
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+  step: step_11_V011__create_index_concurrently
+- findings:
+    - line: 10
+      message: "Foreign key on 'price_plan_items(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 19
+      message: "Foreign key on 'subscription_price_plan(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 1
+      message: "Column 'created_at' on 'price_plans' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 10
+      message: "Column 'id' on 'price_plan_items' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 10
+      message: "Column 'created_at' on 'price_plan_items' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 19
+      message: "Column 'id' on 'subscription_price_plan' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 19
+      message: "Column 'created_at' on 'subscription_price_plan' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 1
+      message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 10
+      message: "Column 'id' on 'price_plan_items' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 19
+      message: "Column 'id' on 'subscription_price_plan' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+  step: step_12_V012__create_price_plans
+- findings:
+    - line: 1
+      message: "Changing column type on existing table 'partner_client_orders' ('partner_account_id': int8 → text) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead."
+      rule: PGM009
+      severity: Critical
+  step: step_13_V013__alter_column_type
+- findings:
+    - line: 1
+      message: "Dropping column 'notes' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+  step: step_14_V014__drop_column
+- findings:
+    - line: 14
+      message: "Table 'client_invitations' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 48
+      message: "Table 'order_invoice_references' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 55
+      message: "Table 'order_skip_actions' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 63
+      message: "Table 'overdue_invoices' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 105
+      message: "Table 'subscription_scheduled_dates' has no primary key."
+      rule: PGM004
+      severity: Major
+    - line: 1
+      message: "Table 'partner_reports' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 23
+      message: "Table 'external_access_rights' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 32
+      message: "Table 'product_groups' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 40
+      message: "Table 'account_feature_flags' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 73
+      message: "Table 'usage_event_balances' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 82
+      message: "Table 'account_locks' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 90
+      message: "Table 'subscription_locks' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 97
+      message: "Table 'usage_event_metadata' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
+      rule: PGM005
+      severity: Info
+    - line: 1
+      message: "Column 'generated_at' on 'partner_reports' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 14
+      message: "Column 'created' on 'client_invitations' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 23
+      message: "Column 'granted_at' on 'external_access_rights' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 55
+      message: "Column 'skipped_at' on 'order_skip_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 73
+      message: "Column 'last_updated' on 'usage_event_balances' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 82
+      message: "Column 'locked_at' on 'account_locks' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+    - line: 90
+      message: "Column 'locked_at' on 'subscription_locks' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_15_V015__create_tables_without_pks
+- findings:
+    - line: 1
+      message: "Adding CHECK constraint on existing table 'subscriptions' without NOT VALID will scan the entire table while holding an ACCESS EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+      rule: PGM018
+      severity: Critical
+    - line: 6
+      message: "Adding CHECK constraint on existing table 'subscription_invoices' without NOT VALID will scan the entire table while holding an ACCESS EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+      rule: PGM018
+      severity: Critical
+  step: step_16_V016__add_subscription_constraints
+- findings:
+    - line: 10
+      message: "Foreign key on 'connector_requests(connector_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 19
+      message: "Foreign key on 'connector_articles(connector_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 19
+      message: "Foreign key on 'connector_articles(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 10
+      message: "Column 'created_at' on 'connector_requests' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 19
+      message: "Column 'id' on 'connector_articles' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 1
+      message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 19
+      message: "Column 'id' on 'connector_articles' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+  step: step_18_V018__create_connector_tables
+- findings:
+    - line: 1
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+    - line: 4
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+    - line: 5
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+  step: step_19_V019__create_index_concurrently_batch
+- findings:
+    - line: 1
+      message: "Foreign key on 'reseller_orders(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Table 'reseller_orders' has no primary key."
+      rule: PGM004
+      severity: Major
+  step: step_20_V020__add_reseller_support
+- findings:
+    - line: 1
+      message: "Foreign key on 'subscription_periods(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Table 'subscription_periods' has no primary key."
+      rule: PGM004
+      severity: Major
+  step: step_21_V021__subscription_periods
+- findings:
+    - line: 1
+      message: "Column 'tracking_id' on 'orders' uses volatile default 'gen_random_uuid()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 5
+      message: "Column 'last_billed_at' on 'subscription_items' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+  step: step_22_V022__add_volatile_defaults
+- findings:
+    - line: 1
+      message: "DROP INDEX 'idx_orders_status' on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
+      rule: PGM002
+      severity: Critical
+  step: step_23_V023__drop_index_no_concurrently
+- findings:
+    - line: 1
+      message: "Column 'cancelled_at' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+      rule: PGM101
+      severity: Minor
+  step: step_25_V025__add_more_columns
+- findings:
+    - line: 1
+      message: "Column 'id' on 'partner_reports' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 7
+      message: "Column 'id' on 'client_invitations' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 10
+      message: "Column 'id' on 'external_access_rights' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 13
+      message: "Column 'id' on 'product_groups' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 16
+      message: "Column 'id' on 'account_feature_flags' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 19
+      message: "Column 'id' on 'order_invoice_references' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 22
+      message: "Column 'id' on 'order_skip_actions' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 25
+      message: "Column 'id' on 'overdue_invoices' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 28
+      message: "Column 'id' on 'usage_event_balances' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 31
+      message: "Column 'id' on 'account_locks' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 34
+      message: "Column 'id' on 'subscription_locks' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 37
+      message: "Column 'id' on 'usage_event_metadata' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 40
+      message: "Column 'id' on 'subscription_scheduled_dates' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 43
+      message: "Column 'id' on 'subscription_invoices' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 46
+      message: "Column 'id' on 'reseller_orders' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 49
+      message: "Column 'id' on 'subscription_periods' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 5
+      message: "ADD PRIMARY KEY on existing table 'partner_reports' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 8
+      message: "ADD PRIMARY KEY on existing table 'client_invitations' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 11
+      message: "ADD PRIMARY KEY on existing table 'external_access_rights' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 14
+      message: "ADD PRIMARY KEY on existing table 'product_groups' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 17
+      message: "ADD PRIMARY KEY on existing table 'account_feature_flags' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 20
+      message: "ADD PRIMARY KEY on existing table 'order_invoice_references' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 23
+      message: "ADD PRIMARY KEY on existing table 'order_skip_actions' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 26
+      message: "ADD PRIMARY KEY on existing table 'overdue_invoices' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 29
+      message: "ADD PRIMARY KEY on existing table 'usage_event_balances' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 32
+      message: "ADD PRIMARY KEY on existing table 'account_locks' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 35
+      message: "ADD PRIMARY KEY on existing table 'subscription_locks' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 38
+      message: "ADD PRIMARY KEY on existing table 'usage_event_metadata' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 41
+      message: "ADD PRIMARY KEY on existing table 'subscription_scheduled_dates' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 44
+      message: "ADD PRIMARY KEY on existing table 'subscription_invoices' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 47
+      message: "ADD PRIMARY KEY on existing table 'reseller_orders' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 50
+      message: "ADD PRIMARY KEY on existing table 'subscription_periods' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      rule: PGM012
+      severity: Major
+    - line: 1
+      message: "Column 'id' on 'partner_reports' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 7
+      message: "Column 'id' on 'client_invitations' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 10
+      message: "Column 'id' on 'external_access_rights' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 13
+      message: "Column 'id' on 'product_groups' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 16
+      message: "Column 'id' on 'account_feature_flags' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 19
+      message: "Column 'id' on 'order_invoice_references' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 22
+      message: "Column 'id' on 'order_skip_actions' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 25
+      message: "Column 'id' on 'overdue_invoices' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 28
+      message: "Column 'id' on 'usage_event_balances' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 31
+      message: "Column 'id' on 'account_locks' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 34
+      message: "Column 'id' on 'subscription_locks' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 37
+      message: "Column 'id' on 'usage_event_metadata' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 40
+      message: "Column 'id' on 'subscription_scheduled_dates' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 43
+      message: "Column 'id' on 'subscription_invoices' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 46
+      message: "Column 'id' on 'reseller_orders' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+    - line: 49
+      message: "Column 'id' on 'subscription_periods' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+  step: step_26_V026__bulk_add_primary_keys
+- findings:
+    - line: 1
+      message: "Foreign key on 'cancellation_feedback(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'created_at' on 'cancellation_feedback' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 12
+      message: "Column 'converted_at' on 'trial_conversions' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+  step: step_27_V027__create_cancellation_tables
+- findings:
+    - line: 15
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+    - line: 16
+      message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
+      rule: PGM006
+      severity: Critical
+    - line: 1
+      message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
+      rule: PGM007
+      severity: Minor
+    - line: 1
+      message: "Column 'created_at' on 'platform_audit_log' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 1
+      message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
+      rule: PGM105
+      severity: Info
+  step: step_28_V028__create_audit_tables
+- findings:
+    - line: 16
+      message: "Foreign key on 'connector_articles(supplier_agreement_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      rule: PGM003
+      severity: Major
+    - line: 1
+      message: "Column 'created_at' on 'supplier_agreements' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      rule: PGM007
+      severity: Minor
+    - line: 16
+      message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+      rule: PGM017
+      severity: Critical
+  step: step_29_V029__add_supplier_agreements
+- findings:
+    - line: 1
+      message: "Dropping column 'source_system' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 5
+      message: "Dropping column 'item_type' from existing table 'subscription_items'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+  step: step_30_V030__drop_columns_cleanup
+- findings:
+    - line: 1
+      message: "Dropping column 'kafka_offset' from existing table 'usage_events'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 7
+      message: "Dropping column 'name' from existing table 'products'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 10
+      message: "Dropping column 'account_id' from existing table 'account_locks'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 13
+      message: "Dropping column 'user_id' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 16
+      message: "Dropping column 'connector_id' from existing table 'connector_articles'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 19
+      message: "Dropping column 'subscription_id' from existing table 'subscription_periods'. The DDL is cheap but ensure no application code references this column."
+      rule: PGM011
+      severity: Info
+    - line: 7
+      message: "Dropping column 'name' from table 'products' silently removes unique constraint UNIQUE(name). Verify that the uniqueness guarantee is no longer needed."
+      rule: PGM013
+      severity: Minor
+    - line: 10
+      message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint UNIQUE(account_id). Verify that the uniqueness guarantee is no longer needed."
+      rule: PGM013
+      severity: Minor
+    - line: 1
+      message: "Dropping column 'kafka_offset' from table 'usage_events' silently removes the primary key. The table will have no row identity. Add a new primary key or reconsider the column drop."
+      rule: PGM014
+      severity: Major
+    - line: 13
+      message: "Dropping column 'user_id' from table 'orders' silently removes foreign key (user_id) → users. Verify that the referential integrity guarantee is no longer needed."
+      rule: PGM015
+      severity: Minor
+    - line: 16
+      message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key (connector_id) → connector_catalog. Verify that the referential integrity guarantee is no longer needed."
+      rule: PGM015
+      severity: Minor
+    - line: 19
+      message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key (subscription_id) → subscriptions. Verify that the referential integrity guarantee is no longer needed."
+      rule: PGM015
+      severity: Minor
+  step: step_31_V031__drop_constrained_columns
