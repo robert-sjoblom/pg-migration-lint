@@ -375,10 +375,10 @@ fn parse_changed_files(args: &Args) -> Result<Vec<PathBuf>> {
 /// Load migration files using the strategy configured in `config.migrations.strategy`.
 ///
 /// - `"filename_lexicographic"` (default): Load `.sql` files sorted by filename.
-/// - `"liquibase"`: Use the Liquibase three-tier fallback (bridge JAR -> update-sql -> XML).
+/// - `"liquibase"`: Use the Liquibase two-tier fallback (bridge JAR -> update-sql).
 ///
 /// For the Liquibase strategy, the sub-strategy is controlled by `config.liquibase.strategy`
-/// (`"auto"`, `"bridge"`, `"update-sql"`, `"xml-fallback"`).
+/// (`"auto"`, `"bridge"`, `"update-sql"`).
 fn load_migrations(config: &Config) -> Result<MigrationHistory> {
     match config.migrations.strategy.as_str() {
         "liquibase" => {

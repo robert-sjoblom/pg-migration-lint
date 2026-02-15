@@ -216,15 +216,11 @@ strategy = "auto"
 
 For Liquibase, `paths` must point to the root changelog file (e.g. `migrations.xml`), not the directory containing it. The tool follows `<include>` elements from this entrypoint to discover changesets in order.
 
-The tool uses a three-tier approach for Liquibase XML processing:
+The tool uses a two-tier approach for Liquibase XML processing (JRE required):
 
 1. **Bridge JAR (preferred)** -- A small Java CLI that embeds Liquibase to extract exact changeset-to-SQL-to-line mappings. Download `liquibase-bridge.jar` from the [releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) and place it at the configured `bridge_jar_path`. Requires a JRE.
 
 2. **`liquibase update-sql` (secondary)** -- If the bridge JAR is unavailable but the Liquibase binary is on the PATH, the tool invokes `liquibase update-sql` for less structured but functional output.
-
-3. **XML fallback** -- If Java is unavailable, a lightweight built-in XML parser handles common change types (`<createTable>`, `<addColumn>`, `<createIndex>`, etc.). Exotic change types are skipped and the catalog is marked as potentially incomplete. Note: `<includeAll>` does not recurse into subdirectories in this mode — use the bridge JAR or `liquibase update-sql` for nested directory layouts.
-
-Set `strategy = "xml-only"` under `[liquibase]` to skip Java entirely.
 
 ## Configuration Reference
 
@@ -279,10 +275,9 @@ bridge_jar_path = "tools/liquibase-bridge.jar"
 binary_path = "/usr/local/bin/liquibase"
 
 # Liquibase processing strategy.
-#   "auto" - tries bridge -> update-sql -> xml-fallback in order
+#   "auto" - tries bridge -> update-sql in order
 #   "bridge" - bridge JAR only
 #   "update-sql" - liquibase update-sql only
-#   "xml-fallback" - lightweight XML parser only
 # Default: "auto"
 strategy = "auto"
 

@@ -134,8 +134,7 @@ pub fn resolve_source_paths(units: &mut [RawMigrationUnit], base_dir: &Path) {
 /// Strategy selection:
 /// - `"bridge"`: Use bridge JAR only, fail if unavailable.
 /// - `"update-sql"`: Use `liquibase update-sql` only.
-/// - `"xml-fallback"`: Use the lightweight XML parser only.
-/// - `"auto"` (default): Try bridge -> update-sql -> xml-fallback in order.
+/// - `"auto"` (default): Try bridge -> update-sql in order.
 ///
 /// The `paths` parameter should contain paths to changelog files.
 pub fn load_liquibase(
@@ -147,7 +146,6 @@ pub fn load_liquibase(
     match strategy {
         "bridge" => load_with_bridge(config, paths),
         "update-sql" => load_with_updatesql(config, paths),
-        "xml-fallback" => load_with_xml_fallback(paths),
         "auto" => load_auto(config, paths),
         other => Err(LoadError::Config {
             message: format!("Unknown liquibase strategy: '{}'", other),
@@ -155,7 +153,7 @@ pub fn load_liquibase(
     }
 }
 
-/// Try bridge -> update-sql -> xml-fallback in order.
+/// Try bridge -> update-sql in order.
 fn load_auto(
     config: &LiquibaseConfig,
     paths: &[PathBuf],
@@ -172,12 +170,15 @@ fn load_auto(
     if config.binary_path.is_some() {
         match load_with_updatesql(config, paths) {
             Ok(units) => return Ok(units),
-            Err(_) => { /* fall through to XML fallback */ }
+            Err(_) => { /* fall through to error */ }
         }
     }
 
-    // Fall back to XML
-    load_with_xml_fallback(paths)
+    Err(LoadError::Config {
+        message: "Liquibase strategy 'auto' failed: neither bridge JAR nor update-sql succeeded. \
+                  Ensure a JRE is available and either bridge_jar_path or binary_path is configured."
+            .to_string(),
+    })
 }
 
 /// Load using the bridge JAR strategy.
@@ -227,19 +228,6 @@ fn load_with_updatesql(
         let mut units = loader.load(path)?;
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
         resolve_source_paths(&mut units, base_dir);
-        all_units.extend(units);
-    }
-
-    Ok(all_units)
-}
-
-/// Load using the lightweight XML fallback parser.
-fn load_with_xml_fallback(paths: &[PathBuf]) -> Result<Vec<RawMigrationUnit>, LoadError> {
-    let loader = super::liquibase_xml::XmlFallbackLoader;
-    let mut all_units = Vec::new();
-
-    for path in paths {
-        let units = loader.load(path)?;
         all_units.extend(units);
     }
 
