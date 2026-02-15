@@ -2389,3 +2389,233 @@ fn test_disabled_rules_suppresses_findings() {
         "Non-disabled rules should produce identical findings"
     );
 }
+
+// ===========================================================================
+// Bridge JAR integration tests (feature-gated)
+// ===========================================================================
+
+#[cfg(feature = "bridge-tests")]
+use pg_migration_lint::input::liquibase_bridge::{BridgeLoader, resolve_source_paths};
+
+#[cfg(feature = "bridge-tests")]
+fn bridge_jar_path() -> PathBuf {
+    if let Ok(path) = std::env::var("BRIDGE_JAR_PATH") {
+        PathBuf::from(path)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bridge/target/liquibase-bridge-1.0.0.jar")
+    }
+}
+
+#[cfg(feature = "bridge-tests")]
+fn lint_via_bridge(changed_ids: &[&str]) -> Vec<Finding> {
+    let master_xml = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/liquibase-xml/changelog/master.xml");
+    let base_dir = master_xml.parent().unwrap();
+
+    let loader = BridgeLoader::new(bridge_jar_path());
+    let mut raw_units = loader.load(&master_xml).expect("Failed to load via bridge");
+    resolve_source_paths(&mut raw_units, base_dir);
+
+    let mut units: Vec<MigrationUnit> = raw_units
+        .into_iter()
+        .map(|r| r.into_migration_unit())
+        .collect();
+
+    normalize::normalize_schemas(&mut units, "public");
+
+    let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
+
+    let mut catalog = Catalog::new();
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    let mut all_findings: Vec<Finding> = Vec::new();
+    let mut tables_created_in_change: HashSet<String> = HashSet::new();
+
+    for unit in &units {
+        let is_changed = changed_set.is_empty() || changed_set.contains(&unit.id);
+
+        if is_changed {
+            let catalog_before = catalog.clone();
+            replay::apply(&mut catalog, unit);
+
+            for stmt in &unit.statements {
+                if let IrNode::CreateTable(ct) = &stmt.node {
+                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                }
+            }
+
+            let ctx = LintContext {
+                catalog_before: &catalog_before,
+                catalog_after: &catalog,
+                tables_created_in_change: &tables_created_in_change,
+                run_in_transaction: unit.run_in_transaction,
+                is_down: unit.is_down,
+                file: &unit.source_file,
+            };
+
+            let mut unit_findings: Vec<Finding> = Vec::new();
+            for rule in registry.iter() {
+                unit_findings.extend(rule.check(&unit.statements, &ctx));
+            }
+
+            if unit.is_down {
+                cap_for_down_migration(&mut unit_findings);
+            }
+
+            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+            let suppressions = parse_suppressions(&source);
+            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+
+            all_findings.extend(unit_findings);
+        } else {
+            replay::apply(&mut catalog, unit);
+        }
+    }
+
+    all_findings
+}
+
+#[cfg(feature = "bridge-tests")]
+fn sort_findings(findings: &mut [Finding]) {
+    findings.sort_by(|a, b| {
+        a.rule_id
+            .cmp(&b.rule_id)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.start_line.cmp(&b.start_line))
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Parse all changesets
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_parses_all_changesets() {
+    let master_xml = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/liquibase-xml/changelog/master.xml");
+
+    let loader = BridgeLoader::new(bridge_jar_path());
+    let raw_units = loader.load(&master_xml).expect("Failed to load via bridge");
+
+    assert!(
+        !raw_units.is_empty(),
+        "Bridge should produce at least one changeset"
+    );
+
+    // The XML fallback parser produces 37 changesets. The bridge may produce
+    // fewer if some changesets generate no SQL. Assert a reasonable range.
+    assert!(
+        raw_units.len() >= 30 && raw_units.len() <= 40,
+        "Expected 30-40 changesets from bridge, got {}",
+        raw_units.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint all changesets, snapshot all findings
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_all_findings() {
+    let mut findings = lint_via_bridge(&[]);
+    sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint only 004 changesets (create indexes on pre-existing tables)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_004_only() {
+    let mut findings = lint_via_bridge(&[
+        "004-add-users-email-index",
+        "004-add-subscriptions-account-index",
+        "004-add-products-composite-index",
+    ]);
+    sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint only 005 changesets (add FKs)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_005_only() {
+    let mut findings = lint_via_bridge(&[
+        "005-add-fk-orders-user",
+        "005-add-fk-subscriptions-account",
+        "005-add-fk-orders-account",
+    ]);
+    sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint only 006 changesets (tables without PKs)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_006_only() {
+    let mut findings =
+        lint_via_bridge(&["006-create-event-log", "006-create-subscription-invoices"]);
+    sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint only 008 changesets (add NOT NULL columns without defaults)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_008_only() {
+    let mut findings = lint_via_bridge(&[
+        "008-add-region-to-accounts",
+        "008-add-priority-to-orders",
+        "008-add-category-to-products",
+    ]);
+    sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
