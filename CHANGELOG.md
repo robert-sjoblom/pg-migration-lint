@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.1...v1.9.2) (2026-02-15)
+
+
+### Bug Fixes
+
+* replace unwrap() with let-else in apply_alter_table ([752e004](https://github.com/robert-sjoblom/pg-migration-lint/commit/752e0041c634defb020c361a152154242ad038fd))
+
 ## [1.9.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.0...v1.9.1) (2026-02-14)
 
 
