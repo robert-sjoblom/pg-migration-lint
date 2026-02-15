@@ -92,7 +92,7 @@ pub struct LiquibaseConfig {
     /// Path to liquibase properties file (passed as --defaults-file to liquibase CLI)
     pub properties_file: Option<PathBuf>,
 
-    /// Strategy: "auto", "bridge", "update-sql", "xml-fallback"
+    /// Strategy: "auto", "bridge", "update-sql"
     #[serde(default = "default_liquibase_strategy")]
     pub strategy: String,
 }
@@ -241,8 +241,8 @@ const SECTION_LIQUIBASE: &str = "\
   strategy = \"auto\"
     Liquibase sub-strategy: which method to use for SQL extraction.
     Type: string
-    Values: \"auto\", \"bridge\", \"update-sql\", \"xml-fallback\"
-    Default: \"auto\" (tries bridge -> update-sql -> xml-fallback)
+    Values: \"auto\", \"bridge\", \"update-sql\"
+    Default: \"auto\" (tries bridge -> update-sql)
 ";
 
 const SECTION_OUTPUT: &str = "\

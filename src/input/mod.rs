@@ -6,6 +6,10 @@ use crate::parser::ir::{IrNode, Located};
 use std::path::PathBuf;
 use thiserror::Error;
 
+pub mod liquibase_bridge;
+pub mod liquibase_updatesql;
+pub mod sql;
+
 /// A single migration unit: one changeset (Liquibase) or one file (go-migrate).
 #[derive(Debug, Clone)]
 pub struct MigrationUnit {
@@ -101,8 +105,3 @@ pub enum LoadError {
     #[error("Configuration error: {message}")]
     Config { message: String },
 }
-
-pub mod liquibase_bridge;
-pub mod liquibase_updatesql;
-pub mod liquibase_xml;
-pub mod sql;

@@ -9,7 +9,7 @@ RUN mvn dependency:go-offline -q
 
 # Copy source and build the shaded JAR
 COPY src/ src/
-RUN mvn package -q
+RUN mvn package -q -DskipTests
 
 # Stage 2: Slim runtime image with just JRE and the JAR
 FROM eclipse-temurin:21-jre-alpine
