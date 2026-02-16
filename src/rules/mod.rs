@@ -208,7 +208,7 @@ pub trait Rule: Send + Sync {
     }
 }
 
-/// Cap all finding severities to INFO for down/rollback migrations (PGM008).
+/// Cap all finding severities to INFO for down/rollback migrations (PGM901).
 ///
 /// Down migrations are informational only. This function mutates the
 /// findings in place, setting every severity to `Severity::Info`.
@@ -291,7 +291,7 @@ mod tests {
         let mut registry = RuleRegistry::new();
         registry.register_defaults();
 
-        // We should have 27 rules (PGM001-PGM007, PGM009-PGM022, PGM101-PGM105, PGM108; PGM008 is not a rule)
+        // We should have 27 rules (PGM001-PGM007, PGM009-PGM022, PGM101-PGM105, PGM108; PGM901 is a meta-behavior, not a rule)
         assert_eq!(registry.rules.len(), 27);
     }
 
@@ -303,7 +303,7 @@ mod tests {
         assert!(registry.get("PGM001").is_some());
         assert!(registry.get("PGM005").is_some());
         assert!(registry.get("PGM011").is_some());
-        assert!(registry.get("PGM008").is_none()); // Not a separate rule
+        assert!(registry.get("PGM901").is_none()); // Meta-behavior, not a separate rule
         assert!(registry.get("PGM999").is_none());
     }
 

@@ -1,3 +1,3 @@
 -- Down migration placeholder: in go-migrate, down files pair with up files.
 -- This file is ignored during full-set linting (sorted before the up file).
--- Test PGM008 separately by targeting specific down files at higher numbers.
+-- Test PGM901 separately by targeting specific down files at higher numbers.

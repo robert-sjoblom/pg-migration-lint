@@ -175,6 +175,10 @@ Base ref for diff is the caller's responsibility (CI script runs `git diff --nam
 
 Format: `PGMnnn`. Stable across versions. Never reused.
 
+- **PGM0xx**: Migration safety rules (core lint rules with `Rule` trait implementations)
+- **PGM1xx**: PostgreSQL "Don't Do This" type-check rules
+- **PGM9xx**: Meta-behaviors that modify how other rules operate (not standalone rules)
+
 ### 4.2 v1 Rules
 
 #### PGM001 — Missing `CONCURRENTLY` on `CREATE INDEX`
@@ -447,10 +451,11 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 - **IR impact**: Requires `if_exists: bool` field on `DropTable` and `DropIndex`.
 
-#### PGM008 — Down migration issues
+#### PGM901 — Down migration severity cap
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
 - The same rules (PGM001–PGM024) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- PGM901 is a meta-behavior, not a standalone lint rule. It has no `Rule` trait implementation and cannot be suppressed or disabled via inline comments. The 9xx range is reserved for meta-behaviors that modify how other rules operate.
 
 ### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
 
@@ -756,15 +761,16 @@ pg-migration-lint/
 
 ## 12. Future Work (Explicitly Deferred)
 
+- Make meta-behavior rules (PGM9xx) disablable via `rules.disabled` config, so e.g. ignoring PGM901 skips the down-migration severity cap
+- Per-rule enable/disable in config (needed for deferred "Don't Do This" rules)
+- Severity overrides in config
+- Config parsing unit tests (TOML validation, error paths, default handling)
 - Native SonarQube plugin (Java, Plugin API)
 - Jenkins PR comment integration
 - Multiple independent migration sets (monorepo)
 - Declarative rule DSL for user-authored rules
 - Incremental replay with caching
-- Severity overrides in config
-- Per-rule enable/disable in config (needed for deferred "Don't Do This" rules)
 - Fuzz testing / property-based testing of parser and catalog replay
-- Config parsing unit tests (TOML validation, error paths, default handling)
 
 ---
 
@@ -783,3 +789,4 @@ pg-migration-lint/
 | 1.8     | 2026-02-15 | Added PGM023 (missing IF NOT EXISTS on CREATE TABLE/CREATE INDEX, MINOR) and PGM024 (missing IF EXISTS on DROP TABLE/DROP INDEX, MINOR). IR changes: `if_not_exists` on `CreateTable`/`CreateIndex`, `if_exists` on `DropTable`/`DropIndex`. Updated PGM008 scope to PGM001–PGM024. |
 | 1.9     | 2026-02-15 | Dropped lightweight XML fallback parser. Liquibase now requires a JRE — two-tier strategy: bridge jar → update-sql. Removed `liquibase_xml.rs` from project structure, removed `"xml-only"` config option. |
 | 1.10    | 2026-02-16 | Fleshed out full rule definitions for PGM021 (ADD UNIQUE without USING INDEX), PGM022 (DROP TABLE), PGM023 (missing IF NOT EXISTS), PGM024 (missing IF EXISTS), PGM106 (integer primary key). Removed stale IDs from deferred rules in §4.3. Synced `docs/dont-do-this-rules.md` with current spec state. |
+| 1.11    | 2026-02-16 | Renamed PGM008 → PGM901. Established 9xx range for meta-behaviors that modify how other rules operate. |

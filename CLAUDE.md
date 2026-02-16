@@ -146,15 +146,31 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **WARNING**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Key Rules
-- **PGM001/002**: Missing `CONCURRENTLY` on index operations
+#### Rules
+- **PGM001**: Missing `CONCURRENTLY` on `CREATE INDEX`
+- **PGM002**: Missing `CONCURRENTLY` on `DROP INDEX`
 - **PGM003**: Foreign key without covering index
 - **PGM004**: Table without primary key
+- **PGM005**: `UNIQUE NOT NULL` used instead of primary key
 - **PGM006**: `CONCURRENTLY` inside transaction
 - **PGM007**: Volatile default on column (forces table rewrite)
 - **PGM009**: `ALTER COLUMN TYPE` causing table rewrite
 - **PGM010**: `ADD COLUMN NOT NULL` without default
-- **PGM008**: Down migrations (all findings capped to INFO)
+- **PGM011**: `DROP COLUMN` on existing table
+- **PGM012**: `ADD PRIMARY KEY` without prior `UNIQUE` index
+- **PGM013**: `DROP COLUMN` silently removes unique constraint
+- **PGM014**: `DROP COLUMN` silently removes primary key
+- **PGM015**: `DROP COLUMN` silently removes foreign key
+- **PGM016**: `SET NOT NULL` requires ACCESS EXCLUSIVE lock
+- **PGM017**: `ADD FOREIGN KEY` without `NOT VALID`
+- **PGM018**: `ADD CHECK` without `NOT VALID`
+- **PGM019**: `RENAME TABLE` on existing table
+- **PGM020**: `RENAME COLUMN` on existing table
+- **PGM021**: `ADD UNIQUE` without `USING INDEX`
+- **PGM022**: `DROP TABLE` on existing table
+- **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)
+- **PGM108**: Don't use `json` (use `jsonb`)
+- **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule
 
 ### Suppression System
 
@@ -370,7 +386,7 @@ See `test_plan.md` sections 3-5 for comprehensive test case coverage per rule.
 - All public functions require doc comments
 - Index column order must be preserved (affects FK covering index checks via `has_covering_index()`)
 - `pg_query` uses libpg_query bindings - consult its AST structure for parser work
-- Down migrations (`.down.sql`) always get INFO severity cap (PGM008)
+- Down migrations (`.down.sql`) always get INFO severity cap (PGM901)
 - Error paths: config errors exit 2, parse failures on individual files warn and continue
 - Rules are `Send + Sync` to support parallel execution in the future
 - TypeName stores modifiers as `Vec<i64>` for types like `varchar(100)`, `numeric(10,2)`

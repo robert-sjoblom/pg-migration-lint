@@ -49,7 +49,6 @@ pg-migration-lint ships with 28 rules across two categories: migration safety ru
 | PGM005 | Info | `UNIQUE NOT NULL` used instead of primary key | `CREATE TABLE t (id int NOT NULL UNIQUE);` |
 | PGM006 | Critical | `CONCURRENTLY` inside transaction | `CREATE INDEX CONCURRENTLY idx ON t (col);` inside a transactional changeset |
 | PGM007 | Minor | Volatile default on column | `ALTER TABLE t ADD COLUMN created_at timestamptz DEFAULT now();` |
-| PGM008 | -- | Down migration severity cap | All findings in `.down.sql` files are capped to Info |
 | PGM009 | Critical | `ALTER COLUMN TYPE` causing table rewrite | `ALTER TABLE orders ALTER COLUMN status TYPE int;` |
 | PGM010 | Critical | `ADD COLUMN NOT NULL` without default | `ALTER TABLE orders ADD COLUMN region text NOT NULL;` |
 | PGM011 | Info | `DROP COLUMN` on existing table | `ALTER TABLE orders DROP COLUMN legacy_col;` |
@@ -77,8 +76,6 @@ PGM021 follows the same pattern as PGM012: create the unique index `CONCURRENTLY
 
 PGM022 only fires on tables that existed before the current set of changed files. Dropping a table created in the same changeset is harmless.
 
-PGM008 is not a standalone rule -- it is a behavior modifier. All findings produced by other rules on `.down.sql` or rollback migrations are automatically capped to Info severity.
-
 ### PostgreSQL "Don't Do This" Rules
 
 These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.postgresql.org/wiki/Don%27t_Do_This) page. They detect type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
@@ -91,6 +88,14 @@ These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.
 | PGM104 | Minor | Don't use the `money` type | `CREATE TABLE t (price money);` |
 | PGM105 | Info | Don't use `serial` / `bigserial` | `CREATE TABLE t (id serial PRIMARY KEY);` |
 | PGM108 | Minor | Don't use `json` (use `jsonb`) | `CREATE TABLE t (data json);` |
+
+### Meta-behavior Rules
+
+The 9xx range is reserved for meta-behaviors that modify how other rules operate. These are not standalone lint rules.
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| PGM901 | -- | Down migration severity cap — all findings in `.down.sql` files are capped to Info |
 
 Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why it is dangerous and how to fix it:
 
