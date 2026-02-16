@@ -1,9 +1,12 @@
 //! PGM007 — Volatile default on column
 //!
-//! Detects column definitions (in `CREATE TABLE` or `ADD COLUMN`) that use
-//! a function call as the DEFAULT expression. Known volatile functions produce
-//! a WARNING; `nextval` gets a serial-specific message; unknown functions
-//! produce an INFO suggesting the developer verify volatility.
+//! Detects `ADD COLUMN` on an existing table that uses a function call as the
+//! DEFAULT expression. Known volatile functions produce a WARNING; `nextval`
+//! gets a serial-specific message; unknown functions produce an INFO suggesting
+//! the developer verify volatility.
+//!
+//! `CREATE TABLE` and `ADD COLUMN` on tables created in the same changeset are
+//! exempt — there are no existing rows, so no table rewrite occurs.
 
 use crate::parser::ir::{
     AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName, SourceSpan,
@@ -141,34 +144,30 @@ impl Rule for Pgm007 {
            UPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\
          \n\
          Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
-         rows). The rule still flags them for awareness."
+         rows) and are not flagged."
     }
 
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
         let mut findings = Vec::new();
 
         for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if let Some(finding) =
-                            check_column(col, &ct.name, self, ctx.file, &stmt.span)
-                        {
-                            findings.push(finding);
-                        }
+            // Only check ALTER TABLE … ADD COLUMN.
+            // CREATE TABLE is intentionally skipped — no existing rows means no rewrite.
+            if let IrNode::AlterTable(at) = &stmt.node {
+                // Skip tables created in this changeset — no existing rows to rewrite.
+                let table_key = at.name.catalog_key();
+                if ctx.tables_created_in_change.contains(table_key) {
+                    continue;
+                }
+
+                for action in &at.actions {
+                    if let AlterTableAction::AddColumn(col) = action
+                        && let Some(finding) =
+                            check_column(col, &at.name, self, ctx.file, &stmt.span)
+                    {
+                        findings.push(finding);
                     }
                 }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        if let AlterTableAction::AddColumn(col) = action
-                            && let Some(finding) =
-                                check_column(col, &at.name, self, ctx.file, &stmt.span)
-                        {
-                            findings.push(finding);
-                        }
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -180,6 +179,7 @@ impl Rule for Pgm007 {
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
     use std::collections::HashSet;
@@ -198,8 +198,14 @@ mod tests {
 
     #[test]
     fn test_now_default_fires_warning() {
-        let before = Catalog::new();
-        let after = Catalog::new();
+        // Table exists in catalog_before and is NOT in tables_created_in_change,
+        // so PGM007 should fire for the volatile default.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
         let file = PathBuf::from("migrations/002.sql");
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
@@ -220,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_random_uuid_fires_warning() {
+    fn test_create_table_with_volatile_default_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
         let file = PathBuf::from("migrations/002.sql");
@@ -241,7 +247,36 @@ mod tests {
         }))];
 
         let findings = Pgm007.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        assert!(
+            findings.is_empty(),
+            "CREATE TABLE should not trigger PGM007"
+        );
+    }
+
+    #[test]
+    fn test_add_column_on_new_in_same_changeset_table_no_finding() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from("migrations/002.sql");
+        let created: HashSet<String> = ["orders".to_string()].into_iter().collect();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "created_at",
+                DefaultExpr::FunctionCall {
+                    name: "now".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = Pgm007.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "ADD COLUMN on table created in same changeset should not trigger PGM007"
+        );
     }
 
     #[test]

@@ -328,8 +328,8 @@ fn test_pgm006_finding_details() {
 #[test]
 fn test_all_rules_changed_files_all_empty() {
     // When all files are changed (empty changed_files), tables created in V001
-    // are in tables_created_in_change, so PGM001/009/010/011 won't fire for
-    // those tables. But PGM003, PGM004, PGM005, PGM006, PGM007 should still fire.
+    // are in tables_created_in_change, so PGM001/007/009/010/011 won't fire for
+    // those tables. But PGM003, PGM004, PGM005, PGM006 should still fire.
     let findings = lint_fixture("all-rules", &[]);
 
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
@@ -346,10 +346,6 @@ fn test_all_rules_changed_files_all_empty() {
     assert!(
         rule_ids.contains("PGM005"),
         "PGM005 should fire even with all files changed"
-    );
-    assert!(
-        rule_ids.contains("PGM007"),
-        "PGM007 should fire even with all files changed"
     );
     // PGM006 fires because it only checks run_in_transaction + concurrent flag
     assert!(
@@ -521,13 +517,6 @@ fn test_enterprise_lint_all_finds_violations() {
         "Expected PGM004. Got:\n  {}",
         format_findings(&findings)
     );
-
-    // PGM007 should fire (volatile defaults in V012, V018, V022, V027, V028, V029)
-    assert!(
-        rule_ids.contains("PGM007"),
-        "Expected PGM007. Got:\n  {}",
-        format_findings(&findings)
-    );
 }
 
 #[test]
@@ -607,16 +596,16 @@ fn test_enterprise_finding_count_reasonable() {
     );
 
     // Should have a significant number of findings.
-    // Actual count is 45 as of 2026-02-11; allow ±3 for minor rule tuning.
+    // Actual count is 41 as of 2026-02-16; allow ±3 for minor rule tuning.
     assert!(
-        findings.len() >= 42,
-        "Expected at least 42 findings from V005-V015, got {}: \n  {}",
+        findings.len() >= 38,
+        "Expected at least 38 findings from V005-V015, got {}: \n  {}",
         findings.len(),
         format_findings(&findings)
     );
     assert!(
-        findings.len() <= 48,
-        "Expected at most 48 findings from V005-V015, got {}:\n  {}",
+        findings.len() <= 44,
+        "Expected at most 44 findings from V005-V015, got {}:\n  {}",
         findings.len(),
         format_findings(&findings)
     );
@@ -645,7 +634,6 @@ fn test_enterprise_full_run_per_rule_counts() {
         ("PGM004", 9),
         ("PGM005", 8),
         ("PGM006", 7),
-        ("PGM007", 32),
         ("PGM013", 2),
         ("PGM014", 1),
         ("PGM015", 3),
@@ -665,7 +653,7 @@ fn test_enterprise_full_run_per_rule_counts() {
 
     assert_eq!(
         findings.len(),
-        121,
+        89,
         "Total finding count changed. Got {}:\n  {}",
         findings.len(),
         format_findings(&findings)
@@ -954,13 +942,6 @@ fn test_gomigrate_lint_all_finds_violations() {
     assert!(
         rule_ids.contains("PGM004"),
         "Expected PGM004 (table without PK). Got:\n  {}",
-        format_findings(&findings)
-    );
-
-    // PGM007 should fire (volatile defaults: now(), gen_random_uuid())
-    assert!(
-        rule_ids.contains("PGM007"),
-        "Expected PGM007 (volatile default). Got:\n  {}",
         format_findings(&findings)
     );
 }
