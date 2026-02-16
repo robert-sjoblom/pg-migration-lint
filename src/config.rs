@@ -3,7 +3,7 @@
 //! Reads pg-migration-lint.toml configuration files.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -117,6 +117,12 @@ pub struct OutputConfig {
     /// Output directory for report files
     #[serde(default = "default_output_dir")]
     pub dir: PathBuf,
+
+    /// Optional prefix to strip from finding file paths before emitting reports.
+    /// Useful when running from a project root but SonarQube expects module-relative paths.
+    /// Example: `strip_prefix = "impl/"` turns `impl/src/main/...` into `src/main/...`.
+    #[serde(default)]
+    pub strip_prefix: Option<String>,
 }
 
 impl Default for OutputConfig {
@@ -124,6 +130,7 @@ impl Default for OutputConfig {
         Self {
             formats: default_formats(),
             dir: default_output_dir(),
+            strip_prefix: None,
         }
     }
 }
@@ -185,6 +192,10 @@ const VALID_SECTIONS: &[&str] = &["migrations", "liquibase", "output", "cli", "r
 
 const SECTION_MIGRATIONS: &str = "\
 [migrations]
+
+  Note: relative paths in the config file are resolved relative to the
+  config file's directory, not the current working directory. This allows
+  running the tool from any directory with --config pointing at the file.
 
   paths = [\"db/migrations\"]
     Paths to migration directories or changelog files.
@@ -258,6 +269,13 @@ const SECTION_OUTPUT: &str = "\
     Directory where report files are written.
     Type: path
     Default: \"build/reports/migration-lint\"
+
+  strip_prefix = \"impl/\"
+    Optional prefix to strip from finding file paths before emitting reports.
+    Useful when running from a project root but the report consumer (e.g.
+    SonarQube) expects module-relative paths.
+    Type: string (optional)
+    Default: none
 ";
 
 const SECTION_CLI: &str = "\
@@ -315,12 +333,67 @@ pub fn explain_config(section: &str) -> Result<(), ConfigError> {
 }
 
 impl Config {
-    /// Load configuration from a file
+    /// Load configuration from a file.
+    ///
+    /// Relative paths in the config are resolved relative to the config file's
+    /// parent directory, so running from any CWD works as long as `--config`
+    /// points at the right file.
     pub fn from_file(path: &PathBuf) -> Result<Self, ConfigError> {
         let contents = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&contents)?;
+        let mut config: Config = toml::from_str(&contents)?;
         config.validate()?;
+
+        // Resolve relative paths against the config file's directory.
+        // Note: Path::parent() on a bare filename returns Some(""), not None,
+        // so we also check for empty to fall back to ".".
+        let config_dir = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        config.resolve_paths(config_dir);
+
         Ok(config)
+    }
+
+    /// Prepend `config_dir` to every relative `PathBuf` field so that config
+    /// paths resolve correctly regardless of the current working directory.
+    ///
+    /// Absolute paths are left unchanged.
+    pub fn resolve_paths(&mut self, config_dir: &Path) {
+        // migrations.paths
+        for p in &mut self.migrations.paths {
+            if p.is_relative() {
+                *p = config_dir.join(&*p);
+            }
+        }
+
+        // liquibase.bridge_jar_path
+        if let Some(ref mut p) = self.liquibase.bridge_jar_path
+            && p.is_relative()
+        {
+            *p = config_dir.join(&*p);
+        }
+
+        // liquibase.binary_path — skip if it looks like a bare command name
+        // (no path separators), since those are resolved via $PATH.
+        if let Some(ref mut p) = self.liquibase.binary_path
+            && p.is_relative()
+            && p.components().count() > 1
+        {
+            *p = config_dir.join(&*p);
+        }
+
+        // liquibase.properties_file
+        if let Some(ref mut p) = self.liquibase.properties_file
+            && p.is_relative()
+        {
+            *p = config_dir.join(&*p);
+        }
+
+        // output.dir
+        if self.output.dir.is_relative() {
+            self.output.dir = config_dir.join(&self.output.dir);
+        }
     }
 
     /// Validate configuration values.
@@ -422,5 +495,120 @@ mod tests {
         let toml = "[migrations]\nstrategy = \"filename_lexicographic\"";
         let config = parse_and_validate(toml).unwrap();
         assert_eq!(config.migrations.run_in_transaction, None);
+    }
+
+    // --- resolve_paths tests ---
+
+    #[test]
+    fn test_resolve_paths_prepends_config_dir() {
+        let mut config = Config::default();
+        config.migrations.paths = vec![PathBuf::from("db/migrations")];
+        config.liquibase.bridge_jar_path = Some(PathBuf::from("tools/bridge.jar"));
+        config.liquibase.properties_file = Some(PathBuf::from("liquibase.properties"));
+        config.output.dir = PathBuf::from("build/reports");
+
+        config.resolve_paths(Path::new("/project/impl"));
+
+        assert_eq!(
+            config.migrations.paths,
+            vec![PathBuf::from("/project/impl/db/migrations")]
+        );
+        assert_eq!(
+            config.liquibase.bridge_jar_path,
+            Some(PathBuf::from("/project/impl/tools/bridge.jar"))
+        );
+        assert_eq!(
+            config.liquibase.properties_file,
+            Some(PathBuf::from("/project/impl/liquibase.properties"))
+        );
+        assert_eq!(
+            config.output.dir,
+            PathBuf::from("/project/impl/build/reports")
+        );
+    }
+
+    #[test]
+    fn test_resolve_paths_leaves_absolute_paths_unchanged() {
+        let mut config = Config::default();
+        config.migrations.paths = vec![PathBuf::from("/abs/db/migrations")];
+        config.liquibase.bridge_jar_path = Some(PathBuf::from("/abs/tools/bridge.jar"));
+        config.output.dir = PathBuf::from("/abs/build/reports");
+
+        config.resolve_paths(Path::new("/project/impl"));
+
+        assert_eq!(
+            config.migrations.paths,
+            vec![PathBuf::from("/abs/db/migrations")]
+        );
+        assert_eq!(
+            config.liquibase.bridge_jar_path,
+            Some(PathBuf::from("/abs/tools/bridge.jar"))
+        );
+        assert_eq!(config.output.dir, PathBuf::from("/abs/build/reports"));
+    }
+
+    #[test]
+    fn test_resolve_paths_bare_binary_name_unchanged() {
+        let mut config = Config::default();
+        // A bare command name like "liquibase" should not be prefixed
+        config.liquibase.binary_path = Some(PathBuf::from("liquibase"));
+
+        config.resolve_paths(Path::new("/project"));
+
+        assert_eq!(
+            config.liquibase.binary_path,
+            Some(PathBuf::from("liquibase"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_paths_relative_binary_path_resolved() {
+        let mut config = Config::default();
+        // A relative path with directory components should be resolved
+        config.liquibase.binary_path = Some(PathBuf::from("bin/liquibase"));
+
+        config.resolve_paths(Path::new("/project"));
+
+        assert_eq!(
+            config.liquibase.binary_path,
+            Some(PathBuf::from("/project/bin/liquibase"))
+        );
+    }
+
+    #[test]
+    fn test_resolve_paths_dot_config_dir_is_identity() {
+        let mut config = Config::default();
+        config.migrations.paths = vec![PathBuf::from("db/migrations")];
+        config.output.dir = PathBuf::from("build/reports");
+
+        config.resolve_paths(Path::new("."));
+
+        assert_eq!(
+            config.migrations.paths,
+            vec![PathBuf::from("./db/migrations")]
+        );
+        assert_eq!(config.output.dir, PathBuf::from("./build/reports"));
+    }
+
+    // --- strip_prefix tests ---
+
+    #[test]
+    fn test_strip_prefix_deserialization() {
+        let toml = "[output]\nstrip_prefix = \"impl/\"";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.output.strip_prefix, Some("impl/".to_string()));
+    }
+
+    #[test]
+    fn test_strip_prefix_defaults_to_none() {
+        let config = Config::default();
+        assert_eq!(config.output.strip_prefix, None);
+    }
+
+    #[test]
+    fn test_strip_prefix_absent_is_none() {
+        let toml = "[output]\nformats = [\"sarif\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.output.strip_prefix, None);
     }
 }
