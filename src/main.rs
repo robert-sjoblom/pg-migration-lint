@@ -116,7 +116,12 @@ fn run(args: Args) -> Result<bool> {
         .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
         .collect();
 
-    let lint_all = changed_files_set.is_empty();
+    // Selective mode: if the user passed --changed-files or --changed-files-from,
+    // we only lint the files they named — even if the resulting set is empty.
+    // An empty set in selective mode means "lint nothing, but still write reports"
+    // so that CI consumers (e.g. SonarQube) always find the expected report file.
+    let selective_mode = args.changed_files.is_some() || args.changed_files_from.is_some();
+    let lint_all = !selective_mode;
 
     // --- Step 3: Single-pass replay and lint ---
     let mut catalog = Catalog::new();
@@ -251,7 +256,16 @@ fn run(args: Args) -> Result<bool> {
         }
     }
 
-    // --- Step 4: Emit reports ---
+    // --- Step 4: Strip path prefix (if configured) ---
+    if let Some(ref prefix) = config.output.strip_prefix {
+        for finding in &mut all_findings {
+            if let Ok(stripped) = finding.file.strip_prefix(prefix) {
+                finding.file = stripped.to_path_buf();
+            }
+        }
+    }
+
+    // --- Step 5: Emit reports ---
     let formats: Vec<String> = if let Some(ref fmt) = args.format {
         vec![fmt.clone()]
     } else {
@@ -274,7 +288,7 @@ fn run(args: Args) -> Result<bool> {
             .context(format!("Failed to write {} report", format))?;
     }
 
-    // --- Step 5: Summary and exit code ---
+    // --- Step 6: Summary and exit code ---
     eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
 
     let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
