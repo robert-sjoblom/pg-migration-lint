@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.6](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.5...v1.9.6) (2026-02-16)
+
+
+### Bug Fixes
+
+* resolve config paths relative to config file, not CWD ([97ce30b](https://github.com/robert-sjoblom/pg-migration-lint/commit/97ce30bc1514f74108a7b8e0750de63900e12a22))
+
 ## [1.9.5](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.4...v1.9.5) (2026-02-16)
 
 
