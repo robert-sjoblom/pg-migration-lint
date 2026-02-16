@@ -195,7 +195,7 @@ fn run(args: Args) -> Result<bool> {
                 unit_findings.append(&mut findings);
             }
 
-            // Cap severity for down migrations (PGM008)
+            // Cap severity for down migrations (PGM901)
             if unit.is_down {
                 rules::cap_for_down_migration(&mut unit_findings);
             }

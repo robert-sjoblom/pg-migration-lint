@@ -966,7 +966,7 @@ fn test_gomigrate_lint_all_finds_violations() {
 }
 
 // ---------------------------------------------------------------------------
-// Go-migrate: Down migration severity capping (PGM008)
+// Go-migrate: Down migration severity capping (PGM901)
 // ---------------------------------------------------------------------------
 
 #[test]
