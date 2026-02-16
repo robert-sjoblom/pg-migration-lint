@@ -761,6 +761,7 @@ pg-migration-lint/
 
 ## 12. Future Work (Explicitly Deferred)
 
+- **Upgrade SonarQube output to 10.3+ Generic Issue Import format.** The current reporter emits the deprecated pre-10.3 format where each issue carries `engineId`, `ruleId`, `severity`, and `type`. The 10.3+ format moves rule metadata to a top-level `rules` array (with `cleanCodeAttribute`, `type`, `impacts`) and slims issues down to `ruleId` + `primaryLocation`. Upgrading gives proper control over clean-code attributes and software-quality impacts in the SonarQube UI. Requires injecting `RuleInfo` into `SonarQubeReporter` at construction time. See `PLAN_SONARQUBE_UPGRADE.md` for full implementation plan.
 - Make meta-behavior rules (PGM9xx) disablable via `rules.disabled` config, so e.g. ignoring PGM901 skips the down-migration severity cap
 - Per-rule enable/disable in config (needed for deferred "Don't Do This" rules)
 - Severity overrides in config

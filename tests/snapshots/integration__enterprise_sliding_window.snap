@@ -150,30 +150,6 @@ expression: snapshot
       rule: PGM003
       severity: Major
     - line: 1
-      message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
-    - line: 1
-      message: "Column 'created_at' on 'price_plans' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 10
-      message: "Column 'id' on 'price_plan_items' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
-    - line: 10
-      message: "Column 'created_at' on 'price_plan_items' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 19
-      message: "Column 'id' on 'subscription_price_plan' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
-    - line: 19
-      message: "Column 'created_at' on 'subscription_price_plan' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 1
       message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -303,18 +279,6 @@ expression: snapshot
       message: "Foreign key on 'connector_articles(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
-    - line: 1
-      message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
-    - line: 10
-      message: "Column 'created_at' on 'connector_requests' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 19
-      message: "Column 'id' on 'connector_articles' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
     - line: 1
       message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
@@ -583,14 +547,6 @@ expression: snapshot
       message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
-    - line: 1
-      message: "Column 'created_at' on 'cancellation_feedback' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 12
-      message: "Column 'converted_at' on 'trial_conversions' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
   step: step_27_V027__create_cancellation_tables
 - findings:
     - line: 15
@@ -602,14 +558,6 @@ expression: snapshot
       rule: PGM006
       severity: Critical
     - line: 1
-      message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
-      rule: PGM007
-      severity: Minor
-    - line: 1
-      message: "Column 'created_at' on 'platform_audit_log' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
-    - line: 1
       message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -619,10 +567,6 @@ expression: snapshot
       message: "Foreign key on 'connector_articles(supplier_agreement_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
-    - line: 1
-      message: "Column 'created_at' on 'supplier_agreements' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-      rule: PGM007
-      severity: Minor
     - line: 16
       message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM017
