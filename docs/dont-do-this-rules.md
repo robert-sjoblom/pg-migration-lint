@@ -1,4 +1,4 @@
-# New Lint Rules from PostgreSQL "Don't Do This" Wiki
+# Lint Rules from PostgreSQL "Don't Do This" Wiki
 
 Source: [https://wiki.postgresql.org/wiki/Don%27t_Do_This](https://wiki.postgresql.org/wiki/Don%27t_Do_This)
 
@@ -7,7 +7,7 @@ Only DDL-detectable anti-patterns are included. Query-level patterns (e.g., "don
 NOT IN with nullable columns", "don't use BETWEEN for timestamp ranges") are omitted
 because they do not appear in migration files.
 
-Rule IDs use the PGM1XX series to distinguish from core rules (PGM001-PGM011).
+Rule IDs use the PGM1XX series to distinguish from core rules (PGM001-PGM024).
 
 ---
 
@@ -18,6 +18,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ### PGM101 -- Don't use `timestamp` (without time zone)
 
+- **Status**: **Implemented.**
 - **Detects**: Column type `timestamp` or `timestamp without time zone` used in
   `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, or `ALTER TABLE ... ALTER COLUMN TYPE`.
 - **Why it's bad**: `timestamp without time zone` (spelled `timestamp` in SQL) stores a
@@ -27,11 +28,10 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   changes, because the same timestamp value is interpreted differently. The `timestamptz`
   type stores an absolute point in time (internally as UTC) and converts on input/output
   based on the session `timezone` setting, making it unambiguous.
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **IR detectability**: Fully detectable. The `TypeName.name` field will be `"timestamp"`
-  or `"timestamp without time zone"` (lowercased). Note: `pg_query` normalizes
-  `timestamp without time zone` to `"timestamp"` in the AST. The rule should match on
-  `TypeName.name` being exactly `"timestamp"`.
+  (pg_query normalizes `timestamp without time zone` to `"timestamp"` in the AST). The
+  rule matches on `TypeName.name` being exactly `"timestamp"`.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE events (
@@ -56,13 +56,14 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ### PGM102 -- Don't use `timestamp(0)` or `timestamptz(0)`
 
+- **Status**: **Implemented.**
 - **Detects**: Column type `timestamp` or `timestamptz` with a precision modifier of `0`,
   i.e., `TypeName.modifiers == [0]`.
 - **Why it's bad**: Setting fractional seconds precision to 0 causes PostgreSQL to
   *round* (not truncate) the value. An input of `23:59:59.9` becomes `00:00:00` of the
   *next day*, silently changing the date. This is almost never the intended behavior.
   If sub-second precision is not needed, store full precision and truncate on output.
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **IR detectability**: Fully detectable. Check `TypeName.name` is `"timestamp"` or
   `"timestamptz"` (or their long forms) and `TypeName.modifiers == [0]`.
 - **Example bad SQL**:
@@ -85,6 +86,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ### PGM103 -- Don't use `char(n)` or `character(n)`
 
+- **Status**: **Implemented.**
 - **Detects**: Column type `char`, `character`, `char(n)`, or `character(n)`.
   Note: unqualified `char` is `char(1)` in PostgreSQL.
 - **Why it's bad**: `char(n)` pads values with spaces to exactly `n` characters. This
@@ -93,7 +95,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   and is *never* faster than `text` or `varchar` -- PostgreSQL stores them identically
   on disk (as varlena), just with the added overhead of pad/unpad operations. The SQL
   standard `char(n)` type is a relic with no performance benefit in PostgreSQL.
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **IR detectability**: Fully detectable. Match `TypeName.name == "bpchar"`. pg_query
   normalizes both `char(n)` and `character(n)` to the canonical name `"bpchar"`. The
   internal single-byte type `"char"` (with quotes in SQL) is a distinct pg_catalog type
@@ -120,6 +122,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ### PGM104 -- Don't use the `money` type
 
+- **Status**: **Implemented.**
 - **Detects**: Column type `money`.
 - **Why it's bad**: The `money` type has a fixed fractional precision determined by the
   database's `lc_monetary` locale setting. Changing `lc_monetary` silently reinterprets
@@ -127,7 +130,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   code, so multi-currency support is impossible. Rounding behavior is locale-dependent.
   Input/output depends on locale settings, making dumps and restores between systems
   with different locales dangerous. Use `numeric` (or `decimal`) for monetary values.
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **IR detectability**: Fully detectable. Match `TypeName.name == "money"`.
 - **Example bad SQL**:
   ```sql
@@ -149,6 +152,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ### PGM105 -- Don't use `serial` / `bigserial`
 
+- **Status**: **Implemented.**
 - **Detects**: Column type `serial`, `bigserial`, `serial4`, `serial8`, or `smallserial`
   (`serial2`).
 - **Why it's bad**: The `serial` pseudo-types create an implicit sequence and set a
@@ -166,9 +170,6 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   `integer`/`bigint`/`smallint` column is a strong heuristic signal. The rule can flag
   `nextval()` defaults with a suggestion to use identity columns instead. This overlaps
   with PGM007 (volatile default) but has a different message and rationale.
-  Alternatively, if the parser is enhanced to detect `serial` before expansion (by
-  inspecting the raw SQL or the `pg_query` AST for `is_serial`), this becomes fully
-  detectable.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE orders (
@@ -192,7 +193,79 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ---
 
-### PGM106 -- Don't use `varchar(n)` for arbitrary length limits
+### PGM106 -- Don't use `integer` as primary key type
+
+- **Status**: **Not yet implemented.**
+- **Detects**: A primary key column with `TypeName.name` in `("int4", "int2")` -- i.e.,
+  `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or
+  table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
+- **Why it's bad**: `integer` (max ~2.1 billion) is routinely exhausted in high-write
+  tables. When it wraps, inserts fail with a unique constraint violation. Migrating from
+  `integer` to `bigint` requires a full table rewrite under `ACCESS EXCLUSIVE` lock --
+  one of the most dangerous DDL operations on large tables. Starting with `bigint` costs
+  4 extra bytes per row but avoids a future emergency migration.
+- **Severity**: MAJOR
+- **IR detectability**: Fully detectable. Match PK columns (via `is_inline_pk` on
+  `ColumnDef` or `TableConstraint::PrimaryKey` columns) where the column type name is
+  `"int4"` or `"int2"`.
+- **Example bad SQL**:
+  ```sql
+  CREATE TABLE orders (
+      id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      amount numeric(10,2)
+  );
+  ```
+- **Example fix**:
+  ```sql
+  CREATE TABLE orders (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      amount numeric(10,2)
+  );
+  ```
+- **Does not fire when**:
+  - The PK column type is `int8` / `bigint`
+  - The column is not part of a primary key
+- **Message**: `Primary key column '{col}' on '{table}' uses '{type}'. Consider using bigint to avoid exhausting the integer range on high-write tables.`
+
+---
+
+### PGM108 -- Don't use `json` (prefer `jsonb`)
+
+- **Status**: **Implemented.**
+- **Detects**: Column type `json` in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, or
+  `ALTER TABLE ... ALTER COLUMN TYPE`.
+- **Why it's bad**: The `json` type stores an exact copy of the input text and must
+  re-parse it on every operation. `jsonb` stores a decomposed binary format that is
+  significantly faster for queries, supports indexing (GIN), and supports
+  containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json`
+  are preserving exact key order and duplicate keys -- both rarely needed.
+- **Severity**: MINOR
+- **IR detectability**: Fully detectable. Match `TypeName.name == "json"`.
+- **Example bad SQL**:
+  ```sql
+  CREATE TABLE events (
+      id bigint PRIMARY KEY,
+      payload json NOT NULL
+  );
+  ```
+- **Example fix**:
+  ```sql
+  CREATE TABLE events (
+      id bigint PRIMARY KEY,
+      payload jsonb NOT NULL
+  );
+  ```
+- **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead -- it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
+
+---
+
+## Category 2: Deferred Rules
+
+The following rules are fully specified but deferred until per-rule enable/disable
+configuration is implemented. Rule IDs are assigned only when a rule is promoted to
+implementation.
+
+### Don't use `varchar(n)` for arbitrary length limits
 
 - **Detects**: Column type `varchar(n)` or `character varying(n)` where a modifier is
   present (i.e., `TypeName.name == "varchar"` and `TypeName.modifiers.len() > 0`).
@@ -204,8 +277,8 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   (`CHECK(length(col) <= n)`) can be added or modified without a rewrite, or the column
   can simply be `text` with application-level validation.
 - **Severity**: INFO
-- **IR detectability**: Fully detectable. Match `TypeName.name == "varchar"` or
-  `"character varying"` with non-empty `modifiers`.
+- **IR detectability**: Fully detectable. Match `TypeName.name == "varchar"` with
+  non-empty `modifiers`.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE users (
@@ -232,7 +305,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ---
 
-### PGM107 -- Don't use `float` / `real` / `double precision` for exact values
+### Don't use `float` / `real` / `double precision` for exact values
 
 - **Detects**: Column type `float`, `float4`, `float8`, `real`, or `double precision`.
 - **Why it's bad**: Floating-point types (`real` = `float4`, `double precision` = `float8`)
@@ -243,8 +316,8 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   instead. Floating-point types are appropriate for scientific computations where
   approximate results and maximum performance are acceptable.
 - **Severity**: INFO
-- **IR detectability**: Fully detectable. Match `TypeName.name` being one of `"float"`,
-  `"float4"`, `"float8"`, `"real"`, `"double precision"`.
+- **IR detectability**: Fully detectable. Match `TypeName.name` being one of `"float4"`,
+  `"float8"`.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE products (
@@ -268,58 +341,14 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ---
 
-## Category 2: Constraint and Schema Anti-Patterns
-
-### PGM108 -- Don't use `text` for enumerated values without a CHECK constraint
-
-This rule is **not recommended for implementation** at this time.
-
-- **Rationale**: Detecting that a column "should" have a CHECK constraint requires
-  semantic understanding of the data model that is beyond static analysis. A `text`
-  column storing status codes is indistinguishable from a `text` column storing
-  free-form notes. Flagging every text column would be too noisy. This is better
-  addressed through code review practices or application-level validation patterns.
-
----
-
-### PGM109 -- Don't use SQL key words as identifiers
-
-This rule is **not recommended for implementation** at this time.
-
-- **Rationale**: While the wiki advises against using SQL reserved words as table or
-  column names, detecting this requires maintaining a complete list of reserved words
-  across PostgreSQL versions. The IR stores names as strings without quoting information,
-  so distinguishing `"user"` (quoted, intentional) from `user` (unquoted, accidental) is
-  not possible from the current IR. Additionally, many commonly used column names
-  (`name`, `type`, `value`, `key`) are reserved words and flagging all of them would be
-  extremely noisy.
-
----
-
-## Category 3: Implicit Cast and Precision Anti-Patterns
-
-### PGM110 -- Don't use `integer` as primary key type for large tables
-
-This rule is **not recommended for implementation** at this time.
-
-- **Rationale**: Whether `integer` (max ~2.1 billion) is sufficient depends on the
-  table's expected row count, which is a domain-specific judgment. The wiki recommends
-  `bigint` for new tables, but flagging every `integer` PK would be extremely noisy.
-  This is better handled as a team convention through a configurable rule that defaults
-  to off.
-
----
-
-## Category 4: Additional DDL Anti-Patterns from the Wiki
-
-### PGM111 -- Don't use `INHERITS` for table partitioning
+### Don't use `INHERITS` for table partitioning
 
 - **Detects**: `CREATE TABLE ... INHERITS (parent)` syntax.
 - **Why it's bad**: Old-style inheritance-based partitioning (pre-PG10) does not enforce
   partition constraints automatically, does not route inserts, and has poor query
   planning compared to native declarative partitioning (`PARTITION BY`). Declarative
   partitioning (available since PG 10) is superior in all respects.
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **IR detectability**: **Not currently detectable.** The `CreateTable` IR node does not
   include an `inherits` field. The parser would need to be extended to capture
   `INHERITS` clauses from the `pg_query` AST (`CreateStmt.inhRelations`). Alternatively,
@@ -349,9 +378,31 @@ This rule is **not recommended for implementation** at this time.
 
 ---
 
-### PGM112 -- Don't create unlogged tables without understanding the implications
+## Category 3: Not Recommended
 
-This rule is **not recommended for implementation** at this time.
+The following items were evaluated but are **not recommended for implementation**
+because they would produce too many false positives or require semantic understanding
+beyond static analysis.
+
+### Don't use `text` for enumerated values without a CHECK constraint
+
+- **Rationale**: Detecting that a column "should" have a CHECK constraint requires
+  semantic understanding of the data model that is beyond static analysis. A `text`
+  column storing status codes is indistinguishable from a `text` column storing
+  free-form notes. Flagging every text column would be too noisy. This is better
+  addressed through code review practices or application-level validation patterns.
+
+### Don't use SQL key words as identifiers
+
+- **Rationale**: While the wiki advises against using SQL reserved words as table or
+  column names, detecting this requires maintaining a complete list of reserved words
+  across PostgreSQL versions. The IR stores names as strings without quoting information,
+  so distinguishing `"user"` (quoted, intentional) from `user` (unquoted, accidental) is
+  not possible from the current IR. Additionally, many commonly used column names
+  (`name`, `type`, `value`, `key`) are reserved words and flagging all of them would be
+  extremely noisy.
+
+### Don't create unlogged tables without understanding the implications
 
 - **Rationale**: `UNLOGGED` tables are a deliberate performance trade-off. They are
   appropriate for ephemeral/staging data. Flagging them unconditionally would generate
@@ -363,17 +414,18 @@ This rule is **not recommended for implementation** at this time.
 
 | Rule ID | Anti-Pattern | Severity | IR Match | Status |
 |---------|-------------|----------|----------|--------|
-| PGM101 | `timestamp` without time zone | WARNING | `name == "timestamp"` | **Implement** |
-| PGM102 | `timestamp(0)` / `timestamptz(0)` precision | WARNING | `name in (timestamp, timestamptz) && modifiers == [0]` | **Implement** |
-| PGM103 | `char(n)` / `character(n)` | WARNING | `name == "bpchar"` | **Implement** |
-| PGM104 | `money` type | WARNING | `name == "money"` | **Implement** |
-| PGM105 | `serial` / `bigserial` (prefer identity) | INFO | `nextval()` default on `int4`/`int8`/`int2` | **Implement** |
-| PGM106 | `varchar(n)` (prefer text) | INFO | `name == "varchar" && modifiers non-empty` | Deferred (needs per-rule config) |
-| PGM107 | `float` / `real` / `double precision` | INFO | `name in ("float4", "float8")` | Deferred (needs per-rule config) |
-| PGM111 | `INHERITS`-based partitioning | WARNING | Not in IR | Deferred (needs IR extension) |
+| PGM101 | `timestamp` without time zone | MINOR | `name == "timestamp"` | **Implemented** |
+| PGM102 | `timestamp(0)` / `timestamptz(0)` precision | MINOR | `name in (timestamp, timestamptz) && modifiers == [0]` | **Implemented** |
+| PGM103 | `char(n)` / `character(n)` | MINOR | `name == "bpchar"` | **Implemented** |
+| PGM104 | `money` type | MINOR | `name == "money"` | **Implemented** |
+| PGM105 | `serial` / `bigserial` (prefer identity) | INFO | `nextval()` default on `int4`/`int8`/`int2` | **Implemented** |
+| PGM106 | `integer` primary key (prefer bigint) | MAJOR | PK column with `name in ("int4", "int2")` | Not yet implemented |
+| PGM108 | `json` (prefer `jsonb`) | MINOR | `name == "json"` | **Implemented** |
+| -- | `varchar(n)` (prefer text) | INFO | `name == "varchar" && modifiers non-empty` | Deferred |
+| -- | `float` / `real` / `double precision` | INFO | `name in ("float4", "float8")` | Deferred |
+| -- | `INHERITS`-based partitioning | MINOR | Not in IR | Deferred (needs IR extension) |
 
-Rules not recommended: PGM108 (text without CHECK), PGM109 (reserved-word identifiers),
-PGM110 (integer PK), PGM112 (unlogged tables).
+Not recommended: text without CHECK, reserved-word identifiers, unlogged tables.
 
 ---
 
@@ -381,7 +433,7 @@ PGM110 (integer PK), PGM112 (unlogged tables).
 
 ### Shared Detection Logic
 
-Rules PGM101-PGM107 all follow the same pattern: inspect column type names in column
+Rules PGM101-PGM106 all follow the same pattern: inspect column type names in column
 definitions. They should share a helper function:
 
 ```rust
@@ -418,13 +470,16 @@ names (lowercased) for reliable matching. Known aliases to handle:
 | `float` | `"float8"` (PG default) |
 | `real` | `"float4"` |
 | `double precision` | `"float8"` |
-| `serial` | expanded to `"integer"` + `nextval()` |
-| `bigserial` | expanded to `"bigint"` + `nextval()` |
-| `smallserial` | expanded to `"smallint"` + `nextval()` |
-| `int` | `"integer"` |
-| `int4` | `"integer"` |
-| `int8` | `"bigint"` |
+| `serial` | expanded to `"int4"` + `nextval()` |
+| `bigserial` | expanded to `"int8"` + `nextval()` |
+| `smallserial` | expanded to `"int2"` + `nextval()` |
+| `int` / `int4` | `"int4"` |
+| `integer` | `"int4"` |
+| `bigint` / `int8` | `"int8"` |
+| `smallint` / `int2` | `"int2"` |
 | `decimal` | `"numeric"` |
+| `json` | `"json"` |
+| `jsonb` | `"jsonb"` |
 
 The actual canonical names depend on `pg_query`'s AST output. Verify by parsing sample
 DDL and inspecting the AST. The rule implementations should match against all known
@@ -432,26 +487,24 @@ aliases for each type.
 
 ### Interaction with Existing Rules
 
-- **PGM105 vs PGM007**: Both fire on `nextval()` defaults. This is intentional — PGM007
+- **PGM105 vs PGM007**: Both fire on `nextval()` defaults. This is intentional -- PGM007
   warns about the volatile default aspect (table rewrite risk), PGM105 recommends the
   identity column alternative. Both findings are relevant and neither suppresses the other.
 - **PGM101 vs PGM009**: If someone uses `ALTER COLUMN TYPE` to change from `timestamptz`
   to `timestamp`, both PGM009 (type change on existing table) and PGM101 (bad type) can
   fire. This is correct behavior -- both findings are relevant (one is about the
   dangerous operation, the other about the bad target type).
-- **PGM106 vs PGM009**: Changing `varchar(100)` to `varchar(200)` is already handled by
-  PGM009's safe-cast allowlist. PGM106 firing on the new type is additive and correct.
+- **PGM106 vs PGM105**: A `serial` column (expanded to `int4 + nextval()`) that is also
+  a PK will fire both PGM105 (prefer identity) and PGM106 (prefer bigint). Both findings
+  are relevant -- PGM105 is about the sequence mechanism, PGM106 is about the type size.
 
 ### Configuration
 
-Consider making PGM105, PGM106, and PGM107 disabled by default or configurable, as they
-represent style preferences more than safety concerns. The existing `[rules]` config
-section (reserved for future severity overrides) could be extended to support
-enable/disable:
+The `rules.disabled` config key allows globally disabling rules:
 
 ```toml
-[rules.PGM106]
-enabled = false  # Team prefers varchar(n)
+[rules]
+disabled = ["PGM106"]  # Team accepts integer PKs
 ```
 
 ---
@@ -481,4 +534,5 @@ behavior:
 
 | Version | Date       | Changes |
 |---------|------------|---------|
-| 1.0     | 2025-02-10 | Initial draft. 8 rules proposed (PGM101-PGM107, PGM111). 4 rejected with rationale. |
+| 1.0     | 2026-02-10 | Initial draft. 8 rules proposed (PGM101-PGM107, PGM111). 4 rejected with rationale. |
+| 2.0     | 2026-02-16 | Major sync with SPEC v1.10. PGM101-PGM105, PGM108 marked Implemented. PGM106 reassigned from varchar(n) to integer PK (MAJOR). PGM108 reassigned from text-without-CHECK to json (MINOR). IDs removed from deferred rules (varchar, float, INHERITS). Not-recommended rules (text-CHECK, reserved words, unlogged) moved to separate section without IDs. Severity vocabulary normalized: WARNING → MINOR. Added PGM106 and PGM108 full specifications. |
