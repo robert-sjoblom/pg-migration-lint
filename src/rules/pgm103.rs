@@ -6,26 +6,11 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of `char(n)`.
-pub struct Pgm103;
+pub(super) const DESCRIPTION: &str = "Column uses char(n) type";
 
-impl Rule for Pgm103 {
-    fn id(&self) -> &'static str {
-        "PGM103"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses char(n) type"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM103 — Don't use `char(n)`\n\
+pub(super) const EXPLAIN: &str = "PGM103 — Don't use `char(n)`\n\
          \n\
          What it detects:\n\
          A column declared as `char(n)` or `character(n)`.\n\
@@ -46,33 +31,34 @@ impl Rule for Pgm103 {
          \n\
          Fix:\n\
            CREATE TABLE countries (code text NOT NULL);\n\
-           -- or: code varchar(2) NOT NULL"
-    }
+           -- or: code varchar(2) NOT NULL";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        column_type_check::check_column_types(
-            statements,
-            ctx,
-            self.id(),
-            self.default_severity(),
-            |tn| tn.name.eq_ignore_ascii_case("bpchar"),
-            |col, table, tn| {
-                let display = if let Some(&n) = tn.modifiers.first() {
-                    format!("char({})", n)
-                } else {
-                    "char".to_string()
-                };
-                format!(
-                    "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    column_type_check::check_column_types(
+        statements,
+        ctx,
+        rule,
+        |tn| tn.name.eq_ignore_ascii_case("bpchar"),
+        |col, table, tn| {
+            let display = if let Some(&n) = tn.modifiers.first() {
+                format!("char({})", n)
+            } else {
+                "char".to_string()
+            };
+            format!(
+                "Column '{}' on '{}' uses '{}'. The char(n) type pads with \
                      spaces, wastes storage, and is no faster than text or varchar \
                      in PostgreSQL. Use text or varchar instead.",
-                    col,
-                    table.display_name(),
-                    display,
-                )
-            },
-        )
-    }
+                col,
+                table.display_name(),
+                display,
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -81,6 +67,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -106,7 +93,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm103.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -132,7 +119,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm103.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -158,7 +145,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm103.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -184,7 +171,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm103.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

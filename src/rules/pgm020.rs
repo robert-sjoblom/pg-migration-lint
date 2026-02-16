@@ -5,26 +5,11 @@
 //! that references the old column name.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags `RENAME COLUMN` on an existing table.
-pub struct Pgm020;
+pub(super) const DESCRIPTION: &str = "RENAME COLUMN on existing table";
 
-impl Rule for Pgm020 {
-    fn id(&self) -> &'static str {
-        "PGM020"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Info
-    }
-
-    fn description(&self) -> &'static str {
-        "RENAME COLUMN on existing table"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM020 — RENAME COLUMN on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM020 — RENAME COLUMN on existing table\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... RENAME COLUMN old_name TO new_name on a table that\n\
@@ -51,44 +36,44 @@ impl Rule for Pgm020 {
          \n\
          This rule does NOT fire when the table is created in the same set of\n\
          changed files, because renaming a column on a new table has no\n\
-         external consumers."
-    }
+         external consumers.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::RenameColumn {
-                ref table,
-                ref old_name,
-                ref new_name,
-            } = stmt.node
-            {
-                let table_key = table.catalog_key();
+    for stmt in statements {
+        if let IrNode::RenameColumn {
+            ref table,
+            ref old_name,
+            ref new_name,
+        } = stmt.node
+        {
+            let table_key = table.catalog_key();
 
-                // Only flag if table exists in catalog_before and is not newly created.
-                if !ctx.is_existing_table(table_key) {
-                    continue;
-                }
-
-                findings.push(Finding::new(
-                    self.id(),
-                    self.default_severity(),
-                    format!(
-                        "Renaming column '{old_name}' to '{new_name}' on existing table \
-                         '{table}' will break queries referencing the old column name.",
-                        old_name = old_name,
-                        new_name = new_name,
-                        table = table.display_name(),
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
+            // Only flag if table exists in catalog_before and is not newly created.
+            if !ctx.is_existing_table(table_key) {
+                continue;
             }
-        }
 
-        findings
+            findings.push(rule.make_finding(
+                format!(
+                    "Renaming column '{old_name}' to '{new_name}' on existing table \
+                         '{table}' will break queries referencing the old column name.",
+                    old_name = old_name,
+                    new_name = new_name,
+                    table = table.display_name(),
+                ),
+                ctx.file,
+                &stmt.span,
+            ));
+        }
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -98,6 +83,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -121,7 +107,7 @@ mod tests {
             new_name: "order_status".to_string(),
         })];
 
-        let findings = Pgm020.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm020).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -146,7 +132,7 @@ mod tests {
             new_name: "order_status".to_string(),
         })];
 
-        let findings = Pgm020.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm020).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

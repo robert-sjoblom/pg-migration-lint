@@ -6,26 +6,11 @@
 //! avoids a false positive.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags tables created without a primary key.
-pub struct Pgm004;
+pub(super) const DESCRIPTION: &str = "Table without primary key";
 
-impl Rule for Pgm004 {
-    fn id(&self) -> &'static str {
-        "PGM004"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Major
-    }
-
-    fn description(&self) -> &'static str {
-        "Table without primary key"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM004 — Table without primary key\n\
+pub(super) const EXPLAIN: &str = "PGM004 — Table without primary key\n\
          \n\
          What it detects:\n\
          A CREATE TABLE statement (non-temporary) that does not define a\n\
@@ -50,45 +35,47 @@ impl Rule for Pgm004 {
            );\n\
          \n\
          Note: Temporary tables are excluded. If PGM005 fires (UNIQUE NOT NULL\n\
-         used instead of PK), PGM004 does NOT fire for the same table."
-    }
+         used instead of PK), PGM004 does NOT fire for the same table.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::CreateTable(ref ct) = stmt.node {
-                // Skip temporary tables.
-                if ct.temporary {
-                    continue;
-                }
+    for stmt in statements {
+        if let IrNode::CreateTable(ref ct) = stmt.node {
+            // Skip temporary tables.
+            if ct.temporary {
+                continue;
+            }
 
-                let table_key = ct.name.catalog_key();
+            let table_key = ct.name.catalog_key();
 
-                // Post-file check: look at catalog_after to see if a PK was added.
-                let table_state = ctx.catalog_after.get_table(table_key);
-                let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
+            // Post-file check: look at catalog_after to see if a PK was added.
+            let table_state = ctx.catalog_after.get_table(table_key);
+            let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
 
-                if !has_pk {
-                    // Check for PGM005 condition: UNIQUE NOT NULL substitute.
-                    // If PGM005 would fire, suppress PGM004.
-                    let has_unique_not_null = table_state
-                        .map(|t| t.has_unique_not_null())
-                        .unwrap_or(false);
+            if !has_pk {
+                // Check for PGM005 condition: UNIQUE NOT NULL substitute.
+                // If PGM005 would fire, suppress PGM004.
+                let has_unique_not_null = table_state
+                    .map(|t| t.has_unique_not_null())
+                    .unwrap_or(false);
 
-                    if !has_unique_not_null {
-                        findings.push(self.make_finding(
-                            format!("Table '{}' has no primary key.", ct.name.display_name()),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                if !has_unique_not_null {
+                    findings.push(rule.make_finding(
+                        format!("Table '{}' has no primary key.", ct.name.display_name()),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -98,6 +85,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -138,7 +126,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm004.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -182,7 +170,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm004.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -225,7 +213,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm004.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -251,7 +239,7 @@ mod tests {
             temporary: true,
         }))];
 
-        let findings = Pgm004.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -286,7 +274,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm004.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

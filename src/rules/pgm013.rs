@@ -7,26 +7,11 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags dropping a column that participates in a unique constraint or unique index.
-pub struct Pgm013;
+pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes unique constraint";
 
-impl Rule for Pgm013 {
-    fn id(&self) -> &'static str {
-        "PGM013"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "DROP COLUMN silently removes unique constraint"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM013 — DROP COLUMN silently removes unique constraint\n\
+pub(super) const EXPLAIN: &str = "PGM013 — DROP COLUMN silently removes unique constraint\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
@@ -47,75 +32,77 @@ impl Rule for Pgm013 {
          Verify that the uniqueness guarantee provided by the constraint or\n\
          index is no longer needed before dropping the column. If uniqueness\n\
          is still required on the remaining columns, create a new constraint\n\
-         or index covering those columns."
-    }
+         or index covering those columns.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::AnyPreExisting,
-            |at, action, stmt, ctx| {
-                let AlterTableAction::DropColumn { name } = action else {
-                    return vec![];
-                };
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::AnyPreExisting,
+        |at, action, stmt, ctx| {
+            let AlterTableAction::DropColumn { name } = action else {
+                return vec![];
+            };
 
-                let table_key = at.name.catalog_key();
-                let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                    return vec![];
-                };
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                let mut findings = Vec::new();
+            let mut findings = Vec::new();
 
-                // Check UNIQUE constraints that include this column.
-                for constraint in table.constraints_involving_column(name) {
-                    if let ConstraintState::Unique {
-                        name: constraint_name,
-                        columns,
-                    } = constraint
-                    {
-                        let constraint_description = match constraint_name {
-                            Some(n) => format!("'{n}'"),
-                            None => format!("UNIQUE({})", columns.join(", ")),
-                        };
-                        findings.push(self.make_finding(
-                            format!(
-                                "Dropping column '{col}' from table '{table}' silently \
+            // Check UNIQUE constraints that include this column.
+            for constraint in table.constraints_involving_column(name) {
+                if let ConstraintState::Unique {
+                    name: constraint_name,
+                    columns,
+                } = constraint
+                {
+                    let constraint_description = match constraint_name {
+                        Some(n) => format!("'{n}'"),
+                        None => format!("UNIQUE({})", columns.join(", ")),
+                    };
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Dropping column '{col}' from table '{table}' silently \
                              removes unique constraint {constraint}. Verify that \
                              the uniqueness guarantee is no longer needed.",
-                                col = name,
-                                table = at.name.display_name(),
-                                constraint = constraint_description,
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                            col = name,
+                            table = at.name.display_name(),
+                            constraint = constraint_description,
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
+            }
 
-                // Check unique indexes that include this column.
-                // Skip PK indexes (named *_pkey) since PGM014 handles those.
-                for idx in table.indexes_involving_column(name) {
-                    if idx.unique && !idx.name.ends_with("_pkey") {
-                        findings.push(self.make_finding(
-                            format!(
-                                "Dropping column '{col}' from table '{table}' silently \
+            // Check unique indexes that include this column.
+            // Skip PK indexes (named *_pkey) since PGM014 handles those.
+            for idx in table.indexes_involving_column(name) {
+                if idx.unique && !idx.name.ends_with("_pkey") {
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Dropping column '{col}' from table '{table}' silently \
                              removes unique constraint '{constraint}'. Verify that \
                              the uniqueness guarantee is no longer needed.",
-                                col = name,
-                                table = at.name.display_name(),
-                                constraint = idx.name,
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                            col = name,
+                            table = at.name.display_name(),
+                            constraint = idx.name,
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
+            }
 
-                findings
-            },
-        )
-    }
+            findings
+        },
+    )
 }
 
 #[cfg(test)]
@@ -125,6 +112,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -150,7 +138,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -176,7 +164,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -203,7 +191,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -222,7 +210,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -247,7 +235,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         // PK constraints are ConstraintState::PrimaryKey, not Unique, so PGM013 ignores them.
         assert!(findings.is_empty());
     }
@@ -275,9 +263,12 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM013");
+        assert_eq!(
+            findings[0].rule_id,
+            RuleId::Migration(MigrationRule::Pgm013)
+        );
     }
 
     #[test]
@@ -303,7 +294,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm013.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

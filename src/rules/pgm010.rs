@@ -5,26 +5,11 @@
 //! has any rows.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags adding a NOT NULL column without a DEFAULT to an existing table.
-pub struct Pgm010;
+pub(super) const DESCRIPTION: &str = "ADD COLUMN NOT NULL without DEFAULT on existing table";
 
-impl Rule for Pgm010 {
-    fn id(&self) -> &'static str {
-        "PGM010"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "ADD COLUMN NOT NULL without DEFAULT on existing table"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM010 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM010 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,\n\
@@ -50,36 +35,38 @@ impl Rule for Pgm010 {
          Fix (option B — add nullable, backfill, then constrain):\n\
            ALTER TABLE orders ADD COLUMN status text;\n\
            UPDATE orders SET status = 'pending' WHERE status IS NULL;\n\
-           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;"
-    }
+           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                if let AlterTableAction::AddColumn(col) = action
-                    && !col.nullable
-                    && col.default_expr.is_none()
-                {
-                    vec![self.make_finding(
-                        format!(
-                            "Adding NOT NULL column '{col}' to existing table '{table}' \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            if let AlterTableAction::AddColumn(col) = action
+                && !col.nullable
+                && col.default_expr.is_none()
+            {
+                vec![rule.make_finding(
+                    format!(
+                        "Adding NOT NULL column '{col}' to existing table '{table}' \
                          without a DEFAULT will fail if the table has any rows. \
                          Add a DEFAULT value, or add the column as nullable and backfill.",
-                            col = col.name,
-                            table = at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )]
-                } else {
-                    vec![]
-                }
-            },
-        )
-    }
+                        col = col.name,
+                        table = at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
+            }
+        },
+    )
 }
 
 #[cfg(test)]
@@ -89,6 +76,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -116,7 +104,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm010.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -144,7 +132,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm010.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -172,7 +160,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm010.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -201,7 +189,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm010.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

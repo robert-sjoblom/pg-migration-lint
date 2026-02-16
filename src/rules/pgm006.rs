@@ -6,26 +6,11 @@
 //! will fail at runtime.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags concurrent index operations inside a transaction.
-pub struct Pgm006;
+pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
 
-impl Rule for Pgm006 {
-    fn id(&self) -> &'static str {
-        "PGM006"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "CONCURRENTLY inside transaction"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM006 — CONCURRENTLY inside transaction\n\
+pub(super) const EXPLAIN: &str = "PGM006 — CONCURRENTLY inside transaction\n\
          \n\
          What it detects:\n\
          A CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement\n\
@@ -48,39 +33,41 @@ impl Rule for Pgm006 {
            </changeSet>\n\
          \n\
          For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\n\
-         the migration file header."
+         the migration file header.";
+
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    if !ctx.run_in_transaction {
+        return Vec::new();
     }
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        if !ctx.run_in_transaction {
-            return Vec::new();
-        }
+    let mut findings = Vec::new();
 
-        let mut findings = Vec::new();
+    for stmt in statements {
+        let is_concurrent = match &stmt.node {
+            IrNode::CreateIndex(ci) => ci.concurrent,
+            IrNode::DropIndex(di) => di.concurrent,
+            _ => false,
+        };
 
-        for stmt in statements {
-            let is_concurrent = match &stmt.node {
-                IrNode::CreateIndex(ci) => ci.concurrent,
-                IrNode::DropIndex(di) => di.concurrent,
-                _ => false,
-            };
-
-            if is_concurrent {
-                findings.push(
-                    self.make_finding(
-                        "CONCURRENTLY cannot run inside a transaction. \
+        if is_concurrent {
+            findings.push(
+                rule.make_finding(
+                    "CONCURRENTLY cannot run inside a transaction. \
                          Set runInTransaction=\"false\" (Liquibase) or disable \
                          transactions for this migration."
-                            .to_string(),
-                        ctx.file,
-                        &stmt.span,
-                    ),
-                );
-            }
+                        .to_string(),
+                    ctx.file,
+                    &stmt.span,
+                ),
+            );
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -89,6 +76,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -110,7 +98,7 @@ mod tests {
             concurrent: true,
         }))];
 
-        let findings = Pgm006.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -132,7 +120,7 @@ mod tests {
             concurrent: true,
         }))];
 
-        let findings = Pgm006.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -154,7 +142,7 @@ mod tests {
             concurrent: false,
         }))];
 
-        let findings = Pgm006.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -171,7 +159,7 @@ mod tests {
             concurrent: true,
         }))];
 
-        let findings = Pgm006.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

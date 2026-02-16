@@ -5,26 +5,11 @@
 //! the SQL standard approach with better ownership semantics.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of `serial` / `bigserial` / `smallserial` column types.
-pub struct Pgm105;
+pub(super) const DESCRIPTION: &str = "Column uses serial/bigserial instead of identity column";
 
-impl Rule for Pgm105 {
-    fn id(&self) -> &'static str {
-        "PGM105"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Info
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses serial/bigserial instead of identity column"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM105 — Don't use `serial` / `bigserial`\n\
+pub(super) const EXPLAIN: &str = "PGM105 — Don't use `serial` / `bigserial`\n\
          \n\
          What it detects:\n\
          A column declared as `serial`, `bigserial`, or `smallserial`.\n\
@@ -47,18 +32,21 @@ impl Rule for Pgm105 {
          Fix:\n\
            CREATE TABLE orders (\n\
              id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
-           );"
-    }
+           );";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            match &stmt.node {
-                IrNode::CreateTable(ct) => {
-                    for col in &ct.columns {
-                        if col.is_serial {
-                            findings.push(self.make_finding(
+    for stmt in statements {
+        match &stmt.node {
+            IrNode::CreateTable(ct) => {
+                for col in &ct.columns {
+                    if col.is_serial {
+                        findings.push(rule.make_finding(
                                 format!(
                                     "Column '{}' on '{}' uses a sequence default \
                                      (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \
@@ -70,15 +58,15 @@ impl Rule for Pgm105 {
                                 ctx.file,
                                 &stmt.span,
                             ));
-                        }
                     }
                 }
-                IrNode::AlterTable(at) => {
-                    for action in &at.actions {
-                        if let AlterTableAction::AddColumn(col) = action
-                            && col.is_serial
-                        {
-                            findings.push(self.make_finding(
+            }
+            IrNode::AlterTable(at) => {
+                for action in &at.actions {
+                    if let AlterTableAction::AddColumn(col) = action
+                        && col.is_serial
+                    {
+                        findings.push(rule.make_finding(
                                     format!(
                                         "Column '{}' on '{}' uses a sequence default \
                                          (serial/bigserial). Prefer GENERATED {{ ALWAYS | BY DEFAULT }} \
@@ -90,15 +78,14 @@ impl Rule for Pgm105 {
                                     ctx.file,
                                     &stmt.span,
                                 ));
-                        }
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -107,6 +94,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -135,7 +123,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm105.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -164,7 +152,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm105.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -191,7 +179,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm105.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -218,7 +206,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm105.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

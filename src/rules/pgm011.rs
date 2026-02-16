@@ -6,26 +6,11 @@
 //! referencing the column will break.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags dropping a column from an existing table.
-pub struct Pgm011;
+pub(super) const DESCRIPTION: &str = "DROP COLUMN on existing table";
 
-impl Rule for Pgm011 {
-    fn id(&self) -> &'static str {
-        "PGM011"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Info
-    }
-
-    fn description(&self) -> &'static str {
-        "DROP COLUMN on existing table"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM011 — DROP COLUMN on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM011 — DROP COLUMN on existing table\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... DROP COLUMN on a table that already exists in the\n\
@@ -46,33 +31,35 @@ impl Rule for Pgm011 {
          3. Then drop the column in a subsequent migration.\n\
          \n\
          This rule is informational (INFO severity) to increase visibility\n\
-         of column drops in code review."
-    }
+         of column drops in code review.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                if let AlterTableAction::DropColumn { name } = action {
-                    vec![self.make_finding(
-                        format!(
-                            "Dropping column '{col}' from existing table '{table}'. \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            if let AlterTableAction::DropColumn { name } = action {
+                vec![rule.make_finding(
+                    format!(
+                        "Dropping column '{col}' from existing table '{table}'. \
                          The DDL is cheap but ensure no application code references \
                          this column.",
-                            col = name,
-                            table = at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )]
-                } else {
-                    vec![]
-                }
-            },
-        )
-    }
+                        col = name,
+                        table = at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
+            }
+        },
+    )
 }
 
 #[cfg(test)]
@@ -82,6 +69,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -106,7 +94,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm011.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm011).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -130,7 +118,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm011.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm011).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

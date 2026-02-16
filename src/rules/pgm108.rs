@@ -8,26 +8,11 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of the `json` type instead of `jsonb`.
-pub struct Pgm108;
+pub(super) const DESCRIPTION: &str = "Column uses json type instead of jsonb";
 
-impl Rule for Pgm108 {
-    fn id(&self) -> &'static str {
-        "PGM108"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses json type instead of jsonb"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM108 — Don't use `json` (prefer `jsonb`)\n\
+pub(super) const EXPLAIN: &str = "PGM108 — Don't use `json` (prefer `jsonb`)\n\
          \n\
          What it detects:\n\
          A column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\
@@ -44,28 +29,29 @@ impl Rule for Pgm108 {
            CREATE TABLE events (payload json NOT NULL);\n\
          \n\
          Fix:\n\
-           CREATE TABLE events (payload jsonb NOT NULL);"
-    }
+           CREATE TABLE events (payload jsonb NOT NULL);";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        column_type_check::check_column_types(
-            statements,
-            ctx,
-            self.id(),
-            self.default_severity(),
-            |tn| tn.name.eq_ignore_ascii_case("json"),
-            |col, table, _tn| {
-                format!(
-                    "Column '{}' on '{}' uses 'json'. Use 'jsonb' instead — \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    column_type_check::check_column_types(
+        statements,
+        ctx,
+        rule,
+        |tn| tn.name.eq_ignore_ascii_case("json"),
+        |col, table, _tn| {
+            format!(
+                "Column '{}' on '{}' uses 'json'. Use 'jsonb' instead — \
                      it's faster, smaller, indexable, and supports containment \
                      operators. Only use 'json' if you need to preserve exact \
                      text representation or key order.",
-                    col,
-                    table.display_name(),
-                )
-            },
-        )
-    }
+                col,
+                table.display_name(),
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -74,6 +60,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -99,7 +86,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm108.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -125,7 +112,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm108.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -149,7 +136,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm108.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

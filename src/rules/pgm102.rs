@@ -6,26 +6,11 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of `timestamp(0)` or `timestamptz(0)`.
-pub struct Pgm102;
+pub(super) const DESCRIPTION: &str = "Column uses timestamp or timestamptz with precision 0";
 
-impl Rule for Pgm102 {
-    fn id(&self) -> &'static str {
-        "PGM102"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses timestamp or timestamptz with precision 0"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`\n\
+pub(super) const EXPLAIN: &str = "PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`\n\
          \n\
          What it detects:\n\
          A column declared as `timestamp(0)` or `timestamptz(0)`.\n\
@@ -45,33 +30,34 @@ impl Rule for Pgm102 {
            CREATE TABLE events (created_at timestamptz(0));\n\
          \n\
          Fix:\n\
-           CREATE TABLE events (created_at timestamptz);"
-    }
+           CREATE TABLE events (created_at timestamptz);";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        column_type_check::check_column_types(
-            statements,
-            ctx,
-            self.id(),
-            self.default_severity(),
-            |tn| {
-                (tn.name.eq_ignore_ascii_case("timestamp")
-                    || tn.name.eq_ignore_ascii_case("timestamptz"))
-                    && tn.modifiers == [0]
-            },
-            |col, table, tn| {
-                format!(
-                    "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    column_type_check::check_column_types(
+        statements,
+        ctx,
+        rule,
+        |tn| {
+            (tn.name.eq_ignore_ascii_case("timestamp")
+                || tn.name.eq_ignore_ascii_case("timestamptz"))
+                && tn.modifiers == [0]
+        },
+        |col, table, tn| {
+            format!(
+                "Column '{}' on '{}' uses '{}(0)'. Precision 0 causes \
                      rounding, not truncation \u{2014} a value of '23:59:59.9' \
                      rounds to the next day. Use full precision and format on \
                      output instead.",
-                    col,
-                    table.display_name(),
-                    tn.name,
-                )
-            },
-        )
-    }
+                col,
+                table.display_name(),
+                tn.name,
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -80,6 +66,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -105,7 +92,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm102.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -131,7 +118,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm102.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -157,7 +144,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm102.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -183,7 +170,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm102.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

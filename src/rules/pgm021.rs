@@ -6,27 +6,11 @@
 //! add the constraint using that index.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags adding a UNIQUE constraint to an existing table without a
-/// pre-existing unique index on the constraint columns.
-pub struct Pgm021;
+pub(super) const DESCRIPTION: &str = "ADD UNIQUE on existing table without USING INDEX";
 
-impl Rule for Pgm021 {
-    fn id(&self) -> &'static str {
-        "PGM021"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "ADD UNIQUE on existing table without USING INDEX"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM021 — ADD UNIQUE on existing table without USING INDEX\n\
+pub(super) const EXPLAIN: &str = "PGM021 — ADD UNIQUE on existing table without USING INDEX\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns) where the table\n\
@@ -45,45 +29,46 @@ impl Rule for Pgm021 {
          \n\
          Fix (safe pattern — build unique index concurrently first):\n\
            CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\n\
-           ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;"
-    }
+           ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                let AlterTableAction::AddConstraint(TableConstraint::Unique { columns, .. }) =
-                    action
-                else {
-                    return vec![];
-                };
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            let AlterTableAction::AddConstraint(TableConstraint::Unique { columns, .. }) = action
+            else {
+                return vec![];
+            };
 
-                let table_key = at.name.catalog_key();
-                let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                    return vec![];
-                };
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                if table.has_unique_covering(columns) {
-                    return vec![];
-                }
+            if table.has_unique_covering(columns) {
+                return vec![];
+            }
 
-                vec![self.make_finding(
-                    format!(
-                        "ADD UNIQUE on existing table '{table}' without a \
+            vec![rule.make_finding(
+                format!(
+                    "ADD UNIQUE on existing table '{table}' without a \
                      pre-existing unique index on column(s) [{columns}]. \
                      Create a unique index CONCURRENTLY first, then use \
                      ADD CONSTRAINT ... UNIQUE USING INDEX.",
-                        table = at.name.display_name(),
-                        columns = columns.join(", "),
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                )]
-            },
-        )
-    }
+                    table = at.name.display_name(),
+                    columns = columns.join(", "),
+                ),
+                ctx.file,
+                &stmt.span,
+            )]
+        },
+    )
 }
 
 #[cfg(test)]
@@ -93,6 +78,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -121,7 +107,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -141,7 +127,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -161,7 +147,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -175,7 +161,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("nonexistent", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -195,7 +181,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -215,7 +201,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = Pgm021.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm021).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

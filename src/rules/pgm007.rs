@@ -14,9 +14,6 @@ use crate::parser::ir::{
 use crate::rules::{Finding, LintContext, Rule, Severity};
 use std::path::Path;
 
-/// Rule that flags volatile function defaults on columns.
-pub struct Pgm007;
-
 /// Known volatile functions that always force a table rewrite when used as
 /// a column default on `ADD COLUMN` to an existing table.
 const KNOWN_VOLATILE: &[&str] = &[
@@ -30,11 +27,74 @@ const KNOWN_VOLATILE: &[&str] = &[
     "txid_current",
 ];
 
+pub(super) const DESCRIPTION: &str = "Volatile default on column";
+
+pub(super) const EXPLAIN: &str = "PGM007 — Volatile default on column\n\
+         \n\
+         What it detects:\n\
+         A column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)\n\
+         that uses a function call as the DEFAULT expression.\n\
+         \n\
+         Why it's dangerous:\n\
+         On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\n\
+         the table — they are applied lazily. Volatile defaults (now(), random(),\n\
+         gen_random_uuid(), etc.) must be evaluated per-row at write time,\n\
+         forcing a full table rewrite under an ACCESS EXCLUSIVE lock.\n\
+         \n\
+         Severity levels:\n\
+         - MINOR (WARNING): Known volatile functions (now, current_timestamp,\n\
+           random, gen_random_uuid, uuid_generate_v4, clock_timestamp,\n\
+           timeofday, txid_current)\n\
+         - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n\
+         - INFO: Unknown function calls — developer should verify volatility\n\
+         - No finding: Literal defaults (0, 'active', TRUE)\n\
+         \n\
+         Example (flagged):\n\
+           ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();\n\
+         \n\
+         Fix:\n\
+           ALTER TABLE orders ADD COLUMN created_at timestamptz;\n\
+           -- Then backfill:\n\
+           UPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\
+         \n\
+         Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
+         rows) and are not flagged.";
+
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    for stmt in statements {
+        // Only check ALTER TABLE … ADD COLUMN.
+        // CREATE TABLE is intentionally skipped — no existing rows means no rewrite.
+        if let IrNode::AlterTable(at) = &stmt.node {
+            // Skip tables created in this changeset — no existing rows to rewrite.
+            let table_key = at.name.catalog_key();
+            if ctx.tables_created_in_change.contains(table_key) {
+                continue;
+            }
+
+            for action in &at.actions {
+                if let AlterTableAction::AddColumn(col) = action
+                    && let Some(finding) = check_column(col, &at.name, &rule, ctx.file, &stmt.span)
+                {
+                    findings.push(finding);
+                }
+            }
+        }
+    }
+
+    findings
+}
+
 /// Check a single column definition for a volatile default.
 fn check_column(
     col: &ColumnDef,
     table_name: &QualifiedName,
-    rule: &Pgm007,
+    rule: &impl Rule,
     file: &Path,
     span: &SourceSpan,
 ) -> Option<Finding> {
@@ -99,82 +159,6 @@ fn check_column(
     ))
 }
 
-impl Rule for Pgm007 {
-    fn id(&self) -> &'static str {
-        "PGM007"
-    }
-
-    fn default_severity(&self) -> Severity {
-        // The actual severity varies per finding; this is the "worst case" default.
-        // WARNING maps to Minor in the Severity enum.
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Volatile default on column"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM007 — Volatile default on column\n\
-         \n\
-         What it detects:\n\
-         A column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)\n\
-         that uses a function call as the DEFAULT expression.\n\
-         \n\
-         Why it's dangerous:\n\
-         On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\n\
-         the table — they are applied lazily. Volatile defaults (now(), random(),\n\
-         gen_random_uuid(), etc.) must be evaluated per-row at write time,\n\
-         forcing a full table rewrite under an ACCESS EXCLUSIVE lock.\n\
-         \n\
-         Severity levels:\n\
-         - MINOR (WARNING): Known volatile functions (now, current_timestamp,\n\
-           random, gen_random_uuid, uuid_generate_v4, clock_timestamp,\n\
-           timeofday, txid_current)\n\
-         - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n\
-         - INFO: Unknown function calls — developer should verify volatility\n\
-         - No finding: Literal defaults (0, 'active', TRUE)\n\
-         \n\
-         Example (flagged):\n\
-           ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();\n\
-         \n\
-         Fix:\n\
-           ALTER TABLE orders ADD COLUMN created_at timestamptz;\n\
-           -- Then backfill:\n\
-           UPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\
-         \n\
-         Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
-         rows) and are not flagged."
-    }
-
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
-
-        for stmt in statements {
-            // Only check ALTER TABLE … ADD COLUMN.
-            // CREATE TABLE is intentionally skipped — no existing rows means no rewrite.
-            if let IrNode::AlterTable(at) = &stmt.node {
-                // Skip tables created in this changeset — no existing rows to rewrite.
-                let table_key = at.name.catalog_key();
-                if ctx.tables_created_in_change.contains(table_key) {
-                    continue;
-                }
-
-                for action in &at.actions {
-                    if let AlterTableAction::AddColumn(col) = action
-                        && let Some(finding) =
-                            check_column(col, &at.name, self, ctx.file, &stmt.span)
-                    {
-                        findings.push(finding);
-                    }
-                }
-            }
-        }
-
-        findings
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,6 +166,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -221,7 +206,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -246,7 +231,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "CREATE TABLE should not trigger PGM007"
@@ -272,7 +257,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "ADD COLUMN on table created in same changeset should not trigger PGM007"
@@ -299,7 +284,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -322,7 +307,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -345,7 +330,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -369,7 +354,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm007.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm007).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

@@ -6,26 +6,11 @@
 //! build, blocking all reads and writes.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags `CREATE INDEX` without `CONCURRENTLY` on existing tables.
-pub struct Pgm001;
+pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on CREATE INDEX";
 
-impl Rule for Pgm001 {
-    fn id(&self) -> &'static str {
-        "PGM001"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "Missing CONCURRENTLY on CREATE INDEX"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\
+pub(super) const EXPLAIN: &str = "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\
          \n\
          What it detects:\n\
          A CREATE INDEX statement that does not use the CONCURRENTLY option,\n\
@@ -49,38 +34,40 @@ impl Rule for Pgm001 {
          you must also disable that. See PGM006.\n\
          \n\
          This rule does NOT fire when the table is created in the same set of\n\
-         changed files, because locking an empty/new table is harmless."
-    }
+         changed files, because locking an empty/new table is harmless.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::CreateIndex(ref ci) = stmt.node {
-                if ci.concurrent {
-                    continue;
-                }
+    for stmt in statements {
+        if let IrNode::CreateIndex(ref ci) = stmt.node {
+            if ci.concurrent {
+                continue;
+            }
 
-                let table_key = ci.table_name.catalog_key();
+            let table_key = ci.table_name.catalog_key();
 
-                // Only flag if table exists in catalog_before (pre-existing)
-                // AND was not created in the current set of changed files.
-                if ctx.is_existing_table(table_key) {
-                    findings.push(self.make_finding(
-                        format!(
-                            "CREATE INDEX on existing table '{}' should use CONCURRENTLY \
+            // Only flag if table exists in catalog_before (pre-existing)
+            // AND was not created in the current set of changed files.
+            if ctx.is_existing_table(table_key) {
+                findings.push(rule.make_finding(
+                    format!(
+                        "CREATE INDEX on existing table '{}' should use CONCURRENTLY \
                              to avoid holding an exclusive lock.",
-                            ci.table_name.display_name()
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
-                }
+                        ci.table_name.display_name()
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                ));
             }
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -90,6 +77,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -115,7 +103,7 @@ mod tests {
             concurrent: false,
         }))];
 
-        let findings = Pgm001.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -141,7 +129,7 @@ mod tests {
             concurrent: true,
         }))];
 
-        let findings = Pgm001.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -168,7 +156,7 @@ mod tests {
             concurrent: false,
         }))];
 
-        let findings = Pgm001.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

@@ -4,27 +4,11 @@
 //! exist. The safe pattern is ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags adding a FOREIGN KEY constraint on an existing table
-/// without the `NOT VALID` modifier.
-pub struct Pgm017;
+pub(super) const DESCRIPTION: &str = "ADD FOREIGN KEY on existing table without NOT VALID";
 
-impl Rule for Pgm017 {
-    fn id(&self) -> &'static str {
-        "PGM017"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "ADD FOREIGN KEY on existing table without NOT VALID"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM017 — ADD FOREIGN KEY on existing table without NOT VALID\n\
+pub(super) const EXPLAIN: &str = "PGM017 — ADD FOREIGN KEY on existing table without NOT VALID\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table\n\
@@ -53,38 +37,40 @@ impl Rule for Pgm017 {
              FOREIGN KEY (customer_id) REFERENCES customers (id)\n\
              NOT VALID;\n\
            ALTER TABLE orders\n\
-             VALIDATE CONSTRAINT fk_customer;"
-    }
+             VALIDATE CONSTRAINT fk_customer;";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
-                    not_valid: false,
-                    ..
-                }) = action
-                {
-                    vec![self.make_finding(
-                        format!(
-                            "Adding FOREIGN KEY constraint on existing table '{}' \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
+                not_valid: false,
+                ..
+            }) = action
+            {
+                vec![rule.make_finding(
+                    format!(
+                        "Adding FOREIGN KEY constraint on existing table '{}' \
                          without NOT VALID will scan the entire table while \
                          holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT \
                          ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
                          statement.",
-                            at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )]
-                } else {
-                    vec![]
-                }
-            },
-        )
-    }
+                        at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
+            }
+        },
+    )
 }
 
 #[cfg(test)]
@@ -94,6 +80,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -128,7 +115,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
-        let findings = Pgm017.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm017).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -147,7 +134,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", true)];
 
-        let findings = Pgm017.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm017).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -167,7 +154,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
-        let findings = Pgm017.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm017).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -215,7 +202,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm017.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm017).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }
