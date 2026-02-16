@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.5](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.4...v1.9.5) (2026-02-16)
+
+
+### Bug Fixes
+
+* PGM007 no longer fires for new tables ([0a65863](https://github.com/robert-sjoblom/pg-migration-lint/commit/0a6586370846400cf796be454e7e2ac6f9a69567))
+
 ## [1.9.4](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.3...v1.9.4) (2026-02-15)
 
 
