@@ -391,10 +391,66 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
 - **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
 
+#### PGM021 — `ADD UNIQUE` on existing table without `USING INDEX`
+
+- **Severity**: CRITICAL
+- **Status**: Implemented.
+- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns)` where the table exists in `catalog_before` (not created in the same set of changed files) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
+- **Why**: Adding a UNIQUE constraint inline builds a unique index under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes for the duration. For large tables this can cause extended downtime. Unlike `CHECK` and `FOREIGN KEY` constraints, `NOT VALID` does NOT apply to `UNIQUE` constraints, so there is no `NOT VALID` escape hatch.
+- **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the constraint columns exactly (set equality). If neither exists, fire.
+- **Safe alternative**:
+  ```sql
+  -- Step 1: build the unique index concurrently (no lock)
+  CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);
+  -- Step 2: attach the index as a constraint (instant)
+  ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;
+  ```
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - The constraint columns already have a covering unique index (exact column match)
+  - The constraint columns already have a `UNIQUE` constraint (exact column match)
+- **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
+
+#### PGM022 — `DROP TABLE` on existing table
+
+- **Severity**: MINOR
+- **Status**: Implemented.
+- **Triggers**: `DROP TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Dropping a table is intentional but destructive and irreversible in production. The DDL itself is instant — PostgreSQL does not scan the table or hold an extended lock — so this is not a downtime risk. However, all data in the table is permanently lost, and any queries, views, foreign keys, or application code referencing the table will break.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+- **Message**: `DROP TABLE '{table}' removes an existing table. This is irreversible and all data will be lost.`
+
+#### PGM023 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
+
+- **Severity**: MINOR
+- **Status**: Not yet implemented.
+- **Triggers**: `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause.
+- **Why**: Without `IF NOT EXISTS`, the statement fails if the object already exists. In migration pipelines that may be re-run (e.g., idempotent migrations, manual re-execution after partial failure), this causes hard failures. Adding `IF NOT EXISTS` makes the statement idempotent.
+- **Does not fire when**:
+  - The statement already includes `IF NOT EXISTS`
+- **Message (CREATE TABLE)**: `CREATE TABLE '{table}' without IF NOT EXISTS will fail if the table already exists.`
+- **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
+- **IR impact**: Requires `if_not_exists: bool` field on `CreateTable` and `CreateIndex`.
+
+#### PGM024 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
+
+- **Severity**: MINOR
+- **Status**: Not yet implemented.
+- **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
+- **Why**: Without `IF EXISTS`, the statement fails if the object does not exist. In migration pipelines that may be re-run, this causes hard failures. Adding `IF EXISTS` makes the statement idempotent.
+- **Does not fire when**:
+  - The statement already includes `IF EXISTS`
+- **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
+- **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
+- **IR impact**: Requires `if_exists: bool` field on `DropTable` and `DropIndex`.
+
 #### PGM008 — Down migration issues
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM020) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules (PGM001–PGM024) apply to `.down.sql` / rollback SQL, but findings are informational only.
 
 ### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
 
@@ -461,13 +517,24 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 - **Why**: The `json` type stores an exact copy of the input text and must re-parse it on every operation. `jsonb` stores a decomposed binary format that is significantly faster for queries, supports indexing (GIN), and supports containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving exact key order and duplicate keys — both rarely needed.
 - **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
 
+#### PGM106 — Don't use `integer` as primary key type
+
+- **Severity**: MAJOR
+- **Status**: Not yet implemented.
+- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
+- **Why**: `integer` (max ~2.1 billion) is routinely exhausted in high-write tables. When it wraps, inserts fail with a unique constraint violation. Migrating from `integer` to `bigint` requires a full table rewrite under `ACCESS EXCLUSIVE` lock — one of the most dangerous DDL operations on large tables. Starting with `bigint` costs 4 extra bytes per row but avoids a future emergency migration.
+- **Does not fire when**:
+  - The PK column type is `int8` / `bigint`
+  - The column is not part of a primary key
+- **Message**: `Primary key column '{col}' on '{table}' uses '{type}'. Consider using bigint to avoid exhausting the integer range on high-write tables.`
+
 #### Deferred "Don't Do This" Rules
 
-The following rules are specified but deferred until per-rule enable/disable configuration is implemented:
+The following rules are specified but deferred until per-rule enable/disable configuration is implemented. Rule IDs are assigned only when a rule is promoted to implementation.
 
-- **PGM106** — Don't use `varchar(n)` for arbitrary length limits (INFO). Very common pattern; needs ability to disable globally.
-- **PGM107** — Don't use `float`/`real`/`double precision` for exact values (INFO). Legitimate for many use cases; needs ability to disable.
-- **PGM111** — Don't use `INHERITS` for partitioning (WARNING). Requires IR extension to detect `CREATE TABLE ... INHERITS`.
+- Don't use `varchar(n)` for arbitrary length limits (INFO). Very common pattern; needs ability to disable globally.
+- Don't use `float`/`real`/`double precision` for exact values (INFO). Legitimate for many use cases; needs ability to disable.
+- Don't use `INHERITS` for partitioning (MINOR). Requires IR extension to detect `CREATE TABLE ... INHERITS`.
 
 See `docs/dont-do-this-rules.md` for full specifications of deferred rules.
 
@@ -695,7 +762,7 @@ pg-migration-lint/
 - Declarative rule DSL for user-authored rules
 - Incremental replay with caching
 - Severity overrides in config
-- Per-rule enable/disable in config (needed for PGM106, PGM107)
+- Per-rule enable/disable in config (needed for deferred "Don't Do This" rules)
 - Fuzz testing / property-based testing of parser and catalog replay
 - Config parsing unit tests (TOML validation, error paths, default handling)
 
@@ -715,3 +782,4 @@ pg-migration-lint/
 | 1.7     | 2026-02-14 | Spec sync with implementation. Added PGM021 (ADD UNIQUE without USING INDEX, CRITICAL), PGM022 (DROP TABLE on existing table, MINOR). Normalized severity vocabulary: WARNING → MINOR across all rule definitions to match 5-level scheme (INFO, MINOR, MAJOR, CRITICAL, BLOCKER). Documented `rules.disabled` config for globally disabling rules. Updated PGM008 scope to PGM001–PGM022. Added severity level reference in §4.1. |
 | 1.8     | 2026-02-15 | Added PGM023 (missing IF NOT EXISTS on CREATE TABLE/CREATE INDEX, MINOR) and PGM024 (missing IF EXISTS on DROP TABLE/DROP INDEX, MINOR). IR changes: `if_not_exists` on `CreateTable`/`CreateIndex`, `if_exists` on `DropTable`/`DropIndex`. Updated PGM008 scope to PGM001–PGM024. |
 | 1.9     | 2026-02-15 | Dropped lightweight XML fallback parser. Liquibase now requires a JRE — two-tier strategy: bridge jar → update-sql. Removed `liquibase_xml.rs` from project structure, removed `"xml-only"` config option. |
+| 1.10    | 2026-02-16 | Fleshed out full rule definitions for PGM021 (ADD UNIQUE without USING INDEX), PGM022 (DROP TABLE), PGM023 (missing IF NOT EXISTS), PGM024 (missing IF EXISTS), PGM106 (integer primary key). Removed stale IDs from deferred rules in §4.3. Synced `docs/dont-do-this-rules.md` with current spec state. |
