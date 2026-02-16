@@ -3,45 +3,487 @@
 //! Each rule implements the `Rule` trait and checks for specific migration safety issues.
 //! Rules receive IR nodes and catalog state, returning findings with severity levels.
 
+use std::collections::HashSet;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use serde::Serialize;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+
+use crate::catalog::Catalog;
+use crate::parser::ir::{IrNode, Located, SourceSpan};
+
 #[cfg(test)]
 pub mod test_helpers;
 
 pub mod alter_table_check;
 pub mod column_type_check;
-pub mod pgm001;
-pub mod pgm002;
-pub mod pgm003;
-pub mod pgm004;
-pub mod pgm005;
-pub mod pgm006;
-pub mod pgm007;
-pub mod pgm009;
-pub mod pgm010;
-pub mod pgm011;
-pub mod pgm012;
-pub mod pgm013;
-pub mod pgm014;
-pub mod pgm015;
-pub mod pgm016;
-pub mod pgm017;
-pub mod pgm018;
-pub mod pgm019;
-pub mod pgm020;
-pub mod pgm021;
-pub mod pgm022;
-pub mod pgm101;
-pub mod pgm102;
-pub mod pgm103;
-pub mod pgm104;
-pub mod pgm105;
-pub mod pgm108;
 
-use crate::catalog::Catalog;
-use crate::parser::ir::{IrNode, Located, SourceSpan};
-use serde::Serialize;
-use std::collections::HashSet;
-use std::fmt;
-use std::path::{Path, PathBuf};
+mod pgm001;
+mod pgm002;
+mod pgm003;
+mod pgm004;
+mod pgm005;
+mod pgm006;
+mod pgm007;
+mod pgm009;
+mod pgm010;
+mod pgm011;
+mod pgm012;
+mod pgm013;
+mod pgm014;
+mod pgm015;
+mod pgm016;
+mod pgm017;
+mod pgm018;
+mod pgm019;
+mod pgm020;
+mod pgm021;
+mod pgm022;
+mod pgm101;
+mod pgm102;
+mod pgm103;
+mod pgm104;
+mod pgm105;
+mod pgm108;
+
+// ---------------------------------------------------------------------------
+// Rule ID enums
+// ---------------------------------------------------------------------------
+
+/// Strongly-typed rule identifier.
+///
+/// Wraps the three rule families so that match statements are exhaustive:
+/// adding a new variant forces updates in `sonarqube_meta()`, `effort_minutes()`,
+/// and everywhere else a rule ID is dispatched on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RuleId {
+    /// Migration safety rules (0xx series).
+    Migration(MigrationRule),
+    /// Type-choice rules (1xx series).
+    TypeChoice(TypeChoiceRule),
+    /// Meta-behavior rules (9xx series).
+    Meta(MetaRule),
+}
+
+impl RuleId {
+    /// Zero-allocation string representation.
+    pub fn as_str(&self) -> &'static str {
+        use MigrationRule::*;
+        use TypeChoiceRule::*;
+        match self {
+            RuleId::Migration(m) => match m {
+                Pgm001 => "PGM001",
+                Pgm002 => "PGM002",
+                Pgm003 => "PGM003",
+                Pgm004 => "PGM004",
+                Pgm005 => "PGM005",
+                Pgm006 => "PGM006",
+                Pgm007 => "PGM007",
+                Pgm009 => "PGM009",
+                Pgm010 => "PGM010",
+                Pgm011 => "PGM011",
+                Pgm012 => "PGM012",
+                Pgm013 => "PGM013",
+                Pgm014 => "PGM014",
+                Pgm015 => "PGM015",
+                Pgm016 => "PGM016",
+                Pgm017 => "PGM017",
+                Pgm018 => "PGM018",
+                Pgm019 => "PGM019",
+                Pgm020 => "PGM020",
+                Pgm021 => "PGM021",
+                Pgm022 => "PGM022",
+            },
+            RuleId::TypeChoice(t) => match t {
+                Pgm101 => "PGM101",
+                Pgm102 => "PGM102",
+                Pgm103 => "PGM103",
+                Pgm104 => "PGM104",
+                Pgm105 => "PGM105",
+                Pgm108 => "PGM108",
+            },
+            RuleId::Meta(MetaRule::Pgm901) => "PGM901",
+        }
+    }
+}
+
+impl fmt::Display for RuleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for RuleId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl FromStr for RuleId {
+    type Err = ParseRuleIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use MigrationRule::*;
+        use TypeChoiceRule::*;
+        match s {
+            "PGM001" => Ok(RuleId::Migration(Pgm001)),
+            "PGM002" => Ok(RuleId::Migration(Pgm002)),
+            "PGM003" => Ok(RuleId::Migration(Pgm003)),
+            "PGM004" => Ok(RuleId::Migration(Pgm004)),
+            "PGM005" => Ok(RuleId::Migration(Pgm005)),
+            "PGM006" => Ok(RuleId::Migration(Pgm006)),
+            "PGM007" => Ok(RuleId::Migration(Pgm007)),
+            "PGM009" => Ok(RuleId::Migration(Pgm009)),
+            "PGM010" => Ok(RuleId::Migration(Pgm010)),
+            "PGM011" => Ok(RuleId::Migration(Pgm011)),
+            "PGM012" => Ok(RuleId::Migration(Pgm012)),
+            "PGM013" => Ok(RuleId::Migration(Pgm013)),
+            "PGM014" => Ok(RuleId::Migration(Pgm014)),
+            "PGM015" => Ok(RuleId::Migration(Pgm015)),
+            "PGM016" => Ok(RuleId::Migration(Pgm016)),
+            "PGM017" => Ok(RuleId::Migration(Pgm017)),
+            "PGM018" => Ok(RuleId::Migration(Pgm018)),
+            "PGM019" => Ok(RuleId::Migration(Pgm019)),
+            "PGM020" => Ok(RuleId::Migration(Pgm020)),
+            "PGM021" => Ok(RuleId::Migration(Pgm021)),
+            "PGM022" => Ok(RuleId::Migration(Pgm022)),
+            "PGM101" => Ok(RuleId::TypeChoice(Pgm101)),
+            "PGM102" => Ok(RuleId::TypeChoice(Pgm102)),
+            "PGM103" => Ok(RuleId::TypeChoice(Pgm103)),
+            "PGM104" => Ok(RuleId::TypeChoice(Pgm104)),
+            "PGM105" => Ok(RuleId::TypeChoice(Pgm105)),
+            "PGM108" => Ok(RuleId::TypeChoice(Pgm108)),
+            "PGM901" => Ok(RuleId::Meta(MetaRule::Pgm901)),
+            _ => Err(ParseRuleIdError(s.to_string())),
+        }
+    }
+}
+
+/// Error returned when a string cannot be parsed into a [`RuleId`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseRuleIdError(pub String);
+
+impl From<RuleId> for Box<dyn Rule> {
+    fn from(value: RuleId) -> Self {
+        Box::new(value)
+    }
+}
+
+impl Rule for RuleId {
+    fn id(&self) -> Self {
+        *self
+    }
+
+    fn default_severity(&self) -> Severity {
+        match *self {
+            Self::Migration(rule) => rule.into(),
+            Self::TypeChoice(rule) => rule.into(),
+            Self::Meta(rule) => rule.into(),
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match *self {
+            Self::Migration(rule) => rule.description(),
+            Self::TypeChoice(rule) => rule.description(),
+            Self::Meta(rule) => rule.description(),
+        }
+    }
+
+    fn explain(&self) -> &'static str {
+        match *self {
+            Self::Migration(rule) => rule.explain(),
+            Self::TypeChoice(rule) => rule.explain(),
+            Self::Meta(rule) => rule.explain(),
+        }
+    }
+
+    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
+        match *self {
+            Self::Migration(rule) => rule.check(*self, statements, ctx),
+            Self::TypeChoice(rule) => rule.check(*self, statements, ctx),
+            Self::Meta(rule) => rule.check(*self, statements, ctx),
+        }
+    }
+}
+
+/// Migration safety rules (PGM001–PGM022).
+///
+/// These detect locking, rewrite, and schema-integrity issues in DDL migrations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
+pub enum MigrationRule {
+    /// `CREATE INDEX` without `CONCURRENTLY` on existing tables.
+    Pgm001,
+    /// `DROP INDEX` without `CONCURRENTLY` on existing tables.
+    Pgm002,
+    /// Foreign keys without a covering index on the referencing table.
+    Pgm003,
+    /// Tables created without a primary key.
+    Pgm004,
+    /// Tables using `UNIQUE NOT NULL` instead of a proper `PRIMARY KEY`.
+    Pgm005,
+    /// Concurrent index operations inside a transaction.
+    Pgm006,
+    /// Volatile function defaults on columns.
+    Pgm007,
+    /// Column type changes on existing tables.
+    Pgm009,
+    /// Adding a `NOT NULL` column without a `DEFAULT` to an existing table.
+    Pgm010,
+    /// Dropping a column from an existing table.
+    Pgm011,
+    /// Adding a `PRIMARY KEY` without a prior unique index.
+    Pgm012,
+    /// Dropping a column that participates in a unique constraint or unique index.
+    Pgm013,
+    /// Dropping a column that participates in the table's primary key.
+    Pgm014,
+    /// Dropping a column that participates in a foreign key constraint.
+    Pgm015,
+    /// `SET NOT NULL` on an existing table column.
+    Pgm016,
+    /// Adding a `FOREIGN KEY` without `NOT VALID` on an existing table.
+    Pgm017,
+    /// Adding a `CHECK` constraint without `NOT VALID` on an existing table.
+    Pgm018,
+    /// `ALTER TABLE ... RENAME TO` on existing tables.
+    Pgm019,
+    /// `RENAME COLUMN` on an existing table.
+    Pgm020,
+    /// Adding a `UNIQUE` constraint without a pre-existing unique index.
+    Pgm021,
+    /// Dropping an existing table.
+    Pgm022,
+}
+
+impl MigrationRule {
+    fn description(&self) -> &'static str {
+        match *self {
+            Self::Pgm001 => pgm001::DESCRIPTION,
+            Self::Pgm002 => pgm002::DESCRIPTION,
+            Self::Pgm003 => pgm003::DESCRIPTION,
+            Self::Pgm004 => pgm004::DESCRIPTION,
+            Self::Pgm005 => pgm005::DESCRIPTION,
+            Self::Pgm006 => pgm006::DESCRIPTION,
+            Self::Pgm007 => pgm007::DESCRIPTION,
+            Self::Pgm009 => pgm009::DESCRIPTION,
+            Self::Pgm010 => pgm010::DESCRIPTION,
+            Self::Pgm011 => pgm011::DESCRIPTION,
+            Self::Pgm012 => pgm012::DESCRIPTION,
+            Self::Pgm013 => pgm013::DESCRIPTION,
+            Self::Pgm014 => pgm014::DESCRIPTION,
+            Self::Pgm015 => pgm015::DESCRIPTION,
+            Self::Pgm016 => pgm016::DESCRIPTION,
+            Self::Pgm017 => pgm017::DESCRIPTION,
+            Self::Pgm018 => pgm018::DESCRIPTION,
+            Self::Pgm019 => pgm019::DESCRIPTION,
+            Self::Pgm020 => pgm020::DESCRIPTION,
+            Self::Pgm021 => pgm021::DESCRIPTION,
+            Self::Pgm022 => pgm022::DESCRIPTION,
+        }
+    }
+
+    fn explain(&self) -> &'static str {
+        match *self {
+            Self::Pgm001 => pgm001::EXPLAIN,
+            Self::Pgm002 => pgm002::EXPLAIN,
+            Self::Pgm003 => pgm003::EXPLAIN,
+            Self::Pgm004 => pgm004::EXPLAIN,
+            Self::Pgm005 => pgm005::EXPLAIN,
+            Self::Pgm006 => pgm006::EXPLAIN,
+            Self::Pgm007 => pgm007::EXPLAIN,
+            Self::Pgm009 => pgm009::EXPLAIN,
+            Self::Pgm010 => pgm010::EXPLAIN,
+            Self::Pgm011 => pgm011::EXPLAIN,
+            Self::Pgm012 => pgm012::EXPLAIN,
+            Self::Pgm013 => pgm013::EXPLAIN,
+            Self::Pgm014 => pgm014::EXPLAIN,
+            Self::Pgm015 => pgm015::EXPLAIN,
+            Self::Pgm016 => pgm016::EXPLAIN,
+            Self::Pgm017 => pgm017::EXPLAIN,
+            Self::Pgm018 => pgm018::EXPLAIN,
+            Self::Pgm019 => pgm019::EXPLAIN,
+            Self::Pgm020 => pgm020::EXPLAIN,
+            Self::Pgm021 => pgm021::EXPLAIN,
+            Self::Pgm022 => pgm022::EXPLAIN,
+        }
+    }
+
+    fn check(
+        &self,
+        rule: impl Rule,
+        statements: &[Located<IrNode>],
+        ctx: &LintContext<'_>,
+    ) -> Vec<Finding> {
+        match *self {
+            Self::Pgm001 => pgm001::check(rule, statements, ctx),
+            Self::Pgm002 => pgm002::check(rule, statements, ctx),
+            Self::Pgm003 => pgm003::check(rule, statements, ctx),
+            Self::Pgm004 => pgm004::check(rule, statements, ctx),
+            Self::Pgm005 => pgm005::check(rule, statements, ctx),
+            Self::Pgm006 => pgm006::check(rule, statements, ctx),
+            Self::Pgm007 => pgm007::check(rule, statements, ctx),
+            Self::Pgm009 => pgm009::check(rule, statements, ctx),
+            Self::Pgm010 => pgm010::check(rule, statements, ctx),
+            Self::Pgm011 => pgm011::check(rule, statements, ctx),
+            Self::Pgm012 => pgm012::check(rule, statements, ctx),
+            Self::Pgm013 => pgm013::check(rule, statements, ctx),
+            Self::Pgm014 => pgm014::check(rule, statements, ctx),
+            Self::Pgm015 => pgm015::check(rule, statements, ctx),
+            Self::Pgm016 => pgm016::check(rule, statements, ctx),
+            Self::Pgm017 => pgm017::check(rule, statements, ctx),
+            Self::Pgm018 => pgm018::check(rule, statements, ctx),
+            Self::Pgm019 => pgm019::check(rule, statements, ctx),
+            Self::Pgm020 => pgm020::check(rule, statements, ctx),
+            Self::Pgm021 => pgm021::check(rule, statements, ctx),
+            Self::Pgm022 => pgm022::check(rule, statements, ctx),
+        }
+    }
+}
+
+impl From<MigrationRule> for Severity {
+    fn from(value: MigrationRule) -> Self {
+        match value {
+            MigrationRule::Pgm001
+            | MigrationRule::Pgm002
+            | MigrationRule::Pgm006
+            | MigrationRule::Pgm009
+            | MigrationRule::Pgm010
+            | MigrationRule::Pgm016
+            | MigrationRule::Pgm017
+            | MigrationRule::Pgm018
+            | MigrationRule::Pgm021 => Self::Critical,
+            MigrationRule::Pgm003
+            | MigrationRule::Pgm004
+            | MigrationRule::Pgm012
+            | MigrationRule::Pgm014 => Self::Major,
+            MigrationRule::Pgm007
+            | MigrationRule::Pgm013
+            | MigrationRule::Pgm015
+            | MigrationRule::Pgm022 => Self::Minor,
+            MigrationRule::Pgm005
+            | MigrationRule::Pgm011
+            | MigrationRule::Pgm019
+            | MigrationRule::Pgm020 => Self::Info,
+        }
+    }
+}
+
+/// "Don't Do This" type-choice rules (PGM101–PGM108).
+///
+/// These flag column types that should be avoided (e.g. `money`, `serial`, `char(n)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
+pub enum TypeChoiceRule {
+    /// `timestamp` without time zone.
+    Pgm101,
+    /// `timestamp(0)` or `timestamptz(0)`.
+    Pgm102,
+    /// `char(n)`.
+    Pgm103,
+    /// `money` type.
+    Pgm104,
+    /// `serial` / `bigserial` / `smallserial` column types.
+    Pgm105,
+    /// `json` type (use `jsonb` instead).
+    Pgm108,
+}
+
+impl TypeChoiceRule {
+    fn description(&self) -> &'static str {
+        match *self {
+            TypeChoiceRule::Pgm101 => pgm101::DESCRIPTION,
+            TypeChoiceRule::Pgm102 => pgm102::DESCRIPTION,
+            TypeChoiceRule::Pgm103 => pgm103::DESCRIPTION,
+            TypeChoiceRule::Pgm104 => pgm104::DESCRIPTION,
+            TypeChoiceRule::Pgm105 => pgm105::DESCRIPTION,
+            TypeChoiceRule::Pgm108 => pgm108::DESCRIPTION,
+        }
+    }
+
+    fn explain(&self) -> &'static str {
+        match *self {
+            Self::Pgm101 => pgm101::EXPLAIN,
+            Self::Pgm102 => pgm102::EXPLAIN,
+            Self::Pgm103 => pgm103::EXPLAIN,
+            Self::Pgm104 => pgm104::EXPLAIN,
+            Self::Pgm105 => pgm105::EXPLAIN,
+            Self::Pgm108 => pgm108::EXPLAIN,
+        }
+    }
+
+    fn check(
+        &self,
+        rule: impl Rule,
+        statements: &[Located<IrNode>],
+        ctx: &LintContext<'_>,
+    ) -> Vec<Finding> {
+        match *self {
+            Self::Pgm101 => pgm101::check(rule, statements, ctx),
+            Self::Pgm102 => pgm102::check(rule, statements, ctx),
+            Self::Pgm103 => pgm103::check(rule, statements, ctx),
+            Self::Pgm104 => pgm104::check(rule, statements, ctx),
+            Self::Pgm105 => pgm105::check(rule, statements, ctx),
+            Self::Pgm108 => pgm108::check(rule, statements, ctx),
+        }
+    }
+}
+
+impl From<TypeChoiceRule> for Severity {
+    fn from(value: TypeChoiceRule) -> Self {
+        match value {
+            TypeChoiceRule::Pgm101
+            | TypeChoiceRule::Pgm102
+            | TypeChoiceRule::Pgm103
+            | TypeChoiceRule::Pgm104
+            | TypeChoiceRule::Pgm108 => Self::Minor,
+            TypeChoiceRule::Pgm105 => Self::Info,
+        }
+    }
+}
+
+/// Meta-behavior rules (PGM9xx).
+///
+/// Not standalone lint rules — these label cross-cutting behaviors such as
+/// down-migration severity capping (PGM901).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
+pub enum MetaRule {
+    Pgm901,
+}
+
+impl MetaRule {
+    fn description(&self) -> &'static str {
+        "Meta rules alter the behavior of other rules, they are not rules themselves"
+    }
+
+    fn explain(&self) -> &'static str {
+        match *self {
+            MetaRule::Pgm901 => {
+                "This rule caps severity of triggered rules to INFO (not in SonarQube)"
+            }
+        }
+    }
+
+    fn check(&self, _: impl Rule, _: &[Located<IrNode>], _: &LintContext<'_>) -> Vec<Finding> {
+        vec![]
+    }
+}
+
+impl From<MetaRule> for Severity {
+    fn from(_: MetaRule) -> Self {
+        Self::Info
+    }
+}
+
+impl fmt::Display for ParseRuleIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown rule ID: '{}'", self.0)
+    }
+}
+
+impl std::error::Error for ParseRuleIdError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum Severity {
@@ -85,7 +527,7 @@ impl fmt::Display for Severity {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Finding {
-    pub rule_id: String,
+    pub rule_id: RuleId,
     pub severity: Severity,
     pub message: String,
     #[serde(serialize_with = "serialize_path_forward_slash")]
@@ -105,14 +547,14 @@ fn serialize_path_forward_slash<S: serde::Serializer>(
 impl Finding {
     /// Create a finding from a rule, lint context, source span, and message.
     pub fn new(
-        rule_id: &str,
+        rule_id: RuleId,
         severity: Severity,
         message: String,
         file: &Path,
         span: &SourceSpan,
     ) -> Self {
         Self {
-            rule_id: rule_id.to_string(),
+            rule_id,
             severity,
             message,
             file: file.to_path_buf(),
@@ -180,8 +622,8 @@ impl<'a> LintContext<'a> {
 
 /// Trait that every rule implements.
 pub trait Rule: Send + Sync {
-    /// Stable rule identifier: "PGM001", "PGM002", etc.
-    fn id(&self) -> &'static str;
+    /// Stable rule identifier.
+    fn id(&self) -> RuleId;
 
     /// Default severity for this rule.
     fn default_severity(&self) -> Severity;
@@ -231,33 +673,10 @@ impl RuleRegistry {
 
     /// Register all built-in rules.
     pub fn register_defaults(&mut self) {
-        self.register(Box::new(pgm001::Pgm001));
-        self.register(Box::new(pgm002::Pgm002));
-        self.register(Box::new(pgm003::Pgm003));
-        self.register(Box::new(pgm004::Pgm004));
-        self.register(Box::new(pgm005::Pgm005));
-        self.register(Box::new(pgm006::Pgm006));
-        self.register(Box::new(pgm007::Pgm007));
-        self.register(Box::new(pgm009::Pgm009));
-        self.register(Box::new(pgm010::Pgm010));
-        self.register(Box::new(pgm011::Pgm011));
-        self.register(Box::new(pgm012::Pgm012));
-        self.register(Box::new(pgm013::Pgm013));
-        self.register(Box::new(pgm014::Pgm014));
-        self.register(Box::new(pgm015::Pgm015));
-        self.register(Box::new(pgm016::Pgm016));
-        self.register(Box::new(pgm017::Pgm017));
-        self.register(Box::new(pgm018::Pgm018));
-        self.register(Box::new(pgm019::Pgm019));
-        self.register(Box::new(pgm020::Pgm020));
-        self.register(Box::new(pgm021::Pgm021));
-        self.register(Box::new(pgm022::Pgm022));
-        self.register(Box::new(pgm101::Pgm101));
-        self.register(Box::new(pgm102::Pgm102));
-        self.register(Box::new(pgm103::Pgm103));
-        self.register(Box::new(pgm104::Pgm104));
-        self.register(Box::new(pgm105::Pgm105));
-        self.register(Box::new(pgm108::Pgm108));
+        MigrationRule::iter()
+            .map(RuleId::Migration)
+            .chain(TypeChoiceRule::iter().map(RuleId::TypeChoice))
+            .for_each(|r| self.register(r.into()));
     }
 
     /// Register a single rule.
@@ -265,8 +684,13 @@ impl RuleRegistry {
         self.rules.push(rule);
     }
 
-    /// Get a rule by ID (for --explain).
-    pub fn get(&self, id: &str) -> Option<&dyn Rule> {
+    /// Get a rule by string ID (for --explain and config validation).
+    pub fn get(&self, id: &RuleId) -> Option<&dyn Rule> {
+        self.get_by_id(*id)
+    }
+
+    /// Get a rule by typed ID.
+    pub fn get_by_id(&self, id: RuleId) -> Option<&dyn Rule> {
         self.rules.iter().find(|r| r.id() == id).map(|b| &**b)
     }
 
@@ -287,31 +711,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_register_defaults() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        // We should have 27 rules (PGM001-PGM007, PGM009-PGM022, PGM101-PGM105, PGM108; PGM901 is a meta-behavior, not a rule)
-        assert_eq!(registry.rules.len(), 27);
-    }
-
-    #[test]
-    fn test_registry_get_by_id() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        assert!(registry.get("PGM001").is_some());
-        assert!(registry.get("PGM005").is_some());
-        assert!(registry.get("PGM011").is_some());
-        assert!(registry.get("PGM901").is_none()); // Meta-behavior, not a separate rule
-        assert!(registry.get("PGM999").is_none());
-    }
-
-    #[test]
     fn test_cap_for_down_migration() {
         let mut findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "test".to_string(),
                 file: PathBuf::from("test.sql"),
@@ -319,7 +722,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM004".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm004),
                 severity: Severity::Major,
                 message: "test".to_string(),
                 file: PathBuf::from("test.sql"),
@@ -367,32 +770,8 @@ mod tests {
                 "{id} explain text too short: {explain:?}"
             );
             assert!(
-                explain.contains(id),
+                explain.contains(id.as_str()),
                 "{id} explain text should reference its own rule ID"
-            );
-        }
-    }
-
-    #[test]
-    fn test_all_rules_have_valid_default_severity() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        for rule in registry.iter() {
-            let id = rule.id();
-            let severity = rule.default_severity();
-            // Severity must not be the Default (Info) for all rules — at least some should be higher
-            // But individually, just ensure it's a valid variant by matching
-            assert!(
-                matches!(
-                    severity,
-                    Severity::Blocker
-                        | Severity::Critical
-                        | Severity::Major
-                        | Severity::Minor
-                        | Severity::Info
-                ),
-                "{id} has unexpected severity"
             );
         }
     }
@@ -410,5 +789,62 @@ mod tests {
         // Invalid
         assert_eq!(Severity::parse("garbage"), None);
         assert_eq!(Severity::parse("none"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // RuleId enum tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rule_id_display_round_trip() {
+        // Every variant should survive Display → FromStr round-trip
+        let all: Vec<RuleId> = MigrationRule::iter()
+            .map(RuleId::Migration)
+            .chain(TypeChoiceRule::iter().map(RuleId::TypeChoice))
+            .chain(MetaRule::iter().map(RuleId::Meta))
+            .collect();
+        for id in &all {
+            let s = id.to_string();
+            let parsed: RuleId = s.parse().unwrap_or_else(|_| panic!("failed to parse {s}"));
+            assert_eq!(*id, parsed, "round-trip failed for {s}");
+            assert_eq!(id.as_str(), s.as_str());
+        }
+        // 27 registered rules + 1 meta = 28
+        assert_eq!(all.len(), 28);
+    }
+
+    #[test]
+    fn test_rule_id_from_str_unknown() {
+        assert!("PGM000".parse::<RuleId>().is_err());
+        assert!("PGM008".parse::<RuleId>().is_err());
+        assert!("PGM999".parse::<RuleId>().is_err());
+        assert!("garbage".parse::<RuleId>().is_err());
+        assert!("pgm001".parse::<RuleId>().is_err()); // case-sensitive
+    }
+
+    #[test]
+    fn test_rule_id_ordering() {
+        // Migration < TypeChoice < Meta (by derive Ord on enum variant order)
+        assert!(
+            RuleId::Migration(MigrationRule::Pgm022) < RuleId::TypeChoice(TypeChoiceRule::Pgm101)
+        );
+        assert!(RuleId::TypeChoice(TypeChoiceRule::Pgm108) < RuleId::Meta(MetaRule::Pgm901));
+        // Within Migration family
+        assert!(
+            RuleId::Migration(MigrationRule::Pgm001) < RuleId::Migration(MigrationRule::Pgm022)
+        );
+    }
+
+    #[test]
+    fn test_rule_id_serialize_json() {
+        let id = RuleId::Migration(MigrationRule::Pgm003);
+        let json = serde_json::to_string(&id).expect("serialize");
+        assert_eq!(json, "\"PGM003\"");
+    }
+
+    #[test]
+    fn test_parse_rule_id_error_display() {
+        let err = "BOGUS".parse::<RuleId>().unwrap_err();
+        assert_eq!(err.to_string(), "unknown rule ID: 'BOGUS'");
     }
 }

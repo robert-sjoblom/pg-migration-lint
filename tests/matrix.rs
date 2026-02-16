@@ -53,7 +53,7 @@ fn run_selected_rules(
     registry.register_defaults();
     let mut findings = Vec::new();
     for rule in registry.iter() {
-        if rule_ids.contains(&rule.id()) {
+        if rule_ids.contains(&rule.id().as_str()) {
             findings.extend(rule.check(stmts, ctx));
         }
     }
@@ -452,7 +452,7 @@ fn test_matrix_set_not_null_on_existing() {
 fn test_matrix_down_migration_caps_severity() {
     let mut findings = vec![
         Finding {
-            rule_id: "PGM001".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm001),
             severity: Severity::Critical,
             message: "Missing CONCURRENTLY on CREATE INDEX".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -460,7 +460,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 1,
         },
         Finding {
-            rule_id: "PGM003".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm003),
             severity: Severity::Major,
             message: "FK without covering index".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -468,7 +468,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 3,
         },
         Finding {
-            rule_id: "PGM007".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm007),
             severity: Severity::Minor,
             message: "Volatile default on column".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),

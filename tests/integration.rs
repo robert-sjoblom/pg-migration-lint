@@ -3,8 +3,10 @@
 use pg_migration_lint::IrNode;
 use pg_migration_lint::catalog::Catalog;
 use pg_migration_lint::catalog::replay;
+use pg_migration_lint::input::MigrationLoader;
+#[cfg(feature = "bridge-tests")]
+use pg_migration_lint::input::MigrationUnit;
 use pg_migration_lint::input::sql::SqlLoader;
-use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
 use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, RuleInfo, SarifReporter, SonarQubeReporter};
 use pg_migration_lint::rules::{Finding, LintContext, Rule, RuleRegistry, cap_for_down_migration};
@@ -78,7 +80,7 @@ fn lint_fixture_with_schema(
 
             let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
             let suppressions = parse_suppressions(&source);
-            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
 
             all_findings.extend(unit_findings);
         } else {
@@ -228,7 +230,7 @@ fn test_only_changed_files_linted() {
             .map(|f| format!("{}: {}", f.rule_id, f.message))
             .collect::<Vec<_>>()
     );
-    assert_eq!(findings[0].rule_id, "PGM004");
+    assert_eq!(findings[0].rule_id.as_str(), "PGM004");
 }
 
 #[test]
@@ -253,7 +255,7 @@ fn test_pgm001_finding_details() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
     let pgm001: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM001")
+        .filter(|f| f.rule_id.as_str() == "PGM001")
         .collect();
     let pgm001 = normalize_findings(pgm001, "all-rules");
     insta::assert_yaml_snapshot!(pgm001);
@@ -264,7 +266,7 @@ fn test_pgm003_finding_details() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
     let pgm003: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM003")
+        .filter(|f| f.rule_id.as_str() == "PGM003")
         .collect();
     let pgm003 = normalize_findings(pgm003, "all-rules");
     insta::assert_yaml_snapshot!(pgm003);
@@ -278,7 +280,7 @@ fn test_pgm004_finding_details() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
     let pgm004: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM004")
+        .filter(|f| f.rule_id.as_str() == "PGM004")
         .collect();
     let pgm004 = normalize_findings(pgm004, "all-rules");
     insta::assert_yaml_snapshot!(pgm004);
@@ -294,7 +296,7 @@ fn test_pgm002_finding_details() {
     );
     let pgm002: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM002")
+        .filter(|f| f.rule_id.as_str() == "PGM002")
         .collect();
     let pgm002 = normalize_findings(pgm002, "all-rules");
     insta::assert_yaml_snapshot!(pgm002);
@@ -306,7 +308,7 @@ fn test_pgm005_finding_details() {
     let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
     let pgm005: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM005")
+        .filter(|f| f.rule_id.as_str() == "PGM005")
         .collect();
     let pgm005 = normalize_findings(pgm005, "all-rules");
     insta::assert_yaml_snapshot!(pgm005);
@@ -319,7 +321,7 @@ fn test_pgm006_finding_details() {
     let findings = lint_fixture("all-rules", &["V003__more_violations.sql"]);
     let pgm006: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM006")
+        .filter(|f| f.rule_id.as_str() == "PGM006")
         .collect();
     let pgm006 = normalize_findings(pgm006, "all-rules");
     insta::assert_yaml_snapshot!(pgm006);
@@ -363,7 +365,7 @@ fn test_pgm101_timestamp_without_tz() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm101: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM101")
+        .filter(|f| f.rule_id.as_str() == "PGM101")
         .collect();
     let pgm101 = normalize_findings(pgm101, "all-rules");
     insta::assert_yaml_snapshot!(pgm101);
@@ -374,7 +376,7 @@ fn test_pgm102_timestamptz_zero_precision() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm102: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM102")
+        .filter(|f| f.rule_id.as_str() == "PGM102")
         .collect();
     let pgm102 = normalize_findings(pgm102, "all-rules");
     insta::assert_yaml_snapshot!(pgm102);
@@ -385,7 +387,7 @@ fn test_pgm103_char_n_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm103: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM103")
+        .filter(|f| f.rule_id.as_str() == "PGM103")
         .collect();
     let pgm103 = normalize_findings(pgm103, "all-rules");
     insta::assert_yaml_snapshot!(pgm103);
@@ -396,7 +398,7 @@ fn test_pgm104_money_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm104: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM104")
+        .filter(|f| f.rule_id.as_str() == "PGM104")
         .collect();
     let pgm104 = normalize_findings(pgm104, "all-rules");
     insta::assert_yaml_snapshot!(pgm104);
@@ -407,7 +409,7 @@ fn test_pgm105_serial_type() {
     let findings = lint_fixture("all-rules", &["V004__dont_do_this_types.sql"]);
     let pgm105: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM105")
+        .filter(|f| f.rule_id.as_str() == "PGM105")
         .collect();
     let pgm105 = normalize_findings(pgm105, "all-rules");
     insta::assert_yaml_snapshot!(pgm105);
@@ -422,7 +424,7 @@ fn test_pgm016_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
     let pgm016: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM016")
+        .filter(|f| f.rule_id.as_str() == "PGM016")
         .collect();
     let pgm016 = normalize_findings(pgm016, "all-rules");
     insta::assert_yaml_snapshot!(pgm016);
@@ -433,7 +435,7 @@ fn test_pgm017_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
     let pgm017: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM017")
+        .filter(|f| f.rule_id.as_str() == "PGM017")
         .collect();
     let pgm017 = normalize_findings(pgm017, "all-rules");
     insta::assert_yaml_snapshot!(pgm017);
@@ -444,7 +446,7 @@ fn test_pgm018_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
     let pgm018: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM018")
+        .filter(|f| f.rule_id.as_str() == "PGM018")
         .collect();
     let pgm018 = normalize_findings(pgm018, "all-rules");
     insta::assert_yaml_snapshot!(pgm018);
@@ -455,7 +457,7 @@ fn test_pgm019_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
     let pgm019: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM019")
+        .filter(|f| f.rule_id.as_str() == "PGM019")
         .collect();
     let pgm019 = normalize_findings(pgm019, "all-rules");
     insta::assert_yaml_snapshot!(pgm019);
@@ -466,7 +468,7 @@ fn test_pgm020_finding_details() {
     let findings = lint_fixture("all-rules", &["V005__new_violations.sql"]);
     let pgm020: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM020")
+        .filter(|f| f.rule_id.as_str() == "PGM020")
         .collect();
     let pgm020 = normalize_findings(pgm020, "all-rules");
     insta::assert_yaml_snapshot!(pgm020);
@@ -477,7 +479,7 @@ fn test_pgm108_finding_details() {
     let findings = lint_fixture("all-rules", &["V006__json_type.sql"]);
     let pgm108: Vec<_> = findings
         .into_iter()
-        .filter(|f| f.rule_id == "PGM108")
+        .filter(|f| f.rule_id.as_str() == "PGM108")
         .collect();
     let pgm108 = normalize_findings(pgm108, "all-rules");
     insta::assert_yaml_snapshot!(pgm108);
@@ -524,7 +526,10 @@ fn test_enterprise_lint_v007_only() {
     // V001-V006 are replayed as history, V007 is the only changed file.
     // V007 creates indexes WITHOUT CONCURRENTLY on pre-existing tables → PGM001
     let findings = lint_fixture("enterprise", &["V007__create_index_no_concurrently.sql"]);
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
 
     assert_eq!(
         pgm001.len(),
@@ -538,7 +543,10 @@ fn test_enterprise_lint_v007_only() {
 fn test_enterprise_lint_v023_only() {
     // V001-V022 replayed, V023 is changed: DROP INDEX without CONCURRENTLY → PGM002
     let findings = lint_fixture("enterprise", &["V023__drop_index_no_concurrently.sql"]);
-    let pgm002: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM002").collect();
+    let pgm002: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM002")
+        .collect();
 
     assert!(
         !pgm002.is_empty(),
@@ -551,7 +559,10 @@ fn test_enterprise_lint_v023_only() {
 fn test_enterprise_lint_v008_only() {
     // V001-V007 replayed, V008 is changed: ADD COLUMN NOT NULL without default → PGM010
     let findings = lint_fixture("enterprise", &["V008__add_not_null_column.sql"]);
-    let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
+    let pgm010: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM010")
+        .collect();
 
     assert_eq!(
         pgm010.len(),
@@ -565,7 +576,10 @@ fn test_enterprise_lint_v008_only() {
 fn test_enterprise_lint_v013_only() {
     // V001-V012 replayed, V013 is changed: ALTER COLUMN TYPE → PGM009
     let findings = lint_fixture("enterprise", &["V013__alter_column_type.sql"]);
-    let pgm009: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM009").collect();
+    let pgm009: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM009")
+        .collect();
 
     assert!(
         !pgm009.is_empty(),
@@ -699,7 +713,10 @@ fn test_enterprise_changed_file_volatile_defaults() {
     // V022 adds columns with gen_random_uuid() and now() defaults -> PGM007.
     let findings = lint_fixture("enterprise", &["V022__add_volatile_defaults.sql"]);
 
-    let pgm007: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM007").collect();
+    let pgm007: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM007")
+        .collect();
     assert!(
         !pgm007.is_empty(),
         "Expected PGM007 for volatile defaults in V022. Got:\n  {}",
@@ -707,7 +724,10 @@ fn test_enterprise_changed_file_volatile_defaults() {
     );
 
     // V022 does not add any foreign keys, so PGM003 should not fire
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
     assert!(
         pgm003.is_empty(),
         "PGM003 should not fire for V022 (no FK creation). Got:\n  {}",
@@ -721,7 +741,7 @@ fn test_enterprise_changed_files_reduces_fk_noise() {
     let findings_full = lint_fixture("enterprise", &[]);
     let pgm003_full: Vec<&Finding> = findings_full
         .iter()
-        .filter(|f| f.rule_id == "PGM003")
+        .filter(|f| f.rule_id.as_str() == "PGM003")
         .collect();
     assert!(
         !pgm003_full.is_empty(),
@@ -733,7 +753,7 @@ fn test_enterprise_changed_files_reduces_fk_noise() {
     let findings_v014 = lint_fixture("enterprise", &["V014__drop_column.sql"]);
     let pgm003_v014: Vec<&Finding> = findings_v014
         .iter()
-        .filter(|f| f.rule_id == "PGM003")
+        .filter(|f| f.rule_id.as_str() == "PGM003")
         .collect();
     assert!(
         pgm003_v014.is_empty(),
@@ -830,7 +850,7 @@ fn test_enterprise_sliding_window() {
 
         let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
         let suppressions = parse_suppressions(&source);
-        unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+        unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
 
         let filename = unit
             .source_file
@@ -1023,7 +1043,10 @@ fn test_gomigrate_pgm001_fires() {
     // Only 000006 is changed. Tables from 000001-000005 are replayed as
     // history (pre-existing). 000006 creates indexes WITHOUT CONCURRENTLY.
     let findings = lint_fixture("go-migrate", &["000006_add_indexes_no_concurrently.up.sql"]);
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
 
     assert_eq!(
         pgm001.len(),
@@ -1041,7 +1064,10 @@ fn test_gomigrate_pgm001_fires() {
 fn test_gomigrate_pgm003_fires() {
     // Replay 000001-000007 as history, lint 000008 (adds FK without index).
     let findings = lint_fixture("go-migrate", &["000008_add_fk_without_index.up.sql"]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert!(
         !pgm003.is_empty(),
@@ -1065,7 +1091,10 @@ fn test_gomigrate_pgm003_fires() {
 fn test_gomigrate_pgm004_fires() {
     // Replay 000001-000006, lint 000007 (creates audit_log without PK).
     let findings = lint_fixture("go-migrate", &["000007_create_audit_log.up.sql"]);
-    let pgm004: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM004").collect();
+    let pgm004: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM004")
+        .collect();
 
     assert_eq!(
         pgm004.len(),
@@ -1088,7 +1117,10 @@ fn test_gomigrate_pgm004_fires() {
 fn test_gomigrate_pgm007_fires() {
     // Replay 000001-000008, lint 000009 (adds volatile defaults).
     let findings = lint_fixture("go-migrate", &["000009_add_volatile_defaults.up.sql"]);
-    let pgm007: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM007").collect();
+    let pgm007: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM007")
+        .collect();
 
     assert_eq!(
         pgm007.len(),
@@ -1106,7 +1138,10 @@ fn test_gomigrate_pgm007_fires() {
 fn test_gomigrate_pgm010_fires() {
     // Replay 000001-000009, lint 000010 (ADD COLUMN NOT NULL no default).
     let findings = lint_fixture("go-migrate", &["000010_add_not_null_no_default.up.sql"]);
-    let pgm010: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM010").collect();
+    let pgm010: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM010")
+        .collect();
 
     assert_eq!(
         pgm010.len(),
@@ -1130,7 +1165,10 @@ fn test_gomigrate_pgm012_fires() {
     // Replay 000001-000011, skip 000012.down.sql, lint 000012.up.sql
     // (ADD PRIMARY KEY on audit_log without prior unique constraint).
     let findings = lint_fixture("go-migrate", &["000012_add_primary_key_no_unique.up.sql"]);
-    let pgm012: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM012").collect();
+    let pgm012: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM012")
+        .collect();
 
     assert_eq!(
         pgm012.len(),
@@ -1167,7 +1205,10 @@ fn test_gomigrate_clean_files_no_violations() {
     // Similarly, PGM006 checks CONCURRENTLY + run_in_transaction.
     // 000013 has CONCURRENTLY but SqlLoader sets run_in_transaction=true,
     // so PGM006 will fire for the CONCURRENTLY indexes.
-    let non_pgm006: Vec<&Finding> = findings.iter().filter(|f| f.rule_id != "PGM006").collect();
+    let non_pgm006: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() != "PGM006")
+        .collect();
 
     assert!(
         non_pgm006.is_empty(),
@@ -1415,7 +1456,7 @@ fn test_sarif_output_round_trip_from_fixture() {
     // For each original finding, verify it appears in the SARIF output
     for finding in &findings {
         let matching = results.iter().find(|r| {
-            r["ruleId"].as_str() == Some(&finding.rule_id)
+            r["ruleId"].as_str() == Some(finding.rule_id.as_str())
                 && r["message"]["text"].as_str() == Some(&finding.message)
         });
         assert!(
@@ -1593,7 +1634,7 @@ fn test_sonarqube_output_round_trip_from_fixture() {
     // For each original finding, verify it appears in the SonarQube output
     for finding in &findings {
         let matching = issues.iter().find(|issue| {
-            issue["ruleId"].as_str() == Some(&finding.rule_id)
+            issue["ruleId"].as_str() == Some(finding.rule_id.as_str())
                 && issue["primaryLocation"]["message"].as_str() == Some(&finding.message)
         });
         assert!(
@@ -1704,7 +1745,10 @@ fn test_fk_without_index_cross_file_only_fk_changed() {
     // index) has NOT been replayed yet. PGM003 should fire because
     // catalog_after has no covering index at this point.
     let findings = lint_fixture("fk-with-later-index", &["V002__add_fk.sql"]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert_eq!(
         pgm003.len(),
@@ -1726,7 +1770,10 @@ fn test_fk_with_later_index_only_index_changed() {
     // the covering index. Since V002 is not being linted, no PGM003
     // should fire -- the FK was in a prior file, not in the current lint set.
     let findings = lint_fixture("fk-with-later-index", &["V003__add_index.sql"]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert!(
         pgm003.is_empty(),
@@ -1744,7 +1791,10 @@ fn test_fk_cross_file_both_changed() {
         "fk-with-later-index",
         &["V002__add_fk.sql", "V003__add_index.sql"],
     );
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert_eq!(
         pgm003.len(),
@@ -1765,7 +1815,10 @@ fn test_fk_cross_file_all_changed() {
     // no finding). V002 adds FK without covering index -> PGM003 fires.
     // V003 adds the covering index -> no additional PGM003.
     let findings = lint_fixture("fk-with-later-index", &[]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert_eq!(
         pgm003.len(),
@@ -1799,7 +1852,10 @@ fn test_schema_qualified_no_collision() {
         &["V002__add_fk_and_index.sql", "V003__alter_schema_table.sql"],
     );
 
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
 
     // Two PGM001 findings: one for idx_orders_customer_id on public.orders,
     // one for idx_customers_name on myschema.customers.
@@ -1828,7 +1884,10 @@ fn test_schema_qualified_no_collision() {
     );
 
     // PGM003 should NOT fire: the covering index is in V002.
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
     assert!(
         pgm003.is_empty(),
         "PGM003 should not fire (covering index present). Got:\n  {}",
@@ -1845,7 +1904,10 @@ fn test_schema_qualified_cross_schema_fk() {
     // Expect no PGM003 finding.
     // V002's CREATE INDEX on pre-existing orders fires PGM001.
     let findings = lint_fixture("schema-qualified", &["V002__add_fk_and_index.sql"]);
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
 
     assert!(
         pgm003.is_empty(),
@@ -1854,7 +1916,10 @@ fn test_schema_qualified_cross_schema_fk() {
     );
 
     // PGM001 fires exactly once for CREATE INDEX on pre-existing orders table
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
     assert_eq!(
         pgm001.len(),
         1,
@@ -1863,7 +1928,10 @@ fn test_schema_qualified_cross_schema_fk() {
     );
 
     // PGM017 fires for the FK without NOT VALID on pre-existing orders table
-    let pgm017: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM017").collect();
+    let pgm017: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM017")
+        .collect();
     assert_eq!(
         pgm017.len(),
         1,
@@ -1886,7 +1954,10 @@ fn test_schema_qualified_pgm001_fires() {
     // myschema.customers exists in catalog_before (from V001).
     // V003 creates index on myschema.customers without CONCURRENTLY -> PGM001.
     let findings = lint_fixture("schema-qualified", &["V003__alter_schema_table.sql"]);
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
 
     assert_eq!(
         pgm001.len(),
@@ -1925,7 +1996,10 @@ fn test_schema_qualified_custom_default_schema() {
     );
 
     // PGM001 should fire for the myschema.customers index (V003)
-    let pgm001: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM001").collect();
+    let pgm001: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM001")
+        .collect();
     assert!(
         pgm001
             .iter()
@@ -1935,7 +2009,10 @@ fn test_schema_qualified_custom_default_schema() {
     );
 
     // No PGM003 (covering index exists for the FK)
-    let pgm003: Vec<&Finding> = findings.iter().filter(|f| f.rule_id == "PGM003").collect();
+    let pgm003: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM003")
+        .collect();
     assert!(
         pgm003.is_empty(),
         "PGM003 should not fire (covering index present). Got:\n  {}",
@@ -1973,7 +2050,7 @@ fn lint_fixture_with_disabled(
     registry.register_defaults();
     let active_rules: Vec<&dyn Rule> = registry
         .iter()
-        .filter(|r| !disabled.contains(r.id()))
+        .filter(|r| !disabled.contains(r.id().as_str()))
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
@@ -2012,7 +2089,7 @@ fn lint_fixture_with_disabled(
 
             let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
             let suppressions = parse_suppressions(&source);
-            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
 
             all_findings.extend(unit_findings);
         } else {
@@ -2031,7 +2108,7 @@ fn test_disabled_rules_suppresses_findings() {
     let findings_all = lint_fixture("all-rules", changed);
     let pgm003_all = findings_all
         .iter()
-        .filter(|f| f.rule_id == "PGM003")
+        .filter(|f| f.rule_id.as_str() == "PGM003")
         .count();
     assert!(pgm003_all > 0, "PGM003 should fire without suppression");
 
@@ -2039,18 +2116,18 @@ fn test_disabled_rules_suppresses_findings() {
     let findings_disabled = lint_fixture_with_disabled("all-rules", changed, &["PGM003"]);
     let pgm003_disabled = findings_disabled
         .iter()
-        .filter(|f| f.rule_id == "PGM003")
+        .filter(|f| f.rule_id.as_str() == "PGM003")
         .count();
     assert_eq!(pgm003_disabled, 0, "PGM003 should not fire when disabled");
 
     // Other rules should be unaffected
     let other_all = findings_all
         .iter()
-        .filter(|f| f.rule_id != "PGM003")
+        .filter(|f| f.rule_id.as_str() != "PGM003")
         .count();
     let other_disabled = findings_disabled
         .iter()
-        .filter(|f| f.rule_id != "PGM003")
+        .filter(|f| f.rule_id.as_str() != "PGM003")
         .count();
     assert_eq!(
         other_all, other_disabled,
@@ -2132,7 +2209,7 @@ fn lint_via_bridge(changed_ids: &[&str]) -> Vec<Finding> {
 
             let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
             let suppressions = parse_suppressions(&source);
-            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
 
             all_findings.extend(unit_findings);
         } else {

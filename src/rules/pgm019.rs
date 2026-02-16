@@ -10,26 +10,11 @@
 use std::collections::HashSet;
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags `ALTER TABLE ... RENAME TO` on existing tables.
-pub struct Pgm019;
+pub(super) const DESCRIPTION: &str = "RENAME TABLE on existing table";
 
-impl Rule for Pgm019 {
-    fn id(&self) -> &'static str {
-        "PGM019"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Info
-    }
-
-    fn description(&self) -> &'static str {
-        "RENAME TABLE on existing table"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM019 — RENAME TABLE on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM019 — RENAME TABLE on existing table\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... RENAME TO ... on a table that already exists in the\n\
@@ -56,59 +41,59 @@ impl Rule for Pgm019 {
            CREATE VIEW orders AS SELECT * FROM orders_v2;\n\
          \n\
          This rule does NOT fire when a replacement table with the old name\n\
-         is created in the same migration unit."
-    }
+         is created in the same migration unit.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        // Pass 1: collect all CREATE TABLE catalog keys in this unit.
-        // These represent "replacement" tables that re-create a renamed-away name.
-        let created_in_unit: HashSet<&str> = statements
-            .iter()
-            .filter_map(|stmt| match &stmt.node {
-                IrNode::CreateTable(ct) => Some(ct.name.catalog_key()),
-                _ => None,
-            })
-            .collect();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    // Pass 1: collect all CREATE TABLE catalog keys in this unit.
+    // These represent "replacement" tables that re-create a renamed-away name.
+    let created_in_unit: HashSet<&str> = statements
+        .iter()
+        .filter_map(|stmt| match &stmt.node {
+            IrNode::CreateTable(ct) => Some(ct.name.catalog_key()),
+            _ => None,
+        })
+        .collect();
 
-        // Pass 2: find RenameTable on existing tables.
-        let mut findings = Vec::new();
+    // Pass 2: find RenameTable on existing tables.
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::RenameTable {
-                ref name,
-                ref new_name,
-            } = stmt.node
-            {
-                let table_key = name.catalog_key();
+    for stmt in statements {
+        if let IrNode::RenameTable {
+            ref name,
+            ref new_name,
+        } = stmt.node
+        {
+            let table_key = name.catalog_key();
 
-                // Only flag if the table pre-exists (not created in the current changeset).
-                if !ctx.is_existing_table(table_key) {
-                    continue;
-                }
-
-                // Replacement detection: if a CREATE TABLE in this unit re-creates
-                // the old name, the rename is part of a safe swap pattern.
-                if created_in_unit.contains(table_key) {
-                    continue;
-                }
-
-                findings.push(Finding::new(
-                    self.id(),
-                    self.default_severity(),
-                    format!(
-                        "Renaming existing table '{}' to '{}' will break all \
-                         queries, views, and functions referencing the old name.",
-                        name.display_name(),
-                        new_name,
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
+            // Only flag if the table pre-exists (not created in the current changeset).
+            if !ctx.is_existing_table(table_key) {
+                continue;
             }
-        }
 
-        findings
+            // Replacement detection: if a CREATE TABLE in this unit re-creates
+            // the old name, the rename is part of a safe swap pattern.
+            if created_in_unit.contains(table_key) {
+                continue;
+            }
+
+            findings.push(rule.make_finding(
+                format!(
+                    "Renaming existing table '{}' to '{}' will break all \
+                         queries, views, and functions referencing the old name.",
+                    name.display_name(),
+                    new_name,
+                ),
+                ctx.file,
+                &stmt.span,
+            ));
+        }
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -118,6 +103,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -140,7 +126,7 @@ mod tests {
             new_name: "orders_archive".to_string(),
         })];
 
-        let findings = Pgm019.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm019).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -158,7 +144,7 @@ mod tests {
             new_name: "real_table".to_string(),
         })];
 
-        let findings = Pgm019.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm019).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -196,7 +182,7 @@ mod tests {
             })),
         ];
 
-        let findings = Pgm019.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm019).check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Expected no findings for replacement pattern, got: {:?}",

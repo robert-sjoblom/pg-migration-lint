@@ -8,26 +8,11 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags dropping a column that participates in the table's primary key.
-pub struct Pgm014;
+pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes primary key";
 
-impl Rule for Pgm014 {
-    fn id(&self) -> &'static str {
-        "PGM014"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Major
-    }
-
-    fn description(&self) -> &'static str {
-        "DROP COLUMN silently removes primary key"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM014 — DROP COLUMN silently removes primary key\n\
+pub(super) const EXPLAIN: &str = "PGM014 — DROP COLUMN silently removes primary key\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
@@ -46,48 +31,50 @@ impl Rule for Pgm014 {
          Fix:\n\
          Add a new primary key on the remaining columns before or after\n\
          dropping the column, or reconsider whether the column drop is\n\
-         necessary."
-    }
+         necessary.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::AnyPreExisting,
-            |at, action, stmt, ctx| {
-                let AlterTableAction::DropColumn { name } = action else {
-                    return vec![];
-                };
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::AnyPreExisting,
+        |at, action, stmt, ctx| {
+            let AlterTableAction::DropColumn { name } = action else {
+                return vec![];
+            };
 
-                let table_key = at.name.catalog_key();
-                let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                    return vec![];
-                };
+            let table_key = at.name.catalog_key();
+            let Some(table) = ctx.catalog_before.get_table(table_key) else {
+                return vec![];
+            };
 
-                let mut findings = Vec::new();
+            let mut findings = Vec::new();
 
-                // Check PrimaryKey constraints that include this column.
-                for constraint in table.constraints_involving_column(name) {
-                    if let ConstraintState::PrimaryKey { .. } = constraint {
-                        findings.push(self.make_finding(
-                            format!(
-                                "Dropping column '{col}' from table '{table}' \
+            // Check PrimaryKey constraints that include this column.
+            for constraint in table.constraints_involving_column(name) {
+                if let ConstraintState::PrimaryKey { .. } = constraint {
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Dropping column '{col}' from table '{table}' \
                              silently removes the primary key. The table will \
                              have no row identity. Add a new primary key or \
                              reconsider the column drop.",
-                                col = name,
-                                table = at.name.display_name(),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                            col = name,
+                            table = at.name.display_name(),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
+            }
 
-                findings
-            },
-        )
-    }
+            findings
+        },
+    )
 }
 
 #[cfg(test)]
@@ -97,6 +84,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -121,7 +109,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -147,9 +135,12 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].rule_id, "PGM014");
+        assert_eq!(
+            findings[0].rule_id,
+            RuleId::Migration(MigrationRule::Pgm014)
+        );
     }
 
     #[test]
@@ -174,7 +165,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -199,7 +190,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -218,7 +209,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -242,7 +233,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm014.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

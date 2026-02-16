@@ -4,7 +4,7 @@
 //! compatible with GitHub Code Scanning. Upload via `github/codeql-action/upload-sarif@v3`.
 
 use crate::output::{ReportError, Reporter, SarifReporter};
-use crate::rules::{Finding, Severity};
+use crate::rules::{Finding, RuleId, Severity};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -121,11 +121,11 @@ fn path_to_uri(path: &Path) -> String {
 /// preserving deterministic ordering via BTreeMap. Uses the first finding's
 /// message as the rule's short description.
 fn collect_rule_descriptors(findings: &[Finding]) -> Vec<SarifRuleDescriptor> {
-    let mut rule_map: BTreeMap<String, (&Severity, &str)> = BTreeMap::new();
+    let mut rule_map: BTreeMap<RuleId, (&Severity, &str)> = BTreeMap::new();
 
     for f in findings {
         rule_map
-            .entry(f.rule_id.clone())
+            .entry(f.rule_id)
             .and_modify(|(existing_sev, _)| {
                 if f.severity > **existing_sev {
                     *existing_sev = &f.severity;
@@ -137,7 +137,7 @@ fn collect_rule_descriptors(findings: &[Finding]) -> Vec<SarifRuleDescriptor> {
     rule_map
         .into_iter()
         .map(|(id, (severity, message))| SarifRuleDescriptor {
-            id,
+            id: id.to_string(),
             short_description: SarifMessage {
                 text: message.to_string(),
             },
@@ -161,7 +161,7 @@ impl Reporter for SarifReporter {
         let results: Vec<SarifResult> = findings
             .iter()
             .map(|f| SarifResult {
-                rule_id: f.rule_id.clone(),
+                rule_id: f.rule_id.to_string(),
                 level: sarif_level(&f.severity),
                 message: SarifMessage {
                     text: f.message.clone(),
@@ -210,7 +210,7 @@ impl Reporter for SarifReporter {
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, Severity};
+    use crate::rules::{Finding, MigrationRule, Severity};
     use std::path::PathBuf;
 
     /// Helper: emit findings via SarifReporter and parse the resulting JSON.
@@ -251,7 +251,7 @@ mod tests {
     fn severity_mapping_produces_correct_levels() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Blocker,
                 message: "blocker finding".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -259,7 +259,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM002".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm002),
                 severity: Severity::Critical,
                 message: "critical finding".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -267,7 +267,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "major finding".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -275,7 +275,7 @@ mod tests {
                 end_line: 3,
             },
             Finding {
-                rule_id: "PGM004".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm004),
                 severity: Severity::Minor,
                 message: "minor finding".to_string(),
                 file: PathBuf::from("d.sql"),
@@ -283,7 +283,7 @@ mod tests {
                 end_line: 4,
             },
             Finding {
-                rule_id: "PGM005".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm005),
                 severity: Severity::Info,
                 message: "info finding".to_string(),
                 file: PathBuf::from("e.sql"),
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn file_paths_use_forward_slashes() {
         let findings = vec![Finding {
-            rule_id: "PGM001".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm001),
             severity: Severity::Critical,
             message: "test".to_string(),
             file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -325,7 +325,7 @@ mod tests {
     fn unique_rules_appear_in_driver_rules() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "first".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -333,7 +333,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "second".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -341,7 +341,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "third".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -361,7 +361,7 @@ mod tests {
     fn multi_file_findings_reference_correct_paths() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "index issue in file A".to_string(),
                 file: PathBuf::from("db/migrations/V001__create_tables.sql"),
@@ -369,7 +369,7 @@ mod tests {
                 end_line: 5,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "missing FK index in file B".to_string(),
                 file: PathBuf::from("db/migrations/V002__add_fk.sql"),
@@ -377,7 +377,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: "PGM004".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm004),
                 severity: Severity::Major,
                 message: "no primary key in file C".to_string(),
                 file: PathBuf::from("db/changelog/003_audit.sql"),
@@ -397,7 +397,7 @@ mod tests {
     fn rule_metadata_has_correct_fields() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "critical finding".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -405,7 +405,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "major finding".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -413,7 +413,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: "PGM005".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm005),
                 severity: Severity::Info,
                 message: "info finding".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -433,7 +433,7 @@ mod tests {
     fn line_numbers_are_correct() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "single line".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -441,7 +441,7 @@ mod tests {
                 end_line: 7,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "multi line".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -449,7 +449,7 @@ mod tests {
                 end_line: 20,
             },
             Finding {
-                rule_id: "PGM004".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm004),
                 severity: Severity::Major,
                 message: "line 1".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -469,7 +469,7 @@ mod tests {
     fn round_trip_sarif_all_fields_verified() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "CREATE INDEX on 'orders' should use CONCURRENTLY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -477,7 +477,7 @@ mod tests {
                 end_line: 3,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "FK on 'orders.customer_id' has no covering index.".to_string(),
                 file: PathBuf::from("db/migrations/V043__add_fk.sql"),
@@ -485,7 +485,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: "PGM005".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm005),
                 severity: Severity::Info,
                 message: "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),

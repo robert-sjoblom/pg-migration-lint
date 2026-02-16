@@ -5,7 +5,7 @@
 //! See: <https://docs.sonarsource.com/sonarqube-server/10.3/analyzing-source-code/importing-external-issues/generic-issue-import-format/>
 
 use crate::output::{ReportError, Reporter, SonarQubeReporter};
-use crate::rules::Finding;
+use crate::rules::{Finding, RuleId};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -19,60 +19,67 @@ struct SonarQubeRuleMeta {
 }
 
 /// Look up SonarQube-specific metadata for a rule ID.
-fn sonarqube_meta(rule_id: &str) -> SonarQubeRuleMeta {
+///
+/// This match is exhaustive — adding a new `RuleId` variant without handling it
+/// here is a compile error.
+fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
+    use crate::rules::{MetaRule, MigrationRule::*, TypeChoiceRule::*};
     match rule_id {
         // Safety-critical: causes lock contention, table rewrites, or data issues
-        "PGM001" | "PGM002" | "PGM006" | "PGM009" | "PGM010" | "PGM012" | "PGM016" | "PGM017"
-        | "PGM018" | "PGM021" => SonarQubeRuleMeta {
+        RuleId::Migration(
+            Pgm001 | Pgm002 | Pgm006 | Pgm009 | Pgm010 | Pgm012 | Pgm016 | Pgm017 | Pgm018 | Pgm021,
+        ) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
         },
         // Volatile default: potentially dangerous but severity is Minor (PG 11+ mitigates)
-        "PGM007" => SonarQubeRuleMeta {
+        RuleId::Migration(Pgm007) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
             impact_severity: "MEDIUM",
         },
         // Performance: missing FK index
-        "PGM003" => SonarQubeRuleMeta {
+        RuleId::Migration(Pgm003) => SonarQubeRuleMeta {
             clean_code_attribute: "EFFICIENT",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
             impact_severity: "MEDIUM",
         },
         // Silent constraint drops: risk data integrity (duplicates, orphaned rows)
-        "PGM013" | "PGM014" | "PGM015" => SonarQubeRuleMeta {
+        RuleId::Migration(Pgm013 | Pgm014 | Pgm015) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
             impact_severity: "MEDIUM",
         },
         // Schema quality / side-effect warnings
-        "PGM004" | "PGM011" | "PGM019" | "PGM020" | "PGM022" => SonarQubeRuleMeta {
+        RuleId::Migration(Pgm004 | Pgm011 | Pgm019 | Pgm020 | Pgm022) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
             impact_severity: "MEDIUM",
         },
         // UNIQUE NOT NULL instead of PK
-        "PGM005" => SonarQubeRuleMeta {
+        RuleId::Migration(Pgm005) => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
             impact_severity: "LOW",
         },
         // Type-choice rules (PGM101-105, PGM108)
-        "PGM101" | "PGM102" | "PGM103" | "PGM104" | "PGM105" | "PGM108" => SonarQubeRuleMeta {
-            clean_code_attribute: "CONVENTIONAL",
-            issue_type: "CODE_SMELL",
-            software_quality: "MAINTAINABILITY",
-            impact_severity: "LOW",
-        },
-        // Fallback for unknown rules
-        _ => SonarQubeRuleMeta {
+        RuleId::TypeChoice(Pgm101 | Pgm102 | Pgm103 | Pgm104 | Pgm105 | Pgm108) => {
+            SonarQubeRuleMeta {
+                clean_code_attribute: "CONVENTIONAL",
+                issue_type: "CODE_SMELL",
+                software_quality: "MAINTAINABILITY",
+                impact_severity: "LOW",
+            }
+        }
+        // Meta-behavior (PGM901) — should not appear in findings, but handle gracefully
+        RuleId::Meta(MetaRule::Pgm901) => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
@@ -140,16 +147,25 @@ struct SonarQubeTextRange {
 }
 
 /// Effort estimate in minutes based on rule category.
-fn effort_minutes(rule_id: &str) -> u32 {
+///
+/// Exhaustive — adding a new `RuleId` variant without handling it here is a compile error.
+fn effort_minutes(rule_id: RuleId) -> u32 {
+    use crate::rules::{MetaRule, MigrationRule::*, TypeChoiceRule::*};
     match rule_id {
         // Concurrently fixes are usually quick
-        "PGM001" | "PGM002" | "PGM006" => 5,
+        RuleId::Migration(Pgm001 | Pgm002 | Pgm006) => 5,
         // Index/constraint additions
-        "PGM003" | "PGM012" | "PGM021" => 15,
+        RuleId::Migration(Pgm003 | Pgm012 | Pgm021) => 15,
         // Table rewrites / schema changes need more thought
-        "PGM007" | "PGM009" | "PGM010" | "PGM016" | "PGM017" | "PGM018" => 30,
-        // Informational / type-choice
-        _ => 10,
+        RuleId::Migration(Pgm007 | Pgm009 | Pgm010 | Pgm016 | Pgm017 | Pgm018) => 30,
+        // Schema quality / side-effect warnings
+        RuleId::Migration(
+            Pgm004 | Pgm005 | Pgm011 | Pgm013 | Pgm014 | Pgm015 | Pgm019 | Pgm020 | Pgm022,
+        ) => 10,
+        // Type-choice rules
+        RuleId::TypeChoice(Pgm101 | Pgm102 | Pgm103 | Pgm104 | Pgm105 | Pgm108) => 10,
+        // Meta-behavior
+        RuleId::Meta(MetaRule::Pgm901) => 10,
     }
 }
 
@@ -163,17 +179,17 @@ impl Reporter for SonarQubeReporter {
         std::fs::create_dir_all(output_dir)?;
 
         // Collect the set of rule IDs that appear in findings
-        let fired_rules: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+        let fired_rules: HashSet<RuleId> = findings.iter().map(|f| f.rule_id).collect();
 
         // Build rules array from stored RuleInfo, filtered to only rules that fired
         let rules: Vec<SonarQubeRule> = self
             .rules
             .iter()
-            .filter(|r| fired_rules.contains(r.id.as_str()))
+            .filter(|r| fired_rules.contains(&r.id))
             .map(|r| {
-                let meta = sonarqube_meta(&r.id);
+                let meta = sonarqube_meta(r.id);
                 SonarQubeRule {
-                    id: r.id.clone(),
+                    id: r.id.to_string(),
                     name: r.name.clone(),
                     description: r.description.clone(),
                     engine_id: "pg-migration-lint",
@@ -192,8 +208,8 @@ impl Reporter for SonarQubeReporter {
         let issues: Vec<SonarQubeIssue> = findings
             .iter()
             .map(|f| SonarQubeIssue {
-                rule_id: f.rule_id.clone(),
-                effort_minutes: effort_minutes(&f.rule_id),
+                rule_id: f.rule_id.to_string(),
+                effort_minutes: effort_minutes(f.rule_id),
                 primary_location: SonarQubePrimaryLocation {
                     message: f.message.clone(),
                     file_path: super::normalize_path(&f.file),
@@ -222,7 +238,7 @@ mod tests {
     use super::*;
     use crate::output::RuleInfo;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, RuleRegistry, Severity};
+    use crate::rules::{Finding, MigrationRule, RuleRegistry, Severity};
     use std::path::PathBuf;
 
     /// Helper: emit findings via the reporter and return the parsed JSON.
@@ -247,7 +263,7 @@ mod tests {
     fn multiple_findings_all_present() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "first".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -255,7 +271,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "second".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -271,7 +287,7 @@ mod tests {
     #[test]
     fn file_paths_use_forward_slashes() {
         let findings = vec![Finding {
-            rule_id: "PGM001".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm001),
             severity: Severity::Critical,
             message: "test".to_string(),
             file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -292,7 +308,7 @@ mod tests {
     fn multi_file_findings_have_correct_file_paths() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "index issue in file A".to_string(),
                 file: PathBuf::from("db/migrations/V001__create_tables.sql"),
@@ -300,7 +316,7 @@ mod tests {
                 end_line: 5,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "missing FK index in file B".to_string(),
                 file: PathBuf::from("db/migrations/V002__add_fk.sql"),
@@ -308,7 +324,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: "PGM004".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm004),
                 severity: Severity::Major,
                 message: "no primary key in file C".to_string(),
                 file: PathBuf::from("db/changelog/003_audit.sql"),
@@ -325,7 +341,7 @@ mod tests {
     fn message_content_is_preserved() {
         let msg = "CREATE INDEX on existing table 'orders' should use CONCURRENTLY. This is a long message with special characters: <>, &, \"quotes\".";
         let findings = vec![Finding {
-            rule_id: "PGM001".to_string(),
+            rule_id: RuleId::Migration(MigrationRule::Pgm001),
             severity: Severity::Critical,
             message: msg.to_string(),
             file: PathBuf::from("a.sql"),
@@ -341,7 +357,7 @@ mod tests {
     fn round_trip_sonarqube_all_fields_verified() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "CREATE INDEX on 'orders' should use CONCURRENTLY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -349,7 +365,7 @@ mod tests {
                 end_line: 3,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "FK on 'orders.customer_id' has no covering index.".to_string(),
                 file: PathBuf::from("db/migrations/V043__add_fk.sql"),
@@ -357,7 +373,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: "PGM005".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm005),
                 severity: Severity::Info,
                 message: "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -396,7 +412,7 @@ mod tests {
     fn engine_id_is_on_rules_not_issues() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "first".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -404,7 +420,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "second".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -430,7 +446,7 @@ mod tests {
     fn line_numbers_are_correct() {
         let findings = vec![
             Finding {
-                rule_id: "PGM001".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm001),
                 severity: Severity::Critical,
                 message: "single line".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -438,7 +454,7 @@ mod tests {
                 end_line: 42,
             },
             Finding {
-                rule_id: "PGM003".to_string(),
+                rule_id: RuleId::Migration(MigrationRule::Pgm003),
                 severity: Severity::Major,
                 message: "multi line".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -462,7 +478,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, rule)| Finding {
-                rule_id: rule.id().to_string(),
+                rule_id: rule.id(),
                 severity: rule.default_severity(),
                 message: format!("{}: {}", rule.id(), rule.description()),
                 file: PathBuf::from("test.sql"),

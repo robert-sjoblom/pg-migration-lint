@@ -6,26 +6,11 @@
 //! so this is not a downtime risk — it is a data loss risk.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags dropping an existing table.
-pub struct Pgm022;
+pub(super) const DESCRIPTION: &str = "DROP TABLE on existing table";
 
-impl Rule for Pgm022 {
-    fn id(&self) -> &'static str {
-        "PGM022"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "DROP TABLE on existing table"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM022 — DROP TABLE on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM022 — DROP TABLE on existing table\n\
          \n\
          What it detects:\n\
          A DROP TABLE statement targeting a table that already exists in the\n\
@@ -48,32 +33,34 @@ impl Rule for Pgm022 {
          2. Consider renaming the table first and waiting before dropping.\n\
          3. Take a backup of the table data if it may be needed later.\n\
          \n\
-         This rule is MINOR severity to flag the operation for human review."
-    }
+         This rule is MINOR severity to flag the operation for human review.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::DropTable(ref dt) = stmt.node {
-                let table_key = dt.name.catalog_key();
+    for stmt in statements {
+        if let IrNode::DropTable(ref dt) = stmt.node {
+            let table_key = dt.name.catalog_key();
 
-                if ctx.is_existing_table(table_key) {
-                    findings.push(self.make_finding(
-                        format!(
-                            "DROP TABLE '{}' removes an existing table. \
+            if ctx.is_existing_table(table_key) {
+                findings.push(rule.make_finding(
+                    format!(
+                        "DROP TABLE '{}' removes an existing table. \
                              This is irreversible and all data will be lost.",
-                            dt.name.display_name()
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
-                }
+                        dt.name.display_name()
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                ));
             }
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -83,6 +70,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -102,7 +90,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
         }))];
 
-        let findings = Pgm022.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -119,7 +107,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
         }))];
 
-        let findings = Pgm022.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -135,7 +123,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
         }))];
 
-        let findings = Pgm022.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

@@ -5,26 +5,11 @@
 //! the table the index belongs to, blocking all reads and writes.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags `DROP INDEX` without `CONCURRENTLY` on existing tables.
-pub struct Pgm002;
+pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on DROP INDEX";
 
-impl Rule for Pgm002 {
-    fn id(&self) -> &'static str {
-        "PGM002"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "Missing CONCURRENTLY on DROP INDEX"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM002 — Missing CONCURRENTLY on DROP INDEX\n\
+pub(super) const EXPLAIN: &str = "PGM002 — Missing CONCURRENTLY on DROP INDEX\n\
          \n\
          What it detects:\n\
          A DROP INDEX statement that does not use the CONCURRENTLY option,\n\
@@ -45,46 +30,48 @@ impl Rule for Pgm002 {
          \n\
          Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
          framework wraps each file in a transaction, you must disable that.\n\
-         See PGM006."
-    }
+         See PGM006.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::DropIndex(ref di) = stmt.node {
-                if di.concurrent {
-                    continue;
-                }
-
-                // Look up which table owns this index via the catalog's reverse index.
-                let Some(table_name) = ctx.catalog_before.table_for_index(&di.index_name) else {
-                    continue;
-                };
-
-                // Skip tables created in the current change set.
-                if ctx.tables_created_in_change.contains(table_name) {
-                    continue;
-                }
-
-                findings.push(self.make_finding(
-                    format!(
-                        "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
-                         to avoid holding an exclusive lock.",
-                        di.index_name,
-                        ctx.catalog_before
-                            .get_table(table_name)
-                            .map(|t| t.display_name.as_str())
-                            .unwrap_or(table_name)
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
+    for stmt in statements {
+        if let IrNode::DropIndex(ref di) = stmt.node {
+            if di.concurrent {
+                continue;
             }
-        }
 
-        findings
+            // Look up which table owns this index via the catalog's reverse index.
+            let Some(table_name) = ctx.catalog_before.table_for_index(&di.index_name) else {
+                continue;
+            };
+
+            // Skip tables created in the current change set.
+            if ctx.tables_created_in_change.contains(table_name) {
+                continue;
+            }
+
+            findings.push(rule.make_finding(
+                format!(
+                    "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
+                        to avoid holding an exclusive lock.",
+                    di.index_name,
+                    ctx.catalog_before
+                        .get_table(table_name)
+                        .map(|t| t.display_name.as_str())
+                        .unwrap_or(table_name)
+                ),
+                ctx.file,
+                &stmt.span,
+            ));
+        }
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -93,6 +80,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -117,7 +105,7 @@ mod tests {
             concurrent: false,
         }))];
 
-        let findings = Pgm002.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -142,7 +130,7 @@ mod tests {
             concurrent: true,
         }))];
 
-        let findings = Pgm002.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

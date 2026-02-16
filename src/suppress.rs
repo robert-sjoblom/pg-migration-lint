@@ -6,39 +6,44 @@
 //! - XML: `<!-- pgm-lint:suppress PGM001 -->` - suppress next statement
 //! - XML: `<!-- pgm-lint:suppress-file PGM001,PGM003 -->` - suppress entire file
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
+
+use crate::rules::RuleId;
 
 /// Parsed suppression directives from a single file.
 #[derive(Debug, Default)]
 pub struct Suppressions {
     /// Rules suppressed for the entire file.
-    file_level: HashSet<String>,
+    file_level: HashSet<RuleId>,
 
     /// Rules suppressed for a specific line (the statement after the comment).
     /// Key: line number of the statement (not the comment).
-    line_level: HashMap<usize, HashSet<String>>,
+    line_level: HashMap<usize, HashSet<RuleId>>,
 }
 
 impl Suppressions {
     /// Return all distinct rule IDs referenced by any suppression directive.
-    pub fn rule_ids(&self) -> HashSet<&str> {
-        let mut ids: HashSet<&str> = self.file_level.iter().map(|s| s.as_str()).collect();
+    pub fn rule_ids(&self) -> HashSet<RuleId> {
+        let mut ids: HashSet<RuleId> = self.file_level.iter().cloned().collect();
         for rules in self.line_level.values() {
-            ids.extend(rules.iter().map(|s| s.as_str()));
+            ids.extend(rules.iter());
         }
         ids
     }
 
     /// Check if a rule is suppressed at a given line.
-    pub fn is_suppressed(&self, rule_id: &str, statement_line: usize) -> bool {
+    pub fn is_suppressed(&self, rule_id: crate::rules::RuleId, statement_line: usize) -> bool {
         // Check file-level suppressions
-        if self.file_level.contains(rule_id) {
+        if self.file_level.contains(&rule_id) {
             return true;
         }
 
         // Check line-level suppressions
         if let Some(rules) = self.line_level.get(&statement_line)
-            && rules.contains(rule_id)
+            && rules.contains(&rule_id)
         {
             return true;
         }
@@ -126,8 +131,10 @@ pub fn parse_suppressions(source: &str) -> Suppressions {
                 Directive::File(rules_str) => {
                     for rule_id in rules_str.split(',') {
                         let rule_id = rule_id.trim();
-                        if !rule_id.is_empty() {
-                            suppressions.file_level.insert(rule_id.to_string());
+                        if let Ok(rule_id) = RuleId::from_str(rule_id) {
+                            suppressions.file_level.insert(rule_id);
+                        } else {
+                            eprintln!("WARNING: unknown rule '{rule_id}' in config file, ignoring");
                         }
                     }
                 }
@@ -143,8 +150,12 @@ pub fn parse_suppressions(source: &str) -> Suppressions {
 
                             for rule_id in rules_str.split(',') {
                                 let rule_id = rule_id.trim();
-                                if !rule_id.is_empty() {
-                                    rule_set.insert(rule_id.to_string());
+                                if let Ok(rule_id) = RuleId::from_str(rule_id) {
+                                    rule_set.insert(rule_id);
+                                } else {
+                                    eprintln!(
+                                        "WARNING: unknown rule '{rule_id}' in suppression comment, ignoring"
+                                    );
                                 }
                             }
                             break;
@@ -160,6 +171,8 @@ pub fn parse_suppressions(source: &str) -> Suppressions {
 
 #[cfg(test)]
 mod tests {
+    use crate::rules::{MigrationRule, RuleId};
+
     use super::*;
 
     #[test]
@@ -172,9 +185,9 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed("PGM001", 5));
-        assert!(suppressions.is_suppressed("PGM003", 5));
-        assert!(!suppressions.is_suppressed("PGM002", 5));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 5));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm003), 5));
+        assert!(!suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 5));
     }
 
     #[test]
@@ -187,8 +200,8 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed("PGM001", 5));
-        assert!(!suppressions.is_suppressed("PGM001", 2));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 5));
+        assert!(!suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2));
     }
 
     #[test]
@@ -199,8 +212,8 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed("PGM001", 3));
-        assert!(suppressions.is_suppressed("PGM002", 3));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 3));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 3));
     }
 
     // -----------------------------------------------------------------------
@@ -222,11 +235,11 @@ CREATE INDEX idx_foo ON foo(id);
         let suppressions = parse_suppressions(source);
         // The next non-comment, non-empty line after line 3 is line 4 (<changeSet>)
         assert!(
-            suppressions.is_suppressed("PGM001", 4),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 4),
             "PGM001 should be suppressed on line 4"
         );
         assert!(
-            !suppressions.is_suppressed("PGM002", 4),
+            !suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 4),
             "PGM002 should NOT be suppressed"
         );
     }
@@ -242,9 +255,9 @@ CREATE INDEX idx_foo ON foo(id);
 </databaseChangeLog>"#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed("PGM001", 4));
-        assert!(suppressions.is_suppressed("PGM003", 4));
-        assert!(!suppressions.is_suppressed("PGM002", 4));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 4));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm003), 4));
+        assert!(!suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 4));
     }
 
     #[test]
@@ -258,10 +271,10 @@ CREATE INDEX idx_foo ON foo(id);
 </databaseChangeLog>"#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed("PGM001", 5));
-        assert!(suppressions.is_suppressed("PGM003", 5));
-        assert!(suppressions.is_suppressed("PGM001", 99));
-        assert!(!suppressions.is_suppressed("PGM002", 5));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 5));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm003), 5));
+        assert!(suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 99));
+        assert!(!suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 5));
     }
 
     #[test]
@@ -270,7 +283,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source1 = "<!--pgm-lint:suppress PGM001-->\n<changeSet id=\"1\" author=\"dev\">";
         let s1 = parse_suppressions(source1);
         assert!(
-            s1.is_suppressed("PGM001", 2),
+            s1.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "No-space variant should parse"
         );
 
@@ -278,7 +291,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source2 = "<!--  pgm-lint:suppress PGM001  -->\n<changeSet id=\"1\" author=\"dev\">";
         let s2 = parse_suppressions(source2);
         assert!(
-            s2.is_suppressed("PGM001", 2),
+            s2.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Extra-space variant should parse"
         );
 
@@ -287,7 +300,7 @@ CREATE INDEX idx_foo ON foo(id);
             "    <!-- pgm-lint:suppress PGM001 -->\n    <changeSet id=\"1\" author=\"dev\">";
         let s3 = parse_suppressions(source3);
         assert!(
-            s3.is_suppressed("PGM001", 2),
+            s3.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Indented variant should parse"
         );
 
@@ -295,7 +308,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source4 = "<!--pgm-lint:suppress-file PGM001-->\n<something>";
         let s4 = parse_suppressions(source4);
         assert!(
-            s4.is_suppressed("PGM001", 2),
+            s4.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "File-level no-space variant should parse"
         );
     }
@@ -313,25 +326,25 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
         // File-level from SQL comment
         assert!(
-            suppressions.is_suppressed("PGM003", 3),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm003), 3),
             "PGM003 file-level from SQL comment"
         );
         assert!(
-            suppressions.is_suppressed("PGM003", 5),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm003), 5),
             "PGM003 file-level applies everywhere"
         );
         // Line-level from XML comment on line 2 -> targets line 3
         assert!(
-            suppressions.is_suppressed("PGM001", 3),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 3),
             "PGM001 from XML comment targets line 3"
         );
         assert!(
-            !suppressions.is_suppressed("PGM001", 5),
+            !suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 5),
             "PGM001 should NOT apply to line 5"
         );
         // Line-level from XML comment on line 4 -> targets line 5
         assert!(
-            suppressions.is_suppressed("PGM002", 5),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm002), 5),
             "PGM002 from XML comment targets line 5"
         );
     }
@@ -346,11 +359,11 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
         // Should skip the regular XML comment (line 2) and target line 3
         assert!(
-            suppressions.is_suppressed("PGM001", 3),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 3),
             "Should skip XML comment lines to find the next statement"
         );
         assert!(
-            !suppressions.is_suppressed("PGM001", 2),
+            !suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Should not target the intermediate comment line"
         );
     }
@@ -363,28 +376,9 @@ ALTER TABLE foo ADD COLUMN baz int;
 
         let suppressions = parse_suppressions(source);
         assert!(
-            !suppressions.is_suppressed("PGM001", 4),
+            !suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 4),
             "Multi-line XML comment should NOT match"
         );
-    }
-
-    // -----------------------------------------------------------------------
-    // Tests targeting surviving mutants
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_rule_ids_returns_file_level_rules() {
-        // Kills mutants on rule_ids(): replace return with HashSet::new(),
-        // HashSet::from_iter([""]), HashSet::from_iter(["xyzzy"])
-        let source = "-- pgm-lint:suppress-file PGM001,PGM003\nCREATE TABLE foo (id int);";
-        let suppressions = parse_suppressions(source);
-        let ids = suppressions.rule_ids();
-
-        assert_eq!(ids.len(), 2, "should contain exactly 2 rule IDs");
-        assert!(ids.contains("PGM001"), "should contain PGM001");
-        assert!(ids.contains("PGM003"), "should contain PGM003");
-        assert!(!ids.contains(""), "should not contain empty string");
-        assert!(!ids.contains("xyzzy"), "should not contain xyzzy");
     }
 
     #[test]
@@ -396,7 +390,10 @@ ALTER TABLE foo ADD COLUMN baz int;
         let ids = suppressions.rule_ids();
 
         assert_eq!(ids.len(), 1, "should contain exactly 1 rule ID");
-        assert!(ids.contains("PGM002"), "should contain PGM002");
+        assert!(
+            ids.contains(&RuleId::Migration(MigrationRule::Pgm002)),
+            "should contain PGM002"
+        );
     }
 
     #[test]
@@ -408,8 +405,14 @@ ALTER TABLE foo ADD COLUMN baz int;
         let ids = suppressions.rule_ids();
 
         assert_eq!(ids.len(), 2, "should contain 2 distinct rule IDs");
-        assert!(ids.contains("PGM001"), "should contain file-level PGM001");
-        assert!(ids.contains("PGM002"), "should contain line-level PGM002");
+        assert!(
+            ids.contains(&RuleId::Migration(MigrationRule::Pgm001)),
+            "should contain file-level PGM001"
+        );
+        assert!(
+            ids.contains(&RuleId::Migration(MigrationRule::Pgm002)),
+            "should contain line-level PGM002"
+        );
     }
 
     #[test]
@@ -425,7 +428,7 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
 
         assert!(
-            suppressions.is_suppressed("PGM001", 2),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Line starting with <!-- but not ending with --> is NOT a comment; \
              it should be the target of the suppress directive"
         );
@@ -440,7 +443,7 @@ ALTER TABLE foo ADD COLUMN baz int;
         let source = "-- pgm-lint:suppress PGM001\nsome content -->";
         let suppressions = parse_suppressions(source);
         assert!(
-            suppressions.is_suppressed("PGM001", 2),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Line ending with --> but not starting with <!-- is NOT a comment; \
              it should be the target of the suppress directive"
         );
@@ -459,11 +462,11 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
 
         assert!(
-            suppressions.is_suppressed("PGM001", 2),
+            suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2),
             "Unclosed XML tag (line 2) is not a comment; directive should target it"
         );
         assert!(
-            !suppressions.is_suppressed("PGM001", 3),
+            !suppressions.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 3),
             "Directive should NOT skip past unclosed XML to target line 3"
         );
     }
@@ -483,15 +486,15 @@ ALTER TABLE foo ADD COLUMN baz int;
         // Directive on first line (idx=0):
         // skip(0+1)=skip(1) vs skip(0*1)=skip(0): both find line 2
         let s1 = parse_suppressions("-- pgm-lint:suppress PGM001\nCREATE TABLE t(id int);");
-        assert!(s1.is_suppressed("PGM001", 2));
-        assert!(!s1.is_suppressed("PGM001", 1));
+        assert!(s1.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 2));
+        assert!(!s1.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 1));
 
         // Directive on third line (idx=2):
         // skip(2+1)=skip(3) vs skip(2*1)=skip(2): both find line 4
         let s2 = parse_suppressions(
             "CREATE TABLE t(id int);\n\n-- pgm-lint:suppress PGM001\nCREATE INDEX i ON t(id);",
         );
-        assert!(s2.is_suppressed("PGM001", 4));
-        assert!(!s2.is_suppressed("PGM001", 3));
+        assert!(s2.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 4));
+        assert!(!s2.is_suppressed(RuleId::Migration(MigrationRule::Pgm001), 3));
     }
 }

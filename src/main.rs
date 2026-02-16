@@ -20,7 +20,7 @@ use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
-use pg_migration_lint::rules::{self, LintContext};
+use pg_migration_lint::rules::{self, LintContext, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
 use pg_migration_lint::{Catalog, Config, Finding, IrNode, RuleRegistry, Severity};
 
@@ -71,7 +71,7 @@ fn main() {
             // exit 0 is implicit
         }
         Err(err) => {
-            eprintln!("Error: {:#}", err);
+            eprintln!("Error: {err:#}",);
             std::process::exit(2);
         }
     }
@@ -131,18 +131,20 @@ fn run(args: Args) -> Result<bool> {
     registry.register_defaults();
 
     // Build active rules list, filtering out any disabled via config.
-    let disabled: HashSet<&str> = config.rules.disabled.iter().map(|s| s.as_str()).collect();
-    for rule_id in &disabled {
-        if registry.get(rule_id).is_none() {
-            eprintln!(
-                "WARNING: unknown rule '{}' in [rules].disabled, ignoring",
-                rule_id
-            );
+    let mut disabled: HashSet<RuleId> = HashSet::new();
+    for s in &config.rules.disabled {
+        match s.parse::<RuleId>() {
+            Ok(id) => {
+                disabled.insert(id);
+            }
+            Err(_) => {
+                eprintln!("WARNING: unknown rule '{s}' in [rules].disabled, ignoring",);
+            }
         }
     }
     let active_rules: Vec<&dyn rules::Rule> = registry
         .iter()
-        .filter(|r| !disabled.contains(r.id()))
+        .filter(|r| !disabled.contains(&r.id()))
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
@@ -223,7 +225,7 @@ fn run(args: Args) -> Result<bool> {
             let suppressions = parse_suppressions(&source);
 
             for id in suppressions.rule_ids() {
-                if registry.get(id).is_none() {
+                if registry.get(&id).is_none() {
                     eprintln!(
                         "WARNING: unknown rule '{}' in suppression comment in {}",
                         id,
@@ -232,7 +234,7 @@ fn run(args: Args) -> Result<bool> {
                 }
             }
 
-            unit_findings.retain(|f| !suppressions.is_suppressed(&f.rule_id, f.start_line));
+            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
 
             all_findings.append(&mut unit_findings);
         } else {
@@ -280,14 +282,14 @@ fn run(args: Args) -> Result<bool> {
             "sarif" => Box::new(SarifReporter::new()),
             "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::from_registry(&registry))),
             other => {
-                eprintln!("Warning: Unknown output format '{}', skipping", other);
+                eprintln!("Warning: Unknown output format '{other}', skipping",);
                 continue;
             }
         };
 
         reporter
             .emit(&all_findings, &config.output.dir)
-            .context(format!("Failed to write {} report", format))?;
+            .context(format!("Failed to write {format} report",))?;
     }
 
     // --- Step 6: Summary and exit code ---
@@ -300,8 +302,7 @@ fn run(args: Args) -> Result<bool> {
         match Severity::parse(fail_on_str) {
             Some(s) => Some(s),
             None => anyhow::bail!(
-                "Unknown severity '{}' for --fail-on. Valid values: blocker, critical, major, minor, info, none",
-                fail_on_str
+                "Unknown severity '{fail_on_str}' for --fail-on. Valid values: blocker, critical, major, minor, info, none",
             ),
         }
     };
@@ -349,7 +350,11 @@ fn explain_rule(rule_id: &str) -> Result<()> {
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
 
-    if let Some(rule) = registry.get(rule_id) {
+    let parsed: RuleId = rule_id
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Unknown rule: {}", rule_id))?;
+
+    if let Some(rule) = registry.get(&parsed) {
         println!("Rule: {}", rule.id());
         println!("Severity: {}", rule.default_severity());
         println!("Description: {}", rule.description());
@@ -423,8 +428,7 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
         }
         other => {
             eprintln!(
-                "pg-migration-lint: unknown strategy '{}', falling back to filename_lexicographic",
-                other
+                "pg-migration-lint: unknown strategy '{other}', falling back to filename_lexicographic",
             );
             let run_in_tx = config.migrations.run_in_transaction.unwrap_or(true);
             let loader = SqlLoader::new(run_in_tx);

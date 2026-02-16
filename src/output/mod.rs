@@ -2,7 +2,7 @@
 //!
 //! Supports SARIF 2.1.0, SonarQube Generic Issue Import JSON, and text output.
 
-use crate::rules::{Finding, RuleRegistry, Severity};
+use crate::rules::{Finding, RuleId, RuleRegistry, Severity};
 use std::path::Path;
 use thiserror::Error;
 
@@ -49,8 +49,8 @@ impl Default for SarifReporter {
 
 /// Rule metadata for reporters that need per-rule information (e.g. SonarQube 10.3+).
 pub struct RuleInfo {
-    /// Rule identifier (e.g. "PGM001").
-    pub id: String,
+    /// Rule identifier.
+    pub id: RuleId,
     /// Short human-readable name (from `Rule::description()`).
     pub name: String,
     /// Detailed explanation (from `Rule::explain()`).
@@ -65,7 +65,7 @@ impl RuleInfo {
         registry
             .iter()
             .map(|r| RuleInfo {
-                id: r.id().to_string(),
+                id: r.id(),
                 name: r.description().to_string(),
                 description: r.explain().to_string(),
                 default_severity: r.default_severity(),

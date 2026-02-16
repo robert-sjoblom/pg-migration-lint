@@ -5,26 +5,11 @@
 //! equivalent to a PK but less conventional.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags tables using UNIQUE NOT NULL instead of a proper PRIMARY KEY.
-pub struct Pgm005;
+pub(super) const DESCRIPTION: &str = "UNIQUE NOT NULL used instead of PRIMARY KEY";
 
-impl Rule for Pgm005 {
-    fn id(&self) -> &'static str {
-        "PGM005"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Info
-    }
-
-    fn description(&self) -> &'static str {
-        "UNIQUE NOT NULL used instead of PRIMARY KEY"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM005 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\
+pub(super) const EXPLAIN: &str = "PGM005 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\
          \n\
          What it detects:\n\
          A table that has no PRIMARY KEY but has at least one UNIQUE constraint\n\
@@ -51,47 +36,49 @@ impl Rule for Pgm005 {
            );\n\
          \n\
          Note: When PGM005 fires, PGM004 (table without PK) does NOT fire\n\
-         for the same table, since the situation is already flagged."
-    }
+         for the same table, since the situation is already flagged.";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        let mut findings = Vec::new();
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-        for stmt in statements {
-            if let IrNode::CreateTable(ref ct) = stmt.node {
-                // Skip temporary tables.
-                if ct.temporary {
-                    continue;
-                }
+    for stmt in statements {
+        if let IrNode::CreateTable(ref ct) = stmt.node {
+            // Skip temporary tables.
+            if ct.temporary {
+                continue;
+            }
 
-                let table_key = ct.name.catalog_key();
-                let table_state = ctx.catalog_after.get_table(table_key);
+            let table_key = ct.name.catalog_key();
+            let table_state = ctx.catalog_after.get_table(table_key);
 
-                let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
+            let has_pk = table_state.map(|t| t.has_primary_key).unwrap_or(false);
 
-                if !has_pk {
-                    let has_unique_not_null = table_state
-                        .map(|t| t.has_unique_not_null())
-                        .unwrap_or(false);
+            if !has_pk {
+                let has_unique_not_null = table_state
+                    .map(|t| t.has_unique_not_null())
+                    .unwrap_or(false);
 
-                    if has_unique_not_null {
-                        findings.push(self.make_finding(
-                            format!(
-                                "Table '{}' uses UNIQUE NOT NULL instead of PRIMARY KEY. \
+                if has_unique_not_null {
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Table '{}' uses UNIQUE NOT NULL instead of PRIMARY KEY. \
                                  Functionally equivalent but PRIMARY KEY is conventional \
                                  and more explicit.",
-                                ct.name.display_name()
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                            ct.name.display_name()
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
         }
-
-        findings
     }
+
+    findings
 }
 
 #[cfg(test)]
@@ -101,6 +88,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -145,7 +133,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm005.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm005).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -196,7 +184,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm005.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm005).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

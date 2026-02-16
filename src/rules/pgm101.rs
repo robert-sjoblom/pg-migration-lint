@@ -6,26 +6,11 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of `timestamp` without time zone.
-pub struct Pgm101;
+pub(super) const DESCRIPTION: &str = "Column uses timestamp without time zone";
 
-impl Rule for Pgm101 {
-    fn id(&self) -> &'static str {
-        "PGM101"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses timestamp without time zone"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM101 — Don't use `timestamp` (without time zone)\n\
+pub(super) const EXPLAIN: &str = "PGM101 — Don't use `timestamp` (without time zone)\n\
          \n\
          What it detects:\n\
          A column declared as `timestamp` (which PostgreSQL interprets as\n\
@@ -46,27 +31,28 @@ impl Rule for Pgm101 {
            CREATE TABLE events (created_at timestamp NOT NULL);\n\
          \n\
          Fix:\n\
-           CREATE TABLE events (created_at timestamptz NOT NULL);"
-    }
+           CREATE TABLE events (created_at timestamptz NOT NULL);";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        column_type_check::check_column_types(
-            statements,
-            ctx,
-            self.id(),
-            self.default_severity(),
-            |tn| tn.name.eq_ignore_ascii_case("timestamp"),
-            |col, table, _tn| {
-                format!(
-                    "Column '{}' on '{}' uses 'timestamp without time zone'. \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    column_type_check::check_column_types(
+        statements,
+        ctx,
+        rule,
+        |tn| tn.name.eq_ignore_ascii_case("timestamp"),
+        |col, table, _tn| {
+            format!(
+                "Column '{}' on '{}' uses 'timestamp without time zone'. \
                      Use 'timestamptz' (timestamp with time zone) instead to \
                      store unambiguous points in time.",
-                    col,
-                    table.display_name(),
-                )
-            },
-        )
-    }
+                col,
+                table.display_name(),
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -75,6 +61,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -100,7 +87,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm101.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -126,7 +113,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm101.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -150,7 +137,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm101.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -171,7 +158,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm101.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

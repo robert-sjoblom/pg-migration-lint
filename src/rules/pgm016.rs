@@ -6,26 +6,12 @@
 //! with NOT VALID, validate it, then set NOT NULL.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-/// Rule that flags `SET NOT NULL` on an existing table column.
-pub struct Pgm016;
+pub(super) const DESCRIPTION: &str =
+    "SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock";
 
-impl Rule for Pgm016 {
-    fn id(&self) -> &'static str {
-        "PGM016"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM016 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\
+pub(super) const EXPLAIN: &str = "PGM016 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\
          \n\
          What it detects:\n\
          ALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already\n\
@@ -55,34 +41,36 @@ impl Rule for Pgm016 {
            ALTER TABLE orders ADD CONSTRAINT orders_status_nn\n\
              CHECK (status IS NOT NULL) NOT VALID;\n\
            ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
-           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;"
-    }
+           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                if let AlterTableAction::SetNotNull { column_name } = action {
-                    vec![self.make_finding(
-                        format!(
-                            "SET NOT NULL on column '{col}' of existing table '{table}' \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            if let AlterTableAction::SetNotNull { column_name } = action {
+                vec![rule.make_finding(
+                    format!(
+                        "SET NOT NULL on column '{col}' of existing table '{table}' \
                          requires an ACCESS EXCLUSIVE lock and full table scan. \
                          Use a CHECK constraint with NOT VALID, validate it, \
                          then set NOT NULL.",
-                            col = column_name,
-                            table = at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )]
-                } else {
-                    vec![]
-                }
-            },
-        )
-    }
+                        col = column_name,
+                        table = at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
+            }
+        },
+    )
 }
 
 #[cfg(test)]
@@ -92,6 +80,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -116,7 +105,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm016.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm016).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -142,7 +131,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm016.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm016).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -161,7 +150,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm016.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm016).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

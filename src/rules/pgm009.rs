@@ -8,8 +8,109 @@
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
-/// Rule that flags column type changes on existing tables.
-pub struct Pgm009;
+pub(super) const DESCRIPTION: &str = "ALTER COLUMN TYPE on existing table causes table rewrite";
+
+pub(super) const EXPLAIN: &str = "PGM009 — ALTER COLUMN TYPE on existing table\n\
+         \n\
+         What it detects:\n\
+         ALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already\n\
+         exists in the database (not created in the same set of changed files).\n\
+         \n\
+         Why it's dangerous:\n\
+         Most type changes require a full table rewrite and an ACCESS EXCLUSIVE\n\
+         lock for the duration. For large tables, this causes extended downtime.\n\
+         Binary-coercible casts (e.g., varchar widening) do NOT rewrite.\n\
+         \n\
+         Safe casts (no finding):\n\
+         - varchar(N) -> varchar(M) where M > N\n\
+         - varchar(N) -> text\n\
+         - numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n\
+         - bit(N) -> bit(M) where M > N\n\
+         - varbit(N) -> varbit(M) where M > N\n\
+         \n\
+         INFO cast:\n\
+         - timestamp -> timestamptz (safe in PG 15+ with UTC timezone;\n\
+           verify your timezone config)\n\
+         \n\
+         All other type changes fire as CRITICAL.\n\
+         \n\
+         Example (bad):\n\
+           ALTER TABLE orders ALTER COLUMN amount TYPE bigint;\n\
+         \n\
+         Fix:\n\
+           -- Create a new column, backfill, and swap:\n\
+           ALTER TABLE orders ADD COLUMN amount_new bigint;\n\
+           UPDATE orders SET amount_new = amount;\n\
+           ALTER TABLE orders DROP COLUMN amount;\n\
+           ALTER TABLE orders RENAME COLUMN amount_new TO amount;";
+
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            let AlterTableAction::AlterColumnType {
+                column_name,
+                new_type,
+                old_type,
+            } = action
+            else {
+                return vec![];
+            };
+
+            let table_key = at.name.catalog_key();
+
+            // Resolve old_type: prefer the one from the IR, fall back to catalog.
+            let resolved_old_type = old_type.as_ref().or_else(|| {
+                ctx.catalog_before
+                    .get_table(table_key)
+                    .and_then(|t| t.get_column(column_name))
+                    .map(|c| &c.type_name)
+            });
+
+            let safety = match resolved_old_type {
+                Some(old) => is_safe_cast(old, new_type),
+                None => {
+                    // Cannot determine old type — assume unsafe.
+                    CastSafety::Unsafe
+                }
+            };
+
+            let severity = match safety {
+                CastSafety::Safe => return vec![],
+                CastSafety::Info => Severity::Info,
+                CastSafety::Unsafe => rule.default_severity(),
+            };
+
+            let old_display = resolved_old_type
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            vec![Finding::new(
+                rule.id(),
+                severity,
+                format!(
+                    "Changing column type on existing table '{table}' \
+                     ('{col}': {old} \u{2192} {new}) rewrites the entire table \
+                     under an ACCESS EXCLUSIVE lock. For large tables, this causes \
+                     extended downtime. Consider creating a new column, backfilling, \
+                     and swapping instead.",
+                    table = at.name.display_name(),
+                    col = column_name,
+                    old = old_display,
+                    new = new_type,
+                ),
+                ctx.file,
+                &stmt.span,
+            )]
+        },
+    )
+}
 
 /// Result of checking whether a type cast is safe.
 #[derive(Debug, PartialEq, Eq)]
@@ -151,120 +252,6 @@ fn check_numeric_widening(old: &TypeName, new: &TypeName) -> CastSafety {
     }
 }
 
-impl Rule for Pgm009 {
-    fn id(&self) -> &'static str {
-        "PGM009"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Critical
-    }
-
-    fn description(&self) -> &'static str {
-        "ALTER COLUMN TYPE on existing table causes table rewrite"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM009 — ALTER COLUMN TYPE on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already\n\
-         exists in the database (not created in the same set of changed files).\n\
-         \n\
-         Why it's dangerous:\n\
-         Most type changes require a full table rewrite and an ACCESS EXCLUSIVE\n\
-         lock for the duration. For large tables, this causes extended downtime.\n\
-         Binary-coercible casts (e.g., varchar widening) do NOT rewrite.\n\
-         \n\
-         Safe casts (no finding):\n\
-         - varchar(N) -> varchar(M) where M > N\n\
-         - varchar(N) -> text\n\
-         - numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n\
-         - bit(N) -> bit(M) where M > N\n\
-         - varbit(N) -> varbit(M) where M > N\n\
-         \n\
-         INFO cast:\n\
-         - timestamp -> timestamptz (safe in PG 15+ with UTC timezone;\n\
-           verify your timezone config)\n\
-         \n\
-         All other type changes fire as CRITICAL.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ALTER COLUMN amount TYPE bigint;\n\
-         \n\
-         Fix:\n\
-           -- Create a new column, backfill, and swap:\n\
-           ALTER TABLE orders ADD COLUMN amount_new bigint;\n\
-           UPDATE orders SET amount_new = amount;\n\
-           ALTER TABLE orders DROP COLUMN amount;\n\
-           ALTER TABLE orders RENAME COLUMN amount_new TO amount;"
-    }
-
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        alter_table_check::check_alter_actions(
-            statements,
-            ctx,
-            TableScope::ExcludeCreatedInChange,
-            |at, action, stmt, ctx| {
-                let AlterTableAction::AlterColumnType {
-                    column_name,
-                    new_type,
-                    old_type,
-                } = action
-                else {
-                    return vec![];
-                };
-
-                let table_key = at.name.catalog_key();
-
-                // Resolve old_type: prefer the one from the IR, fall back to catalog.
-                let resolved_old_type = old_type.as_ref().or_else(|| {
-                    ctx.catalog_before
-                        .get_table(table_key)
-                        .and_then(|t| t.get_column(column_name))
-                        .map(|c| &c.type_name)
-                });
-
-                let safety = match resolved_old_type {
-                    Some(old) => is_safe_cast(old, new_type),
-                    None => {
-                        // Cannot determine old type — assume unsafe.
-                        CastSafety::Unsafe
-                    }
-                };
-
-                let severity = match safety {
-                    CastSafety::Safe => return vec![],
-                    CastSafety::Info => Severity::Info,
-                    CastSafety::Unsafe => self.default_severity(),
-                };
-
-                let old_display = resolved_old_type
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-
-                vec![Finding::new(
-                    self.id(),
-                    severity,
-                    format!(
-                        "Changing column type on existing table '{table}' \
-                     ('{col}': {old} \u{2192} {new}) rewrites the entire table \
-                     under an ACCESS EXCLUSIVE lock. For large tables, this causes \
-                     extended downtime. Consider creating a new column, backfilling, \
-                     and swapping instead.",
-                        table = at.name.display_name(),
-                        col = column_name,
-                        old = old_display,
-                        new = new_type,
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                )]
-            },
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +259,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{MigrationRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -435,7 +423,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm009.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm009).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -460,7 +448,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm009.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm009).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -485,7 +473,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm009.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm009).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -511,7 +499,7 @@ mod tests {
             }],
         }))];
 
-        let findings = Pgm009.check(&stmts, &ctx);
+        let findings = RuleId::Migration(MigrationRule::Pgm009).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 

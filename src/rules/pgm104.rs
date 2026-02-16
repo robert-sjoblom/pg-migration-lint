@@ -6,26 +6,11 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule};
 
-/// Rule that flags the use of the `money` type.
-pub struct Pgm104;
+pub(super) const DESCRIPTION: &str = "Column uses the money type";
 
-impl Rule for Pgm104 {
-    fn id(&self) -> &'static str {
-        "PGM104"
-    }
-
-    fn default_severity(&self) -> Severity {
-        Severity::Minor
-    }
-
-    fn description(&self) -> &'static str {
-        "Column uses the money type"
-    }
-
-    fn explain(&self) -> &'static str {
-        "PGM104 — Don't use `money` type\n\
+pub(super) const EXPLAIN: &str = "PGM104 — Don't use `money` type\n\
          \n\
          What it detects:\n\
          A column declared as `money`.\n\
@@ -47,27 +32,28 @@ impl Rule for Pgm104 {
            CREATE TABLE orders (total money NOT NULL);\n\
          \n\
          Fix:\n\
-           CREATE TABLE orders (total numeric(12,2) NOT NULL);"
-    }
+           CREATE TABLE orders (total numeric(12,2) NOT NULL);";
 
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        column_type_check::check_column_types(
-            statements,
-            ctx,
-            self.id(),
-            self.default_severity(),
-            |tn| tn.name.eq_ignore_ascii_case("money"),
-            |col, table, _tn| {
-                format!(
-                    "Column '{}' on '{}' uses the 'money' type. The money type \
+pub(super) fn check(
+    rule: impl Rule,
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    column_type_check::check_column_types(
+        statements,
+        ctx,
+        rule,
+        |tn| tn.name.eq_ignore_ascii_case("money"),
+        |col, table, _tn| {
+            format!(
+                "Column '{}' on '{}' uses the 'money' type. The money type \
                      depends on the lc_monetary locale setting, making it \
                      unreliable across environments. Use numeric(p,s) instead.",
-                    col,
-                    table.display_name(),
-                )
-            },
-        )
-    }
+                col,
+                table.display_name(),
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -76,6 +62,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::{RuleId, TypeChoiceRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -101,7 +88,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm104.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm104).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -127,7 +114,7 @@ mod tests {
             temporary: false,
         }))];
 
-        let findings = Pgm104.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm104).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -151,7 +138,7 @@ mod tests {
             })],
         }))];
 
-        let findings = Pgm104.check(&stmts, &ctx);
+        let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm104).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

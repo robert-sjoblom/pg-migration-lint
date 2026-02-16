@@ -3,8 +3,9 @@
 //! Used by PGM101-104, which all follow the same pattern: flag columns whose type
 //! matches a predicate, across `CreateTable`, `AddColumn`, and `AlterColumnType`.
 
+use crate::Rule;
 use crate::parser::ir::{AlterTableAction, IrNode, Located, QualifiedName, TypeName};
-use crate::rules::{Finding, LintContext, Severity};
+use crate::rules::{Finding, LintContext};
 
 /// Check all columns in CREATE TABLE and ALTER TABLE statements against a type predicate.
 ///
@@ -13,8 +14,7 @@ use crate::rules::{Finding, LintContext, Severity};
 pub fn check_column_types(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
-    rule_id: &str,
-    severity: Severity,
+    rule: impl Rule,
     predicate: impl Fn(&TypeName) -> bool,
     message_fn: impl Fn(&str, &QualifiedName, &TypeName) -> String,
 ) -> Vec<Finding> {
@@ -26,8 +26,8 @@ pub fn check_column_types(
                 for col in &ct.columns {
                     if predicate(&col.type_name) {
                         findings.push(Finding::new(
-                            rule_id,
-                            severity,
+                            rule.id(),
+                            rule.default_severity(),
                             message_fn(&col.name, &ct.name, &col.type_name),
                             ctx.file,
                             &stmt.span,
@@ -41,8 +41,8 @@ pub fn check_column_types(
                         AlterTableAction::AddColumn(col) => {
                             if predicate(&col.type_name) {
                                 findings.push(Finding::new(
-                                    rule_id,
-                                    severity,
+                                    rule.id(),
+                                    rule.default_severity(),
                                     message_fn(&col.name, &at.name, &col.type_name),
                                     ctx.file,
                                     &stmt.span,
@@ -56,8 +56,8 @@ pub fn check_column_types(
                         } => {
                             if predicate(new_type) {
                                 findings.push(Finding::new(
-                                    rule_id,
-                                    severity,
+                                    rule.id(),
+                                    rule.default_severity(),
                                     message_fn(column_name, &at.name, new_type),
                                     ctx.file,
                                     &stmt.span,
