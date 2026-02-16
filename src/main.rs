@@ -17,7 +17,9 @@ use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationHistory, MigrationLoader};
 use pg_migration_lint::normalize;
-use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter, TextReporter};
+use pg_migration_lint::output::{
+    Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
+};
 use pg_migration_lint::rules::{self, LintContext};
 use pg_migration_lint::suppress::parse_suppressions;
 use pg_migration_lint::{Catalog, Config, Finding, IrNode, RuleRegistry, Severity};
@@ -276,7 +278,7 @@ fn run(args: Args) -> Result<bool> {
         let reporter: Box<dyn Reporter> = match format.as_str() {
             "text" => Box::new(TextReporter::new(true)),
             "sarif" => Box::new(SarifReporter::new()),
-            "sonarqube" => Box::new(SonarQubeReporter::new()),
+            "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::from_registry(&registry))),
             other => {
                 eprintln!("Warning: Unknown output format '{}', skipping", other);
                 continue;

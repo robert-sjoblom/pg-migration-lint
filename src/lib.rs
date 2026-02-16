@@ -16,5 +16,6 @@ pub mod suppress;
 // Re-export commonly used types
 pub use catalog::{Catalog, TableState};
 pub use config::Config;
+pub use output::RuleInfo;
 pub use parser::ir::{IrNode, Located};
 pub use rules::{Finding, Rule, RuleRegistry, Severity};
