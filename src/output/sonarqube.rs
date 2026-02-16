@@ -1,28 +1,124 @@
-//! SonarQube Generic Issue Import JSON reporter
+//! SonarQube Generic Issue Import JSON reporter (10.3+ format)
 //!
-//! Generates JSON files in the SonarQube Generic Issue Import format.
-//! See: <https://docs.sonarqube.org/latest/analysis/generic-issue/>
+//! Generates JSON files in the SonarQube 10.3+ Generic Issue Import format
+//! with a top-level `rules` array containing clean-code attributes and impacts.
+//! See: <https://docs.sonarsource.com/sonarqube-server/10.3/analyzing-source-code/importing-external-issues/generic-issue-import-format/>
 
 use crate::output::{ReportError, Reporter, SonarQubeReporter};
 use crate::rules::Finding;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::Path;
+
+/// SonarQube-specific metadata for a rule.
+struct SonarQubeRuleMeta {
+    clean_code_attribute: &'static str,
+    issue_type: &'static str,
+    software_quality: &'static str,
+    impact_severity: &'static str,
+}
+
+/// Look up SonarQube-specific metadata for a rule ID.
+fn sonarqube_meta(rule_id: &str) -> SonarQubeRuleMeta {
+    match rule_id {
+        // Safety-critical: causes lock contention, table rewrites, or data issues
+        "PGM001" | "PGM002" | "PGM006" | "PGM009" | "PGM010" | "PGM012" | "PGM016" | "PGM017"
+        | "PGM018" | "PGM021" => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "HIGH",
+        },
+        // Volatile default: potentially dangerous but severity is Minor (PG 11+ mitigates)
+        "PGM007" => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "MEDIUM",
+        },
+        // Performance: missing FK index
+        "PGM003" => SonarQubeRuleMeta {
+            clean_code_attribute: "EFFICIENT",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "MEDIUM",
+        },
+        // Silent constraint drops: risk data integrity (duplicates, orphaned rows)
+        "PGM013" | "PGM014" | "PGM015" => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "MEDIUM",
+        },
+        // Schema quality / side-effect warnings
+        "PGM004" | "PGM011" | "PGM019" | "PGM020" | "PGM022" => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "MEDIUM",
+        },
+        // UNIQUE NOT NULL instead of PK
+        "PGM005" => SonarQubeRuleMeta {
+            clean_code_attribute: "CONVENTIONAL",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "LOW",
+        },
+        // Type-choice rules (PGM101-105, PGM108)
+        "PGM101" | "PGM102" | "PGM103" | "PGM104" | "PGM105" | "PGM108" => SonarQubeRuleMeta {
+            clean_code_attribute: "CONVENTIONAL",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "LOW",
+        },
+        // Fallback for unknown rules
+        _ => SonarQubeRuleMeta {
+            clean_code_attribute: "CONVENTIONAL",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "MEDIUM",
+        },
+    }
+}
+
+// --- Serde structures for the 10.3+ format ---
 
 /// Top-level SonarQube report envelope.
 #[derive(Serialize)]
 struct SonarQubeReport {
+    rules: Vec<SonarQubeRule>,
     issues: Vec<SonarQubeIssue>,
 }
 
-/// A single SonarQube issue.
+/// A rule definition in the top-level `rules` array.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SonarQubeRule {
+    id: String,
+    name: String,
+    description: String,
+    engine_id: &'static str,
+    clean_code_attribute: &'static str,
+    #[serde(rename = "type")]
+    issue_type: &'static str,
+    severity: String,
+    impacts: Vec<SonarQubeImpact>,
+}
+
+/// An impact entry within a rule definition.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SonarQubeImpact {
+    software_quality: &'static str,
+    severity: &'static str,
+}
+
+/// A slim issue entry (10.3+ format — metadata lives on the rule).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SonarQubeIssue {
-    engine_id: &'static str,
     rule_id: String,
-    severity: String,
-    #[serde(rename = "type")]
-    issue_type: &'static str,
+    effort_minutes: u32,
     primary_location: SonarQubePrimaryLocation,
 }
 
@@ -43,29 +139,64 @@ struct SonarQubeTextRange {
     end_line: usize,
 }
 
-/// Convert a file path to a string with forward slashes.
-fn path_to_forward_slashes(path: &Path) -> String {
-    super::normalize_path(path)
+/// Effort estimate in minutes based on rule category.
+fn effort_minutes(rule_id: &str) -> u32 {
+    match rule_id {
+        // Concurrently fixes are usually quick
+        "PGM001" | "PGM002" | "PGM006" => 5,
+        // Index/constraint additions
+        "PGM003" | "PGM012" | "PGM021" => 15,
+        // Table rewrites / schema changes need more thought
+        "PGM007" | "PGM009" | "PGM010" | "PGM016" | "PGM017" | "PGM018" => 30,
+        // Informational / type-choice
+        _ => 10,
+    }
 }
 
 impl Reporter for SonarQubeReporter {
-    /// Emit findings as a SonarQube Generic Issue Import JSON file.
+    /// Emit findings as a SonarQube 10.3+ Generic Issue Import JSON file.
     ///
     /// Writes `findings.json` to the given `output_dir`. Creates the directory
-    /// if it does not exist.
+    /// if it does not exist. Only rules that produced at least one finding are
+    /// included in the `rules` array.
     fn emit(&self, findings: &[Finding], output_dir: &Path) -> Result<(), ReportError> {
         std::fs::create_dir_all(output_dir)?;
 
+        // Collect the set of rule IDs that appear in findings
+        let fired_rules: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+        // Build rules array from stored RuleInfo, filtered to only rules that fired
+        let rules: Vec<SonarQubeRule> = self
+            .rules
+            .iter()
+            .filter(|r| fired_rules.contains(r.id.as_str()))
+            .map(|r| {
+                let meta = sonarqube_meta(&r.id);
+                SonarQubeRule {
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    description: r.description.clone(),
+                    engine_id: "pg-migration-lint",
+                    clean_code_attribute: meta.clean_code_attribute,
+                    issue_type: meta.issue_type,
+                    severity: r.default_severity.sonarqube_str().to_string(),
+                    impacts: vec![SonarQubeImpact {
+                        software_quality: meta.software_quality,
+                        severity: meta.impact_severity,
+                    }],
+                }
+            })
+            .collect();
+
+        // Build slim issues array
         let issues: Vec<SonarQubeIssue> = findings
             .iter()
             .map(|f| SonarQubeIssue {
-                engine_id: "pg-migration-lint",
                 rule_id: f.rule_id.clone(),
-                severity: f.severity.sonarqube_str().to_string(),
-                issue_type: "BUG",
+                effort_minutes: effort_minutes(&f.rule_id),
                 primary_location: SonarQubePrimaryLocation {
                     message: f.message.clone(),
-                    file_path: path_to_forward_slashes(&f.file),
+                    file_path: super::normalize_path(&f.file),
                     text_range: SonarQubeTextRange {
                         start_line: f.start_line,
                         end_line: f.end_line,
@@ -74,7 +205,7 @@ impl Reporter for SonarQubeReporter {
             })
             .collect();
 
-        let report = SonarQubeReport { issues };
+        let report = SonarQubeReport { rules, issues };
 
         let json = serde_json::to_string_pretty(&report)
             .map_err(|e| ReportError::Serialization(e.to_string()))?;
@@ -89,14 +220,17 @@ impl Reporter for SonarQubeReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::RuleInfo;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, Severity};
+    use crate::rules::{Finding, RuleRegistry, Severity};
     use std::path::PathBuf;
 
     /// Helper: emit findings via the reporter and return the parsed JSON.
     fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
         let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+        let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
         reporter.emit(findings, dir.path()).expect("emit");
         let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
         serde_json::from_str(&content).expect("parse json")
@@ -107,42 +241,6 @@ mod tests {
         let findings = vec![test_finding()];
         let parsed = emit_and_parse(&findings);
         insta::assert_json_snapshot!(parsed);
-    }
-
-    #[test]
-    fn severity_mapping_is_correct() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
-        let severities = vec![
-            (Severity::Info, "INFO"),
-            (Severity::Minor, "MINOR"),
-            (Severity::Major, "MAJOR"),
-            (Severity::Critical, "CRITICAL"),
-            (Severity::Blocker, "BLOCKER"),
-        ];
-
-        for (severity, expected_str) in severities {
-            let findings = vec![Finding {
-                rule_id: "PGM001".to_string(),
-                severity,
-                message: "test".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 1,
-                end_line: 1,
-            }];
-
-            reporter.emit(&findings, dir.path()).expect("emit");
-
-            let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-            let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-            assert_eq!(
-                parsed["issues"][0]["severity"], expected_str,
-                "severity {:?} should map to {}",
-                severity, expected_str
-            );
-        }
     }
 
     #[test]
@@ -240,44 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn type_field_is_bug_for_all_severities() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let reporter = SonarQubeReporter;
-
-        // The current implementation uses "BUG" for all severities.
-        // Verify this is consistent across all severity levels.
-        let severities = vec![
-            Severity::Blocker,
-            Severity::Critical,
-            Severity::Major,
-            Severity::Minor,
-            Severity::Info,
-        ];
-
-        for severity in severities {
-            let findings = vec![Finding {
-                rule_id: "PGM001".to_string(),
-                severity,
-                message: "test".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 1,
-                end_line: 1,
-            }];
-
-            reporter.emit(&findings, dir.path()).expect("emit");
-
-            let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-            let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
-
-            assert_eq!(
-                parsed["issues"][0]["type"], "BUG",
-                "type field should be BUG for severity {:?}",
-                severity
-            );
-        }
-    }
-
-    #[test]
     fn round_trip_sonarqube_all_fields_verified() {
         let findings = vec![
             Finding {
@@ -311,16 +371,29 @@ mod tests {
     }
 
     #[test]
-    fn no_findings_produces_empty_issues() {
+    fn no_findings_produces_empty_issues_and_rules() {
         let findings: Vec<Finding> = vec![];
         let parsed = emit_and_parse(&findings);
 
         let issues = parsed["issues"].as_array().expect("issues array");
         assert!(issues.is_empty());
+        let rules = parsed["rules"].as_array().expect("rules array");
+        assert!(rules.is_empty());
     }
 
     #[test]
-    fn engine_id_is_consistent() {
+    fn rules_array_only_contains_fired_rules() {
+        // Only PGM001 fires — PGM003/004/005 should NOT appear in rules
+        let findings = vec![test_finding()]; // PGM001
+        let parsed = emit_and_parse(&findings);
+
+        let rules = parsed["rules"].as_array().expect("rules array");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0]["id"], "PGM001");
+    }
+
+    #[test]
+    fn engine_id_is_on_rules_not_issues() {
         let findings = vec![
             Finding {
                 rule_id: "PGM001".to_string(),
@@ -341,6 +414,15 @@ mod tests {
         ];
 
         let parsed = emit_and_parse(&findings);
+
+        // engineId should be on rules, not on issues
+        for rule in parsed["rules"].as_array().expect("rules") {
+            assert_eq!(rule["engineId"], "pg-migration-lint");
+        }
+        for issue in parsed["issues"].as_array().expect("issues") {
+            assert!(issue.get("engineId").is_none());
+        }
+
         insta::assert_json_snapshot!(parsed);
     }
 
@@ -364,6 +446,30 @@ mod tests {
                 end_line: 105,
             },
         ];
+
+        let parsed = emit_and_parse(&findings);
+        insta::assert_json_snapshot!(parsed);
+    }
+
+    #[test]
+    fn all_rules_metadata_snapshot() {
+        // One finding per registered rule so the snapshot covers every rule's
+        // SonarQube metadata (cleanCodeAttribute, type, impacts, severity).
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        let findings: Vec<Finding> = registry
+            .iter()
+            .enumerate()
+            .map(|(i, rule)| Finding {
+                rule_id: rule.id().to_string(),
+                severity: rule.default_severity(),
+                message: format!("{}: {}", rule.id(), rule.description()),
+                file: PathBuf::from("test.sql"),
+                start_line: i + 1,
+                end_line: i + 1,
+            })
+            .collect();
 
         let parsed = emit_and_parse(&findings);
         insta::assert_json_snapshot!(parsed);

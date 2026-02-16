@@ -348,11 +348,22 @@ fn test_sonarqube_output_file_created() {
         "SonarQube issues should not be empty for all-rules fixture"
     );
 
-    // Verify each issue has required fields
+    // Verify top-level rules array exists with engineId
+    let rules = parsed["rules"]
+        .as_array()
+        .expect("rules should be an array");
+    assert!(
+        !rules.is_empty(),
+        "SonarQube rules should not be empty for all-rules fixture"
+    );
+    for rule in rules {
+        assert_eq!(rule["engineId"], "pg-migration-lint");
+    }
+
+    // Verify each issue has required fields (10.3+ slim format)
     for issue in issues {
-        assert_eq!(issue["engineId"], "pg-migration-lint");
         assert!(issue["ruleId"].is_string());
-        assert!(issue["severity"].is_string());
+        assert!(issue["effortMinutes"].is_u64());
         assert!(issue["primaryLocation"]["message"].is_string());
         assert!(issue["primaryLocation"]["filePath"].is_string());
     }

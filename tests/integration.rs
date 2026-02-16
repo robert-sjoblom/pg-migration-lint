@@ -6,7 +6,7 @@ use pg_migration_lint::catalog::replay;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationLoader, MigrationUnit};
 use pg_migration_lint::normalize;
-use pg_migration_lint::output::{Reporter, SarifReporter, SonarQubeReporter};
+use pg_migration_lint::output::{Reporter, RuleInfo, SarifReporter, SonarQubeReporter};
 use pg_migration_lint::rules::{Finding, LintContext, Rule, RuleRegistry, cap_for_down_migration};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
@@ -1465,8 +1465,10 @@ fn test_sonarqube_output_valid_structure() {
         "All-rules fixture should produce findings"
     );
 
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
     let dir = tempfile::tempdir().expect("tempdir");
-    let reporter = SonarQubeReporter::new();
+    let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
     reporter
         .emit(&findings, dir.path())
         .expect("emit SonarQube JSON");
@@ -1475,7 +1477,10 @@ fn test_sonarqube_output_valid_structure() {
         std::fs::read_to_string(dir.path().join("findings.json")).expect("read SonarQube file");
     let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse SonarQube JSON");
 
-    // Verify top-level structure
+    // Verify top-level structure: both rules and issues arrays
+    let rules = parsed["rules"]
+        .as_array()
+        .expect("rules should be an array");
     let issues = parsed["issues"]
         .as_array()
         .expect("issues should be an array");
@@ -1484,6 +1489,24 @@ fn test_sonarqube_output_valid_structure() {
         findings.len(),
         "SonarQube issues count should match findings count"
     );
+
+    // Verify rules array has required fields
+    for rule in rules {
+        assert_eq!(
+            rule["engineId"], "pg-migration-lint",
+            "All rules must have engineId 'pg-migration-lint'"
+        );
+        assert!(rule["id"].is_string(), "rule must have id");
+        assert!(rule["name"].is_string(), "rule must have name");
+        assert!(
+            rule["cleanCodeAttribute"].is_string(),
+            "rule must have cleanCodeAttribute"
+        );
+        assert!(rule["type"].is_string(), "rule must have type");
+        assert!(rule["severity"].is_string(), "rule must have severity");
+        let impacts = rule["impacts"].as_array().expect("impacts array");
+        assert!(!impacts.is_empty(), "rule must have at least one impact");
+    }
 
     // Verify each issue has the required fields
     let known_rules: HashSet<&str> = [
@@ -1495,12 +1518,6 @@ fn test_sonarqube_output_valid_structure() {
     .collect();
 
     for issue in issues {
-        // engineId
-        assert_eq!(
-            issue["engineId"], "pg-migration-lint",
-            "All issues must have engineId 'pg-migration-lint'"
-        );
-
         // ruleId
         let rule_id = issue["ruleId"].as_str().expect("ruleId should be a string");
         assert!(
@@ -1509,18 +1526,11 @@ fn test_sonarqube_output_valid_structure() {
             rule_id
         );
 
-        // severity
-        let severity = issue["severity"]
-            .as_str()
-            .expect("severity should be a string");
+        // effortMinutes
         assert!(
-            ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"].contains(&severity),
-            "Severity must be a valid SonarQube severity; got: {}",
-            severity
+            issue["effortMinutes"].is_u64(),
+            "issue must have effortMinutes"
         );
-
-        // type
-        assert_eq!(issue["type"], "BUG", "Issue type should be BUG");
 
         // primaryLocation
         let primary_location = &issue["primaryLocation"];
@@ -1566,8 +1576,10 @@ fn test_sonarqube_output_round_trip_from_fixture() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
     assert!(!findings.is_empty(), "V002 should produce findings");
 
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
     let dir = tempfile::tempdir().expect("tempdir");
-    let reporter = SonarQubeReporter::new();
+    let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
     reporter
         .emit(&findings, dir.path())
         .expect("emit SonarQube JSON");
@@ -1592,15 +1604,6 @@ fn test_sonarqube_output_round_trip_from_fixture() {
         );
 
         let matched = matching.unwrap();
-
-        // Verify severity mapping
-        let expected_severity = finding.severity.sonarqube_str();
-        assert_eq!(
-            matched["severity"].as_str().unwrap(),
-            expected_severity,
-            "Severity mismatch for {} finding",
-            finding.rule_id
-        );
 
         // Verify line numbers
         let text_range = &matched["primaryLocation"]["textRange"];
@@ -1651,7 +1654,9 @@ fn test_sarif_and_sonarqube_finding_counts_match() {
         .emit(&findings, dir_sarif.path())
         .expect("emit SARIF");
 
-    let sonar_reporter = SonarQubeReporter::new();
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    let sonar_reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
     sonar_reporter
         .emit(&findings, dir_sonar.path())
         .expect("emit SonarQube");

@@ -7,11 +7,11 @@ expression: parsed
     {
       "effortMinutes": 5,
       "primaryLocation": {
-        "filePath": "db/migrations/V042__add_index.sql",
-        "message": "CREATE INDEX on 'orders' should use CONCURRENTLY.",
+        "filePath": "a.sql",
+        "message": "first",
         "textRange": {
-          "endLine": 3,
-          "startLine": 3
+          "endLine": 1,
+          "startLine": 1
         }
       },
       "ruleId": "PGM001"
@@ -19,26 +19,14 @@ expression: parsed
     {
       "effortMinutes": 15,
       "primaryLocation": {
-        "filePath": "db/migrations/V043__add_fk.sql",
-        "message": "FK on 'orders.customer_id' has no covering index.",
+        "filePath": "b.sql",
+        "message": "second",
         "textRange": {
-          "endLine": 12,
-          "startLine": 10
+          "endLine": 2,
+          "startLine": 2
         }
       },
       "ruleId": "PGM003"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "db/migrations/V042__add_index.sql",
-        "message": "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.",
-        "textRange": {
-          "endLine": 20,
-          "startLine": 20
-        }
-      },
-      "ruleId": "PGM005"
     }
   ],
   "rules": [
@@ -70,21 +58,6 @@ expression: parsed
       ],
       "name": "Foreign key without covering index on referencing columns",
       "severity": "MAJOR",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "CONVENTIONAL",
-      "description": "PGM005 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\nWhat it detects:\nA table that has no PRIMARY KEY but has at least one UNIQUE constraint\nwhere all constituent columns are NOT NULL. This combination is\nfunctionally equivalent to a PK.\n\nWhy it matters:\nWhile UNIQUE NOT NULL is functionally equivalent to PRIMARY KEY,\nusing PRIMARY KEY is more conventional and explicit. Tools, ORMs,\nand database administrators expect PK as the standard way to\nidentify rows. Using UNIQUE NOT NULL may confuse readers and\nprevent some tools from auto-detecting the identity column.\n\nExample (flagged):\nCREATE TABLE users (\nemail text NOT NULL UNIQUE,\nname text\n);\n\nFix:\nCREATE TABLE users (\nemail text PRIMARY KEY,\nname text\n);\n\nNote: When PGM005 fires, PGM004 (table without PK) does NOT fire\nfor the same table, since the situation is already flagged.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM005",
-      "impacts": [
-        {
-          "severity": "LOW",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "UNIQUE NOT NULL used instead of PRIMARY KEY",
-      "severity": "INFO",
       "type": "CODE_SMELL"
     }
   ]

@@ -1,12 +1,11 @@
 ---
 source: src/output/sonarqube.rs
-assertion_line: 223
 expression: parsed
 ---
 {
   "issues": [
     {
-      "engineId": "pg-migration-lint",
+      "effortMinutes": 5,
       "primaryLocation": {
         "filePath": "db/migrations/V001__create_tables.sql",
         "message": "index issue in file A",
@@ -15,12 +14,10 @@ expression: parsed
           "startLine": 5
         }
       },
-      "ruleId": "PGM001",
-      "severity": "CRITICAL",
-      "type": "BUG"
+      "ruleId": "PGM001"
     },
     {
-      "engineId": "pg-migration-lint",
+      "effortMinutes": 15,
       "primaryLocation": {
         "filePath": "db/migrations/V002__add_fk.sql",
         "message": "missing FK index in file B",
@@ -29,12 +26,10 @@ expression: parsed
           "startLine": 10
         }
       },
-      "ruleId": "PGM003",
-      "severity": "MAJOR",
-      "type": "BUG"
+      "ruleId": "PGM003"
     },
     {
-      "engineId": "pg-migration-lint",
+      "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "db/changelog/003_audit.sql",
         "message": "no primary key in file C",
@@ -43,9 +38,54 @@ expression: parsed
           "startLine": 1
         }
       },
-      "ruleId": "PGM004",
-      "severity": "MAJOR",
+      "ruleId": "PGM004"
+    }
+  ],
+  "rules": [
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\nWhat it detects:\nA CREATE INDEX statement that does not use the CONCURRENTLY option,\ntargeting a table that already exists in the database (i.e., the table\nwas not created in the same set of changed files).\n\nWhy it's dangerous:\nWithout CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\nthe table for the entire duration of the index build. This blocks ALL\nqueries — reads and writes — on the table. For large tables, index\ncreation can take minutes or hours, causing extended downtime.\n\nExample (bad):\nCREATE INDEX idx_orders_status ON orders (status);\n\nFix:\nCREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);\n\nNote: CONCURRENTLY cannot run inside a transaction. If your migration\nframework wraps each file in a transaction (e.g., Liquibase default),\nyou must also disable that. See PGM006.\n\nThis rule does NOT fire when the table is created in the same set of\nchanged files, because locking an empty/new table is harmless.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM001",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "Missing CONCURRENTLY on CREATE INDEX",
+      "severity": "CRITICAL",
       "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "EFFICIENT",
+      "description": "PGM003 — Foreign key without covering index\n\nWhat it detects:\nA FOREIGN KEY constraint where the referencing table has no index\nwhose leading columns match the FK columns in order.\n\nWhy it's dangerous:\nWhen a row is deleted or updated in the referenced (parent) table,\nPostgreSQL must check that no rows in the referencing (child) table\nstill reference the old value. Without an index on the FK columns,\nthis check performs a sequential scan of the entire child table —\nonce per affected parent row. This can cause severe performance\ndegradation and lock contention.\n\nExample (bad):\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n-- No index on order_items(order_id)\n\nFix:\nCREATE INDEX idx_order_items_order_id\nON order_items (order_id);\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n\nPrefix matching: FK columns (a, b) are covered by index (a, b) or\n(a, b, c) but NOT by (b, a) or (a). Column order matters.\n\nThe check uses the catalog state AFTER the entire file is processed,\nso creating the index later in the same file avoids a false positive.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM003",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Foreign key without covering index on referencing columns",
+      "severity": "MAJOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM004 — Table without primary key\n\nWhat it detects:\nA CREATE TABLE statement (non-temporary) that does not define a\nPRIMARY KEY constraint, and no ALTER TABLE ... ADD PRIMARY KEY\nfollows in the same file.\n\nWhy it's dangerous:\nTables without primary keys:\n- Cannot be reliably targeted by logical replication.\n- May cause issues with ORMs that require a PK for identity.\n- Make it harder to deduplicate or reference specific rows.\n- Are a strong code smell indicating incomplete schema design.\n\nExample (bad):\nCREATE TABLE events (event_type text, payload jsonb);\n\nFix:\nCREATE TABLE events (\nid bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\nevent_type text,\npayload jsonb\n);\n\nNote: Temporary tables are excluded. If PGM005 fires (UNIQUE NOT NULL\nused instead of PK), PGM004 does NOT fire for the same table.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM004",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Table without primary key",
+      "severity": "MAJOR",
+      "type": "CODE_SMELL"
     }
   ]
 }
