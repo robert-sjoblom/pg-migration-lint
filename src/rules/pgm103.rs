@@ -79,19 +79,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("countries"),
-            columns: vec![ColumnDef {
-                name: "code".to_string(),
-                type_name: TypeName::simple("bpchar"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("countries"))
+                .with_columns(vec![ColumnDef::test("code", "bpchar").with_nullable(false)]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -105,19 +96,13 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("countries"),
-            columns: vec![ColumnDef {
-                name: "code".to_string(),
-                type_name: TypeName::with_modifiers("bpchar", vec![2]),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("countries")).with_columns(vec![
+                ColumnDef::test("code", "bpchar")
+                    .with_nullable(false)
+                    .with_type(TypeName::with_modifiers("bpchar", vec![2])),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -131,19 +116,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("countries"),
-            columns: vec![ColumnDef {
-                name: "code".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("countries"))
+                .with_columns(vec![ColumnDef::test("code", "text").with_nullable(false)]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -157,19 +133,13 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("countries"),
-            columns: vec![ColumnDef {
-                name: "code".to_string(),
-                type_name: TypeName::with_modifiers("varchar", vec![2]),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("countries")).with_columns(vec![
+                ColumnDef::test("code", "varchar")
+                    .with_nullable(false)
+                    .with_type(TypeName::with_modifiers("varchar", vec![2])),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm103).check(&stmts, &ctx);
         assert!(findings.is_empty());

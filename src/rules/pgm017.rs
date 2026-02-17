@@ -172,35 +172,22 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         // FK inside a CreateTable, not an AlterTable
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![
-                ColumnDef {
-                    name: "id".to_string(),
-                    type_name: TypeName::simple("bigint"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: true,
-                    is_serial: false,
-                },
-                ColumnDef {
-                    name: "customer_id".to_string(),
-                    type_name: TypeName::simple("bigint"),
-                    nullable: true,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-            ],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: Some("fk_customer".to_string()),
-                columns: vec!["customer_id".to_string()],
-                ref_table: QualifiedName::unqualified("customers"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders"))
+                .with_columns(vec![
+                    ColumnDef::test("id", "bigint")
+                        .with_nullable(false)
+                        .with_inline_pk(),
+                    ColumnDef::test("customer_id", "bigint"),
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm017).check(&stmts, &ctx);
         assert!(findings.is_empty());

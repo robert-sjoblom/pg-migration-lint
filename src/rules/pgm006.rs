@@ -88,15 +88,16 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_foo".to_string()),
-            table_name: QualifiedName::unqualified("bar"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_foo".to_string()),
+                QualifiedName::unqualified("bar"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "col".to_string(),
-            }],
-            unique: false,
-            concurrent: true,
-        }))];
+            }])
+            .with_concurrent(true),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -110,15 +111,16 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx_with_txn(&before, &after, &file, &created, false);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_foo".to_string()),
-            table_name: QualifiedName::unqualified("bar"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_foo".to_string()),
+                QualifiedName::unqualified("bar"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "col".to_string(),
-            }],
-            unique: false,
-            concurrent: true,
-        }))];
+            }])
+            .with_concurrent(true),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -132,15 +134,15 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_foo".to_string()),
-            table_name: QualifiedName::unqualified("bar"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_foo".to_string()),
+                QualifiedName::unqualified("bar"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "col".to_string(),
-            }],
-            unique: false,
-            concurrent: false,
-        }))];
+            }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -154,11 +156,11 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
 
-        let stmts = vec![located(IrNode::DropIndex(DropIndex {
-            index_name: "idx_foo".to_string(),
-            concurrent: true,
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropIndex(
+            DropIndex::test("idx_foo")
+                .with_concurrent(true)
+                .with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);

@@ -100,11 +100,9 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropIndex(DropIndex {
-            index_name: "idx_orders_status".to_string(),
-            concurrent: false,
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropIndex(
+            DropIndex::test("idx_orders_status").with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -126,11 +124,11 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropIndex(DropIndex {
-            index_name: "idx_orders_status".to_string(),
-            concurrent: true,
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropIndex(
+            DropIndex::test("idx_orders_status")
+                .with_concurrent(true)
+                .with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
         assert!(findings.is_empty());

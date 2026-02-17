@@ -86,10 +86,9 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropTable(DropTable {
-            name: QualifiedName::unqualified("orders"),
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropTable(
+            DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -104,10 +103,9 @@ mod tests {
         created.insert("orders".to_string());
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropTable(DropTable {
-            name: QualifiedName::unqualified("orders"),
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropTable(
+            DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -121,10 +119,9 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropTable(DropTable {
-            name: QualifiedName::unqualified("orders"),
-            if_exists: false,
-        }))];
+        let stmts = vec![located(IrNode::DropTable(
+            DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
         assert!(findings.is_empty());

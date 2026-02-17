@@ -242,35 +242,20 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("child"),
-            columns: vec![
-                ColumnDef {
-                    name: "a".to_string(),
-                    type_name: TypeName::simple("integer"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-                ColumnDef {
-                    name: "b".to_string(),
-                    type_name: TypeName::simple("integer"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-            ],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: Some("fk_composite".to_string()),
-                columns: vec!["a".to_string(), "b".to_string()],
-                ref_table: QualifiedName::unqualified("parent"),
-                ref_columns: vec!["x".to_string(), "y".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![
+                    ColumnDef::test("a", "integer").with_nullable(false),
+                    ColumnDef::test("b", "integer").with_nullable(false),
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_composite".to_string()),
+                    columns: vec!["a".to_string(), "b".to_string()],
+                    ref_table: QualifiedName::unqualified("parent"),
+                    ref_columns: vec!["x".to_string(), "y".to_string()],
+                    not_valid: false,
+                }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm003).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
