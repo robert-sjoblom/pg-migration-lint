@@ -854,4 +854,26 @@ mod tests {
         let err = "BOGUS".parse::<RuleId>().unwrap_err();
         assert_eq!(err.to_string(), "unknown rule ID: 'BOGUS'");
     }
+
+    #[test]
+    fn meta_rule_pgm901_description_is_non_empty() {
+        let rule_id = RuleId::Meta(MetaRule::Pgm901);
+        let desc = rule_id.description();
+        assert!(!desc.is_empty(), "PGM901 description should not be empty");
+        assert!(
+            desc.contains("Meta"),
+            "PGM901 description should mention Meta"
+        );
+    }
+
+    #[test]
+    fn meta_rule_pgm901_explain_is_non_empty() {
+        let rule_id = RuleId::Meta(MetaRule::Pgm901);
+        let explain = rule_id.explain();
+        assert!(!explain.is_empty(), "PGM901 explain should not be empty");
+        assert!(
+            explain.contains("INFO"),
+            "PGM901 explain should mention INFO"
+        );
+    }
 }

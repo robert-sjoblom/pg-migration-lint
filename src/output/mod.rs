@@ -220,4 +220,15 @@ mod tests {
         let reporter = TextReporter::new(false);
         assert_eq!(reporter.filename(), "findings.txt");
     }
+
+    #[test]
+    fn emit_to_file_writes_text_report() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let reporter = TextReporter::new(false);
+        emit_to_file(&reporter, &[test_finding()], dir.path()).expect("emit_to_file");
+        let path = dir.path().join("findings.txt");
+        assert!(path.exists(), "findings.txt should exist");
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(content.contains("PGM001"), "content should contain rule id");
+    }
 }
