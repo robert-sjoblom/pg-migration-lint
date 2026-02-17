@@ -131,17 +131,7 @@ fn run(args: Args) -> Result<bool> {
     registry.register_defaults();
 
     // Build active rules list, filtering out any disabled via config.
-    let mut disabled: HashSet<RuleId> = HashSet::new();
-    for s in &config.rules.disabled {
-        match s.parse::<RuleId>() {
-            Ok(id) => {
-                disabled.insert(id);
-            }
-            Err(_) => {
-                eprintln!("WARNING: unknown rule '{s}' in [rules].disabled, ignoring",);
-            }
-        }
-    }
+    let disabled: HashSet<RuleId> = config.rules.disabled.iter().copied().collect();
     let active_rules: Vec<&dyn rules::Rule> = registry
         .iter()
         .filter(|r| !disabled.contains(&r.id()))

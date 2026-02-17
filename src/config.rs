@@ -155,8 +155,9 @@ impl Default for CliConfig {
 pub struct RulesConfig {
     /// Rule IDs to disable globally (e.g., `["PGM007", "PGM101"]`).
     /// Findings from disabled rules are not emitted.
+    /// Invalid rule IDs cause a config-load error (exit 2).
     #[serde(default)]
-    pub disabled: Vec<String>,
+    pub disabled: Vec<crate::rules::RuleId>,
 }
 
 fn default_schema() -> String {
@@ -454,7 +455,13 @@ mod tests {
     fn test_rules_disabled_deserialization() {
         let toml = "[rules]\ndisabled = [\"PGM007\", \"PGM101\"]";
         let config = parse_and_validate(toml).unwrap();
-        assert_eq!(config.rules.disabled, vec!["PGM007", "PGM101"]);
+        assert_eq!(
+            config.rules.disabled,
+            vec![
+                "PGM007".parse::<crate::rules::RuleId>().unwrap(),
+                "PGM101".parse::<crate::rules::RuleId>().unwrap(),
+            ]
+        );
     }
 
     #[test]
@@ -610,5 +617,97 @@ mod tests {
         let toml = "[output]\nformats = [\"sarif\"]";
         let config = parse_and_validate(toml).unwrap();
         assert_eq!(config.output.strip_prefix, None);
+    }
+
+    // --- config defaults tests ---
+
+    /// Assert that every field in the config has its expected default value.
+    /// Used by multiple tests to avoid duplicating the list of defaults.
+    fn assert_defaults_sane(config: &Config) {
+        // migrations
+        assert_eq!(
+            config.migrations.paths,
+            vec![PathBuf::from("db/migrations")],
+            "migrations.paths"
+        );
+        assert_eq!(
+            config.migrations.strategy, "filename_lexicographic",
+            "migrations.strategy"
+        );
+        assert_eq!(
+            config.migrations.include,
+            vec!["*.sql".to_string(), "*.xml".to_string()],
+            "migrations.include"
+        );
+        assert!(
+            config.migrations.exclude.is_empty(),
+            "migrations.exclude should be empty"
+        );
+        assert_eq!(
+            config.migrations.default_schema, "public",
+            "migrations.default_schema"
+        );
+        assert_eq!(
+            config.migrations.run_in_transaction, None,
+            "migrations.run_in_transaction"
+        );
+
+        // liquibase
+        assert_eq!(
+            config.liquibase.bridge_jar_path,
+            Some(PathBuf::from("tools/liquibase-bridge.jar")),
+            "liquibase.bridge_jar_path"
+        );
+        assert_eq!(
+            config.liquibase.binary_path,
+            Some(PathBuf::from("liquibase")),
+            "liquibase.binary_path"
+        );
+        assert_eq!(
+            config.liquibase.properties_file, None,
+            "liquibase.properties_file"
+        );
+        assert_eq!(config.liquibase.strategy, "auto", "liquibase.strategy");
+
+        // output
+        assert_eq!(
+            config.output.formats,
+            vec!["sarif".to_string()],
+            "output.formats"
+        );
+        assert_eq!(
+            config.output.dir,
+            PathBuf::from("build/reports/migration-lint"),
+            "output.dir"
+        );
+        assert_eq!(config.output.strip_prefix, None, "output.strip_prefix");
+
+        // cli
+        assert_eq!(config.cli.fail_on, "critical", "cli.fail_on");
+
+        // rules
+        assert!(
+            config.rules.disabled.is_empty(),
+            "rules.disabled should be empty"
+        );
+    }
+
+    #[test]
+    fn test_config_default_values() {
+        assert_defaults_sane(&Config::default());
+    }
+
+    #[test]
+    fn test_empty_toml_matches_default() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_defaults_sane(&config);
+    }
+
+    #[test]
+    fn test_default_config_round_trips() {
+        let original = Config::default();
+        let toml_str = toml::to_string(&original).unwrap();
+        let round_tripped: Config = toml::from_str(&toml_str).unwrap();
+        assert_defaults_sane(&round_tripped);
     }
 }
