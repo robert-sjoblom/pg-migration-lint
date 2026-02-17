@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.0...v2.2.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* **catalog:** skip CREATE TABLE/INDEX IF NOT EXISTS when target exists ([4ef83be](https://github.com/robert-sjoblom/pg-migration-lint/commit/4ef83be95f83466200b65bfea7564bba1546e91b))
+
 ## [2.2.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.1.0...v2.2.0) (2026-02-17)
 
 
