@@ -447,26 +447,12 @@ mod tests {
 
     /// Helper: create a basic ColumnDef.
     fn col(name: &str, type_name: &str, nullable: bool) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            type_name: simple_type(type_name),
-            nullable,
-            default_expr: None,
-            is_inline_pk: false,
-            is_serial: false,
-        }
+        ColumnDef::test(name, type_name).with_nullable(nullable)
     }
 
     /// Helper: create a ColumnDef with inline PK.
     fn col_pk(name: &str, type_name: &str) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            type_name: simple_type(type_name),
-            nullable: false,
-            default_expr: None,
-            is_inline_pk: true,
-            is_serial: false,
-        }
+        ColumnDef::test(name, type_name).with_inline_pk()
     }
 
     // -----------------------------------------------------------------------
@@ -477,25 +463,15 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col_pk("id", "integer")],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_id".to_string()),
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+            CreateIndex::test(Some("idx_id".to_string()), qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "id".to_string(),
-                }],
-                unique: false,
-                concurrent: false,
-            }),
-            IrNode::DropTable(DropTable {
-                name: qname("t"),
-                if_exists: false,
-            }),
+                }])
+                .into(),
+            DropTable::test(qname("t")).with_if_exists(false).into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -522,25 +498,19 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::AddColumn(col("name", "text", true))],
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_name".to_string()),
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            }
+            .into(),
+            CreateIndex::test(Some("idx_name".to_string()), qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "name".to_string(),
-                }],
-                unique: false,
-                concurrent: false,
-            }),
+                }])
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -562,27 +532,27 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create parent table with PK
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("parent"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Create child table with FK to parent
-        let unit2 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("child"),
-            columns: vec![col("pid", "integer", false)],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: Some("fk_parent".to_string()),
-                columns: vec!["pid".to_string()],
-                ref_table: qname("parent"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        })]);
+        let unit2 = make_unit(vec![
+            CreateTable::test(qname("child"))
+                .with_columns(vec![col("pid", "integer", false)])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_parent".to_string()),
+                    columns: vec!["pid".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }])
+                .into(),
+        ]);
+
         apply(&mut catalog, &unit2);
 
         let child = catalog.get_table("child").expect("child should exist");
@@ -612,12 +582,9 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
             IrNode::Unparseable {
                 raw_sql: "DO $$ ... $$".to_string(),
                 table_hint: Some("t".to_string()),
@@ -641,26 +608,15 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("a", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_a".to_string()),
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("a", "integer", false)])
+                .into(),
+            CreateIndex::test(Some("idx_a".to_string()), qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "a".to_string(),
-                }],
-                unique: false,
-                concurrent: false,
-            }),
-            IrNode::DropIndex(DropIndex {
-                index_name: "idx_a".to_string(),
-                concurrent: false,
-                if_exists: false,
-            }),
+                }])
+                .into(),
+            DropIndex::test("idx_a").with_if_exists(false).into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -684,20 +640,18 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("x", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("x", "integer", false)])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::AlterColumnType {
                     column_name: "x".to_string(),
                     new_type: simple_type("bigint"),
                     old_type: Some(simple_type("integer")),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -715,32 +669,26 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("a", "integer", false), col("b", "text", true)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_ab".to_string()),
-                table_name: qname("t"),
-                columns: vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("a", "integer", false), col("b", "text", true)])
+                .into(),
+            CreateIndex::test(Some("idx_ab".to_string()), qname("t"))
+                .with_columns(vec![
                     IndexColumn {
                         name: "a".to_string(),
                     },
                     IndexColumn {
                         name: "b".to_string(),
                     },
-                ],
-                unique: false,
-                concurrent: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                ])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "b".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -766,22 +714,13 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::DropTable(DropTable {
-                name: qname("t"),
-                if_exists: false,
-            }),
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "bigint", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+            DropTable::test(qname("t")).with_if_exists(false).into(),
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "bigint", false)])
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -801,20 +740,15 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
                     col("a", "integer", false),
                     col("b", "integer", false),
                     col("c", "integer", false),
-                ],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_abc".to_string()),
-                table_name: qname("t"),
-                columns: vec![
+                ])
+                .into(),
+            CreateIndex::test(Some("idx_abc".to_string()), qname("t"))
+                .with_columns(vec![
                     IndexColumn {
                         name: "a".to_string(),
                     },
@@ -824,10 +758,8 @@ mod tests {
                     IndexColumn {
                         name: "c".to_string(),
                     },
-                ],
-                unique: false,
-                concurrent: false,
-            }),
+                ])
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -847,12 +779,11 @@ mod tests {
     fn test_inline_pk_normalizes() {
         let mut catalog = Catalog::new();
 
-        let unit = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("t"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit = make_unit(vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 
@@ -874,15 +805,15 @@ mod tests {
     fn test_table_level_pk_normalizes() {
         let mut catalog = Catalog::new();
 
-        let unit = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("t"),
-            columns: vec![col("id", "integer", false)],
-            constraints: vec![TableConstraint::PrimaryKey {
-                columns: vec!["id".to_string()],
-                using_index: None,
-            }],
-            temporary: false,
-        })]);
+        let unit = make_unit(vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_constraints(vec![TableConstraint::PrimaryKey {
+                    columns: vec!["id".to_string()],
+                    using_index: None,
+                }])
+                .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 
@@ -905,28 +836,28 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create parent first
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("parent"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // The parser normalizes inline FK (REFERENCES) into a TableConstraint.
         // So this simulates: CREATE TABLE child(pid int REFERENCES parent(id))
-        let unit2 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("child"),
-            columns: vec![col("pid", "integer", false)],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["pid".to_string()],
-                ref_table: qname("parent"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        })]);
+        let unit2 = make_unit(vec![
+            CreateTable::test(qname("child"))
+                .with_columns(vec![col("pid", "integer", false)])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["pid".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }])
+                .into(),
+        ]);
+
         apply(&mut catalog, &unit2);
 
         let child = catalog.get_table("child").expect("child should exist");
@@ -951,27 +882,27 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create parent
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("parent"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Table-level FK: FOREIGN KEY (pid) REFERENCES parent(id)
-        let unit2 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("child"),
-            columns: vec![col("pid", "integer", false)],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: Some("fk_parent".to_string()),
-                columns: vec!["pid".to_string()],
-                ref_table: qname("parent"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        })]);
+        let unit2 = make_unit(vec![
+            CreateTable::test(qname("child"))
+                .with_columns(vec![col("pid", "integer", false)])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_parent".to_string()),
+                    columns: vec!["pid".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }])
+                .into(),
+        ]);
+
         apply(&mut catalog, &unit2);
 
         let child = catalog.get_table("child").expect("child should exist");
@@ -1001,10 +932,13 @@ mod tests {
     fn test_alter_nonexistent_table_silently_skips() {
         let mut catalog = Catalog::new();
 
-        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
-            name: qname("nonexistent"),
-            actions: vec![AlterTableAction::AddColumn(col("x", "integer", false))],
-        })]);
+        let unit = make_unit(vec![
+            AlterTable {
+                name: qname("nonexistent"),
+                actions: vec![AlterTableAction::AddColumn(col("x", "integer", false))],
+            }
+            .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 
@@ -1018,15 +952,13 @@ mod tests {
     fn test_create_index_on_nonexistent_table_silently_skips() {
         let mut catalog = Catalog::new();
 
-        let unit = make_unit(vec![IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_x".to_string()),
-            table_name: qname("nonexistent"),
-            columns: vec![IndexColumn {
-                name: "x".to_string(),
-            }],
-            unique: false,
-            concurrent: false,
-        })]);
+        let unit = make_unit(vec![
+            CreateIndex::test(Some("idx_x".to_string()), qname("nonexistent"))
+                .with_columns(vec![IndexColumn {
+                    name: "x".to_string(),
+                }])
+                .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 
@@ -1042,26 +974,17 @@ mod tests {
 
         // Create a table with an index, then drop a different (nonexistent) index
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("a", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_a".to_string()),
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("a", "integer", false)])
+                .into(),
+            CreateIndex::test(Some("idx_a".to_string()), qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "a".to_string(),
-                }],
-                unique: false,
-                concurrent: false,
-            }),
-            IrNode::DropIndex(DropIndex {
-                index_name: "idx_nonexistent".to_string(),
-                concurrent: false,
-                if_exists: false,
-            }),
+                }])
+                .into(),
+            DropIndex::test("idx_nonexistent")
+                .with_if_exists(false)
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1079,12 +1002,9 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
             IrNode::Unparseable {
                 raw_sql: "GRANT SELECT ON t TO user".to_string(),
                 table_hint: None,
@@ -1105,12 +1025,9 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
             IrNode::Ignored {
                 raw_sql: "COMMENT ON TABLE t IS 'A table'".to_string(),
             },
@@ -1130,22 +1047,18 @@ mod tests {
     fn test_column_with_default_expr() {
         let mut catalog = Catalog::new();
 
-        let unit = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("t"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: simple_type("timestamptz"),
-                nullable: false,
-                default_expr: Some(DefaultExpr::FunctionCall {
-                    name: "now".to_string(),
-                    args: vec![],
-                }),
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit = make_unit(vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
+                    ColumnDef::test("created_at", "timestamptz")
+                        .with_nullable(false)
+                        .with_default(DefaultExpr::FunctionCall {
+                            name: "now".to_string(),
+                            args: vec![],
+                        }),
+                ])
+                .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 
@@ -1163,21 +1076,15 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("email", "text", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: Some("idx_email_unique".to_string()),
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("email", "text", false)])
+                .into(),
+            CreateIndex::test(Some("idx_email_unique".to_string()), qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "email".to_string(),
-                }],
-                unique: true,
-                concurrent: false,
-            }),
+                }])
+                .with_unique(true)
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1192,13 +1099,13 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false), col("email", "text", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("email", "text", false),
+                ])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![
                     AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
@@ -1216,7 +1123,8 @@ mod tests {
                         not_valid: false,
                     }),
                 ],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1240,31 +1148,32 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Unit 1: Create table
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("users"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("users"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Unit 2: Add column
-        let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
-            name: qname("users"),
-            actions: vec![AlterTableAction::AddColumn(col("name", "text", true))],
-        })]);
+        let unit2 = make_unit(vec![
+            AlterTable {
+                name: qname("users"),
+                actions: vec![AlterTableAction::AddColumn(col("name", "text", true))],
+            }
+            .into(),
+        ]);
         apply(&mut catalog, &unit2);
 
         // Unit 3: Add index
-        let unit3 = make_unit(vec![IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_users_name".to_string()),
-            table_name: qname("users"),
-            columns: vec![IndexColumn {
-                name: "name".to_string(),
-            }],
-            unique: false,
-            concurrent: true,
-        })]);
+        let unit3 = make_unit(vec![
+            CreateIndex::test(Some("idx_users_name".to_string()), qname("users"))
+                .with_columns(vec![IndexColumn {
+                    name: "name".to_string(),
+                }])
+                .with_concurrent(true)
+                .into(),
+        ]);
         apply(&mut catalog, &unit3);
 
         let table = catalog.get_table("users").expect("users should exist");
@@ -1280,18 +1189,16 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::Other {
                     description: "SET TABLESPACE fast_ssd".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1309,21 +1216,22 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create "public.orders"
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::qualified("public", "orders"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(QualifiedName::qualified("public", "orders"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Create "audit.orders" — same table name, different schema
-        let unit2 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::qualified("audit", "orders"),
-            columns: vec![col("log_id", "integer", false), col("data", "text", true)],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit2 = make_unit(vec![
+            CreateTable::test(QualifiedName::qualified("audit", "orders"))
+                .with_columns(vec![
+                    col("log_id", "integer", false),
+                    col("data", "text", true),
+                ])
+                .into(),
+        ]);
         apply(&mut catalog, &unit2);
 
         // Both should exist as separate entries
@@ -1357,21 +1265,14 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("a", "integer", false)],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::CreateIndex(CreateIndex {
-                index_name: None,
-                table_name: qname("t"),
-                columns: vec![IndexColumn {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("a", "integer", false)])
+                .into(),
+            CreateIndex::test(None, qname("t"))
+                .with_columns(vec![IndexColumn {
                     name: "a".to_string(),
-                }],
-                unique: false,
-                concurrent: false,
-            }),
+                }])
+                .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1393,18 +1294,16 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col_pk("id", "integer")],
-                constraints: vec![],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "id".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1428,21 +1327,20 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("a", "integer", false), col("b", "integer", false)],
-                constraints: vec![TableConstraint::PrimaryKey {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![col("a", "integer", false), col("b", "integer", false)])
+                .with_constraints(vec![TableConstraint::PrimaryKey {
                     columns: vec!["a".to_string(), "b".to_string()],
                     using_index: None,
-                }],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                }])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "a".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1466,38 +1364,37 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create referenced table first
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("parent"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Create child table with FK, then drop the FK column
         let unit2 = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("child"),
-                columns: vec![
+            CreateTable::test(qname("child"))
+                .with_columns(vec![
                     col("id", "integer", false),
                     col("customer_id", "integer", true),
-                ],
-                constraints: vec![TableConstraint::ForeignKey {
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
                     name: Some("fk_customer".to_string()),
                     columns: vec!["customer_id".to_string()],
                     ref_table: qname("parent"),
                     ref_columns: vec!["id".to_string()],
                     not_valid: false,
-                }],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                }])
+                .into(),
+            AlterTable {
                 name: qname("child"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "customer_id".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
+
         apply(&mut catalog, &unit2);
 
         let child = catalog.get_table("child").expect("child should exist");
@@ -1515,22 +1412,24 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![col("id", "integer", false), col("email", "text", false)],
-                constraints: vec![TableConstraint::Unique {
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("email", "text", false),
+                ])
+                .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
                     using_index: None,
-                }],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                }])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "email".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1550,34 +1449,35 @@ mod tests {
         let mut catalog = Catalog::new();
 
         // Create referenced table
-        let unit1 = make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: qname("parent"),
-            columns: vec![col_pk("id", "integer")],
-            constraints: vec![],
-            temporary: false,
-        })]);
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col_pk("id", "integer")])
+                .into(),
+        ]);
         apply(&mut catalog, &unit1);
 
         // Create table with PK on (id) and FK on (customer_id), then drop customer_id
         let unit2 = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("orders"),
-                columns: vec![col_pk("id", "integer"), col("customer_id", "integer", true)],
-                constraints: vec![TableConstraint::ForeignKey {
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![
+                    col_pk("id", "integer"),
+                    col("customer_id", "integer", true),
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
                     name: Some("fk_customer".to_string()),
                     columns: vec!["customer_id".to_string()],
                     ref_table: qname("parent"),
                     ref_columns: vec!["id".to_string()],
                     not_valid: false,
-                }],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                }])
+                .into(),
+            AlterTable {
                 name: qname("orders"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "customer_id".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
         apply(&mut catalog, &unit2);
 
@@ -1607,26 +1507,25 @@ mod tests {
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
-            IrNode::CreateTable(CreateTable {
-                name: qname("t"),
-                columns: vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
                     col("id", "integer", false),
                     col("amount", "integer", false),
                     col("extra", "text", true),
-                ],
-                constraints: vec![TableConstraint::Check {
+                ])
+                .with_constraints(vec![TableConstraint::Check {
                     name: Some("chk_positive".to_string()),
                     expression: "amount > 0".to_string(),
                     not_valid: false,
-                }],
-                temporary: false,
-            }),
-            IrNode::AlterTable(AlterTable {
+                }])
+                .into(),
+            AlterTable {
                 name: qname("t"),
                 actions: vec![AlterTableAction::DropColumn {
                     name: "extra".to_string(),
                 }],
-            }),
+            }
+            .into(),
         ]);
 
         apply(&mut catalog, &unit);
@@ -1652,12 +1551,15 @@ mod tests {
             })
             .build();
 
-        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
-            name: QualifiedName::qualified("public", "orders"),
-            actions: vec![AlterTableAction::SetNotNull {
-                column_name: "status".to_string(),
-            }],
-        })]);
+        let unit = make_unit(vec![
+            AlterTable {
+                name: QualifiedName::qualified("public", "orders"),
+                actions: vec![AlterTableAction::SetNotNull {
+                    column_name: "status".to_string(),
+                }],
+            }
+            .into(),
+        ]);
 
         apply(&mut catalog, &unit);
 

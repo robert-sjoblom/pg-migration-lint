@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM108
+-- pgm-lint:suppress-file PGM108,PGM023
 
 -- PGM108: json type instead of jsonb (suppressed)
 CREATE TABLE events_v2 (

@@ -45,6 +45,7 @@ pub struct CreateTable {
     pub columns: Vec<ColumnDef>,
     pub constraints: Vec<TableConstraint>,
     pub temporary: bool,
+    pub if_not_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +85,7 @@ pub struct CreateIndex {
     pub columns: Vec<IndexColumn>,
     pub unique: bool,
     pub concurrent: bool,
+    pub if_not_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -359,13 +361,14 @@ impl ColumnDef {
 
 #[cfg(test)]
 impl CreateTable {
-    /// Minimal CREATE TABLE: no columns, no constraints, not temporary.
+    /// Minimal CREATE TABLE: no columns, no constraints, not temporary, no IF NOT EXISTS.
     pub fn test(name: QualifiedName) -> Self {
         Self {
             name,
             columns: vec![],
             constraints: vec![],
             temporary: false,
+            if_not_exists: false,
         }
     }
 
@@ -383,11 +386,16 @@ impl CreateTable {
         self.temporary = temporary;
         self
     }
+
+    pub fn with_if_not_exists(mut self, if_not_exists: bool) -> Self {
+        self.if_not_exists = if_not_exists;
+        self
+    }
 }
 
 #[cfg(test)]
 impl CreateIndex {
-    /// Minimal CREATE INDEX: no columns, not unique, not concurrent.
+    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS.
     pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
         Self {
             index_name: index_name.into(),
@@ -395,6 +403,7 @@ impl CreateIndex {
             columns: vec![],
             unique: false,
             concurrent: false,
+            if_not_exists: false,
         }
     }
 
@@ -410,6 +419,11 @@ impl CreateIndex {
 
     pub fn with_concurrent(mut self, concurrent: bool) -> Self {
         self.concurrent = concurrent;
+        self
+    }
+
+    pub fn with_if_not_exists(mut self, if_not_exists: bool) -> Self {
+        self.if_not_exists = if_not_exists;
         self
     }
 }
@@ -449,6 +463,42 @@ impl DropIndex {
     pub fn with_if_exists(mut self, if_exists: bool) -> Self {
         self.if_exists = if_exists;
         self
+    }
+}
+
+// Convenience conversions for test construction: builder.into() -> IrNode variant
+#[cfg(test)]
+impl From<CreateTable> for IrNode {
+    fn from(value: CreateTable) -> Self {
+        IrNode::CreateTable(value)
+    }
+}
+
+#[cfg(test)]
+impl From<AlterTable> for IrNode {
+    fn from(value: AlterTable) -> Self {
+        IrNode::AlterTable(value)
+    }
+}
+
+#[cfg(test)]
+impl From<CreateIndex> for IrNode {
+    fn from(value: CreateIndex) -> Self {
+        IrNode::CreateIndex(value)
+    }
+}
+
+#[cfg(test)]
+impl From<DropTable> for IrNode {
+    fn from(value: DropTable) -> Self {
+        IrNode::DropTable(value)
+    }
+}
+
+#[cfg(test)]
+impl From<DropIndex> for IrNode {
+    fn from(value: DropIndex) -> Self {
+        IrNode::DropIndex(value)
     }
 }
 

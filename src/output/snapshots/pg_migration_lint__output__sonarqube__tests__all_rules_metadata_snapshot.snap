@@ -272,10 +272,22 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM101: Column uses timestamp without time zone",
+        "message": "PGM023: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
           "endLine": 23,
           "startLine": 23
+        }
+      },
+      "ruleId": "PGM023"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM101: Column uses timestamp without time zone",
+        "textRange": {
+          "endLine": 24,
+          "startLine": 24
         }
       },
       "ruleId": "PGM101"
@@ -286,8 +298,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM102: Column uses timestamp or timestamptz with precision 0",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 25,
+          "startLine": 25
         }
       },
       "ruleId": "PGM102"
@@ -298,8 +310,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM103: Column uses char(n) type",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM103"
@@ -310,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM104: Column uses the money type",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM104"
@@ -322,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM105: Column uses serial/bigserial instead of identity column",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM105"
@@ -334,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM108: Column uses json type instead of jsonb",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM108"
@@ -669,6 +681,21 @@ expression: parsed
         }
       ],
       "name": "DROP TABLE on existing table",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM023 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX\n\nWhat it detects:\nA CREATE TABLE or CREATE INDEX statement that does not include the\nIF NOT EXISTS clause.\n\nWhy it matters:\nWithout IF NOT EXISTS, the statement fails if the object already exists.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF NOT EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' already exists:\nCREATE TABLE orders (id bigint PRIMARY KEY);\nCREATE INDEX idx_orders_status ON orders (status);\n\nRecommended fix:\nCREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);\nCREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);",
+      "engineId": "pg-migration-lint",
+      "id": "PGM023",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
       "severity": "MINOR",
       "type": "CODE_SMELL"
     },

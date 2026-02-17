@@ -43,6 +43,7 @@ mod pgm019;
 mod pgm020;
 mod pgm021;
 mod pgm022;
+mod pgm023;
 mod pgm101;
 mod pgm102;
 mod pgm103;
@@ -98,6 +99,7 @@ impl RuleId {
                 Pgm020 => "PGM020",
                 Pgm021 => "PGM021",
                 Pgm022 => "PGM022",
+                Pgm023 => "PGM023",
             },
             RuleId::TypeChoice(t) => match t {
                 Pgm101 => "PGM101",
@@ -160,6 +162,7 @@ impl FromStr for RuleId {
             "PGM020" => Ok(RuleId::Migration(Pgm020)),
             "PGM021" => Ok(RuleId::Migration(Pgm021)),
             "PGM022" => Ok(RuleId::Migration(Pgm022)),
+            "PGM023" => Ok(RuleId::Migration(Pgm023)),
             "PGM101" => Ok(RuleId::TypeChoice(Pgm101)),
             "PGM102" => Ok(RuleId::TypeChoice(Pgm102)),
             "PGM103" => Ok(RuleId::TypeChoice(Pgm103)),
@@ -220,7 +223,7 @@ impl Rule for RuleId {
     }
 }
 
-/// Migration safety rules (PGM001–PGM022, including PGM008).
+/// Migration safety rules.
 ///
 /// These detect locking, rewrite, and schema-integrity issues in DDL migrations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
@@ -269,6 +272,8 @@ pub enum MigrationRule {
     Pgm021,
     /// Dropping an existing table.
     Pgm022,
+    /// Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`.
+    Pgm023,
 }
 
 impl MigrationRule {
@@ -296,6 +301,7 @@ impl MigrationRule {
             Self::Pgm020 => pgm020::DESCRIPTION,
             Self::Pgm021 => pgm021::DESCRIPTION,
             Self::Pgm022 => pgm022::DESCRIPTION,
+            Self::Pgm023 => pgm023::DESCRIPTION,
         }
     }
 
@@ -323,6 +329,7 @@ impl MigrationRule {
             Self::Pgm020 => pgm020::EXPLAIN,
             Self::Pgm021 => pgm021::EXPLAIN,
             Self::Pgm022 => pgm022::EXPLAIN,
+            Self::Pgm023 => pgm023::EXPLAIN,
         }
     }
 
@@ -355,6 +362,7 @@ impl MigrationRule {
             Self::Pgm020 => pgm020::check(rule, statements, ctx),
             Self::Pgm021 => pgm021::check(rule, statements, ctx),
             Self::Pgm022 => pgm022::check(rule, statements, ctx),
+            Self::Pgm023 => pgm023::check(rule, statements, ctx),
         }
     }
 }
@@ -379,7 +387,8 @@ impl From<MigrationRule> for Severity {
             | MigrationRule::Pgm008
             | MigrationRule::Pgm013
             | MigrationRule::Pgm015
-            | MigrationRule::Pgm022 => Self::Minor,
+            | MigrationRule::Pgm022
+            | MigrationRule::Pgm023 => Self::Minor,
             MigrationRule::Pgm005
             | MigrationRule::Pgm011
             | MigrationRule::Pgm019
@@ -825,8 +834,8 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 28 registered rules + 1 meta = 29
-        assert_eq!(all.len(), 29);
+        // 29 registered rules + 1 meta = 30
+        assert_eq!(all.len(), 30);
     }
 
     #[test]

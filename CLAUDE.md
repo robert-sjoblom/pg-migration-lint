@@ -168,6 +168,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM020**: `RENAME COLUMN` on existing table
 - **PGM021**: `ADD UNIQUE` without `USING INDEX`
 - **PGM022**: `DROP TABLE` on existing table
+- **PGM023**: Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 - **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)
 - **PGM108**: Don't use `json` (use `jsonb`)
 - **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule

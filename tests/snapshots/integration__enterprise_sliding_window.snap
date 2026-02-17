@@ -8,6 +8,14 @@ expression: snapshot
       rule: PGM004
       severity: Major
     - line: 1
+      message: "CREATE TABLE 'billing_lock': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 8
+      message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 1
       message: "Column 'lock_granted' on 'billing_lock' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -29,6 +37,30 @@ expression: snapshot
       message: "Foreign key on 'order_actions(performed_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 15
+      message: "CREATE TABLE 'internal_orders': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 22
+      message: "CREATE TABLE 'partner_client_orders': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 29
+      message: "CREATE TABLE 'order_actions': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 39
+      message: "CREATE INDEX 'idx_order_actions_order_id': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 40
+      message: "CREATE INDEX 'idx_orders_account_id': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'created' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -56,6 +88,22 @@ expression: snapshot
       rule: PGM004
       severity: Major
     - line: 1
+      message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 13
+      message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 23
+      message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 33
+      message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 1
       message: "Column 'created' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -65,6 +113,10 @@ expression: snapshot
       severity: Minor
   step: step_03_V003__create_subscriptions
 - findings:
+    - line: 1
+      message: "CREATE TABLE 'usage_events': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'created' on 'usage_events' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -107,6 +159,18 @@ expression: snapshot
       message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
       rule: PGM001
       severity: Critical
+    - line: 1
+      message: "CREATE INDEX 'idx_subscriptions_account': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 5
+      message: "CREATE INDEX 'idx_subscriptions_status': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 6
+      message: "CREATE INDEX 'idx_orders_status': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
   step: step_07_V007__create_index_no_concurrently
 - findings:
     - line: 1
@@ -115,6 +179,14 @@ expression: snapshot
       severity: Critical
   step: step_08_V008__add_not_null_column
 - findings:
+    - line: 1
+      message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 15
+      message: "CREATE TABLE 'bundle_products': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'created' on 'products' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -125,6 +197,18 @@ expression: snapshot
       message: "Foreign key on 'promotion_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'promotions': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 14
+      message: "CREATE TABLE 'promotion_products': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 24
+      message: "CREATE INDEX 'idx_promotion_products_promo': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'created' on 'promotions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -149,6 +233,26 @@ expression: snapshot
       message: "Foreign key on 'subscription_price_plan(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'price_plans': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 10
+      message: "CREATE TABLE 'price_plan_items': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 19
+      message: "CREATE TABLE 'subscription_price_plan': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 26
+      message: "CREATE INDEX 'idx_price_plan_items_plan': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 27
+      message: "CREATE INDEX 'idx_subscription_price_plan_account': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
@@ -228,6 +332,58 @@ expression: snapshot
       rule: PGM005
       severity: Info
     - line: 1
+      message: "CREATE TABLE 'partner_reports': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 14
+      message: "CREATE TABLE 'client_invitations': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 23
+      message: "CREATE TABLE 'external_access_rights': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 32
+      message: "CREATE TABLE 'product_groups': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 40
+      message: "CREATE TABLE 'account_feature_flags': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 48
+      message: "CREATE TABLE 'order_invoice_references': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 55
+      message: "CREATE TABLE 'order_skip_actions': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 63
+      message: "CREATE TABLE 'overdue_invoices': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 73
+      message: "CREATE TABLE 'usage_event_balances': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 82
+      message: "CREATE TABLE 'account_locks': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 90
+      message: "CREATE TABLE 'subscription_locks': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 97
+      message: "CREATE TABLE 'usage_event_metadata': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 105
+      message: "CREATE TABLE 'subscription_scheduled_dates': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 1
       message: "Column 'generated_at' on 'partner_reports' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -280,6 +436,18 @@ expression: snapshot
       rule: PGM003
       severity: Major
     - line: 1
+      message: "CREATE TABLE 'connector_catalog': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 10
+      message: "CREATE TABLE 'connector_requests': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 19
+      message: "CREATE TABLE 'connector_articles': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 1
       message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -311,6 +479,10 @@ expression: snapshot
       message: "Table 'reseller_orders' has no primary key."
       rule: PGM004
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'reseller_orders': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
   step: step_20_V020__add_reseller_support
 - findings:
     - line: 1
@@ -321,6 +493,10 @@ expression: snapshot
       message: "Table 'subscription_periods' has no primary key."
       rule: PGM004
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'subscription_periods': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
   step: step_21_V021__subscription_periods
 - findings:
     - line: 1
@@ -551,6 +727,14 @@ expression: snapshot
       message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM003
       severity: Major
+    - line: 1
+      message: "CREATE TABLE 'cancellation_feedback': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
+    - line: 12
+      message: "CREATE TABLE 'trial_conversions': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
   step: step_27_V027__create_cancellation_tables
 - findings:
     - line: 15
@@ -561,6 +745,10 @@ expression: snapshot
       message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
       rule: PGM006
       severity: Critical
+    - line: 1
+      message: "CREATE TABLE 'platform_audit_log': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
     - line: 1
       message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
@@ -575,6 +763,10 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM017
       severity: Critical
+    - line: 1
+      message: "CREATE TABLE 'supplier_agreements': add IF NOT EXISTS for idempotent migrations."
+      rule: PGM023
+      severity: Minor
   step: step_29_V029__add_supplier_agreements
 - findings:
     - line: 1

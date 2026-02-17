@@ -100,12 +100,9 @@ mod tests {
 
     #[test]
     fn test_normalize_create_table_name() {
-        let mut units = vec![make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![],
-            constraints: vec![],
-            temporary: false,
-        })])];
+        let mut units = vec![make_unit(vec![
+            CreateTable::test(QualifiedName::unqualified("orders")).into(),
+        ])];
 
         normalize_schemas(&mut units, "public");
 
@@ -119,12 +116,9 @@ mod tests {
 
     #[test]
     fn test_normalize_preserves_existing_schema() {
-        let mut units = vec![make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::qualified("myschema", "orders"),
-            columns: vec![],
-            constraints: vec![],
-            temporary: false,
-        })])];
+        let mut units = vec![make_unit(vec![
+            CreateTable::test(QualifiedName::qualified("myschema", "orders")).into(),
+        ])];
 
         normalize_schemas(&mut units, "public");
 
@@ -138,18 +132,17 @@ mod tests {
 
     #[test]
     fn test_normalize_fk_ref_table_in_create_table() {
-        let mut units = vec![make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![],
-            constraints: vec![TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["customer_id".to_string()],
-                ref_table: QualifiedName::unqualified("customers"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }],
-            temporary: false,
-        })])];
+        let mut units = vec![make_unit(vec![
+            CreateTable::test(QualifiedName::unqualified("orders"))
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }])
+                .into(),
+        ])];
 
         normalize_schemas(&mut units, "public");
 
@@ -220,15 +213,16 @@ mod tests {
 
     #[test]
     fn test_normalize_create_index_table_name() {
-        let mut units = vec![make_unit(vec![IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_orders_status".to_string()),
-            table_name: QualifiedName::unqualified("orders"),
-            columns: vec![IndexColumn {
+        let mut units = vec![make_unit(vec![
+            CreateIndex::test(
+                Some("idx_orders_status".to_string()),
+                QualifiedName::unqualified("orders"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "status".to_string(),
-            }],
-            unique: false,
-            concurrent: false,
-        })])];
+            }])
+            .into(),
+        ])];
 
         normalize_schemas(&mut units, "public");
 
@@ -241,10 +235,11 @@ mod tests {
 
     #[test]
     fn test_normalize_drop_table_name() {
-        let mut units = vec![make_unit(vec![IrNode::DropTable(DropTable {
-            name: QualifiedName::unqualified("orders"),
-            if_exists: false,
-        })])];
+        let mut units = vec![make_unit(vec![
+            DropTable::test(QualifiedName::unqualified("orders"))
+                .with_if_exists(false)
+                .into(),
+        ])];
 
         normalize_schemas(&mut units, "public");
 
@@ -340,12 +335,9 @@ mod tests {
 
     #[test]
     fn test_normalize_custom_default_schema() {
-        let mut units = vec![make_unit(vec![IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![],
-            constraints: vec![],
-            temporary: false,
-        })])];
+        let mut units = vec![make_unit(vec![
+            CreateTable::test(QualifiedName::unqualified("orders")).into(),
+        ])];
 
         normalize_schemas(&mut units, "order");
 

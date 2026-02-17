@@ -20,3 +20,21 @@ expression: findings
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM023
+  severity: Minor
+  message: "CREATE INDEX 'idx_users_email': add IF NOT EXISTS for idempotent migrations."
+  file: 004-create-indexes.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM023
+  severity: Minor
+  message: "CREATE INDEX 'idx_subscriptions_account_id': add IF NOT EXISTS for idempotent migrations."
+  file: 004-create-indexes.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM023
+  severity: Minor
+  message: "CREATE INDEX 'idx_products_name_article': add IF NOT EXISTS for idempotent migrations."
+  file: 004-create-indexes.xml
+  start_line: 1
+  end_line: 1

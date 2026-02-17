@@ -176,7 +176,8 @@ fn test_all_rules_trigger() {
     for expected in &[
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM008", "PGM009",
         "PGM010", "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018",
-        "PGM019", "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM019", "PGM020", "PGM021", "PGM023", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM108",
     ] {
         assert!(
             rule_ids.contains(expected),
@@ -419,6 +420,15 @@ fn test_pgm020_finding_details() {
 #[test]
 fn test_pgm108_finding_details() {
     let findings = lint_fixture_rules("all-rules", &["V006__json_type.sql"], &["PGM108"]);
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_pgm023_finding_details() {
+    // PGM023 fires on CREATE TABLE and CREATE INDEX without IF NOT EXISTS.
+    // V002 has both: CREATE TABLE audit_log + CREATE INDEX idx_products_name.
+    let findings = lint_fixture_rules("all-rules", &["V002__violations.sql"], &["PGM023"]);
     let findings = normalize_findings(findings, "all-rules");
     insta::assert_yaml_snapshot!(findings);
 }

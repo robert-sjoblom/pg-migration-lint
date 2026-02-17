@@ -33,7 +33,7 @@ pub(super) const EXPLAIN: &str = "PGM008 — Missing IF EXISTS on DROP TABLE / D
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],
-    _ctx: &LintContext<'_>,
+    ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
@@ -45,7 +45,7 @@ pub(super) fn check(
                         "DROP TABLE '{}': add IF EXISTS for idempotent migrations.",
                         dt.name.display_name()
                     ),
-                    _ctx.file,
+                    ctx.file,
                     &stmt.span,
                 ));
             }
@@ -55,7 +55,7 @@ pub(super) fn check(
                         "DROP INDEX '{}': add IF EXISTS for idempotent migrations.",
                         di.index_name
                     ),
-                    _ctx.file,
+                    ctx.file,
                     &stmt.span,
                 ));
             }
