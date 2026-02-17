@@ -297,4 +297,70 @@ mod tests {
         let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
+
+    #[test]
+    fn test_drop_unique_column_created_via_using_index_fires() {
+        // UNIQUE constraint was created via ADD UNIQUE USING INDEX — replay resolves
+        // the index columns into the constraint so DROP COLUMN detects it.
+        use crate::catalog::replay::apply;
+        use crate::input::MigrationUnit;
+
+        // Step 1: build a table with an index (no unique constraint yet).
+        let mut catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("email", "text", false)
+                    .pk(&["id"])
+                    .index("idx_orders_email", &["email"], true);
+            })
+            .build();
+
+        // Step 2: replay ADD UNIQUE USING INDEX to get resolved columns.
+        let unit = MigrationUnit {
+            id: "add_unique".to_string(),
+            statements: vec![Located {
+                node: IrNode::AlterTable(AlterTable {
+                    name: QualifiedName::unqualified("orders"),
+                    actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                        name: Some("uq_orders_email".to_string()),
+                        columns: vec![], // empty with USING INDEX
+                        using_index: Some("idx_orders_email".to_string()),
+                    })],
+                }),
+                span: SourceSpan {
+                    start_line: 1,
+                    end_line: 1,
+                    start_offset: 0,
+                    end_offset: 0,
+                },
+            }],
+            source_file: PathBuf::from("migrations/001.sql"),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down: false,
+        };
+        apply(&mut catalog, &unit);
+
+        let before = catalog;
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "email".to_string(),
+            }],
+        }))];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
+        // Fires twice: once for the UNIQUE constraint (resolved columns), once for
+        // the backing unique index — both involve the dropped column.
+        assert_eq!(
+            findings.len(),
+            2,
+            "Should detect unique constraint removal even when created via USING INDEX"
+        );
+    }
 }

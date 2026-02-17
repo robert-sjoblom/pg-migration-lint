@@ -236,4 +236,68 @@ mod tests {
         let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
+
+    #[test]
+    fn test_drop_pk_column_created_via_using_index_fires() {
+        // PK was created via ADD PRIMARY KEY USING INDEX — replay resolves
+        // the index columns into the constraint so DROP COLUMN detects it.
+        use crate::catalog::replay::apply;
+        use crate::input::MigrationUnit;
+
+        // Step 1: build a table with an index (no PK yet).
+        let mut catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("status", "text", true)
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+
+        // Step 2: replay ADD PRIMARY KEY USING INDEX to get resolved columns.
+        let unit = MigrationUnit {
+            id: "add_pk".to_string(),
+            statements: vec![Located {
+                node: IrNode::AlterTable(AlterTable {
+                    name: QualifiedName::unqualified("orders"),
+                    actions: vec![AlterTableAction::AddConstraint(
+                        TableConstraint::PrimaryKey {
+                            columns: vec![], // empty with USING INDEX
+                            using_index: Some("idx_orders_pk".to_string()),
+                        },
+                    )],
+                }),
+                span: SourceSpan {
+                    start_line: 1,
+                    end_line: 1,
+                    start_offset: 0,
+                    end_offset: 0,
+                },
+            }],
+            source_file: PathBuf::from("migrations/001.sql"),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down: false,
+        };
+        apply(&mut catalog, &unit);
+
+        let before = catalog;
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "id".to_string(),
+            }],
+        }))];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should detect PK removal even when PK was created via USING INDEX"
+        );
+    }
 }

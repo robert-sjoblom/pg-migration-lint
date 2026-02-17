@@ -324,8 +324,24 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             using_index,
         } => {
             table.has_primary_key = true;
+            // When USING INDEX is set, IR columns are empty — resolve from the
+            // referenced index so downstream rules (e.g. PGM014) see the real columns.
+            let resolved_columns = if columns.is_empty() {
+                using_index
+                    .as_ref()
+                    .and_then(|idx_name| {
+                        table
+                            .indexes
+                            .iter()
+                            .find(|idx| idx.name == *idx_name)
+                            .map(|idx| idx.columns.clone())
+                    })
+                    .unwrap_or_default()
+            } else {
+                columns.clone()
+            };
             table.constraints.push(ConstraintState::PrimaryKey {
-                columns: columns.clone(),
+                columns: resolved_columns,
             });
             // Only create a synthetic PK index when there's no USING INDEX.
             // With USING INDEX, the referenced index already exists in the catalog.
@@ -353,10 +369,30 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 not_valid: *not_valid,
             });
         }
-        TableConstraint::Unique { name, columns, .. } => {
+        TableConstraint::Unique {
+            name,
+            columns,
+            using_index,
+        } => {
+            // When USING INDEX is set, IR columns are empty — resolve from the
+            // referenced index so downstream constraint checks see the real columns.
+            let resolved_columns = if columns.is_empty() {
+                using_index
+                    .as_ref()
+                    .and_then(|idx_name| {
+                        table
+                            .indexes
+                            .iter()
+                            .find(|idx| idx.name == *idx_name)
+                            .map(|idx| idx.columns.clone())
+                    })
+                    .unwrap_or_default()
+            } else {
+                columns.clone()
+            };
             table.constraints.push(ConstraintState::Unique {
                 name: name.clone(),
-                columns: columns.clone(),
+                columns: resolved_columns,
             });
         }
         TableConstraint::Check {
@@ -1837,6 +1873,120 @@ mod tests {
                 );
             }
             other => panic!("Expected ForeignKey constraint, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_add_pk_using_index_resolves_columns_from_index() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("id", "bigint", false)
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::qualified("public", "orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::PrimaryKey {
+                    columns: vec![], // empty with USING INDEX
+                    using_index: Some("idx_orders_pk".to_string()),
+                },
+            )],
+        })]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("public.orders").expect("table exists");
+        let pk = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
+            .expect("PK constraint should exist");
+        match pk {
+            ConstraintState::PrimaryKey { columns } => {
+                assert_eq!(
+                    columns,
+                    &["id".to_string()],
+                    "PK columns should be resolved from the index"
+                );
+            }
+            other => panic!("Expected PrimaryKey, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_add_unique_using_index_resolves_columns_from_index() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("email", "text", false)
+                    .index("idx_orders_email", &["email"], true);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::qualified("public", "orders"),
+            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                name: Some("uq_orders_email".to_string()),
+                columns: vec![], // empty with USING INDEX
+                using_index: Some("idx_orders_email".to_string()),
+            })],
+        })]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("public.orders").expect("table exists");
+        let uq = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::Unique { .. }))
+            .expect("Unique constraint should exist");
+        match uq {
+            ConstraintState::Unique { columns, .. } => {
+                assert_eq!(
+                    columns,
+                    &["email".to_string()],
+                    "Unique columns should be resolved from the index"
+                );
+            }
+            other => panic!("Expected Unique, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_add_pk_using_index_missing_index_stays_empty() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("id", "bigint", false);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::qualified("public", "orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::PrimaryKey {
+                    columns: vec![],
+                    using_index: Some("idx_nonexistent".to_string()),
+                },
+            )],
+        })]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("public.orders").expect("table exists");
+        let pk = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
+            .expect("PK constraint should exist");
+        match pk {
+            ConstraintState::PrimaryKey { columns } => {
+                assert!(
+                    columns.is_empty(),
+                    "Columns should be empty when referenced index doesn't exist"
+                );
+            }
+            other => panic!("Expected PrimaryKey, got {:?}", other),
         }
     }
 }
