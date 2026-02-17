@@ -122,6 +122,13 @@ impl Serialize for RuleId {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for RuleId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s: String = serde::Deserialize::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 impl FromStr for RuleId {
     type Err = ParseRuleIdError;
 
