@@ -14,3 +14,6 @@ ALTER TABLE accounts RENAME TO accounts_old;
 
 -- PGM020: RENAME COLUMN on existing table
 ALTER TABLE addresses RENAME COLUMN address_id TO addr_id;
+
+-- PGM021: ADD UNIQUE without USING INDEX on existing table
+ALTER TABLE products ADD CONSTRAINT uq_products_name UNIQUE (name);

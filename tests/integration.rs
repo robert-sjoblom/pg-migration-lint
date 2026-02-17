@@ -164,7 +164,7 @@ fn test_all_rules_trigger() {
     for expected in &[
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
         "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ] {
         assert!(
             rule_ids.contains(expected),
@@ -1351,7 +1351,7 @@ fn test_sarif_output_valid_structure() {
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
         "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();
@@ -1553,7 +1553,7 @@ fn test_sonarqube_output_valid_structure() {
     let known_rules: HashSet<&str> = [
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
         "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();

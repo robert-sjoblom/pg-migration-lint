@@ -410,67 +410,67 @@ expression: snapshot
       rule: PGM007
       severity: Minor
     - line: 5
-      message: "ADD PRIMARY KEY on existing table 'partner_reports' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'partner_reports' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 8
-      message: "ADD PRIMARY KEY on existing table 'client_invitations' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'client_invitations' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 11
-      message: "ADD PRIMARY KEY on existing table 'external_access_rights' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'external_access_rights' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 14
-      message: "ADD PRIMARY KEY on existing table 'product_groups' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'product_groups' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 17
-      message: "ADD PRIMARY KEY on existing table 'account_feature_flags' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'account_feature_flags' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 20
-      message: "ADD PRIMARY KEY on existing table 'order_invoice_references' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'order_invoice_references' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 23
-      message: "ADD PRIMARY KEY on existing table 'order_skip_actions' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'order_skip_actions' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 26
-      message: "ADD PRIMARY KEY on existing table 'overdue_invoices' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'overdue_invoices' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 29
-      message: "ADD PRIMARY KEY on existing table 'usage_event_balances' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'usage_event_balances' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 32
-      message: "ADD PRIMARY KEY on existing table 'account_locks' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'account_locks' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 35
-      message: "ADD PRIMARY KEY on existing table 'subscription_locks' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'subscription_locks' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 38
-      message: "ADD PRIMARY KEY on existing table 'usage_event_metadata' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'usage_event_metadata' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 41
-      message: "ADD PRIMARY KEY on existing table 'subscription_scheduled_dates' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'subscription_scheduled_dates' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 44
-      message: "ADD PRIMARY KEY on existing table 'subscription_invoices' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'subscription_invoices' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 47
-      message: "ADD PRIMARY KEY on existing table 'reseller_orders' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'reseller_orders' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 50
-      message: "ADD PRIMARY KEY on existing table 'subscription_periods' without a prior UNIQUE constraint or unique index on column(s) [id]. Create a unique index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
+      message: "ADD PRIMARY KEY on existing table 'subscription_periods' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM012
       severity: Major
     - line: 1
