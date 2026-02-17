@@ -1799,4 +1799,63 @@ mod tests {
             other => panic!("Expected Ignored for ALTER INDEX RENAME, got: {:?}", other),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Schema-qualified DROP INDEX
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_index_schema_qualified() {
+        let sql = "DROP INDEX myschema.idx_status;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx_status");
+                assert!(!di.concurrent);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Temp table filtering
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_create_temp_table() {
+        let sql = "CREATE TEMP TABLE scratch (id int);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert_eq!(ct.name.name, "scratch");
+                assert!(ct.temporary, "TEMP table should have temporary=true");
+                assert_eq!(ct.columns.len(), 1);
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_temporary_table() {
+        let sql = "CREATE TEMPORARY TABLE scratch (id int);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert!(ct.temporary, "TEMPORARY table should have temporary=true");
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_regular_table_not_temporary() {
+        let sql = "CREATE TABLE regular (id int);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert!(!ct.temporary, "Regular table should have temporary=false");
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
 }

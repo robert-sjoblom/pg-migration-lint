@@ -710,4 +710,34 @@ mod tests {
         let round_tripped: Config = toml::from_str(&toml_str).unwrap();
         assert_defaults_sane(&round_tripped);
     }
+
+    #[test]
+    fn test_explain_config_known_section() {
+        assert!(explain_config("migrations").is_ok());
+    }
+
+    #[test]
+    fn test_explain_config_all_sections() {
+        assert!(explain_config("all").is_ok());
+    }
+
+    #[test]
+    fn test_explain_config_unknown_section() {
+        let err = explain_config("garbage").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown config section"),
+            "expected error to contain 'unknown config section', got: {msg}",
+        );
+    }
+
+    #[test]
+    fn test_explain_config_each_section_ok() {
+        for section in &["migrations", "liquibase", "output", "cli", "rules"] {
+            assert!(
+                explain_config(section).is_ok(),
+                "explain_config({section:?}) should return Ok",
+            );
+        }
+    }
 }
