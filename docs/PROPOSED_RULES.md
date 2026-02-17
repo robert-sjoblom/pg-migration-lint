@@ -1,4 +1,4 @@
-# Proposed Rules — PGM024–PGM037
+# Proposed Rules — PGM024–PGM038
 
 ## Rule IDs
 
@@ -11,12 +11,29 @@ All rules follow the `PGMnnn` format. IDs PGM024–PGM036 are assigned here; the
 - **Severity**: MINOR
 - **Status**: Not yet implemented.
 - **Triggers**: `TRUNCATE TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `TRUNCATE` is instant DDL (does not scan rows) and bypasses `ON DELETE` triggers. By default it also bypasses foreign key referential integrity checks unless `RESTRICT` is specified — meaning child rows referencing the truncated table are not validated before the operation succeeds. All data in the table is permanently destroyed. Like `DROP TABLE`, the DDL cost is low but the consequence is irreversible data loss.
+- **Why**: `TRUNCATE` is instant DDL (does not scan rows) and does not fire row-level `ON DELETE` triggers, bypassing any business logic or auditing those triggers enforce. All data in the table is permanently destroyed. Like `DROP TABLE`, the DDL cost is low but the consequence is irreversible data loss.
+- **Interaction with PGM038**: Both PGM024 and PGM038 fire when `TRUNCATE CASCADE` targets an existing table. PGM024 covers the irreversible data destruction aspect; PGM038 covers the silent cascade to dependent tables.
 - **Does not fire when**:
   - The table is created in the same set of changed files.
   - The table does not exist in `catalog_before`.
-- **Message**: `TRUNCATE TABLE '{table}' removes all rows from an existing table. This is irreversible and bypasses ON DELETE triggers and (without RESTRICT) foreign key checks.`
-- **IR impact**: Requires a new top-level `IrNode` variant `TruncateTable { tables: Vec<String>, restrict: bool }`. `pg_query` emits `TruncateStmt` for this operation.
+- **Message**: `TRUNCATE TABLE '{table}' removes all rows from an existing table. This is irreversible and does not fire ON DELETE triggers.`
+- **IR impact**: Requires a new top-level `IrNode` variant `TruncateTable { tables: Vec<String>, cascade: bool }`. `pg_query` emits `TruncateStmt` for this operation.
+
+---
+
+## PGM038 — `TRUNCATE TABLE ... CASCADE` on existing table
+
+- **Severity**: MAJOR
+- **Status**: Not yet implemented.
+- **Triggers**: `TRUNCATE TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: `TRUNCATE CASCADE` automatically extends the truncate to all tables that have FK references to the target table — and recursively to any tables referencing those, without bound. None of the additionally truncated tables are listed in the migration statement. The author may not be aware of all tables in the cascade chain. This is a superset of the PGM024 finding; both fire when `CASCADE` is present.
+- **Interaction with PGM024**: Both PGM024 and PGM038 fire when `TRUNCATE CASCADE` targets an existing table. PGM024 covers the irreversible data destruction aspect; PGM038 covers the silent cascade to dependent tables.
+- **Does not fire when**:
+  - The table is created in the same set of changed files.
+  - The table does not exist in `catalog_before`.
+  - `CASCADE` is absent (PGM024 handles the non-cascade case).
+- **Message**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
+- **IR impact**: Uses the `cascade: bool` field on `TruncateTable` introduced by PGM024. No additional IR changes required.
 
 ---
 
@@ -170,27 +187,17 @@ All rules follow the `PGMnnn` format. IDs PGM024–PGM036 are assigned here; the
 
 ---
 
-## PGM034 — `ADD EXCLUDE` constraint without `NOT VALID` on existing table
+## PGM034 — `ADD EXCLUDE` constraint on existing table
 
 - **Severity**: CRITICAL
 - **Status**: Not yet implemented.
-- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Adding an `EXCLUDE` constraint without `NOT VALID` acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. This is the same failure mode as `ADD CHECK` (PGM018) and `ADD FOREIGN KEY` (PGM017). The safe pattern — `NOT VALID` followed by `VALIDATE CONSTRAINT` in a separate migration — applies identically.
-- **Safe alternative**:
-  ```sql
-  -- Migration 1: add without validation (instant)
-  ALTER TABLE reservations ADD CONSTRAINT no_overlapping_reservations
-      EXCLUDE USING gist (room_id WITH =, during WITH &&) NOT VALID;
-
-  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE)
-  ALTER TABLE reservations VALIDATE CONSTRAINT no_overlapping_reservations;
-  ```
+- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Adding an `EXCLUDE` constraint acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. Unlike `CHECK` and `FOREIGN KEY` constraints, PostgreSQL does not support `NOT VALID` for `EXCLUDE` constraints — attempting it produces a syntax error. There is also no equivalent to `ADD CONSTRAINT ... USING INDEX` for exclusion constraints, so the safe pre-build-then-attach pattern used for `UNIQUE` (PGM021) does not apply. There is currently no online path to add an exclusion constraint to a large existing table without an `ACCESS EXCLUSIVE` lock for the duration of the scan.
 - **Does not fire when**:
   - The table is created in the same set of changed files.
   - The table does not exist in `catalog_before`.
-  - The constraint includes `NOT VALID`.
-- **Message**: `Adding EXCLUDE constraint '{constraint}' on existing table '{table}' validates all rows under ACCESS EXCLUSIVE lock. Use NOT VALID and validate in a separate migration.`
-- **IR impact**: Requires a new `TableConstraint::Exclude { name: Option<String>, not_valid: bool }` variant. `pg_query` emits `Constraint(CONSTR_EXCLUSION)`.
+- **Message**: `Adding EXCLUDE constraint '{constraint}' on existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window.`
+- **IR impact**: Requires a new `TableConstraint::Exclude { name: Option<String> }` variant. `pg_query` emits `Constraint(CONSTR_EXCLUSION)`.
 
 ---
 
@@ -207,28 +214,28 @@ All rules follow the `PGMnnn` format. IDs PGM024–PGM036 are assigned here; the
 
 ---
 
-## PGM036 — `CREATE OR REPLACE FUNCTION` / `PROCEDURE`
+## PGM036 — `CREATE OR REPLACE FUNCTION` / `PROCEDURE` (maybe not?)
 
 - **Severity**: INFO
 - **Status**: Not yet implemented.
 - **Triggers**: `CREATE OR REPLACE FUNCTION` or `CREATE OR REPLACE PROCEDURE`.
-- **Why**: Silently replaces the existing function or procedure body, return type, or argument defaults. Changing a return type or removing an argument breaks callers at runtime rather than at migration time — the failure is invisible to DDL-level CI and only surfaces when application code calls the function. Overload resolution can also shift silently when argument signatures change.
+- **Why**: PostgreSQL prevents signature changes (return type, argument names/types) via `CREATE OR REPLACE` — attempting this produces an error. The risk is logic regression: `OR REPLACE` silently overwrites the existing function body with no "already exists" safety check. A developer reverting a function or deploying a buggy version has no friction — the migration succeeds and the regression is invisible until the function is called in production.
 - **Does not fire when**:
-  - `OR REPLACE` is absent (plain `CREATE FUNCTION` / `CREATE PROCEDURE` either succeeds or fails explicitly).
-- **Message**: `CREATE OR REPLACE FUNCTION '{name}' silently replaces the existing function. Changes to return type or argument types can break callers at runtime. Verify no callers depend on the previous signature.`
+  - `OR REPLACE` is absent (plain `CREATE FUNCTION` / `CREATE PROCEDURE` fails explicitly if the function already exists, forcing intentional action).
+- **Message**: `CREATE OR REPLACE FUNCTION '{name}' silently overwrites the existing function body. It cannot change signatures, but it can introduce logic regressions with no warning. Verify the replacement is intentional.`
 - **IR impact**: Requires a new top-level `IrNode` variant `CreateOrReplaceFunction { name: String }`. `pg_query` emits `CreateFunctionStmt` with `replace: bool`. Only the name and `replace` flag need to be extracted for v1.
 
 ---
 
-## PGM037 — `CREATE OR REPLACE VIEW`
+## PGM037 — `CREATE OR REPLACE VIEW` (maybe not?)
 
 - **Severity**: INFO
 - **Status**: Not yet implemented.
 - **Triggers**: `CREATE OR REPLACE VIEW`.
-- **Why**: Silently changes column names, column types, or column order on the existing view. Callers using positional access (`SELECT *`) or depending on specific column types break silently. Replacing a view that has dependent views or `WITH CHECK OPTION` can cascade changes in unexpected ways. Unlike function replacement, view replacement also affects any rules or triggers defined on the view.
+- **Why**: PostgreSQL prevents removing columns or changing existing column types via `CREATE OR REPLACE VIEW` — attempting this produces an error. However it does permit adding new columns at the end, which silently affects any caller using `SELECT *` positional access. The primary risk is logic regression: `OR REPLACE` silently overwrites the view query with no "already exists" safety check. A developer reverting a view or deploying a buggy version has no friction. Dependent views, rules, or `WITH CHECK OPTION` constraints may also behave differently under the replacement query without any warning at migration time.
 - **Does not fire when**:
-  - `OR REPLACE` is absent (plain `CREATE VIEW` either succeeds or fails explicitly).
-- **Message**: `CREATE OR REPLACE VIEW '{name}' silently replaces the existing view. Changes to column names, types, or order can break callers using positional access or explicit column references. Verify all dependent queries and views.`
+  - `OR REPLACE` is absent (plain `CREATE VIEW` fails explicitly if the view already exists, forcing intentional action).
+- **Message**: `CREATE OR REPLACE VIEW '{name}' silently overwrites the existing view query. New columns added at the end affect SELECT * callers. Verify the replacement is intentional and check dependent views and rules.`
 - **IR impact**: Requires a new top-level `IrNode` variant `CreateOrReplaceView { name: String }`. `pg_query` emits `ViewStmt` with `replace: bool`. Only the name and `replace` flag need to be extracted for v1.
 
 ---
@@ -244,4 +251,3 @@ Changes to existing spec sections required:
 - **§3.2 IR node table**: Add `TruncateTable`, `DropSchema`, `InsertInto`, `UpdateTable`, `DeleteFrom`, `Cluster`, `DetachPartition`, `AttachPartition`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; extend `DropTable` with `cascade: bool`; extend `CreateTable` with `unlogged: bool`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude` with `not_valid: bool`.
 - **§11 Project structure**: Add `pgm024.rs` through `pgm037.rs` to `src/rules/`.
 - **PGM901 scope**: Update to cover PGM001–PGM037. `CREATE OR REPLACE` in a `.down.sql` is arguably more dangerous than in `.up.sql` — silently reverting a function or view definition that live traffic depends on — so PGM036 and PGM037 should be included.
-
