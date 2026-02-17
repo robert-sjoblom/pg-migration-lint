@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 28 rules across two categories: migration safety rules (PGM001-PGM022) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
+pg-migration-lint ships with 29 rules across two categories: migration safety rules (PGM001-PGM023) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
 
 ### Migration Safety Rules
 
@@ -64,6 +64,7 @@ pg-migration-lint ships with 28 rules across two categories: migration safety ru
 | PGM020 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
 | PGM021 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
 | PGM022 | Minor | `DROP TABLE` on existing table | `DROP TABLE legacy_orders;` |
+| PGM023 | Minor | Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX` | `CREATE TABLE orders (id bigint PRIMARY KEY);` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 
