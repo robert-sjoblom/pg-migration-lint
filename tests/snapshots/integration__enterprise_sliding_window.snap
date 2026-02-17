@@ -337,6 +337,10 @@ expression: snapshot
       message: "DROP INDEX 'idx_orders_status' on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
       rule: PGM002
       severity: Critical
+    - line: 1
+      message: "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
+      rule: PGM008
+      severity: Minor
   step: step_23_V023__drop_index_no_concurrently
 - findings:
     - line: 1

@@ -90,11 +90,13 @@ pub struct CreateIndex {
 pub struct DropIndex {
     pub index_name: String,
     pub concurrent: bool,
+    pub if_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropTable {
     pub name: QualifiedName,
+    pub if_exists: bool,
 }
 
 // --- Supporting types ---

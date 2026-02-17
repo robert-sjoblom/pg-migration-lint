@@ -240,6 +240,22 @@
     "run_in_transaction": true
   },
   {
+    "changeset_id": "010-drop-index-if-exists",
+    "author": "alice",
+    "sql": "DROP INDEX IF EXISTS idx_nonexistent;",
+    "xml_file": "010-cleanup.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "010-drop-table-if-exists",
+    "author": "alice",
+    "sql": "DROP TABLE IF EXISTS nonexistent_table;",
+    "xml_file": "010-cleanup.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
     "changeset_id": "010-add-pk-subscription-invoices",
     "author": "alice",
     "sql": "ALTER TABLE subscription_invoices ADD CONSTRAINT pk_subscription_invoices PRIMARY KEY (subscription_id, invoiced_from);",

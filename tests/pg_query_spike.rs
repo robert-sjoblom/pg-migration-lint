@@ -320,6 +320,10 @@ fn spike_create_drop_index_ast() {
         "CREATE INDEX idx_composite ON orders (customer_id, status);",
         "DROP INDEX idx_status;",
         "DROP INDEX CONCURRENTLY idx_status;",
+        "DROP INDEX IF EXISTS idx_status;",
+        "DROP INDEX CONCURRENTLY IF EXISTS idx_status;",
+        "DROP TABLE orders;",
+        "DROP TABLE IF EXISTS orders;",
     ];
 
     for sql in sqls {
@@ -348,7 +352,10 @@ fn spike_create_drop_index_ast() {
                 }
             }
             pg_query::NodeEnum::DropStmt(drop) => {
-                println!("  concurrent={}", drop.concurrent);
+                println!(
+                    "  concurrent={}, missing_ok={}",
+                    drop.concurrent, drop.missing_ok
+                );
                 for obj in &drop.objects {
                     println!("  object: {:?}", obj.node.as_ref().unwrap());
                 }

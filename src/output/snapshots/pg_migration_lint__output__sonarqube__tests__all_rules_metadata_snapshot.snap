@@ -89,13 +89,25 @@ expression: parsed
       "ruleId": "PGM007"
     },
     {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM008: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "textRange": {
+          "endLine": 8,
+          "startLine": 8
+        }
+      },
+      "ruleId": "PGM008"
+    },
+    {
       "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM009: ALTER COLUMN TYPE on existing table causes table rewrite",
         "textRange": {
-          "endLine": 8,
-          "startLine": 8
+          "endLine": 9,
+          "startLine": 9
         }
       },
       "ruleId": "PGM009"
@@ -106,8 +118,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM010: ADD COLUMN NOT NULL without DEFAULT on existing table",
         "textRange": {
-          "endLine": 9,
-          "startLine": 9
+          "endLine": 10,
+          "startLine": 10
         }
       },
       "ruleId": "PGM010"
@@ -118,8 +130,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM011: DROP COLUMN on existing table",
         "textRange": {
-          "endLine": 10,
-          "startLine": 10
+          "endLine": 11,
+          "startLine": 11
         }
       },
       "ruleId": "PGM011"
@@ -130,8 +142,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM012: ADD PRIMARY KEY on existing table without USING INDEX",
         "textRange": {
-          "endLine": 11,
-          "startLine": 11
+          "endLine": 12,
+          "startLine": 12
         }
       },
       "ruleId": "PGM012"
@@ -142,8 +154,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM013: DROP COLUMN silently removes unique constraint",
         "textRange": {
-          "endLine": 12,
-          "startLine": 12
+          "endLine": 13,
+          "startLine": 13
         }
       },
       "ruleId": "PGM013"
@@ -154,8 +166,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM014: DROP COLUMN silently removes primary key",
         "textRange": {
-          "endLine": 13,
-          "startLine": 13
+          "endLine": 14,
+          "startLine": 14
         }
       },
       "ruleId": "PGM014"
@@ -166,8 +178,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM015: DROP COLUMN silently removes foreign key",
         "textRange": {
-          "endLine": 14,
-          "startLine": 14
+          "endLine": 15,
+          "startLine": 15
         }
       },
       "ruleId": "PGM015"
@@ -178,8 +190,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM016: SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock",
         "textRange": {
-          "endLine": 15,
-          "startLine": 15
+          "endLine": 16,
+          "startLine": 16
         }
       },
       "ruleId": "PGM016"
@@ -190,8 +202,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM017: ADD FOREIGN KEY on existing table without NOT VALID",
         "textRange": {
-          "endLine": 16,
-          "startLine": 16
+          "endLine": 17,
+          "startLine": 17
         }
       },
       "ruleId": "PGM017"
@@ -202,8 +214,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM018: ADD CHECK on existing table without NOT VALID",
         "textRange": {
-          "endLine": 17,
-          "startLine": 17
+          "endLine": 18,
+          "startLine": 18
         }
       },
       "ruleId": "PGM018"
@@ -214,8 +226,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM019: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 18,
-          "startLine": 18
+          "endLine": 19,
+          "startLine": 19
         }
       },
       "ruleId": "PGM019"
@@ -226,8 +238,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM020: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 19,
-          "startLine": 19
+          "endLine": 20,
+          "startLine": 20
         }
       },
       "ruleId": "PGM020"
@@ -238,8 +250,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM021: ADD UNIQUE on existing table without USING INDEX",
         "textRange": {
-          "endLine": 20,
-          "startLine": 20
+          "endLine": 21,
+          "startLine": 21
         }
       },
       "ruleId": "PGM021"
@@ -250,8 +262,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM022: DROP TABLE on existing table",
         "textRange": {
-          "endLine": 21,
-          "startLine": 21
+          "endLine": 22,
+          "startLine": 22
         }
       },
       "ruleId": "PGM022"
@@ -262,8 +274,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM101: Column uses timestamp without time zone",
         "textRange": {
-          "endLine": 22,
-          "startLine": 22
+          "endLine": 23,
+          "startLine": 23
         }
       },
       "ruleId": "PGM101"
@@ -274,8 +286,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM102: Column uses timestamp or timestamptz with precision 0",
         "textRange": {
-          "endLine": 23,
-          "startLine": 23
+          "endLine": 24,
+          "startLine": 24
         }
       },
       "ruleId": "PGM102"
@@ -286,8 +298,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM103: Column uses char(n) type",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 25,
+          "startLine": 25
         }
       },
       "ruleId": "PGM103"
@@ -298,8 +310,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM104: Column uses the money type",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM104"
@@ -310,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM105: Column uses serial/bigserial instead of identity column",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM105"
@@ -322,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM108: Column uses json type instead of jsonb",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM108"
@@ -434,6 +446,21 @@ expression: parsed
       "name": "Volatile default on column",
       "severity": "MINOR",
       "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM008 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\nWhat it detects:\nA DROP TABLE or DROP INDEX statement that does not include the\nIF EXISTS clause.\n\nWhy it matters:\nWithout IF EXISTS, the statement fails if the object does not exist.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' does not exist:\nDROP TABLE orders;\nDROP INDEX idx_orders_status;\n\nRecommended fix:\nDROP TABLE IF EXISTS orders;\nDROP INDEX IF EXISTS idx_orders_status;",
+      "engineId": "pg-migration-lint",
+      "id": "PGM008",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Missing IF EXISTS on DROP TABLE / DROP INDEX",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
     },
     {
       "cleanCodeAttribute": "COMPLETE",

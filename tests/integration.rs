@@ -162,9 +162,9 @@ fn test_all_rules_trigger() {
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     for expected in &[
-        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM008", "PGM009",
+        "PGM010", "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018",
+        "PGM019", "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ] {
         assert!(
             rule_ids.contains(expected),
@@ -648,6 +648,7 @@ fn test_enterprise_full_run_per_rule_counts() {
         ("PGM004", 9),
         ("PGM005", 8),
         ("PGM006", 7),
+        ("PGM008", 1),
         ("PGM013", 2),
         ("PGM014", 1),
         ("PGM015", 3),
@@ -667,7 +668,7 @@ fn test_enterprise_full_run_per_rule_counts() {
 
     assert_eq!(
         findings.len(),
-        89,
+        90,
         "Total finding count changed. Got {}:\n  {}",
         findings.len(),
         format_findings(&findings)
@@ -1349,9 +1350,9 @@ fn test_sarif_output_valid_structure() {
 
     // Verify all results have correct ruleIds from our rule set
     let known_rules: HashSet<&str> = [
-        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM008", "PGM009",
+        "PGM010", "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018",
+        "PGM019", "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();
@@ -1551,9 +1552,9 @@ fn test_sonarqube_output_valid_structure() {
 
     // Verify each issue has the required fields
     let known_rules: HashSet<&str> = [
-        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018", "PGM019",
-        "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
+        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM008", "PGM009",
+        "PGM010", "PGM011", "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM018",
+        "PGM019", "PGM020", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM108",
     ]
     .into_iter()
     .collect();
@@ -2355,6 +2356,46 @@ fn test_bridge_lint_008_only() {
         "008-add-category-to-products",
     ]);
     sort_findings(&mut findings);
+
+    insta::assert_yaml_snapshot!(findings, {
+        "[].file" => insta::dynamic_redaction(|value, _path| {
+            let s = value.as_str().unwrap();
+            let filename = std::path::Path::new(s).file_name().unwrap().to_str().unwrap();
+            filename.to_string()
+        })
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: Lint only 010 changesets (drop index / drop table without IF EXISTS)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_lint_010_only() {
+    let mut findings = lint_via_bridge(&[
+        "010-drop-unused-indexes",
+        "010-drop-event-log",
+        "010-drop-index-if-exists",
+        "010-drop-table-if-exists",
+    ]);
+    sort_findings(&mut findings);
+
+    // The plain DROP INDEX / DROP TABLE should trigger PGM008
+    let pgm008: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM008")
+        .collect();
+    assert_eq!(
+        pgm008.len(),
+        2,
+        "Expected exactly 2 PGM008 findings (DROP INDEX + DROP TABLE without IF EXISTS).\n\
+         The IF EXISTS variants must NOT fire.\nAll findings: {:?}",
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
+    );
 
     insta::assert_yaml_snapshot!(findings, {
         "[].file" => insta::dynamic_redaction(|value, _path| {

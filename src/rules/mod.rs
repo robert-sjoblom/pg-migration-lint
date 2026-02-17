@@ -28,6 +28,7 @@ mod pgm004;
 mod pgm005;
 mod pgm006;
 mod pgm007;
+mod pgm008;
 mod pgm009;
 mod pgm010;
 mod pgm011;
@@ -82,6 +83,7 @@ impl RuleId {
                 Pgm005 => "PGM005",
                 Pgm006 => "PGM006",
                 Pgm007 => "PGM007",
+                Pgm008 => "PGM008",
                 Pgm009 => "PGM009",
                 Pgm010 => "PGM010",
                 Pgm011 => "PGM011",
@@ -143,6 +145,7 @@ impl FromStr for RuleId {
             "PGM005" => Ok(RuleId::Migration(Pgm005)),
             "PGM006" => Ok(RuleId::Migration(Pgm006)),
             "PGM007" => Ok(RuleId::Migration(Pgm007)),
+            "PGM008" => Ok(RuleId::Migration(Pgm008)),
             "PGM009" => Ok(RuleId::Migration(Pgm009)),
             "PGM010" => Ok(RuleId::Migration(Pgm010)),
             "PGM011" => Ok(RuleId::Migration(Pgm011)),
@@ -217,7 +220,7 @@ impl Rule for RuleId {
     }
 }
 
-/// Migration safety rules (PGM001–PGM022).
+/// Migration safety rules (PGM001–PGM022, including PGM008).
 ///
 /// These detect locking, rewrite, and schema-integrity issues in DDL migrations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
@@ -236,6 +239,8 @@ pub enum MigrationRule {
     Pgm006,
     /// Volatile function defaults on columns.
     Pgm007,
+    /// Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`.
+    Pgm008,
     /// Column type changes on existing tables.
     Pgm009,
     /// Adding a `NOT NULL` column without a `DEFAULT` to an existing table.
@@ -276,6 +281,7 @@ impl MigrationRule {
             Self::Pgm005 => pgm005::DESCRIPTION,
             Self::Pgm006 => pgm006::DESCRIPTION,
             Self::Pgm007 => pgm007::DESCRIPTION,
+            Self::Pgm008 => pgm008::DESCRIPTION,
             Self::Pgm009 => pgm009::DESCRIPTION,
             Self::Pgm010 => pgm010::DESCRIPTION,
             Self::Pgm011 => pgm011::DESCRIPTION,
@@ -302,6 +308,7 @@ impl MigrationRule {
             Self::Pgm005 => pgm005::EXPLAIN,
             Self::Pgm006 => pgm006::EXPLAIN,
             Self::Pgm007 => pgm007::EXPLAIN,
+            Self::Pgm008 => pgm008::EXPLAIN,
             Self::Pgm009 => pgm009::EXPLAIN,
             Self::Pgm010 => pgm010::EXPLAIN,
             Self::Pgm011 => pgm011::EXPLAIN,
@@ -333,6 +340,7 @@ impl MigrationRule {
             Self::Pgm005 => pgm005::check(rule, statements, ctx),
             Self::Pgm006 => pgm006::check(rule, statements, ctx),
             Self::Pgm007 => pgm007::check(rule, statements, ctx),
+            Self::Pgm008 => pgm008::check(rule, statements, ctx),
             Self::Pgm009 => pgm009::check(rule, statements, ctx),
             Self::Pgm010 => pgm010::check(rule, statements, ctx),
             Self::Pgm011 => pgm011::check(rule, statements, ctx),
@@ -368,6 +376,7 @@ impl From<MigrationRule> for Severity {
             | MigrationRule::Pgm012
             | MigrationRule::Pgm014 => Self::Major,
             MigrationRule::Pgm007
+            | MigrationRule::Pgm008
             | MigrationRule::Pgm013
             | MigrationRule::Pgm015
             | MigrationRule::Pgm022 => Self::Minor,
@@ -816,14 +825,14 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 27 registered rules + 1 meta = 28
-        assert_eq!(all.len(), 28);
+        // 28 registered rules + 1 meta = 29
+        assert_eq!(all.len(), 29);
     }
 
     #[test]
     fn test_rule_id_from_str_unknown() {
         assert!("PGM000".parse::<RuleId>().is_err());
-        assert!("PGM008".parse::<RuleId>().is_err());
+
         assert!("PGM999".parse::<RuleId>().is_err());
         assert!("garbage".parse::<RuleId>().is_err());
         assert!("pgm001".parse::<RuleId>().is_err()); // case-sensitive

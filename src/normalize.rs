@@ -243,6 +243,7 @@ mod tests {
     fn test_normalize_drop_table_name() {
         let mut units = vec![make_unit(vec![IrNode::DropTable(DropTable {
             name: QualifiedName::unqualified("orders"),
+            if_exists: false,
         })])];
 
         normalize_schemas(&mut units, "public");
@@ -311,6 +312,7 @@ mod tests {
         let mut units = vec![make_unit(vec![IrNode::DropIndex(DropIndex {
             index_name: "idx_orders_status".to_string(),
             concurrent: false,
+            if_exists: false,
         })])];
 
         normalize_schemas(&mut units, "public");
