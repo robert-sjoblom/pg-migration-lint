@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.1.0...v2.2.0) (2026-02-17)
+
+
+### Features
+
+* **rules:** implement PGM023 — missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX ([23c7686](https://github.com/robert-sjoblom/pg-migration-lint/commit/23c7686592d0f3b8fb5932ea5d19d0483102b847))
+
 ## [2.1.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.0.1...v2.1.0) (2026-02-17)
 
 
