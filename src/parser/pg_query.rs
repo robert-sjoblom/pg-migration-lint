@@ -158,6 +158,7 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
         columns,
         constraints,
         temporary,
+        if_not_exists: create.if_not_exists,
     })
 }
 
@@ -628,6 +629,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         columns,
         unique: idx.unique,
         concurrent: idx.concurrent,
+        if_not_exists: idx.if_not_exists,
     })
 }
 
@@ -919,6 +921,7 @@ mod tests {
                 assert_eq!(ct.columns[1].name, "status");
                 assert_eq!(ct.columns[1].type_name.name, "text");
                 assert!(!ct.columns[1].nullable);
+                assert!(!ct.if_not_exists);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -1305,6 +1308,7 @@ mod tests {
                 assert_eq!(ci.columns[0].name, "status");
                 assert!(!ci.unique);
                 assert!(!ci.concurrent);
+                assert!(!ci.if_not_exists);
             }
             other => panic!("Expected CreateIndex, got: {:?}", other),
         }
@@ -1990,6 +1994,36 @@ mod tests {
                 assert!(!ct.temporary, "Regular table should have temporary=false");
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // IF NOT EXISTS
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_create_table_if_not_exists() {
+        let sql = "CREATE TABLE IF NOT EXISTS orders (id int);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert_eq!(ct.name, QualifiedName::unqualified("orders"));
+                assert!(ct.if_not_exists);
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_index_if_not_exists() {
+        let sql = "CREATE INDEX IF NOT EXISTS idx_status ON orders (status);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert_eq!(ci.index_name, Some("idx_status".to_string()));
+                assert!(ci.if_not_exists);
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
         }
     }
 }

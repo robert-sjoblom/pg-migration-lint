@@ -150,6 +150,7 @@ fn test_matrix_create_index_concurrent_in_transaction() {
         }],
         unique: false,
         concurrent: true,
+        if_not_exists: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM006"]);
@@ -179,6 +180,7 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
         }],
         unique: false,
         concurrent: false,
+        if_not_exists: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM006"]);
@@ -236,6 +238,7 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
             not_valid: false,
         }],
         temporary: false,
+        if_not_exists: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM003", "PGM004"]);
@@ -286,6 +289,7 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
             using_index: None,
         }],
         temporary: false,
+        if_not_exists: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM004", "PGM005"]);
@@ -541,6 +545,7 @@ fn test_matrix_create_table_with_bad_types() {
         ],
         constraints: vec![],
         temporary: false,
+        if_not_exists: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM101", "PGM103", "PGM104", "PGM105"]);

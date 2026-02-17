@@ -20,6 +20,18 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM023
+  severity: Minor
+  message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM023
+  severity: Minor
+  message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
+  file: 006-table-no-pk.xml
+  start_line: 1
+  end_line: 1
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'event_log' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
