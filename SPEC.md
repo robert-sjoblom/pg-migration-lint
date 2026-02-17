@@ -439,7 +439,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 - **IR impact**: Requires `if_not_exists: bool` field on `CreateTable` and `CreateIndex`.
 
-#### PGM024 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
+#### PGM008 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
 
 - **Severity**: MINOR
 - **Status**: Not yet implemented.
@@ -454,7 +454,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM901 — Down migration severity cap
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM024) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules (PGM001–PGM023) apply to `.down.sql` / rollback SQL, but findings are informational only.
 - PGM901 is a meta-behavior, not a standalone lint rule. It has no `Rule` trait implementation and cannot be suppressed or disabled via inline comments. The 9xx range is reserved for meta-behaviors that modify how other rules operate.
 
 ### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
@@ -791,3 +791,4 @@ pg-migration-lint/
 | 1.9     | 2026-02-15 | Dropped lightweight XML fallback parser. Liquibase now requires a JRE — two-tier strategy: bridge jar → update-sql. Removed `liquibase_xml.rs` from project structure, removed `"xml-only"` config option. |
 | 1.10    | 2026-02-16 | Fleshed out full rule definitions for PGM021 (ADD UNIQUE without USING INDEX), PGM022 (DROP TABLE), PGM023 (missing IF NOT EXISTS), PGM024 (missing IF EXISTS), PGM106 (integer primary key). Removed stale IDs from deferred rules in §4.3. Synced `docs/dont-do-this-rules.md` with current spec state. |
 | 1.11    | 2026-02-16 | Renamed PGM008 → PGM901. Established 9xx range for meta-behaviors that modify how other rules operate. |
+| 1.12    | 2026-02-17 | Renumbered PGM024 (missing IF EXISTS) → PGM008 (slot freed by PGM008 → PGM901 rename). Updated PGM901 scope to PGM001–PGM023. |

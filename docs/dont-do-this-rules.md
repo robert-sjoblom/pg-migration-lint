@@ -7,7 +7,7 @@ Only DDL-detectable anti-patterns are included. Query-level patterns (e.g., "don
 NOT IN with nullable columns", "don't use BETWEEN for timestamp ranges") are omitted
 because they do not appear in migration files.
 
-Rule IDs use the PGM1XX series to distinguish from core rules (PGM001-PGM024).
+Rule IDs use the PGM1XX series to distinguish from core rules (PGM001-PGM023).
 
 ---
 
