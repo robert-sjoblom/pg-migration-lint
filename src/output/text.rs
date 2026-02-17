@@ -9,7 +9,7 @@
 
 use crate::output::{ReportError, Reporter, TextReporter};
 use crate::rules::Finding;
-use std::fmt::Write as FmtWrite;
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::Path;
 
@@ -47,26 +47,30 @@ fn format_all(findings: &[Finding]) -> String {
 }
 
 impl Reporter for TextReporter {
+    fn render(&self, findings: &[Finding]) -> Result<String, ReportError> {
+        Ok(format_all(findings))
+    }
+
+    fn filename(&self) -> &str {
+        "findings.txt"
+    }
+
     /// Emit findings as human-readable text.
     ///
     /// If `use_stdout` is true, writes to stdout. Otherwise writes
     /// `findings.txt` to the given `output_dir`. Creates the directory
     /// if it does not exist.
     fn emit(&self, findings: &[Finding], output_dir: &Path) -> Result<(), ReportError> {
-        let text = format_all(findings);
-
         if self.use_stdout {
+            let text = self.render(findings)?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             handle.write_all(text.as_bytes())?;
             handle.flush()?;
+            Ok(())
         } else {
-            std::fs::create_dir_all(output_dir)?;
-            let path = output_dir.join("findings.txt");
-            std::fs::write(path, text)?;
+            super::emit_to_file(self, findings, output_dir)
         }
-
-        Ok(())
     }
 }
 
@@ -79,20 +83,14 @@ mod tests {
 
     #[test]
     fn single_finding_correct_format() {
-        let dir = tempfile::tempdir().expect("tempdir");
         let reporter = TextReporter { use_stdout: false };
         let findings = vec![test_finding()];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
-
+        let content = reporter.render(&findings).expect("render");
         insta::assert_snapshot!(content);
     }
 
     #[test]
     fn multiple_findings_separated_by_blank_line() {
-        let dir = tempfile::tempdir().expect("tempdir");
         let reporter = TextReporter { use_stdout: false };
 
         let findings = vec![
@@ -114,22 +112,15 @@ mod tests {
             },
         ];
 
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
-
+        let content = reporter.render(&findings).expect("render");
         insta::assert_snapshot!(content);
     }
 
     #[test]
     fn no_findings_produces_empty_output() {
-        let dir = tempfile::tempdir().expect("tempdir");
         let reporter = TextReporter { use_stdout: false };
         let findings: Vec<Finding> = vec![];
-
-        reporter.emit(&findings, dir.path()).expect("emit");
-
-        let content = std::fs::read_to_string(dir.path().join("findings.txt")).expect("read");
+        let content = reporter.render(&findings).expect("render");
         assert!(content.is_empty());
     }
 
