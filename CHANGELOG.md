@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.6...v2.0.0) (2026-02-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* replace string-based rule IDs with strongly-typed RuleId enum
+* SonarQube JSON output structure changed. Issues no longer carry engineId, severity, or type fields — these now live on rule definitions. Requires SonarQube 10.3+.
+
+### Features
+
+* upgrade SonarQube output to 10.3+ Generic Issue Import format ([5d768d9](https://github.com/robert-sjoblom/pg-migration-lint/commit/5d768d916c79f540877d1778c8baff54cf956cbe))
+
+
+### Bug Fixes
+
+* remove INSTA_UPDATE=always build layer that masked snapshot failures ([6d1f259](https://github.com/robert-sjoblom/pg-migration-lint/commit/6d1f2591e2d6b627e8cae949d3da649c2b2cfb3d))
+
+
+### Code Refactoring
+
+* replace string-based rule IDs with strongly-typed RuleId enum ([66e7d76](https://github.com/robert-sjoblom/pg-migration-lint/commit/66e7d76f6c12bce1f42c2ad6ad85546988e94c49))
+
 ## [1.9.6](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.5...v1.9.6) (2026-02-16)
 
 
