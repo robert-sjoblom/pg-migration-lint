@@ -55,12 +55,14 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             impact_severity: "MEDIUM",
         },
         // Schema quality / side-effect warnings
-        RuleId::Migration(Pgm004 | Pgm011 | Pgm019 | Pgm020 | Pgm022) => SonarQubeRuleMeta {
-            clean_code_attribute: "COMPLETE",
-            issue_type: "CODE_SMELL",
-            software_quality: "MAINTAINABILITY",
-            impact_severity: "MEDIUM",
-        },
+        RuleId::Migration(Pgm004 | Pgm008 | Pgm011 | Pgm019 | Pgm020 | Pgm022) => {
+            SonarQubeRuleMeta {
+                clean_code_attribute: "COMPLETE",
+                issue_type: "CODE_SMELL",
+                software_quality: "MAINTAINABILITY",
+                impact_severity: "MEDIUM",
+            }
+        }
         // UNIQUE NOT NULL instead of PK
         RuleId::Migration(Pgm005) => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
@@ -159,7 +161,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::Migration(Pgm007 | Pgm009 | Pgm010 | Pgm016 | Pgm017 | Pgm018) => 30,
         // Schema quality / side-effect warnings
         RuleId::Migration(
-            Pgm004 | Pgm005 | Pgm011 | Pgm013 | Pgm014 | Pgm015 | Pgm019 | Pgm020 | Pgm022,
+            Pgm004 | Pgm005 | Pgm008 | Pgm011 | Pgm013 | Pgm014 | Pgm015 | Pgm019 | Pgm020 | Pgm022,
         ) => 10,
         // Type-choice rules
         RuleId::TypeChoice(Pgm101 | Pgm102 | Pgm103 | Pgm104 | Pgm105 | Pgm108) => 10,

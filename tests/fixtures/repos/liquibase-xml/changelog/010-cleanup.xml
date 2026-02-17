@@ -13,6 +13,15 @@
         <dropTable tableName="event_log"/>
     </changeSet>
 
+    <!-- Drop with IF EXISTS via raw SQL — should NOT trigger PGM008 -->
+    <changeSet id="010-drop-index-if-exists" author="alice">
+        <sql>DROP INDEX IF EXISTS idx_nonexistent;</sql>
+    </changeSet>
+
+    <changeSet id="010-drop-table-if-exists" author="alice">
+        <sql>DROP TABLE IF EXISTS nonexistent_table;</sql>
+    </changeSet>
+
     <!-- Add a primary key to subscription_invoices (fixing PGM004 from 006) -->
     <changeSet id="010-add-pk-subscription-invoices" author="alice">
         <addPrimaryKey tableName="subscription_invoices"

@@ -157,6 +157,7 @@ mod tests {
         let stmts = vec![located(IrNode::DropIndex(DropIndex {
             index_name: "idx_foo".to_string(),
             concurrent: true,
+            if_exists: false,
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm006).check(&stmts, &ctx);

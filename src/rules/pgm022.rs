@@ -88,6 +88,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::DropTable(DropTable {
             name: QualifiedName::unqualified("orders"),
+            if_exists: false,
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
@@ -105,6 +106,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::DropTable(DropTable {
             name: QualifiedName::unqualified("orders"),
+            if_exists: false,
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);
@@ -121,6 +123,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::DropTable(DropTable {
             name: QualifiedName::unqualified("orders"),
+            if_exists: false,
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm022).check(&stmts, &ctx);

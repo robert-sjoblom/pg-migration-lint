@@ -648,6 +648,7 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> IrNo
                 Some(name) => IrNode::DropIndex(DropIndex {
                     index_name: name,
                     concurrent: drop.concurrent,
+                    if_exists: drop.missing_ok,
                 }),
                 None => IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
@@ -657,7 +658,10 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> IrNo
         pg_query::protobuf::ObjectType::ObjectTable => {
             let table_name = extract_qualified_name_from_drop_objects(&drop.objects);
             match table_name {
-                Some(name) => IrNode::DropTable(DropTable { name }),
+                Some(name) => IrNode::DropTable(DropTable {
+                    name,
+                    if_exists: drop.missing_ok,
+                }),
                 None => IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
                 },

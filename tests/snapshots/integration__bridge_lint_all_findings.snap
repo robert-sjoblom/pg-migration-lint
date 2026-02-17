@@ -38,6 +38,18 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM008
+  severity: Minor
+  message: "DROP INDEX 'idx_products_name_article': add IF EXISTS for idempotent migrations."
+  file: 010-cleanup.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM008
+  severity: Minor
+  message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
+  file: 010-cleanup.xml
+  start_line: 1
+  end_line: 1
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."

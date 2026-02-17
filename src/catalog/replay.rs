@@ -492,7 +492,10 @@ mod tests {
                 unique: false,
                 concurrent: false,
             }),
-            IrNode::DropTable(DropTable { name: qname("t") }),
+            IrNode::DropTable(DropTable {
+                name: qname("t"),
+                if_exists: false,
+            }),
         ]);
 
         apply(&mut catalog, &unit);
@@ -656,6 +659,7 @@ mod tests {
             IrNode::DropIndex(DropIndex {
                 index_name: "idx_a".to_string(),
                 concurrent: false,
+                if_exists: false,
             }),
         ]);
 
@@ -768,7 +772,10 @@ mod tests {
                 constraints: vec![],
                 temporary: false,
             }),
-            IrNode::DropTable(DropTable { name: qname("t") }),
+            IrNode::DropTable(DropTable {
+                name: qname("t"),
+                if_exists: false,
+            }),
             IrNode::CreateTable(CreateTable {
                 name: qname("t"),
                 columns: vec![col("id", "bigint", false)],
@@ -1053,6 +1060,7 @@ mod tests {
             IrNode::DropIndex(DropIndex {
                 index_name: "idx_nonexistent".to_string(),
                 concurrent: false,
+                if_exists: false,
             }),
         ]);
 

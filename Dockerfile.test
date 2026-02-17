@@ -95,4 +95,4 @@ RUN cargo build --tests --features bridge-tests 2>&1
 # -- Layer 5: Run all tests and clippy --
 # Snapshots are already committed in the repo and copied via COPY tests/ above,
 # so we run in verify mode (no INSTA_UPDATE).
-CMD ["sh", "-c", "cargo test --features bridge-tests -- --test-threads=4 && cargo clippy -- -D warnings"]
+CMD ["sh", "-c", "cargo test --features bridge-tests && cargo clippy -- -D warnings"]

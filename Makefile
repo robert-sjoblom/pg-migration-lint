@@ -22,7 +22,7 @@ bridge-generate:
 	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
 	@# Run with INSTA_UPDATE=always to generate/update snapshots
 	docker run --name $(CONTAINER_NAME) $(IMAGE_NAME) \
-		sh -c 'INSTA_UPDATE=always cargo test --features bridge-tests -- --test-threads=4 bridge'
+		sh -c 'INSTA_UPDATE=always cargo test --features bridge-tests -- bridge'
 	@# Extract Java golden file
 	docker cp $(CONTAINER_NAME):/app/bridge/src/test/resources/fixtures/full-changelog.expected.json \
 		bridge/src/test/resources/fixtures/full-changelog.expected.json
@@ -53,5 +53,5 @@ bridge-clean:
 # test: Run standard (non-bridge) tests locally.
 # ---------------------------------------------------------------------------
 test:
-	cargo test -- --test-threads=4
+	cargo test
 	cargo clippy -- -D warnings
