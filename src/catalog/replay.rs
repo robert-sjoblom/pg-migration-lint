@@ -50,13 +50,20 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
 fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
     let table_key = ct.name.catalog_key().to_string();
 
-    if ct.if_not_exists && catalog.has_table(&table_key) {
+    if catalog.has_table(&table_key) {
+        if ct.if_not_exists {
+            eprintln!(
+                "warning: CREATE TABLE IF NOT EXISTS `{}` skipped — table already exists in catalog. \
+                 The migration chain may be inconsistent.",
+                ct.name.display_name()
+            );
+            return;
+        }
         eprintln!(
-            "warning: CREATE TABLE IF NOT EXISTS `{}` skipped — table already exists in catalog. \
-             The migration chain may be inconsistent.",
+            "warning: CREATE TABLE `{}` overwrites existing table in catalog. \
+             The table may have been dropped outside tracked migrations, or this is a duplicate definition.",
             ct.name.display_name()
         );
-        return;
     }
 
     let mut table = TableState {
@@ -184,14 +191,34 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
 
 /// Handle CREATE INDEX: add an index to the target table.
 /// If the table does not exist in the catalog, silently skip.
+///
+/// When `IF NOT EXISTS` is used and a same-named index already exists,
+/// PostgreSQL treats it as a no-op. We keep the existing index and warn.
 fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
     let table_key = ci.table_name.catalog_key().to_string();
+
+    let index_name = ci.index_name.clone().unwrap_or_default();
+
+    if !index_name.is_empty() && catalog.get_index(&index_name).is_some() {
+        if ci.if_not_exists {
+            eprintln!(
+                "warning: CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
+                 The migration chain may be inconsistent.",
+                index_name
+            );
+            return;
+        }
+        eprintln!(
+            "warning: CREATE INDEX `{}` overwrites existing index in catalog. \
+             The index may have been dropped outside tracked migrations, or this is a duplicate definition.",
+            index_name
+        );
+    }
 
     let Some(table) = catalog.get_table_mut(&table_key) else {
         return;
     };
 
-    let index_name = ci.index_name.clone().unwrap_or_default();
     let columns: Vec<String> = ci.columns.iter().map(|ic| ic.name.clone()).collect();
 
     table.indexes.push(IndexState {
@@ -1875,6 +1902,143 @@ mod tests {
             }
             other => panic!("Expected Unique, got {:?}", other),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests: IF NOT EXISTS guards
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_table_if_not_exists_skips_when_table_exists() {
+        let mut catalog = Catalog::new();
+
+        // First: create the table normally with 2 columns and an index.
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![col("id", "integer", false), col("name", "text", true)])
+                .into(),
+            CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
+                .with_columns(vec![IndexColumn {
+                    name: "name".to_string(),
+                }])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        let before = catalog.get_table("orders").expect("table should exist");
+        assert_eq!(before.columns.len(), 2);
+        assert_eq!(before.indexes.len(), 1);
+
+        // Second: CREATE TABLE IF NOT EXISTS with a different column set.
+        // Should be a no-op — existing state preserved.
+        let unit2 = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_if_not_exists(true)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let after = catalog
+            .get_table("orders")
+            .expect("table should still exist");
+        assert_eq!(
+            after.columns.len(),
+            2,
+            "Original columns should be preserved"
+        );
+        assert_eq!(after.indexes.len(), 1, "Original index should be preserved");
+    }
+
+    #[test]
+    fn test_create_table_if_not_exists_creates_when_new() {
+        let mut catalog = Catalog::new();
+
+        // IF NOT EXISTS on a table that doesn't exist → normal creation.
+        let unit = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_if_not_exists(true)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("orders")
+            .expect("table should be created");
+        assert_eq!(table.columns.len(), 1);
+        assert_eq!(table.columns[0].name, "id");
+    }
+
+    #[test]
+    fn test_create_index_if_not_exists_skips_when_index_exists() {
+        let mut catalog = Catalog::new();
+
+        // Create table with an index.
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![col("id", "integer", false), col("name", "text", true)])
+                .into(),
+            CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
+                .with_columns(vec![IndexColumn {
+                    name: "name".to_string(),
+                }])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        let before = catalog.get_table("orders").expect("table should exist");
+        assert_eq!(before.indexes.len(), 1);
+        assert!(!before.indexes[0].unique);
+
+        // CREATE INDEX IF NOT EXISTS with same name but different properties.
+        // Should be a no-op.
+        let unit2 = make_unit(vec![
+            CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
+                .with_columns(vec![IndexColumn {
+                    name: "id".to_string(),
+                }])
+                .with_unique(true)
+                .with_if_not_exists(true)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let after = catalog
+            .get_table("orders")
+            .expect("table should still exist");
+        assert_eq!(after.indexes.len(), 1, "Should still have 1 index");
+        assert_eq!(
+            after.indexes[0].columns,
+            vec!["name".to_string()],
+            "Original index columns should be preserved"
+        );
+        assert!(
+            !after.indexes[0].unique,
+            "Original index uniqueness should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_create_index_if_not_exists_creates_when_new() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+            CreateIndex::test(Some("idx_orders_id".to_string()), qname("orders"))
+                .with_columns(vec![IndexColumn {
+                    name: "id".to_string(),
+                }])
+                .with_if_not_exists(true)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("orders").expect("table should exist");
+        assert_eq!(table.indexes.len(), 1);
+        assert_eq!(table.indexes[0].name, "idx_orders_id");
     }
 
     #[test]

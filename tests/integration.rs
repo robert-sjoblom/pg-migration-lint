@@ -2006,11 +2006,11 @@ fn test_bridge_parses_all_changesets() {
         "Bridge should produce at least one changeset"
     );
 
-    // The fixture contains 37 changesets. The bridge may produce fewer if
+    // The fixture contains 39 changesets. The bridge may produce fewer if
     // some changesets generate no SQL. Assert a reasonable range.
     assert!(
-        raw_units.len() >= 30 && raw_units.len() <= 40,
-        "Expected 30-40 changesets from bridge, got {}",
+        raw_units.len() >= 30 && raw_units.len() <= 45,
+        "Expected 30-45 changesets from bridge, got {}",
         raw_units.len()
     );
 }
