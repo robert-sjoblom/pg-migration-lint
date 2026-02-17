@@ -92,12 +92,7 @@ COPY tests/ tests/
 # -- Layer 4: Build (compile check) including bridge-tests feature --
 RUN cargo build --tests --features bridge-tests 2>&1
 
-# -- Layer 5: Generate insta snapshots for bridge tests --
-# INSTA_UPDATE=always auto-accepts snapshots so they are written into the image.
-# These can then be extracted with `docker cp` for committing to the repo.
-RUN INSTA_UPDATE=always cargo test --features bridge-tests -- --test-threads=4 bridge 2>&1
-
-# -- Layer 6: Run all tests and clippy --
-# The CMD runs both the standard test suite and bridge tests in verify mode,
-# plus clippy. At this point snapshots exist from Layer 5 so verification works.
+# -- Layer 5: Run all tests and clippy --
+# Snapshots are already committed in the repo and copied via COPY tests/ above,
+# so we run in verify mode (no INSTA_UPDATE).
 CMD ["sh", "-c", "cargo test --features bridge-tests -- --test-threads=4 && cargo clippy -- -D warnings"]

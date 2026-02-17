@@ -20,7 +20,9 @@ bridge-generate:
 	docker build -f Dockerfile.test -t $(IMAGE_NAME) .
 	@# Remove any leftover container from a previous run
 	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
-	docker create --name $(CONTAINER_NAME) $(IMAGE_NAME)
+	@# Run with INSTA_UPDATE=always to generate/update snapshots
+	docker run --name $(CONTAINER_NAME) $(IMAGE_NAME) \
+		sh -c 'INSTA_UPDATE=always cargo test --features bridge-tests -- --test-threads=4 bridge'
 	@# Extract Java golden file
 	docker cp $(CONTAINER_NAME):/app/bridge/src/test/resources/fixtures/full-changelog.expected.json \
 		bridge/src/test/resources/fixtures/full-changelog.expected.json

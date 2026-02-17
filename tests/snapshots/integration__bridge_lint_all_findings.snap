@@ -38,30 +38,6 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
-- rule_id: PGM007
-  severity: Minor
-  message: "Column 'created_at' on 'price_plans' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-  file: 007-volatile-defaults.xml
-  start_line: 1
-  end_line: 1
-- rule_id: PGM007
-  severity: Minor
-  message: "Column 'created_at' on 'products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-  file: 007-volatile-defaults.xml
-  start_line: 1
-  end_line: 1
-- rule_id: PGM007
-  severity: Minor
-  message: "Column 'created_at' on 'price_plan_products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-  file: 007-volatile-defaults.xml
-  start_line: 1
-  end_line: 1
-- rule_id: PGM007
-  severity: Minor
-  message: "Column 'updated_at' on 'products' uses volatile default 'now()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
-  file: 007-volatile-defaults.xml
-  start_line: 2
-  end_line: 2
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
