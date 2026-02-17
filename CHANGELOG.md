@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.0.0...v2.0.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* **catalog:** resolve index columns into constraints created via USING INDEX ([4b20ad9](https://github.com/robert-sjoblom/pg-migration-lint/commit/4b20ad911f962425d23fff1f55e0959e4878433a))
+* **rules:** rewrite PGM012/PGM021 to check USING INDEX instead of catalog index existence ([4f912ff](https://github.com/robert-sjoblom/pg-migration-lint/commit/4f912ff7fdca045eb919081bebecdfe4b0aa1f2e))
+
 ## [2.0.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v1.9.6...v2.0.0) (2026-02-17)
 
 
