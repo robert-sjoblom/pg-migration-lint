@@ -7,7 +7,6 @@ use crate::output::{ReportError, Reporter, SarifReporter};
 use crate::rules::{Finding, RuleId, Severity};
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::Path;
 
 /// Top-level SARIF envelope.
 #[derive(Serialize)]
@@ -111,7 +110,7 @@ fn sarif_level(severity: &Severity) -> &'static str {
 }
 
 /// Convert a file path to a SARIF-compatible URI with forward slashes.
-fn path_to_uri(path: &Path) -> String {
+fn path_to_uri(path: &std::path::Path) -> String {
     super::normalize_path(path)
 }
 
@@ -149,13 +148,8 @@ fn collect_rule_descriptors(findings: &[Finding]) -> Vec<SarifRuleDescriptor> {
 }
 
 impl Reporter for SarifReporter {
-    /// Emit findings as a SARIF 2.1.0 JSON file.
-    ///
-    /// Writes `findings.sarif` to the given `output_dir`. Creates the directory
-    /// if it does not exist.
-    fn emit(&self, findings: &[Finding], output_dir: &Path) -> Result<(), ReportError> {
-        std::fs::create_dir_all(output_dir)?;
-
+    /// Render findings as a SARIF 2.1.0 JSON string.
+    fn render(&self, findings: &[Finding]) -> Result<String, ReportError> {
         let rules = collect_rule_descriptors(findings);
 
         let results: Vec<SarifResult> = findings
@@ -196,13 +190,12 @@ impl Reporter for SarifReporter {
             }],
         };
 
-        let json = serde_json::to_string_pretty(&log)
-            .map_err(|e| ReportError::Serialization(e.to_string()))?;
+        serde_json::to_string_pretty(&log).map_err(|e| ReportError::Serialization(e.to_string()))
+    }
 
-        let path = output_dir.join("findings.sarif");
-        std::fs::write(path, json)?;
-
-        Ok(())
+    /// The output filename for SARIF reports.
+    fn filename(&self) -> &str {
+        "findings.sarif"
     }
 }
 
@@ -213,13 +206,11 @@ mod tests {
     use crate::rules::{Finding, MigrationRule, Severity};
     use std::path::PathBuf;
 
-    /// Helper: emit findings via SarifReporter and parse the resulting JSON.
+    /// Helper: render findings via SarifReporter and parse the resulting JSON.
     fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
-        let dir = tempfile::tempdir().expect("tempdir");
         let reporter = SarifReporter;
-        reporter.emit(findings, dir.path()).expect("emit");
-        let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
-        serde_json::from_str(&content).expect("parse json")
+        let json = reporter.render(findings).expect("render");
+        serde_json::from_str(&json).expect("parse json")
     }
 
     #[test]

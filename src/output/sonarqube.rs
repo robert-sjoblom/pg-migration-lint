@@ -8,7 +8,6 @@ use crate::output::{ReportError, Reporter, SonarQubeReporter};
 use crate::rules::{Finding, RuleId};
 use serde::Serialize;
 use std::collections::HashSet;
-use std::path::Path;
 
 /// SonarQube-specific metadata for a rule.
 struct SonarQubeRuleMeta {
@@ -170,14 +169,11 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
 }
 
 impl Reporter for SonarQubeReporter {
-    /// Emit findings as a SonarQube 10.3+ Generic Issue Import JSON file.
+    /// Render findings as a SonarQube 10.3+ Generic Issue Import JSON string.
     ///
-    /// Writes `findings.json` to the given `output_dir`. Creates the directory
-    /// if it does not exist. Only rules that produced at least one finding are
-    /// included in the `rules` array.
-    fn emit(&self, findings: &[Finding], output_dir: &Path) -> Result<(), ReportError> {
-        std::fs::create_dir_all(output_dir)?;
-
+    /// Only rules that produced at least one finding are included in the
+    /// `rules` array.
+    fn render(&self, findings: &[Finding]) -> Result<String, ReportError> {
         // Collect the set of rule IDs that appear in findings
         let fired_rules: HashSet<RuleId> = findings.iter().map(|f| f.rule_id).collect();
 
@@ -223,13 +219,11 @@ impl Reporter for SonarQubeReporter {
 
         let report = SonarQubeReport { rules, issues };
 
-        let json = serde_json::to_string_pretty(&report)
-            .map_err(|e| ReportError::Serialization(e.to_string()))?;
+        serde_json::to_string_pretty(&report).map_err(|e| ReportError::Serialization(e.to_string()))
+    }
 
-        let path = output_dir.join("findings.json");
-        std::fs::write(path, json)?;
-
-        Ok(())
+    fn filename(&self) -> &str {
+        "findings.json"
     }
 }
 
@@ -241,15 +235,13 @@ mod tests {
     use crate::rules::{Finding, MigrationRule, RuleRegistry, Severity};
     use std::path::PathBuf;
 
-    /// Helper: emit findings via the reporter and return the parsed JSON.
+    /// Helper: render findings via the reporter and return the parsed JSON.
     fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
-        let dir = tempfile::tempdir().expect("tempdir");
         let mut registry = RuleRegistry::new();
         registry.register_defaults();
         let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
-        reporter.emit(findings, dir.path()).expect("emit");
-        let content = std::fs::read_to_string(dir.path().join("findings.json")).expect("read");
-        serde_json::from_str(&content).expect("parse json")
+        let json = reporter.render(findings).expect("render");
+        serde_json::from_str(&json).expect("parse json")
     }
 
     #[test]
