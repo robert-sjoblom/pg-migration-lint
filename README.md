@@ -4,6 +4,7 @@ Static analyzer for PostgreSQL migration files.
 
 ![CI](https://github.com/robert-sjoblom/pg-migration-lint/actions/workflows/ci.yml/badge.svg)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/robert-sjoblom/pg-migration-lint/graph/badge.svg?token=NBOA6Y7GB2)](https://codecov.io/gh/robert-sjoblom/pg-migration-lint)
 
 ## What it does
 
