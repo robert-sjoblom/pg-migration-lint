@@ -70,6 +70,13 @@ impl Catalog {
         self.index_to_table.get(index_name).map(|s| s.as_str())
     }
 
+    /// Look up an index by name across all tables. Returns the `IndexState` if found.
+    pub fn get_index(&self, index_name: &str) -> Option<&IndexState> {
+        let table_key = self.index_to_table.get(index_name)?;
+        let table = self.tables.get(table_key)?;
+        table.indexes.iter().find(|idx| idx.name == index_name)
+    }
+
     pub fn tables(&self) -> impl Iterator<Item = &TableState> {
         self.tables.values()
     }

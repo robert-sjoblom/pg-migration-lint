@@ -259,6 +259,9 @@ pub enum DefaultExpr {
 pub enum TableConstraint {
     PrimaryKey {
         columns: Vec<String>,
+        /// Index name from `USING INDEX` clause, e.g. `ADD PRIMARY KEY USING INDEX idx`.
+        /// When present, `columns` will be empty (PostgreSQL derives them from the index).
+        using_index: Option<String>,
     },
     ForeignKey {
         name: Option<String>,
@@ -270,6 +273,9 @@ pub enum TableConstraint {
     Unique {
         name: Option<String>,
         columns: Vec<String>,
+        /// Index name from `USING INDEX` clause, e.g. `ADD UNIQUE USING INDEX idx`.
+        /// When present, `columns` will be empty (PostgreSQL derives them from the index).
+        using_index: Option<String>,
     },
     Check {
         name: Option<String>,

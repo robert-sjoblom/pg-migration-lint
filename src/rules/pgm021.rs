@@ -88,6 +88,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
                 name: Some(format!("uq_{}", columns.join("_"))),
                 columns: columns.iter().map(|s| s.to_string()).collect(),
+                using_index: None,
             })],
         }))
     }

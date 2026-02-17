@@ -129,6 +129,7 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: Some("uk_email".to_string()),
                 columns: vec!["email".to_string()],
+                using_index: None,
             }],
             temporary: false,
         }))];
@@ -175,10 +176,12 @@ mod tests {
             constraints: vec![
                 TableConstraint::PrimaryKey {
                     columns: vec!["id".to_string()],
+                    using_index: None,
                 },
                 TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    using_index: None,
                 },
             ],
             temporary: false,

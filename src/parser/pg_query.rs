@@ -215,6 +215,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 nullable = false;
                 constraints.push(TableConstraint::PrimaryKey {
                     columns: vec![col_name.clone()],
+                    using_index: None,
                 });
             }
             pg_query::protobuf::ConstrType::ConstrForeign => {
@@ -232,6 +233,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 constraints.push(TableConstraint::Unique {
                     name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
+                    using_index: None,
                 });
             }
             pg_query::protobuf::ConstrType::ConstrCheck => {
@@ -538,7 +540,10 @@ fn convert_table_constraint(
             {
                 columns.push(col.to_string());
             }
-            Some(TableConstraint::PrimaryKey { columns })
+            Some(TableConstraint::PrimaryKey {
+                columns,
+                using_index: optional_name(&con.indexname),
+            })
         }
         pg_query::protobuf::ConstrType::ConstrForeign => {
             let ref_table = relation_to_qualified_name(con.pktable.as_ref());
@@ -564,7 +569,11 @@ fn convert_table_constraint(
             {
                 columns.push(col.to_string());
             }
-            Some(TableConstraint::Unique { name, columns })
+            Some(TableConstraint::Unique {
+                name,
+                columns,
+                using_index: optional_name(&con.indexname),
+            })
         }
         pg_query::protobuf::ConstrType::ConstrCheck => {
             let expression = con
@@ -1069,7 +1078,7 @@ mod tests {
                 assert!(
                     ct.constraints.iter().any(|c| matches!(
                         c,
-                        TableConstraint::PrimaryKey { columns } if columns == &["id"]
+                        TableConstraint::PrimaryKey { columns, .. } if columns == &["id"]
                     )),
                     "Expected PrimaryKey constraint, got: {:?}",
                     ct.constraints
@@ -1088,7 +1097,7 @@ mod tests {
                 assert!(ct.columns[0].is_inline_pk);
                 assert!(ct.constraints.iter().any(|c| matches!(
                     c,
-                    TableConstraint::PrimaryKey { columns } if columns == &["id"]
+                    TableConstraint::PrimaryKey { columns, .. } if columns == &["id"]
                 )),);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
@@ -1643,12 +1652,133 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::AlterTable(at) => match &at.actions[0] {
-                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) => {
+                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                }) => {
                     assert_eq!(columns, &["id"]);
+                    assert_eq!(*using_index, None);
                 }
                 other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
             },
             other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // USING INDEX
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_add_pk_using_index() {
+        let sql = "ALTER TABLE t ADD PRIMARY KEY USING INDEX idx_foo;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => match &at.actions[0] {
+                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                }) => {
+                    assert!(
+                        columns.is_empty(),
+                        "columns should be empty with USING INDEX"
+                    );
+                    assert_eq!(using_index.as_deref(), Some("idx_foo"));
+                }
+                other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
+            },
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_unique_using_index() {
+        let sql = "ALTER TABLE t ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_email;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => match &at.actions[0] {
+                AlterTableAction::AddConstraint(TableConstraint::Unique {
+                    name,
+                    columns,
+                    using_index,
+                }) => {
+                    assert_eq!(name.as_deref(), Some("uq_email"));
+                    assert!(
+                        columns.is_empty(),
+                        "columns should be empty with USING INDEX"
+                    );
+                    assert_eq!(using_index.as_deref(), Some("idx_email"));
+                }
+                other => panic!("Expected AddConstraint Unique, got: {:?}", other),
+            },
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_pk_without_using_index() {
+        let sql = "ALTER TABLE t ADD PRIMARY KEY (id);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => match &at.actions[0] {
+                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                }) => {
+                    assert_eq!(columns, &["id"]);
+                    assert_eq!(*using_index, None);
+                }
+                other => panic!("Expected AddConstraint PrimaryKey, got: {:?}", other),
+            },
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_pk_no_using_index() {
+        let sql = "CREATE TABLE t (id int PRIMARY KEY);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let pk = ct
+                    .constraints
+                    .iter()
+                    .find(|c| matches!(c, TableConstraint::PrimaryKey { .. }))
+                    .expect("should have PK constraint");
+                match pk {
+                    TableConstraint::PrimaryKey {
+                        columns,
+                        using_index,
+                    } => {
+                        assert_eq!(columns, &["id"]);
+                        assert_eq!(*using_index, None);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_inline_unique_no_using_index() {
+        let sql = "CREATE TABLE t (email text UNIQUE);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let uq = ct
+                    .constraints
+                    .iter()
+                    .find(|c| matches!(c, TableConstraint::Unique { .. }))
+                    .expect("should have UNIQUE constraint");
+                match uq {
+                    TableConstraint::Unique { using_index, .. } => {
+                        assert_eq!(*using_index, None);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
         }
     }
 

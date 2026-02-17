@@ -65,6 +65,7 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
                 &mut table,
                 &TableConstraint::PrimaryKey {
                     columns: vec![col.name.clone()],
+                    using_index: None,
                 },
             );
         }
@@ -110,6 +111,7 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                             table,
                             &TableConstraint::PrimaryKey {
                                 columns: vec![col_def.name.clone()],
+                                using_index: None,
                             },
                         );
                         indexes_to_register.push(format!("{}_pkey", table.name));
@@ -126,7 +128,14 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                 }
                 AlterTableAction::AddConstraint(constraint) => {
                     // Track synthetic PK indexes created by apply_table_constraint.
-                    if matches!(constraint, TableConstraint::PrimaryKey { .. }) {
+                    // Only when there's no USING INDEX (with USING INDEX the index already exists).
+                    if matches!(
+                        constraint,
+                        TableConstraint::PrimaryKey {
+                            using_index: None,
+                            ..
+                        }
+                    ) {
                         indexes_to_register.push(format!("{}_pkey", table.name));
                     }
                     apply_table_constraint(table, constraint);
@@ -310,18 +319,23 @@ fn column_def_to_state(col: &ColumnDef) -> ColumnState {
 /// and has_primary_key flag as needed.
 fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) {
     match constraint {
-        TableConstraint::PrimaryKey { columns } => {
+        TableConstraint::PrimaryKey {
+            columns,
+            using_index,
+        } => {
             table.has_primary_key = true;
             table.constraints.push(ConstraintState::PrimaryKey {
                 columns: columns.clone(),
             });
-            // PostgreSQL automatically creates a unique index for PKs.
-            // Track it so has_covering_index() finds PK coverage for FKs.
-            table.indexes.push(IndexState {
-                name: format!("{}_pkey", table.name),
-                columns: columns.clone(),
-                unique: true,
-            });
+            // Only create a synthetic PK index when there's no USING INDEX.
+            // With USING INDEX, the referenced index already exists in the catalog.
+            if using_index.is_none() {
+                table.indexes.push(IndexState {
+                    name: format!("{}_pkey", table.name),
+                    columns: columns.clone(),
+                    unique: true,
+                });
+            }
         }
         TableConstraint::ForeignKey {
             name,
@@ -339,7 +353,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 not_valid: *not_valid,
             });
         }
-        TableConstraint::Unique { name, columns } => {
+        TableConstraint::Unique { name, columns, .. } => {
             table.constraints.push(ConstraintState::Unique {
                 name: name.clone(),
                 columns: columns.clone(),
@@ -822,6 +836,7 @@ mod tests {
             columns: vec![col("id", "integer", false)],
             constraints: vec![TableConstraint::PrimaryKey {
                 columns: vec!["id".to_string()],
+                using_index: None,
             }],
             temporary: false,
         })]);
@@ -1144,10 +1159,12 @@ mod tests {
                 actions: vec![
                     AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                         columns: vec!["id".to_string()],
+                        using_index: None,
                     }),
                     AlterTableAction::AddConstraint(TableConstraint::Unique {
                         name: Some("uk_email".to_string()),
                         columns: vec!["email".to_string()],
+                        using_index: None,
                     }),
                     AlterTableAction::AddConstraint(TableConstraint::Check {
                         name: Some("ck_email".to_string()),
@@ -1372,6 +1389,7 @@ mod tests {
                 columns: vec![col("a", "integer", false), col("b", "integer", false)],
                 constraints: vec![TableConstraint::PrimaryKey {
                     columns: vec!["a".to_string(), "b".to_string()],
+                    using_index: None,
                 }],
                 temporary: false,
             }),
@@ -1459,6 +1477,7 @@ mod tests {
                 constraints: vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    using_index: None,
                 }],
                 temporary: false,
             }),
