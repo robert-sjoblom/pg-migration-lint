@@ -73,19 +73,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: TypeName::simple("timestamp"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("created_at", "timestamp")]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -99,19 +90,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: TypeName::simple("timestamptz"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("created_at", "timestamptz")]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -127,14 +109,10 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("events"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "updated_at".to_string(),
-                type_name: TypeName::simple("timestamp"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(ColumnDef::test(
+                "updated_at",
+                "timestamp",
+            ))],
         }))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm101).check(&stmts, &ctx);

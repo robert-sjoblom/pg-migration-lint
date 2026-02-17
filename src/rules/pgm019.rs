@@ -167,19 +167,13 @@ mod tests {
                 name: QualifiedName::unqualified("orders"),
                 new_name: "orders_old".to_string(),
             }),
-            located(IrNode::CreateTable(CreateTable {
-                name: QualifiedName::unqualified("orders"),
-                columns: vec![ColumnDef {
-                    name: "id".to_string(),
-                    type_name: TypeName::simple("integer"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: true,
-                    is_serial: false,
-                }],
-                constraints: vec![],
-                temporary: false,
-            })),
+            located(IrNode::CreateTable(
+                CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
+                    ColumnDef::test("id", "integer")
+                        .with_nullable(false)
+                        .with_inline_pk(),
+                ]),
+            )),
         ];
 
         let findings = RuleId::Migration(MigrationRule::Pgm019).check(&stmts, &ctx);

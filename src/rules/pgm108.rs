@@ -72,19 +72,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "payload".to_string(),
-                type_name: TypeName::simple("json"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("payload", "json")]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -98,19 +89,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "payload".to_string(),
-                type_name: TypeName::simple("jsonb"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("payload", "jsonb")]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -126,14 +108,9 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("events"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "metadata".to_string(),
-                type_name: TypeName::simple("json"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(ColumnDef::test(
+                "metadata", "json",
+            ))],
         }))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm108).check(&stmts, &ctx);

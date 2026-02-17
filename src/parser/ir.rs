@@ -307,6 +307,151 @@ pub struct SourceSpan {
     pub end_offset: usize,
 }
 
+// ---------------------------------------------------------------------------
+// Test builders — centralise IR node construction so adding a new field
+// only requires changing one place.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+impl ColumnDef {
+    /// Minimal column: nullable, no default, not a PK, not serial.
+    pub fn test(name: impl Into<String>, type_name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            type_name: TypeName::simple(type_name),
+            nullable: true,
+            default_expr: None,
+            is_inline_pk: false,
+            is_serial: false,
+        }
+    }
+
+    pub fn with_nullable(mut self, nullable: bool) -> Self {
+        self.nullable = nullable;
+        self
+    }
+
+    pub fn with_default(mut self, default_expr: DefaultExpr) -> Self {
+        self.default_expr = Some(default_expr);
+        self
+    }
+
+    pub fn with_inline_pk(mut self) -> Self {
+        self.is_inline_pk = true;
+        self.nullable = false;
+        self
+    }
+
+    pub fn with_serial(mut self) -> Self {
+        self.is_serial = true;
+        self.default_expr = Some(DefaultExpr::FunctionCall {
+            name: "nextval".to_string(),
+            args: vec![],
+        });
+        self
+    }
+
+    pub fn with_type(mut self, type_name: TypeName) -> Self {
+        self.type_name = type_name;
+        self
+    }
+}
+
+#[cfg(test)]
+impl CreateTable {
+    /// Minimal CREATE TABLE: no columns, no constraints, not temporary.
+    pub fn test(name: QualifiedName) -> Self {
+        Self {
+            name,
+            columns: vec![],
+            constraints: vec![],
+            temporary: false,
+        }
+    }
+
+    pub fn with_columns(mut self, columns: Vec<ColumnDef>) -> Self {
+        self.columns = columns;
+        self
+    }
+
+    pub fn with_constraints(mut self, constraints: Vec<TableConstraint>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    pub fn with_temporary(mut self, temporary: bool) -> Self {
+        self.temporary = temporary;
+        self
+    }
+}
+
+#[cfg(test)]
+impl CreateIndex {
+    /// Minimal CREATE INDEX: no columns, not unique, not concurrent.
+    pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
+        Self {
+            index_name: index_name.into(),
+            table_name,
+            columns: vec![],
+            unique: false,
+            concurrent: false,
+        }
+    }
+
+    pub fn with_columns(mut self, columns: Vec<IndexColumn>) -> Self {
+        self.columns = columns;
+        self
+    }
+
+    pub fn with_unique(mut self, unique: bool) -> Self {
+        self.unique = unique;
+        self
+    }
+
+    pub fn with_concurrent(mut self, concurrent: bool) -> Self {
+        self.concurrent = concurrent;
+        self
+    }
+}
+
+#[cfg(test)]
+impl DropTable {
+    /// Minimal DROP TABLE: if_exists defaults to true (safe default).
+    pub fn test(name: QualifiedName) -> Self {
+        Self {
+            name,
+            if_exists: true,
+        }
+    }
+
+    pub fn with_if_exists(mut self, if_exists: bool) -> Self {
+        self.if_exists = if_exists;
+        self
+    }
+}
+
+#[cfg(test)]
+impl DropIndex {
+    /// Minimal DROP INDEX: not concurrent, if_exists defaults to true.
+    pub fn test(index_name: impl Into<String>) -> Self {
+        Self {
+            index_name: index_name.into(),
+            concurrent: false,
+            if_exists: true,
+        }
+    }
+
+    pub fn with_concurrent(mut self, concurrent: bool) -> Self {
+        self.concurrent = concurrent;
+        self
+    }
+
+    pub fn with_if_exists(mut self, if_exists: bool) -> Self {
+        self.if_exists = if_exists;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

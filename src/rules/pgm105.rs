@@ -106,22 +106,14 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![ColumnDef {
-                name: "id".to_string(),
-                type_name: TypeName::simple("int4"),
-                nullable: false,
-                default_expr: Some(DefaultExpr::FunctionCall {
-                    name: "nextval".to_string(),
-                    args: vec![],
-                }),
-                is_inline_pk: true,
-                is_serial: true,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
+                ColumnDef::test("id", "int4")
+                    .with_nullable(false)
+                    .with_inline_pk()
+                    .with_serial(),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -135,22 +127,14 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![ColumnDef {
-                name: "id".to_string(),
-                type_name: TypeName::simple("int8"),
-                nullable: false,
-                default_expr: Some(DefaultExpr::FunctionCall {
-                    name: "nextval".to_string(),
-                    args: vec![],
-                }),
-                is_inline_pk: true,
-                is_serial: true,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
+                ColumnDef::test("id", "int8")
+                    .with_nullable(false)
+                    .with_inline_pk()
+                    .with_serial(),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -165,19 +149,13 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         // An int4 column without the is_serial flag — e.g. GENERATED ALWAYS AS IDENTITY
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("orders"),
-            columns: vec![ColumnDef {
-                name: "id".to_string(),
-                type_name: TypeName::simple("int4"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: true,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
+                ColumnDef::test("id", "int4")
+                    .with_nullable(false)
+                    .with_inline_pk(),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -193,17 +171,9 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "seq_id".to_string(),
-                type_name: TypeName::simple("int4"),
-                nullable: true,
-                default_expr: Some(DefaultExpr::FunctionCall {
-                    name: "nextval".to_string(),
-                    args: vec![],
-                }),
-                is_inline_pk: false,
-                is_serial: true,
-            })],
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("seq_id", "int4").with_serial(),
+            )],
         }))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm105).check(&stmts, &ctx);

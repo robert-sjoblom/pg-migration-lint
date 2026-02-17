@@ -94,14 +94,9 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "status".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text").with_nullable(false),
+            )],
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
@@ -122,14 +117,11 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "status".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: false,
-                default_expr: Some(DefaultExpr::Literal("pending".to_string())),
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text")
+                    .with_nullable(false)
+                    .with_default(DefaultExpr::Literal("pending".to_string())),
+            )],
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
@@ -150,14 +142,9 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "notes".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(ColumnDef::test(
+                "notes", "text",
+            ))],
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);
@@ -179,14 +166,9 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef {
-                name: "status".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            })],
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text").with_nullable(false),
+            )],
         }))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm010).check(&stmts, &ctx);

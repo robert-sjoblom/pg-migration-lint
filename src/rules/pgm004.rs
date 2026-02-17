@@ -102,29 +102,12 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![
-                ColumnDef {
-                    name: "event_type".to_string(),
-                    type_name: TypeName::simple("text"),
-                    nullable: true,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-                ColumnDef {
-                    name: "payload".to_string(),
-                    type_name: TypeName::simple("jsonb"),
-                    nullable: true,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-            ],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events")).with_columns(vec![
+                ColumnDef::test("event_type", "text"),
+                ColumnDef::test("payload", "jsonb"),
+            ]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -144,32 +127,19 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![
-                ColumnDef {
-                    name: "id".to_string(),
-                    type_name: TypeName::simple("bigint"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: true,
-                    is_serial: false,
-                },
-                ColumnDef {
-                    name: "event_type".to_string(),
-                    type_name: TypeName::simple("text"),
-                    nullable: true,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                columns: vec!["id".to_string()],
-                using_index: None,
-            }],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![
+                    ColumnDef::test("id", "bigint")
+                        .with_nullable(false)
+                        .with_inline_pk(),
+                    ColumnDef::test("event_type", "text"),
+                ])
+                .with_constraints(vec![TableConstraint::PrimaryKey {
+                    columns: vec!["id".to_string()],
+                    using_index: None,
+                }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -190,29 +160,12 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![
-                ColumnDef {
-                    name: "id".to_string(),
-                    type_name: TypeName::simple("integer"),
-                    nullable: false,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-                ColumnDef {
-                    name: "name".to_string(),
-                    type_name: TypeName::simple("text"),
-                    nullable: true,
-                    default_expr: None,
-                    is_inline_pk: false,
-                    is_serial: false,
-                },
-            ],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events")).with_columns(vec![
+                ColumnDef::test("id", "integer").with_nullable(false),
+                ColumnDef::test("name", "text"),
+            ]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -226,19 +179,11 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("tmp_data"),
-            columns: vec![ColumnDef {
-                name: "val".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: true,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("tmp_data"))
+                .with_columns(vec![ColumnDef::test("val", "text")])
+                .with_temporary(true),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -258,23 +203,15 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "email".to_string(),
-                type_name: TypeName::simple("text"),
-                nullable: false,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![TableConstraint::Unique {
-                name: Some("uk_email".to_string()),
-                columns: vec!["email".to_string()],
-                using_index: None,
-            }],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)])
+                .with_constraints(vec![TableConstraint::Unique {
+                    name: Some("uk_email".to_string()),
+                    columns: vec!["email".to_string()],
+                    using_index: None,
+                }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm004).check(&stmts, &ctx);
         assert!(findings.is_empty());

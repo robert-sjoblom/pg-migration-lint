@@ -78,19 +78,12 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: TypeName::with_modifiers("timestamptz", vec![0]),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events")).with_columns(vec![
+                ColumnDef::test("created_at", "timestamptz")
+                    .with_type(TypeName::with_modifiers("timestamptz", vec![0])),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -104,19 +97,12 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "ts".to_string(),
-                type_name: TypeName::with_modifiers("timestamp", vec![0]),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events")).with_columns(vec![
+                ColumnDef::test("ts", "timestamp")
+                    .with_type(TypeName::with_modifiers("timestamp", vec![0])),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -130,19 +116,12 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: TypeName::with_modifiers("timestamptz", vec![3]),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events")).with_columns(vec![
+                ColumnDef::test("created_at", "timestamptz")
+                    .with_type(TypeName::with_modifiers("timestamptz", vec![3])),
+            ]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -156,19 +135,10 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateTable(CreateTable {
-            name: QualifiedName::unqualified("events"),
-            columns: vec![ColumnDef {
-                name: "created_at".to_string(),
-                type_name: TypeName::simple("timestamptz"),
-                nullable: true,
-                default_expr: None,
-                is_inline_pk: false,
-                is_serial: false,
-            }],
-            constraints: vec![],
-            temporary: false,
-        }))];
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("created_at", "timestamptz")]),
+        ))];
 
         let findings = RuleId::TypeChoice(TypeChoiceRule::Pgm102).check(&stmts, &ctx);
         assert!(findings.is_empty());

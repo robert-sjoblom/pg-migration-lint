@@ -93,15 +93,15 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_orders_status".to_string()),
-            table_name: QualifiedName::unqualified("orders"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_orders_status".to_string()),
+                QualifiedName::unqualified("orders"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "status".to_string(),
-            }],
-            unique: false,
-            concurrent: false,
-        }))];
+            }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -119,15 +119,16 @@ mod tests {
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_orders_status".to_string()),
-            table_name: QualifiedName::unqualified("orders"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_orders_status".to_string()),
+                QualifiedName::unqualified("orders"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "status".to_string(),
-            }],
-            unique: false,
-            concurrent: true,
-        }))];
+            }])
+            .with_concurrent(true),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -146,15 +147,15 @@ mod tests {
         created.insert("orders".to_string());
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
-            index_name: Some("idx_orders_status".to_string()),
-            table_name: QualifiedName::unqualified("orders"),
-            columns: vec![IndexColumn {
+        let stmts = vec![located(IrNode::CreateIndex(
+            CreateIndex::test(
+                Some("idx_orders_status".to_string()),
+                QualifiedName::unqualified("orders"),
+            )
+            .with_columns(vec![IndexColumn {
                 name: "status".to_string(),
-            }],
-            unique: false,
-            concurrent: false,
-        }))];
+            }]),
+        ))];
 
         let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
