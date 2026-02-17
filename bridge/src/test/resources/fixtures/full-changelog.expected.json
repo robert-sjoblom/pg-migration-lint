@@ -310,5 +310,21 @@
     "xml_file": "012-suppressed.xml",
     "xml_line": 1,
     "run_in_transaction": true
+  },
+  {
+    "changeset_id": "013-users-if-not-exists",
+    "author": "carol",
+    "sql": "CREATE TABLE IF NOT EXISTS users (id BIGINT NOT NULL, display_name VARCHAR(100), CONSTRAINT users_pkey PRIMARY KEY (id));",
+    "xml_file": "013-if-not-exists.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "013-audit-log-if-not-exists",
+    "author": "carol",
+    "sql": "CREATE TABLE IF NOT EXISTS audit_log (id UUID NOT NULL, entity_type VARCHAR(100) NOT NULL, entity_id BIGINT NOT NULL, action VARCHAR(50) NOT NULL, performed_by BIGINT, created TIMESTAMP WITH TIME ZONE NOT NULL, CONSTRAINT audit_log_pkey PRIMARY KEY (id));",
+    "xml_file": "013-if-not-exists.xml",
+    "xml_line": 1,
+    "run_in_transaction": true
   }
 ]
