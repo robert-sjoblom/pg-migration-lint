@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Liquibase 4.26+ supports ifNotExists="true" on createTable (opt-in).
+         This fixture exercises that attribute to ensure the bridge passes
+         IF NOT EXISTS through to the generated SQL, and that the catalog
+         replay handles it correctly. -->
+
+    <!-- Re-create an already-existing table with ifNotExists — should be a no-op in PG. -->
+    <changeSet id="013-users-if-not-exists" author="carol">
+        <createTable tableName="users" ifNotExists="true">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="VARCHAR(100)"/>
+        </createTable>
+    </changeSet>
+
+    <!-- Create a genuinely new table with ifNotExists — should succeed. -->
+    <changeSet id="013-audit-log-if-not-exists" author="carol">
+        <createTable tableName="audit_log" ifNotExists="true">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="entity_type" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entity_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="action" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="performed_by" type="BIGINT"/>
+            <column name="created" type="TIMESTAMPTZ">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

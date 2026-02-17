@@ -16,5 +16,6 @@
     <include file="010-cleanup.xml"/>
     <include file="011-dont-do-this-types.xml"/>
     <include file="012-suppressed.xml"/>
+    <include file="013-if-not-exists.xml"/>
 
 </databaseChangeLog>
