@@ -45,7 +45,8 @@ pub(super) fn check(
         ctx,
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns }) = action
+            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns, .. }) =
+                action
             else {
                 return vec![];
             };
@@ -92,6 +93,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
                     columns: columns.iter().map(|s| s.to_string()).collect(),
+                    using_index: None,
                 },
             )],
         }))

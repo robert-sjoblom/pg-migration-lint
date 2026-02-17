@@ -283,6 +283,7 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uk_email".to_string()),
             columns: vec!["email".to_string()],
+            using_index: None,
         }],
         temporary: false,
     }))];
@@ -567,6 +568,7 @@ fn test_matrix_add_pk_fires_pgm012_not_pgm021() {
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::PrimaryKey {
                 columns: vec!["id".to_string()],
+                using_index: None,
             },
         )],
     }))];
@@ -596,10 +598,12 @@ fn test_matrix_add_pk_and_add_unique_both_fire() {
         actions: vec![
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 columns: vec!["id".to_string()],
+                using_index: None,
             }),
             AlterTableAction::AddConstraint(TableConstraint::Unique {
                 name: Some("uq_orders_email".to_string()),
                 columns: vec!["email".to_string()],
+                using_index: None,
             }),
         ],
     }))];
