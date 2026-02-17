@@ -128,7 +128,7 @@ expression: parsed
       "effortMinutes": 15,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM012: ADD PRIMARY KEY on existing table without prior UNIQUE constraint",
+        "message": "PGM012: ADD PRIMARY KEY on existing table without USING INDEX",
         "textRange": {
           "endLine": 11,
           "startLine": 11
@@ -482,7 +482,7 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM012 — ADD PRIMARY KEY on existing table without prior UNIQUE constraint\n\nWhat it detects:\nALTER TABLE ... ADD PRIMARY KEY (columns) where the table already exists\nand the target columns don't have a pre-existing UNIQUE constraint or\nunique index.\n\nWhy it's dangerous:\nAdding a primary key without a pre-existing unique index causes\nPostgreSQL to build a unique index inline (not concurrently). This\ntakes an ACCESS EXCLUSIVE lock on the table for the duration of the\nindex build. If duplicates exist, the command fails at deploy time.\n\nIf the columns already have a unique index or UNIQUE constraint,\nuniqueness is already enforced and the PK addition is logically safe\n(though still takes a brief lock).\n\nExample (bad):\nALTER TABLE orders ADD PRIMARY KEY (id);\n\nFix (safe pattern — build unique index concurrently first):\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;",
+      "description": "PGM012 — ADD PRIMARY KEY on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD PRIMARY KEY on an existing table that does not\nuse USING INDEX, or where the referenced index does not exist, is\nnot UNIQUE, or covers nullable columns.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\n\nEven with USING INDEX, if any of the PK columns are nullable,\nPostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires\na full table scan under ACCESS EXCLUSIVE lock.\n\nExample (bad):\nALTER TABLE orders ADD PRIMARY KEY (id);\n\nFix (safe pattern — build unique index concurrently first):\n-- Ensure columns are NOT NULL (use CHECK constraint trick if needed)\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;",
       "engineId": "pg-migration-lint",
       "id": "PGM012",
       "impacts": [
@@ -491,7 +491,7 @@ expression: parsed
           "softwareQuality": "RELIABILITY"
         }
       ],
-      "name": "ADD PRIMARY KEY on existing table without prior UNIQUE constraint",
+      "name": "ADD PRIMARY KEY on existing table without USING INDEX",
       "severity": "MAJOR",
       "type": "BUG"
     },
@@ -617,7 +617,7 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM021 — ADD UNIQUE on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns) where the table\nalready exists and the target columns don't have a pre-existing unique\nindex.\n\nWhy it's dangerous:\nAdding a UNIQUE constraint inline builds a unique index under an ACCESS\nEXCLUSIVE lock, blocking all reads and writes for the duration. For\nlarge tables this can cause extended downtime. Unlike CHECK and FOREIGN\nKEY constraints, NOT VALID does NOT apply to UNIQUE constraints, so\nthere is no NOT VALID escape hatch.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);\n\nFix (safe pattern — build unique index concurrently first):\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;",
+      "description": "PGM021 — ADD UNIQUE on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... UNIQUE on an existing table that\ndoes not use USING INDEX, or where the referenced index does not\nexist or is not UNIQUE.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\nNOT VALID does NOT apply to UNIQUE constraints.\n\nWhen USING INDEX is specified, PostgreSQL validates that the\nreferenced index exists and is unique, then promotes it to a\nconstraint without rebuilding.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);\n\nFix (safe pattern — build unique index concurrently first):\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;",
       "engineId": "pg-migration-lint",
       "id": "PGM021",
       "impacts": [

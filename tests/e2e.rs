@@ -139,12 +139,13 @@ fn test_exit_1_findings_above_threshold() {
     );
 
     let changed = format!(
-        "{},{},{}",
+        "{},{},{},{}",
         migrations_dir.join("V002__violations.sql").display(),
         migrations_dir.join("V003__more_violations.sql").display(),
         migrations_dir
             .join("V004__dont_do_this_types.sql")
             .display(),
+        migrations_dir.join("V005__new_violations.sql").display(),
     );
 
     let output = run_lint(&[
@@ -650,12 +651,13 @@ fn test_full_pipeline_with_findings() {
     );
 
     let changed = format!(
-        "{},{},{}",
+        "{},{},{},{}",
         migrations_dir.join("V002__violations.sql").display(),
         migrations_dir.join("V003__more_violations.sql").display(),
         migrations_dir
             .join("V004__dont_do_this_types.sql")
             .display(),
+        migrations_dir.join("V005__new_violations.sql").display(),
     );
 
     let output = run_lint(&[
@@ -724,7 +726,7 @@ fn test_full_pipeline_with_findings() {
 
     for expected in &[
         "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM011", "PGM012", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
     ] {
         assert!(
             sarif_rule_ids.contains(expected),

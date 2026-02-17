@@ -1,37 +1,39 @@
-//! PGM012 — `ADD PRIMARY KEY` on existing table without prior UNIQUE constraint
+//! PGM012 — `ADD PRIMARY KEY` on existing table without `USING INDEX`
 //!
-//! Detects `ALTER TABLE ... ADD PRIMARY KEY (col)` on tables that already exist
-//! where the target columns don't already have a UNIQUE constraint or unique index.
-//! The safe pattern is to first create a unique index CONCURRENTLY, then add the
-//! primary key using that index.
+//! Detects `ALTER TABLE ... ADD PRIMARY KEY` on existing tables that doesn't
+//! use `USING INDEX` to reference a pre-built unique index. Even if a matching
+//! unique index already exists, PostgreSQL will build a **new** index under
+//! ACCESS EXCLUSIVE lock unless `USING INDEX` is explicit.
+//!
+//! Additionally, even with `USING INDEX`, if any PK columns are nullable,
+//! PostgreSQL implicitly runs `SET NOT NULL` under ACCESS EXCLUSIVE lock.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-pub(super) const DESCRIPTION: &str =
-    "ADD PRIMARY KEY on existing table without prior UNIQUE constraint";
+pub(super) const DESCRIPTION: &str = "ADD PRIMARY KEY on existing table without USING INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM012 — ADD PRIMARY KEY on existing table without prior UNIQUE constraint\n\
+pub(super) const EXPLAIN: &str = "PGM012 — ADD PRIMARY KEY on existing table without USING INDEX\n\
          \n\
          What it detects:\n\
-         ALTER TABLE ... ADD PRIMARY KEY (columns) where the table already exists\n\
-         and the target columns don't have a pre-existing UNIQUE constraint or\n\
-         unique index.\n\
+         ALTER TABLE ... ADD PRIMARY KEY on an existing table that does not\n\
+         use USING INDEX, or where the referenced index does not exist, is\n\
+         not UNIQUE, or covers nullable columns.\n\
          \n\
          Why it's dangerous:\n\
-         Adding a primary key without a pre-existing unique index causes\n\
-         PostgreSQL to build a unique index inline (not concurrently). This\n\
-         takes an ACCESS EXCLUSIVE lock on the table for the duration of the\n\
-         index build. If duplicates exist, the command fails at deploy time.\n\
+         Without USING INDEX, PostgreSQL always builds a new unique index\n\
+         inline under an ACCESS EXCLUSIVE lock, even if a matching unique\n\
+         index already exists. For large tables this causes extended downtime.\n\
          \n\
-         If the columns already have a unique index or UNIQUE constraint,\n\
-         uniqueness is already enforced and the PK addition is logically safe\n\
-         (though still takes a brief lock).\n\
+         Even with USING INDEX, if any of the PK columns are nullable,\n\
+         PostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires\n\
+         a full table scan under ACCESS EXCLUSIVE lock.\n\
          \n\
          Example (bad):\n\
            ALTER TABLE orders ADD PRIMARY KEY (id);\n\
          \n\
          Fix (safe pattern — build unique index concurrently first):\n\
+           -- Ensure columns are NOT NULL (use CHECK constraint trick if needed)\n\
            CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
            ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;";
 
@@ -45,33 +47,77 @@ pub(super) fn check(
         ctx,
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey { columns, .. }) =
-                action
+            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                columns,
+                using_index,
+            }) = action
             else {
                 return vec![];
             };
 
             let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
-
-            if table.has_unique_covering(columns) {
+            // Table must exist in catalog_before (i.e. pre-existing).
+            if ctx.catalog_before.get_table(table_key).is_none() {
                 return vec![];
             }
 
-            vec![rule.make_finding(
-                format!(
-                    "ADD PRIMARY KEY on existing table '{table}' without a \
-                     prior UNIQUE constraint or unique index on column(s) \
-                     [{columns}]. Create a unique index CONCURRENTLY first, \
-                     then use ADD PRIMARY KEY USING INDEX.",
+            let message = match using_index {
+                Some(idx_name) => {
+                    let idx = ctx
+                        .catalog_before
+                        .get_index(idx_name)
+                        .or_else(|| ctx.catalog_after.get_index(idx_name));
+                    match idx {
+                        None => format!(
+                            "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
+                             referenced index does not exist.",
+                            table = at.name.display_name(),
+                        ),
+                        Some(idx) if !idx.unique => format!(
+                            "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
+                             referenced index is not UNIQUE.",
+                            table = at.name.display_name(),
+                        ),
+                        Some(idx) => {
+                            // Check nullability using the INDEX's columns (constraint
+                            // columns are empty with USING INDEX).
+                            if let Some(table) = ctx.catalog_before.get_table(table_key) {
+                                let nullable_cols: Vec<&String> = idx
+                                    .columns
+                                    .iter()
+                                    .filter(|c| table.get_column(c).is_some_and(|col| col.nullable))
+                                    .collect();
+                                if !nullable_cols.is_empty() {
+                                    let cols_str: Vec<&str> =
+                                        nullable_cols.iter().map(|s| s.as_str()).collect();
+                                    format!(
+                                        "ADD PRIMARY KEY USING INDEX '{idx_name}' on table \
+                                         '{table}': column(s) [{cols}] are nullable. PostgreSQL \
+                                         will implicitly SET NOT NULL under ACCESS EXCLUSIVE \
+                                         lock. Run ALTER COLUMN ... SET NOT NULL with a CHECK \
+                                         constraint first.",
+                                        table = at.name.display_name(),
+                                        cols = cols_str.join(", "),
+                                    )
+                                } else {
+                                    return vec![]; // safe
+                                }
+                            } else {
+                                return vec![]; // table not in catalog_before, skip
+                            }
+                        }
+                    }
+                }
+                None => format!(
+                    "ADD PRIMARY KEY on existing table '{table}' without USING INDEX \
+                     on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY \
+                     first, then use ADD PRIMARY KEY USING INDEX.",
                     table = at.name.display_name(),
                     columns = columns.join(", "),
                 ),
-                ctx.file,
-                &stmt.span,
-            )]
+            };
+
+            vec![rule.make_finding(message, ctx.file, &stmt.span)]
         },
     )
 }
@@ -99,6 +145,18 @@ mod tests {
         }))
     }
 
+    fn add_pk_using_index_stmt(table: &str, idx_name: &str) -> Located<IrNode> {
+        located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified(table),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::PrimaryKey {
+                    columns: vec![], // empty with USING INDEX
+                    using_index: Some(idx_name.to_string()),
+                },
+            )],
+        }))
+    }
+
     #[test]
     fn test_add_pk_no_unique_fires() {
         let before = CatalogBuilder::new()
@@ -118,7 +176,9 @@ mod tests {
     }
 
     #[test]
-    fn test_add_pk_with_unique_constraint_no_finding() {
+    fn test_add_pk_with_unique_constraint_still_fires() {
+        // Even with a pre-existing UNIQUE constraint, without USING INDEX
+        // PostgreSQL builds a NEW index under ACCESS EXCLUSIVE lock.
         let before = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "bigint", false)
@@ -133,11 +193,13 @@ mod tests {
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
         let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
-    fn test_add_pk_with_unique_index_no_finding() {
+    fn test_add_pk_with_unique_index_still_fires() {
+        // Even with a pre-existing unique index, without USING INDEX
+        // PostgreSQL builds a NEW index.
         let before = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "bigint", false)
@@ -152,7 +214,7 @@ mod tests {
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
         let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
@@ -205,5 +267,104 @@ mod tests {
 
         let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_add_pk_using_index_with_backing_unique_index_not_null_no_finding() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_add_pk_using_index_non_unique_index_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .index("idx_orders_pk", &["id"], false); // NOT unique
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_add_pk_using_index_no_backing_index_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_nonexistent")];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_add_pk_using_index_nullable_columns_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", true) // nullable!
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_add_pk_using_index_created_in_same_migration_no_finding() {
+        // Index exists in catalog_after but not in catalog_before
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false);
+            })
+            .build();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
+
+        let findings = RuleId::Migration(MigrationRule::Pgm012).check(&stmts, &ctx);
+        assert!(findings.is_empty());
     }
 }
