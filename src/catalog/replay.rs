@@ -42,8 +42,22 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
 
 /// Handle CREATE TABLE: insert a new table into the catalog with columns,
 /// constraints, and indexes derived from the statement.
+///
+/// When `IF NOT EXISTS` is used and the table already exists, the statement
+/// is a no-op in PostgreSQL. We mirror that by keeping the existing catalog
+/// state and emitting a warning — the migration chain is ambiguous at that
+/// point (which definition is the truth?).
 fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
     let table_key = ct.name.catalog_key().to_string();
+
+    if ct.if_not_exists && catalog.has_table(&table_key) {
+        eprintln!(
+            "warning: CREATE TABLE IF NOT EXISTS `{}` skipped — table already exists in catalog. \
+             The migration chain may be inconsistent.",
+            ct.name.display_name()
+        );
+        return;
+    }
 
     let mut table = TableState {
         name: table_key,
