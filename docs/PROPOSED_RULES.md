@@ -200,24 +200,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-## 4xx — Idempotency guards
-
-### PGM1403 — `CREATE TABLE IF NOT EXISTS` for already-existing table
-
-- **Range**: 4xx (Redundancy)
-- **Severity**: WARNING
-- **Status**: Not yet implemented.
-- **Triggers**: `CREATE TABLE IF NOT EXISTS` targeting a table that already exists in the catalog at that point in the migration history.
-- **Why**: `IF NOT EXISTS` makes the statement a silent no-op when the table already exists. If the column definitions in the `CREATE TABLE` differ from the actual table state (built up from the original `CREATE TABLE` plus subsequent `ALTER TABLE` statements), the migration author may believe the table has the shape described in the statement, when in reality PostgreSQL ignores it entirely. The migration chain is ambiguous — two competing definitions of the same table exist in the history, and only the first one (plus its alterations) is truth. This is especially common with Liquibase 4.26+, which supports `ifNotExists="true"` on `<createTable>`.
-- **Does not fire when**:
-  - The table does not already exist in the catalog (the statement genuinely creates it).
-  - `IF NOT EXISTS` is absent (a duplicate `CREATE TABLE` without the guard would fail at runtime, which is a different problem).
-- **Message**: `CREATE TABLE IF NOT EXISTS '{table}' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading.`
-- **IR impact**: None — `CreateTable.if_not_exists` already exists in the IR. The rule only needs `catalog_before` to check for prior existence.
-- **Catalog impact**: The replay engine already skips `CREATE TABLE IF NOT EXISTS` when the table exists and emits a stderr warning (implemented ahead of the rule).
-
----
-
 ## 5xx — Schema design & informational
 
 ### PGM1506 — `CREATE UNLOGGED TABLE`
