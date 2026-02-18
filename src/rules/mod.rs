@@ -53,6 +53,7 @@ mod pgm202;
 // 4xx — Idempotency guards
 mod pgm401;
 mod pgm402;
+mod pgm403;
 
 // 5xx — Schema design & informational
 mod pgm501;
@@ -122,6 +123,7 @@ impl RuleId {
             RuleId::Idempotency(r) => match r {
                 IdempotencyRule::Pgm401 => "PGM401",
                 IdempotencyRule::Pgm402 => "PGM402",
+                IdempotencyRule::Pgm403 => "PGM403",
             },
             RuleId::SchemaDesign(r) => match r {
                 SchemaDesignRule::Pgm501 => "PGM501",
@@ -184,6 +186,7 @@ impl FromStr for RuleId {
             "PGM202" => Ok(RuleId::Destructive(DestructiveRule::Pgm202)),
             "PGM401" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm401)),
             "PGM402" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm402)),
+            "PGM403" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm403)),
             "PGM501" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm501)),
             "PGM502" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm502)),
             "PGM503" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm503)),
@@ -507,6 +510,8 @@ pub enum IdempotencyRule {
     Pgm401,
     /// Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`.
     Pgm402,
+    /// `CREATE TABLE IF NOT EXISTS` for already-existing table (misleading no-op).
+    Pgm403,
 }
 
 impl IdempotencyRule {
@@ -514,6 +519,7 @@ impl IdempotencyRule {
         match *self {
             Self::Pgm401 => pgm401::DESCRIPTION,
             Self::Pgm402 => pgm402::DESCRIPTION,
+            Self::Pgm403 => pgm403::DESCRIPTION,
         }
     }
 
@@ -521,6 +527,7 @@ impl IdempotencyRule {
         match *self {
             Self::Pgm401 => pgm401::EXPLAIN,
             Self::Pgm402 => pgm402::EXPLAIN,
+            Self::Pgm403 => pgm403::EXPLAIN,
         }
     }
 
@@ -533,6 +540,7 @@ impl IdempotencyRule {
         match *self {
             Self::Pgm401 => pgm401::check(rule, statements, ctx),
             Self::Pgm402 => pgm402::check(rule, statements, ctx),
+            Self::Pgm403 => pgm403::check(rule, statements, ctx),
         }
     }
 }
@@ -540,7 +548,9 @@ impl IdempotencyRule {
 impl From<IdempotencyRule> for Severity {
     fn from(value: IdempotencyRule) -> Self {
         match value {
-            IdempotencyRule::Pgm401 | IdempotencyRule::Pgm402 => Self::Minor,
+            IdempotencyRule::Pgm401 | IdempotencyRule::Pgm402 | IdempotencyRule::Pgm403 => {
+                Self::Minor
+            }
         }
     }
 }
@@ -977,8 +987,8 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 15 unsafe DDL + 6 type anti-pattern + 2 destructive + 2 idempotency + 5 schema design + 1 meta = 31
-        assert_eq!(all.len(), 31);
+        // 15 unsafe DDL + 6 type anti-pattern + 2 destructive + 3 idempotency + 5 schema design + 1 meta = 32
+        assert_eq!(all.len(), 32);
     }
 
     #[test]

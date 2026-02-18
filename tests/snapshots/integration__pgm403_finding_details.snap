@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM403
+  severity: Minor
+  message: "CREATE TABLE IF NOT EXISTS 'customers' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading."
+  file: repos/all-rules/migrations/V008__if_not_exists_redundant.sql
+  start_line: 1
+  end_line: 5

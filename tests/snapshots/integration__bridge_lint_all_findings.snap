@@ -194,6 +194,12 @@ expression: findings
   file: 012-suppressed.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM403
+  severity: Minor
+  message: "CREATE TABLE IF NOT EXISTS 'users' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading."
+  file: 013-if-not-exists.xml
+  start_line: 1
+  end_line: 1
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
