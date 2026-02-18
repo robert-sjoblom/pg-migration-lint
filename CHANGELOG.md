@@ -16,6 +16,19 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.4.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.3.0...v2.4.0) (2026-02-18)
+
+
+### Features
+
+* **rules:** add PGM203 + PGM204 — TRUNCATE TABLE rules ([4c06336](https://github.com/robert-sjoblom/pg-migration-lint/commit/4c06336c2ceb179207a819a678ce3a078e62b16a))
+* **rules:** add PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table ([ed1ce17](https://github.com/robert-sjoblom/pg-migration-lint/commit/ed1ce179969c75050631a99f9059d724d2bef881))
+
+
+### Bug Fixes
+
+* **bridge:** resolve XML line numbers for Liquibase changesets ([310f828](https://github.com/robert-sjoblom/pg-migration-lint/commit/310f828b9b2f6666eb3a8e7bd7bc4e897871e215))
+
 ## [2.3.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.2...v2.3.0) (2026-02-18)
 
 
