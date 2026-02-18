@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.2.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.1...v2.2.2) (2026-02-18)
+
+
+### Bug Fixes
+
+* reorganize rule IDs into coherent numeric ranges [coverage] ([634f14f](https://github.com/robert-sjoblom/pg-migration-lint/commit/634f14f493f034ce95f9cd43d1316956b998059c))
+
 ## [2.2.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.0...v2.2.1) (2026-02-17)
 
 
