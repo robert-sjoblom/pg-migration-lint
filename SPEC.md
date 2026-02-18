@@ -411,6 +411,18 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 - **IR impact**: Requires `if_not_exists: bool` field on `CreateTable` and `CreateIndex`.
 
+#### PGM403 — `CREATE TABLE IF NOT EXISTS` for already-existing table
+
+- **Severity**: MINOR
+- **Triggers**: `CREATE TABLE IF NOT EXISTS` targeting a table that already exists in `catalog_before` at that point in the migration history.
+- **Why**: `IF NOT EXISTS` makes the statement a silent no-op when the table already exists. If the column definitions in the `CREATE TABLE` differ from the actual table state (built up from the original `CREATE TABLE` plus subsequent `ALTER TABLE` statements), the migration author may believe the table has the shape described in the statement, when in reality PostgreSQL ignores it entirely. The migration chain is ambiguous — two competing definitions of the same table exist in the history, and only the first one (plus its alterations) is truth. This is especially common with Liquibase 4.26+, which supports `ifNotExists="true"` on `<createTable>`.
+- **Does not fire when**:
+  - The table does not already exist in the catalog (the statement genuinely creates it).
+  - `IF NOT EXISTS` is absent (a duplicate `CREATE TABLE` without the guard would fail at runtime, which is a different problem).
+- **Message**: `CREATE TABLE IF NOT EXISTS '{table}' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading.`
+- **IR impact**: None — `CreateTable.if_not_exists` already exists in the IR. The rule only needs `catalog_before` to check for prior existence.
+- **Catalog impact**: The replay engine already skips `CREATE TABLE IF NOT EXISTS` when the table exists.
+
 #### PGM401 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
 
 - **Severity**: MINOR
@@ -808,3 +820,4 @@ pg-migration-lint/
 | 1.10    | 2026-02-16 | Fleshed out full rule definitions for PGM021 (ADD UNIQUE without USING INDEX), PGM022 (DROP TABLE), PGM023 (missing IF NOT EXISTS), PGM024 (missing IF EXISTS), PGM106 (integer primary key). Removed stale IDs from deferred rules in §4.3. Synced `docs/dont-do-this-rules.md` with current spec state. |
 | 1.11    | 2026-02-16 | Renamed PGM008 → PGM901. Established 9xx range for meta-behaviors that modify how other rules operate. |
 | 1.12    | 2026-02-17 | Renumbered PGM024 (missing IF EXISTS) → PGM008 (slot freed by PGM008 → PGM901 rename). Updated PGM901 scope to PGM001–PGM023. |
+| 1.13    | 2026-02-18 | Promoted PGM1403 → PGM403 (CREATE TABLE IF NOT EXISTS for already-existing table, MINOR). No IR or catalog changes required. |

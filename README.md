@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 29 rules across five categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 30 rules across five categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
 ### Unsafe DDL Rules (0xx)
 
@@ -92,6 +92,7 @@ PGM201 only fires on tables that existed before the current set of changed files
 |------|----------|-------------|---------------|
 | PGM401 | Minor | Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX` | `DROP TABLE orders;` |
 | PGM402 | Minor | Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX` | `CREATE TABLE orders (id bigint PRIMARY KEY);` |
+| PGM403 | Minor | `CREATE TABLE IF NOT EXISTS` for already-existing table | `CREATE TABLE IF NOT EXISTS orders (...);` where `orders` already exists |
 
 ### Schema Design Rules (5xx)
 
