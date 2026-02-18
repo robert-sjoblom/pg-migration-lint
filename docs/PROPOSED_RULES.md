@@ -105,23 +105,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 2xx — Destructive operations
 
-### PGM1202 — `DROP TABLE ... CASCADE` on existing table
-
-- **Range**: 2xx (DROP TABLE)
-- **Severity**: MAJOR
-- **Status**: Not yet implemented.
-- **Triggers**: `DROP TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `CASCADE` silently drops all objects that depend on the table — views, foreign key constraints on other tables referencing this one, sequences, rules, and triggers — without enumerating them in the migration. The author may not be aware of all dependents. `DROP TABLE` without `CASCADE` is already flagged by PGM201 (MINOR); the presence of `CASCADE` elevates severity because the blast radius extends invisibly beyond the table itself.
-- **Interaction with PGM201**: Both PGM201 and this rule fire when `DROP TABLE CASCADE` targets an existing table. PGM201 covers the data destruction aspect; this rule covers the silent dependency removal.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-  - `CASCADE` is absent (PGM201 handles the non-cascade case).
-- **Message**: `DROP TABLE '{table}' CASCADE silently drops all dependent objects (views, foreign keys on referencing tables, sequences). Verify all dependencies are intentionally removed.`
-- **IR impact**: Requires a `cascade: bool` field on the existing `DropTable` IR node.
-
----
-
 ### PGM1203 — `TRUNCATE TABLE` on existing table
 
 - **Range**: 2xx (TRUNCATE)

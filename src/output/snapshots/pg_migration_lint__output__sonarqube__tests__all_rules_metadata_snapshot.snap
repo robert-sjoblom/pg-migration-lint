@@ -269,13 +269,25 @@ expression: parsed
       "ruleId": "PGM201"
     },
     {
+      "effortMinutes": 15,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM202: DROP TABLE CASCADE on existing table",
+        "textRange": {
+          "endLine": 23,
+          "startLine": 23
+        }
+      },
+      "ruleId": "PGM202"
+    },
+    {
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
         "textRange": {
-          "endLine": 23,
-          "startLine": 23
+          "endLine": 24,
+          "startLine": 24
         }
       },
       "ruleId": "PGM401"
@@ -286,8 +298,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 25,
+          "startLine": 25
         }
       },
       "ruleId": "PGM402"
@@ -298,8 +310,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM501"
@@ -310,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM502"
@@ -322,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM503"
@@ -334,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM504"
@@ -346,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM505"
@@ -683,6 +695,21 @@ expression: parsed
       "name": "DROP TABLE on existing table",
       "severity": "MINOR",
       "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM202 — DROP TABLE CASCADE on existing table\n\nWhat it detects:\nA DROP TABLE ... CASCADE statement targeting a table that already exists\nin the database.\n\nWhy it matters:\nCASCADE silently drops all dependent objects — foreign keys, views,\ntriggers, and rules — that reference the dropped table. The developer\nmay not be aware of all dependencies, leading to unexpected breakage\nin other tables and application code.\n\nA plain DROP TABLE (without CASCADE) would fail if dependencies exist,\nwhich is a safer default. CASCADE bypasses that safety net.\n\nExample:\nDROP TABLE customers CASCADE;\n\nIf the 'orders' table has a FK referencing 'customers', CASCADE will\nsilently drop that FK constraint on 'orders'.\n\nRecommended approach:\n1. Identify all dependent objects before dropping.\n2. Explicitly drop or alter dependencies in separate migration steps.\n3. Use plain DROP TABLE (without CASCADE) so PostgreSQL will error\nif unexpected dependencies remain.\n\nThis rule is MAJOR severity because CASCADE silently destroys\ndependent objects the developer may not be aware of.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM202",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "DROP TABLE CASCADE on existing table",
+      "severity": "MAJOR",
+      "type": "BUG"
     },
     {
       "cleanCodeAttribute": "COMPLETE",

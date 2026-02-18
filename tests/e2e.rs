@@ -3,6 +3,7 @@
 //! These tests exercise the full pipeline including CLI argument parsing, config loading,
 //! output file generation, and exit codes.
 
+use pg_migration_lint::rules::{RuleId, RuleRegistry};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -77,6 +78,23 @@ fn all_migration_files(fixture_name: &str) -> Vec<PathBuf> {
     files
 }
 
+/// Collect non-baseline .sql file paths (everything except V001) as absolute paths.
+/// V001 is the baseline that gets replayed but not linted.
+fn changed_migration_files(fixture_name: &str) -> Vec<PathBuf> {
+    let migrations_dir = fixture_path(fixture_name).join("migrations");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&migrations_dir)
+        .expect("read migrations dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().map(|e| e == "sql").unwrap_or(false)
+                && !p.file_name().unwrap().to_string_lossy().starts_with("V001")
+        })
+        .collect();
+    files.sort();
+    files
+}
+
 /// Join file paths into a comma-separated string for --changed-files.
 fn comma_join(files: &[PathBuf]) -> String {
     files
@@ -138,15 +156,7 @@ fn test_exit_1_findings_above_threshold() {
         "info", // fail on INFO means any finding triggers exit 1
     );
 
-    let changed = format!(
-        "{},{},{},{}",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-        migrations_dir
-            .join("V004__dont_do_this_types.sql")
-            .display(),
-        migrations_dir.join("V005__new_violations.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let output = run_lint(&[
         "--config",
@@ -181,12 +191,7 @@ fn test_exit_0_findings_below_threshold() {
         "critical",
     );
 
-    let changed = format!(
-        "{},{},{}",
-        migrations_dir.join("V002__suppressed.sql").display(),
-        migrations_dir.join("V003__suppressed.sql").display(),
-        migrations_dir.join("V004__suppressed.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("suppressed"));
 
     let output = run_lint(&[
         "--config",
@@ -259,11 +264,7 @@ fn test_sarif_output_file_created() {
         "critical",
     );
 
-    let changed = format!(
-        "{},{}",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let _output = run_lint(&[
         "--config",
@@ -316,11 +317,7 @@ fn test_sonarqube_output_file_created() {
         "critical",
     );
 
-    let changed = format!(
-        "{},{}",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let _output = run_lint(&[
         "--config",
@@ -384,7 +381,7 @@ fn test_text_output_to_stdout() {
         "critical",
     );
 
-    let changed = format!("{}", migrations_dir.join("V002__violations.sql").display(),);
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let output = run_lint(&[
         "--config",
@@ -533,13 +530,12 @@ fn test_changed_files_from_file() {
         "info",
     );
 
-    // Write changed file paths to a temp file
+    // Write changed file paths to a temp file (newline-separated)
     let changed_files_path = tmp.path().join("changed.txt");
-    let changed_content = format!(
-        "{}\n{}\n",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-    );
+    let changed_content: String = changed_migration_files("all-rules")
+        .iter()
+        .map(|p| format!("{}\n", p.display()))
+        .collect();
     std::fs::write(&changed_files_path, changed_content).expect("write changed files list");
 
     let output = run_lint(&[
@@ -589,11 +585,7 @@ fn test_fail_on_cli_override() {
         "blocker",
     );
 
-    let changed = format!(
-        "{},{}",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     // Without override, should exit 0 (no BLOCKER findings)
     let output_no_override = run_lint(&[
@@ -650,15 +642,7 @@ fn test_full_pipeline_with_findings() {
         "info",
     );
 
-    let changed = format!(
-        "{},{},{},{}",
-        migrations_dir.join("V002__violations.sql").display(),
-        migrations_dir.join("V003__more_violations.sql").display(),
-        migrations_dir
-            .join("V004__dont_do_this_types.sql")
-            .display(),
-        migrations_dir.join("V005__new_violations.sql").display(),
-    );
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let output = run_lint(&[
         "--config",
@@ -724,14 +708,19 @@ fn test_full_pipeline_with_findings() {
         .map(|r| r["ruleId"].as_str().expect("ruleId"))
         .collect();
 
-    for expected in &[
-        "PGM001", "PGM002", "PGM003", "PGM006", "PGM007", "PGM008", "PGM009", "PGM016", "PGM017",
-        "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM501", "PGM502", "PGM503",
-    ] {
+    // Build expected set from registry, excluding meta rules.
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    for rule in registry.iter() {
+        let id = rule.id();
+        if matches!(id, RuleId::Meta(_)) {
+            continue;
+        }
         assert!(
-            sarif_rule_ids.contains(expected),
-            "Expected {} in SARIF results. Found: {:?}",
-            expected,
+            sarif_rule_ids.contains(id.as_str()),
+            "Rule {} is registered but not found in SARIF results. \
+             Add a violation to the all-rules fixture. Found: {:?}",
+            id,
             sarif_rule_ids
         );
     }
@@ -911,7 +900,7 @@ fn test_multiple_format_outputs() {
         "critical",
     );
 
-    let changed = format!("{}", migrations_dir.join("V002__violations.sql").display(),);
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     // Do NOT pass --format so the config's default formats are used
     let output = run_lint(&[
@@ -1256,7 +1245,7 @@ fail_on = "info"
     let config_path = tmp.path().join("pg-migration-lint.toml");
     std::fs::write(&config_path, config_content).expect("write config");
 
-    let changed = format!("{}", migrations_dir.join("V002__violations.sql").display());
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let output = run_lint(&[
         "--config",
@@ -1332,7 +1321,7 @@ fail_on = "info"
     let config_path = tmp.path().join("pg-migration-lint.toml");
     std::fs::write(&config_path, config_content).expect("write config");
 
-    let changed = format!("{}", migrations_dir.join("V002__violations.sql").display());
+    let changed = comma_join(&changed_migration_files("all-rules"));
 
     let output = run_lint(&[
         "--config",

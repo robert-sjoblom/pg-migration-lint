@@ -171,6 +171,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 
 **2xx — Destructive Operations:**
 - **PGM201**: `DROP TABLE` on existing table
+- **PGM202**: `DROP TABLE CASCADE` on existing table
 
 **4xx — Idempotency Guards:**
 - **PGM401**: Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
