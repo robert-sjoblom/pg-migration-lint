@@ -2519,4 +2519,403 @@ mod tests {
             other => panic!("Expected TruncateTable, got: {:?}", other),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Additional convert_node catch-all tests (IrNode::Ignored paths)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_create_view_ignored() {
+        let sql = "CREATE VIEW v AS SELECT 1;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_function_ignored() {
+        let sql = "CREATE FUNCTION add(a int, b int) RETURNS int AS 'SELECT a + b' LANGUAGE sql;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_sequence_ignored() {
+        let sql = "CREATE SEQUENCE order_seq START 1;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_extension_ignored() {
+        let sql = "CREATE EXTENSION IF NOT EXISTS pgcrypto;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_type_ignored() {
+        let sql = "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_insert_ignored() {
+        let sql = "INSERT INTO foo (id) VALUES (1);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_update_ignored() {
+        let sql = "UPDATE foo SET bar = 1 WHERE id = 2;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_delete_ignored() {
+        let sql = "DELETE FROM foo WHERE id = 1;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_select_ignored() {
+        let sql = "SELECT * FROM foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_set_ignored() {
+        let sql = "SET search_path TO myschema;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_revoke_ignored() {
+        let sql = "REVOKE SELECT ON orders FROM readonly;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_trigger_ignored() {
+        let sql = "CREATE TRIGGER trg BEFORE INSERT ON foo FOR EACH ROW EXECUTE FUNCTION bar();";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    // -----------------------------------------------------------------------
+    // ALTER TABLE — Other actions and empty-action edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_alter_table_enable_trigger_as_other() {
+        // ALTER TABLE with an unrecognized subtype produces AlterTable with Other actions, not Ignored
+        let sql = "ALTER TABLE foo ENABLE TRIGGER ALL;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.name.name, "foo");
+                assert_eq!(at.actions.len(), 1);
+                assert!(matches!(at.actions[0], AlterTableAction::Other { .. }));
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_owner_as_other() {
+        let sql = "ALTER TABLE foo OWNER TO new_owner;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        // OWNER TO is parsed as AlterTableStmt by pg_query but maps to Other action
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                assert!(matches!(at.actions[0], AlterTableAction::Other { .. }));
+            }
+            // Some pg_query versions may route OWNER TO elsewhere, accept Ignored too
+            IrNode::Ignored { .. } => {}
+            other => panic!("Expected AlterTable or Ignored, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_drop_not_null() {
+        let sql = "ALTER TABLE foo ALTER COLUMN bar DROP NOT NULL;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::Other { description } => {
+                        assert!(
+                            description.contains("DROP NOT NULL"),
+                            "got: {}",
+                            description
+                        );
+                    }
+                    other => panic!("Expected Other action, got: {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Default expression coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_default_float_literal() {
+        let sql = "CREATE TABLE t (price numeric DEFAULT 9.99);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                // Float literals come through as Literal
+                assert!(ct.columns[0].default_expr.is_some());
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_default_null() {
+        let sql = "CREATE TABLE t (name text DEFAULT NULL);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert!(ct.columns[0].default_expr.is_some());
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_default_typecast() {
+        let sql = "CREATE TABLE t (ts timestamptz DEFAULT '2024-01-01'::timestamptz);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert!(matches!(
+                    ct.columns[0].default_expr,
+                    Some(DefaultExpr::Other(_))
+                ));
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_default_expression() {
+        let sql = "CREATE TABLE t (computed int DEFAULT 1 + 2);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                // Arithmetic expressions should produce Other
+                assert!(ct.columns[0].default_expr.is_some());
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Other helper coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_create_index_without_name() {
+        // Anonymous indexes should have index_name == None
+        let sql = "CREATE INDEX ON foo (bar);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert!(ci.index_name.is_none());
+                assert_eq!(ci.table_name.name, "foo");
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_rename_schema_ignored() {
+        // ALTER ... RENAME that is not TABLE or COLUMN should be Ignored
+        let sql = "ALTER SEQUENCE my_seq RENAME TO new_seq;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        // Sequence rename may go through RenameStmt catch-all
+        assert!(
+            matches!(nodes[0].node, IrNode::Ignored { .. }),
+            "Expected Ignored for ALTER SEQUENCE RENAME, got: {:?}",
+            nodes[0].node
+        );
+    }
+
+    #[test]
+    fn test_parse_drop_index_if_exists_coverage() {
+        let sql = "DROP INDEX IF EXISTS idx_foo;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx_foo");
+                assert!(di.if_exists);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_add_column_with_inline_fk() {
+        let sql = "ALTER TABLE orders ADD COLUMN customer_id int REFERENCES customers(id);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                // Should produce AddColumn + AddConstraint (FK)
+                assert!(
+                    at.actions.len() >= 2,
+                    "Expected at least 2 actions (AddColumn + FK), got {}",
+                    at.actions.len()
+                );
+                assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
+                assert!(matches!(
+                    at.actions[1],
+                    AlterTableAction::AddConstraint(TableConstraint::ForeignKey { .. })
+                ));
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_add_column_with_inline_unique() {
+        let sql = "ALTER TABLE t ADD COLUMN email text UNIQUE;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert!(at.actions.len() >= 2);
+                assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
+                assert!(matches!(
+                    at.actions[1],
+                    AlterTableAction::AddConstraint(TableConstraint::Unique { .. })
+                ));
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_add_column_with_inline_check() {
+        let sql = "ALTER TABLE t ADD COLUMN age int CHECK (age > 0);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert!(at.actions.len() >= 2);
+                assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
+                assert!(matches!(
+                    at.actions[1],
+                    AlterTableAction::AddConstraint(TableConstraint::Check { .. })
+                ));
+            }
+            other => panic!("Expected AlterTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_table_with_named_check() {
+        let sql = "CREATE TABLE t (col int, CONSTRAINT chk_col CHECK (col > 0));";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let check = ct
+                    .constraints
+                    .iter()
+                    .find(|c| matches!(c, TableConstraint::Check { .. }));
+                assert!(check.is_some());
+                match check.unwrap() {
+                    TableConstraint::Check { name, .. } => {
+                        assert_eq!(name.as_deref(), Some("chk_col"));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_function_ignored() {
+        let sql = "DROP FUNCTION my_func(int);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_create_schema_ignored() {
+        let sql = "CREATE SCHEMA myschema;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    #[test]
+    fn test_parse_alter_sequence_ignored() {
+        let sql = "ALTER SEQUENCE order_seq RESTART WITH 1000;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+    }
+
+    // -----------------------------------------------------------------------
+    // relation_to_qualified_name with None input
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_relation_to_qualified_name_none() {
+        let name = relation_to_qualified_name(None);
+        assert_eq!(name.name, "unknown");
+    }
+
+    // -----------------------------------------------------------------------
+    // is_temp_relation with None input
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_temp_relation_none() {
+        assert!(!is_temp_relation(None));
+    }
+
+    // -----------------------------------------------------------------------
+    // extract_table_hint_from_raw — additional coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_table_hint_no_match() {
+        let hint = extract_table_hint_from_raw("SELECT 1;");
+        assert!(hint.is_none());
+    }
+
+    #[test]
+    fn test_extract_table_hint_empty() {
+        let hint = extract_table_hint_from_raw("");
+        assert!(hint.is_none());
+    }
 }
