@@ -725,8 +725,8 @@ fn test_full_pipeline_with_findings() {
         .collect();
 
     for expected in &[
-        "PGM001", "PGM002", "PGM003", "PGM004", "PGM005", "PGM006", "PGM007", "PGM009", "PGM010",
-        "PGM011", "PGM012", "PGM021", "PGM101", "PGM102", "PGM103", "PGM104", "PGM105",
+        "PGM001", "PGM002", "PGM003", "PGM006", "PGM007", "PGM008", "PGM009", "PGM016", "PGM017",
+        "PGM101", "PGM102", "PGM103", "PGM104", "PGM105", "PGM501", "PGM502", "PGM503",
     ] {
         assert!(
             sarif_rule_ids.contains(expected),

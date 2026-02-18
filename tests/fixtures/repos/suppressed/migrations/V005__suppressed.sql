@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM003,PGM016,PGM017,PGM018,PGM019,PGM020
+-- pgm-lint:suppress-file PGM501,PGM013,PGM014,PGM015,PGM504,PGM505
 
 ALTER TABLE customers ALTER COLUMN customer_id SET NOT NULL;
 

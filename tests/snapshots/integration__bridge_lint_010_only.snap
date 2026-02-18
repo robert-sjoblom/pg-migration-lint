@@ -8,21 +8,21 @@ expression: findings
   file: 010-cleanup.xml
   start_line: 1
   end_line: 1
-- rule_id: PGM008
+- rule_id: PGM201
+  severity: Minor
+  message: "DROP TABLE 'event_log' removes an existing table. This is irreversible and all data will be lost."
+  file: 010-cleanup.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM401
   severity: Minor
   message: "DROP INDEX 'idx_products_name_article': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
   start_line: 1
   end_line: 1
-- rule_id: PGM008
+- rule_id: PGM401
   severity: Minor
   message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
-  file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
-- rule_id: PGM022
-  severity: Minor
-  message: "DROP TABLE 'event_log' removes an existing table. This is irreversible and all data will be lost."
   file: 010-cleanup.xml
   start_line: 1
   end_line: 1

@@ -1,5 +1,5 @@
 -- Supplier agreement tracking
--- Note: FK without covering index on connector_articles triggers PGM003
+-- Note: FK without covering index on connector_articles triggers PGM501
 
 CREATE TABLE supplier_agreements (
     id uuid PRIMARY KEY,

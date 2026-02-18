@@ -1,4 +1,4 @@
 -- DROP COLUMN on existing table
--- Triggers PGM011
+-- Triggers PGM009
 
 ALTER TABLE orders DROP COLUMN notes;

@@ -1,4 +1,4 @@
--- PGM004: Table without primary key
+-- PGM502: Table without primary key
 CREATE TABLE audit_log (
     tenant_id BIGINT NOT NULL,
     action TEXT NOT NULL,

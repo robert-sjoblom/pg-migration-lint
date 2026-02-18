@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM002,PGM005,PGM006,PGM008,PGM012,PGM023
+-- pgm-lint:suppress-file PGM002,PGM503,PGM003,PGM401,PGM016,PGM402
 
 DROP INDEX idx_customers_email;
 

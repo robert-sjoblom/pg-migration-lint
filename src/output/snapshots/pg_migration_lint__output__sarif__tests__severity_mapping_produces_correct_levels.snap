@@ -1,6 +1,5 @@
 ---
 source: src/output/sarif.rs
-assertion_line: 297
 expression: parsed
 ---
 {
@@ -66,7 +65,7 @@ expression: parsed
           "message": {
             "text": "major finding"
           },
-          "ruleId": "PGM003"
+          "ruleId": "PGM501"
         },
         {
           "level": "note",
@@ -86,7 +85,7 @@ expression: parsed
           "message": {
             "text": "minor finding"
           },
-          "ruleId": "PGM004"
+          "ruleId": "PGM502"
         },
         {
           "level": "note",
@@ -106,7 +105,7 @@ expression: parsed
           "message": {
             "text": "info finding"
           },
-          "ruleId": "PGM005"
+          "ruleId": "PGM503"
         }
       ],
       "tool": {
@@ -136,7 +135,7 @@ expression: parsed
               "defaultConfiguration": {
                 "level": "warning"
               },
-              "id": "PGM003",
+              "id": "PGM501",
               "shortDescription": {
                 "text": "major finding"
               }
@@ -145,7 +144,7 @@ expression: parsed
               "defaultConfiguration": {
                 "level": "note"
               },
-              "id": "PGM004",
+              "id": "PGM502",
               "shortDescription": {
                 "text": "minor finding"
               }
@@ -154,7 +153,7 @@ expression: parsed
               "defaultConfiguration": {
                 "level": "note"
               },
-              "id": "PGM005",
+              "id": "PGM503",
               "shortDescription": {
                 "text": "info finding"
               }

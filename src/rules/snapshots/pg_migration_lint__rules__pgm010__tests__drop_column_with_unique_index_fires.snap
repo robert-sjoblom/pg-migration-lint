@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm010.rs
+expression: findings
+---
+- rule_id: PGM010
+  severity: Minor
+  message: "Dropping column 'code' from table 'products' silently removes unique constraint 'idx_products_code_unique'. Verify that the uniqueness guarantee is no longer needed."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

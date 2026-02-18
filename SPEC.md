@@ -115,7 +115,7 @@ IR node types (non-exhaustive):
 
 **Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
 
-**`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM007 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
+**`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM006 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
 | `Unparseable { raw_sql }` | Anything that fails IR conversion |
 
 `Column` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_pk`.
@@ -175,8 +175,11 @@ Base ref for diff is the caller's responsibility (CI script runs `git diff --nam
 
 Format: `PGMnnn`. Stable across versions. Never reused.
 
-- **PGM0xx**: Migration safety rules (core lint rules with `Rule` trait implementations)
-- **PGM1xx**: PostgreSQL "Don't Do This" type-check rules
+- **PGM0xx**: Unsafe DDL rules — locking, rewrites, runtime failures, silent side effects
+- **PGM1xx**: Type anti-pattern rules ("Don't Do This")
+- **PGM2xx**: Destructive operation rules — data loss
+- **PGM4xx**: Idempotency guard rules
+- **PGM5xx**: Schema design & informational rules
 - **PGM9xx**: Meta-behaviors that modify how other rules operate (not standalone rules)
 
 ### 4.2 v1 Rules
@@ -194,27 +197,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Triggers**: `DROP INDEX` without `CONCURRENTLY`, where the index belongs to an existing table (same logic as PGM001).
 - **Message**: `DROP INDEX on existing table should use CONCURRENTLY to avoid holding an exclusive lock.`
 
-#### PGM003 — Foreign key without index on referencing columns
-
-- **Severity**: MAJOR
-- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no index exists on the referencing table with `cols` as a prefix of the index columns.
-- **Prefix matching**: FK columns `(a, b)` are covered by index `(a, b)` or `(a, b, c)` but NOT by `(b, a)` or `(a)`. Column order matters.
-- **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
-- **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`
-
-#### PGM004 — Table without primary key
-
-- **Severity**: MAJOR
-- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
-- **Message**: `Table '{table}' has no primary key.`
-
-#### PGM005 — `UNIQUE NOT NULL` used instead of primary key
-
-- **Severity**: INFO
-- **Triggers**: Table has no PK but has at least one `UNIQUE` constraint where all constituent columns are `NOT NULL`.
-- **Message**: `Table '{table}' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit.`
-
-#### PGM006 — `CONCURRENTLY` inside transaction
+#### PGM003 — `CONCURRENTLY` inside transaction
 
 - **Severity**: CRITICAL
 - **Triggers**: `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a context that implies transactional execution:
@@ -222,7 +205,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
 
-#### PGM007 — Volatile default on column
+#### PGM006 — Volatile default on column
 
 - **Severity**: WARNING for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`, `nextval()`). INFO for any other function call used as a default.
 - **Triggers**: `ADD COLUMN ... DEFAULT fn()` or inline in `CREATE TABLE`.
@@ -231,7 +214,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (nextval/serial)**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite.`
 - **Message (unknown function)**: `Column '{col}' on '{table}' uses function '{fn}()' as default. If this function is volatile (the default for user-defined functions), it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead of a cheap catalog-only change. Verify the function's volatility classification.`
 
-#### PGM009 — `ALTER COLUMN TYPE` on existing table
+#### PGM007 — `ALTER COLUMN TYPE` on existing table
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ALTER COLUMN ... TYPE ...` where the table exists in the catalog (not created in the same set of changed files).
@@ -245,21 +228,21 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - Safe casts produce no finding. All other type changes fire as CRITICAL.
 - **Message**: `Changing column type on existing table '{table}' ('{col}': {old_type} → {new_type}) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead.`
 
-#### PGM010 — `ADD COLUMN NOT NULL` without default on existing table
+#### PGM008 — `ADD COLUMN NOT NULL` without default on existing table
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a `DEFAULT` clause, where the table exists in the catalog.
 - **Note**: On PG 11+, `ADD COLUMN ... NOT NULL DEFAULT <value>` is safe (no rewrite for non-volatile defaults). Without a default, the command fails outright if any rows exist. This is almost always a bug.
 - **Message**: `Adding NOT NULL column '{col}' to existing table '{table}' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill.`
 
-#### PGM011 — `DROP COLUMN` on existing table
+#### PGM009 — `DROP COLUMN` on existing table
 
 - **Severity**: INFO
 - **Triggers**: `ALTER TABLE ... DROP COLUMN` where the table exists in the catalog.
 - **Note**: Postgres marks the column as dropped without rewriting the table, so this is cheap at the database level. The risk is application-level: queries referencing the column will break. This is informational to increase visibility.
 - **Message**: `Dropping column '{col}' from existing table '{table}'. The DDL is cheap but ensure no application code references this column.`
 
-#### PGM012 — `ADD PRIMARY KEY` on existing table without prior `UNIQUE` constraint
+#### PGM016 — `ADD PRIMARY KEY` on existing table without prior `UNIQUE` constraint
 
 - **Severity**: MAJOR
 - **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY (cols)` where the table exists in the catalog (not created in the same changeset) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
@@ -272,7 +255,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The PK columns already have a `UNIQUE` constraint (exact column match)
 - **Message**: `ADD PRIMARY KEY on existing table '{table}' requires building a unique index under ACCESS EXCLUSIVE lock. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
 
-#### PGM013 — `DROP COLUMN` silently removes unique constraint
+#### PGM010 — `DROP COLUMN` silently removes unique constraint
 
 - **Severity**: WARNING
 - **Status**: Implemented.
@@ -284,19 +267,19 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes unique constraint '{constraint}'. Verify that the uniqueness guarantee is no longer needed.`
 
-#### PGM014 — `DROP COLUMN` silently removes primary key
+#### PGM011 — `DROP COLUMN` silently removes primary key
 
 - **Severity**: MAJOR
 - **Status**: Implemented.
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in the table's primary key (in `catalog_before`).
-- **Why**: Dropping a PK column (with `CASCADE`) silently removes the primary key constraint. The table loses its row identity, which affects replication, ORMs, query planning, and data integrity. PGM004 catches tables *created* without a PK, but cannot tell you which specific `DROP COLUMN` *caused* the loss.
+- **Why**: Dropping a PK column (with `CASCADE`) silently removes the primary key constraint. The table loses its row identity, which affects replication, ORMs, query planning, and data integrity. PGM502 catches tables *created* without a PK, but cannot tell you which specific `DROP COLUMN` *caused* the loss.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `PrimaryKey`. If so, fire.
 - **Does not fire when**:
   - The column is not part of the primary key
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes the primary key. The table will have no row identity. Add a new primary key or reconsider the column drop.`
 
-#### PGM015 — `DROP COLUMN` silently removes foreign key
+#### PGM012 — `DROP COLUMN` silently removes foreign key
 
 - **Severity**: WARNING
 - **Status**: Implemented.
@@ -308,7 +291,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes foreign key '{constraint}' referencing '{ref_table}'. Verify that the referential integrity guarantee is no longer needed.`
 
-#### PGM016 — `SET NOT NULL` on existing column
+#### PGM013 — `SET NOT NULL` on existing column
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
@@ -330,7 +313,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans the table. Add a CHECK (col IS NOT NULL) NOT VALID constraint first, validate it separately, then SET NOT NULL.`
 - **IR impact**: Requires new `AlterTableAction::SetNotNull { column_name: String }` variant. Currently falls into `Other`.
 
-#### PGM017 — `ADD FOREIGN KEY` without `NOT VALID` on existing table
+#### PGM014 — `ADD FOREIGN KEY` without `NOT VALID` on existing table
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
@@ -347,11 +330,11 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
   - The constraint includes `NOT VALID`
-- **Interaction with PGM003**: PGM003 (missing FK index) fires independently. The rules are complementary.
+- **Interaction with PGM501**: PGM501 (missing FK index) fires independently. The rules are complementary.
 - **Message**: `Adding foreign key '{constraint}' on existing table '{table}' validates all rows, blocking writes. Use NOT VALID and validate in a separate migration.`
 - **IR impact**: Requires `not_valid: bool` field on `TableConstraint::ForeignKey`.
 
-#### PGM018 — `ADD CHECK` without `NOT VALID` on existing table
+#### PGM015 — `ADD CHECK` without `NOT VALID` on existing table
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
@@ -371,31 +354,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message**: `Adding CHECK constraint '{constraint}' on existing table '{table}' validates all rows under ACCESS EXCLUSIVE lock. Use NOT VALID and validate in a separate migration.`
 - **IR impact**: Requires `not_valid: bool` field on `TableConstraint::Check`.
 
-#### PGM019 — `RENAME TABLE`
-
-- **Severity**: INFO
-- **Triggers**: `ALTER TABLE ... RENAME TO ...` on a table that exists in `catalog_before`.
-- **Why**: Renames are instant DDL (metadata-only), but silently break any application queries, views, functions, or triggers that reference the old name.
-- **Replacement detection**: Does **not** fire if, within the same migration unit, a `CREATE TABLE` with the old name appears after the rename. This is a common pattern (rename old table away, create replacement with the original name).
-- **Does not fire when**:
-  - The table does not exist in `catalog_before`
-  - A replacement table with the old name is created in the same migration unit
-- **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
-- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new IR support — either `AlterTableAction::RenameTable { new_name: String }` or a new top-level `IrNode` variant.
-- **Catalog impact**: Replay should update the table name in the catalog so subsequent rules see the new name.
-
-#### PGM020 — `RENAME COLUMN`
-
-- **Severity**: INFO
-- **Triggers**: `ALTER TABLE ... RENAME COLUMN ... TO ...` on a table that exists in `catalog_before`.
-- **Why**: Column renames are instant DDL but silently break application queries that reference the old column name.
-- **Does not fire when**:
-  - The table does not exist in `catalog_before`
-- **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
-- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
-- **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
-
-#### PGM021 — `ADD UNIQUE` on existing table without `USING INDEX`
+#### PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
 
 - **Severity**: CRITICAL
 - **Status**: Implemented.
@@ -416,7 +375,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The constraint columns already have a `UNIQUE` constraint (exact column match)
 - **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
 
-#### PGM022 — `DROP TABLE` on existing table
+#### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
 - **Status**: Implemented.
@@ -427,7 +386,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Table doesn't exist in `catalog_before`
 - **Message**: `DROP TABLE '{table}' removes an existing table. This is irreversible and all data will be lost.`
 
-#### PGM023 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
+#### PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 
 - **Severity**: MINOR
 - **Status**: Not yet implemented.
@@ -439,7 +398,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 - **IR impact**: Requires `if_not_exists: bool` field on `CreateTable` and `CreateIndex`.
 
-#### PGM008 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
+#### PGM401 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
 
 - **Severity**: MINOR
 - **Status**: Not yet implemented.
@@ -451,13 +410,57 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 - **IR impact**: Requires `if_exists: bool` field on `DropTable` and `DropIndex`.
 
+#### PGM501 — Foreign key without index on referencing columns
+
+- **Severity**: MAJOR
+- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no index exists on the referencing table with `cols` as a prefix of the index columns.
+- **Prefix matching**: FK columns `(a, b)` are covered by index `(a, b)` or `(a, b, c)` but NOT by `(b, a)` or `(a)`. Column order matters.
+- **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
+- **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`
+
+#### PGM502 — Table without primary key
+
+- **Severity**: MAJOR
+- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
+- **Message**: `Table '{table}' has no primary key.`
+
+#### PGM503 — `UNIQUE NOT NULL` used instead of primary key
+
+- **Severity**: INFO
+- **Triggers**: Table has no PK but has at least one `UNIQUE` constraint where all constituent columns are `NOT NULL`.
+- **Message**: `Table '{table}' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit.`
+
+#### PGM504 — `RENAME TABLE`
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... RENAME TO ...` on a table that exists in `catalog_before`.
+- **Why**: Renames are instant DDL (metadata-only), but silently break any application queries, views, functions, or triggers that reference the old name.
+- **Replacement detection**: Does **not** fire if, within the same migration unit, a `CREATE TABLE` with the old name appears after the rename. This is a common pattern (rename old table away, create replacement with the original name).
+- **Does not fire when**:
+  - The table does not exist in `catalog_before`
+  - A replacement table with the old name is created in the same migration unit
+- **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
+- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new IR support — either `AlterTableAction::RenameTable { new_name: String }` or a new top-level `IrNode` variant.
+- **Catalog impact**: Replay should update the table name in the catalog so subsequent rules see the new name.
+
+#### PGM505 — `RENAME COLUMN`
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... RENAME COLUMN ... TO ...` on a table that exists in `catalog_before`.
+- **Why**: Column renames are instant DDL but silently break application queries that reference the old column name.
+- **Does not fire when**:
+  - The table does not exist in `catalog_before`
+- **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
+- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
+- **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
+
 #### PGM901 — Down migration severity cap
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules (PGM001–PGM023) apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules apply to `.down.sql` / rollback SQL, but findings are informational only.
 - PGM901 is a meta-behavior, not a standalone lint rule. It has no `Rule` trait implementation and cannot be suppressed or disabled via inline comments. The 9xx range is reserved for meta-behaviors that modify how other rules operate.
 
-### 4.3 PostgreSQL "Don't Do This" Rules (PGM1xx)
+### 4.3 Type Anti-pattern Rules (PGM1xx)
 
 Rules derived from the [PostgreSQL "Don't Do This" wiki](https://wiki.postgresql.org/wiki/Don%27t_Do_This). These detect column type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
 
@@ -512,20 +515,20 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 - **Severity**: INFO
 - **Triggers**: Column with `DefaultExpr::FunctionCall { name: "nextval", .. }` on an `int4`, `int8`, or `int2` typed column. (pg_query expands `serial`→`int4 + nextval()`, `bigserial`→`int8 + nextval()`.)
 - **Why**: The `serial` pseudo-types create an implicit sequence with several problems: the sequence ownership is weaker than identity columns, `INSERT` with explicit values doesn't advance the sequence (causing future conflicts), and grants/ownership are separate. Identity columns (`GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY`, SQL standard, PG 10+) handle all these edge cases correctly.
-- **Interaction with PGM007**: Both PGM105 and PGM007 fire on `nextval()` defaults. This is intentional — PGM007 warns about the volatile default aspect, PGM105 recommends the identity column alternative.
+- **Interaction with PGM006**: Both PGM105 and PGM006 fire on `nextval()` defaults. This is intentional — PGM006 warns about the volatile default aspect, PGM105 recommends the identity column alternative.
 - **Message**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach.`
 
-#### PGM108 — Don't use `json` (prefer `jsonb`)
+#### PGM106 — Don't use `json` (prefer `jsonb`)
 
 - **Severity**: WARNING
 - **Triggers**: Column type with `TypeName.name == "json"` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
 - **Why**: The `json` type stores an exact copy of the input text and must re-parse it on every operation. `jsonb` stores a decomposed binary format that is significantly faster for queries, supports indexing (GIN), and supports containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving exact key order and duplicate keys — both rarely needed.
 - **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
 
-#### PGM106 — Don't use `integer` as primary key type
+#### Don't use `integer` as primary key type (ID unassigned)
 
 - **Severity**: MAJOR
-- **Status**: Not yet implemented.
+- **Status**: Not yet implemented. Rule ID unassigned (PGM106 is now used by the json rule).
 - **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
 - **Why**: `integer` (max ~2.1 billion) is routinely exhausted in high-write tables. When it wraps, inserts fail with a unique constraint violation. Migrating from `integer` to `bigint` requires a full table rewrite under `ACCESS EXCLUSIVE` lock — one of the most dangerous DDL operations on large tables. Starting with `bigint` costs 4 extra bytes per row but avoids a future emergency migration.
 - **Does not fire when**:
@@ -568,7 +571,7 @@ CREATE INDEX idx_foo ON bar (col);
 
 File-level suppression must appear before any SQL statements in the file.
 
-Multiple rules in one comment: `-- pgm-lint:suppress PGM001,PGM003`
+Multiple rules in one comment: `-- pgm-lint:suppress PGM001,PGM501`
 
 ### 5.2 SonarQube suppression
 
@@ -668,7 +671,7 @@ Human-readable for local development:
 CRITICAL PGM001 db/migrations/V042__add_order_index.sql:3
   CREATE INDEX on existing table 'orders' should use CONCURRENTLY.
 
-MAJOR PGM003 db/migrations/V042__add_order_index.sql:7
+MAJOR PGM501 db/migrations/V042__add_order_index.sql:7
   Foreign key on 'order_items(order_id)' has no covering index.
 ```
 

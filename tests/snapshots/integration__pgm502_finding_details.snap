@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM502
+  severity: Major
+  message: "Table 'audit_log' has no primary key."
+  file: repos/all-rules/migrations/V002__violations.sql
+  start_line: 8
+  end_line: 12

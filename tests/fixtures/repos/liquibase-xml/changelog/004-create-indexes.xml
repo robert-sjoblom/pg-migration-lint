@@ -5,7 +5,7 @@
 
     <!--
         PGM001 VIOLATION: createIndex on existing table without CONCURRENTLY.
-        The XML fallback parser generates plain CREATE INDEX SQL (no CONCURRENTLY).
+        The bridge generates plain CREATE INDEX SQL (no CONCURRENTLY).
         Since users, subscriptions, and products were created in earlier changesets,
         these should trigger PGM001.
     -->

@@ -1,6 +1,5 @@
 ---
 source: src/output/sarif.rs
-assertion_line: 463
 expression: parsed
 ---
 {
@@ -46,7 +45,7 @@ expression: parsed
           "message": {
             "text": "multi line"
           },
-          "ruleId": "PGM003"
+          "ruleId": "PGM501"
         },
         {
           "level": "warning",
@@ -66,7 +65,7 @@ expression: parsed
           "message": {
             "text": "line 1"
           },
-          "ruleId": "PGM004"
+          "ruleId": "PGM502"
         }
       ],
       "tool": {
@@ -87,7 +86,7 @@ expression: parsed
               "defaultConfiguration": {
                 "level": "warning"
               },
-              "id": "PGM003",
+              "id": "PGM501",
               "shortDescription": {
                 "text": "multi line"
               }
@@ -96,7 +95,7 @@ expression: parsed
               "defaultConfiguration": {
                 "level": "warning"
               },
-              "id": "PGM004",
+              "id": "PGM502",
               "shortDescription": {
                 "text": "line 1"
               }

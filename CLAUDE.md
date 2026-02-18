@@ -46,7 +46,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM012, PGM101-PGM105)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM017, PGM101-PGM106, PGM201, PGM401-PGM402, PGM501-PGM505)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -97,8 +97,8 @@ pub struct TableState {
 
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
-- `has_covering_index(&self, fk_columns: &[String]) -> bool` - prefix matching for PGM003
-- `has_unique_not_null(&self) -> bool` - for PGM005 detection
+- `has_covering_index(&self, fk_columns: &[String]) -> bool` - prefix matching for PGM501
+- `has_unique_not_null(&self) -> bool` - for PGM503 detection
 
 The catalog tracks:
 - Table creation/deletion
@@ -138,7 +138,7 @@ pub struct LintContext<'a> {
 }
 ```
 
-Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM003/004/005). The two-catalog approach enables single-pass replay without needing separate replay runs.
+Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM501/502/503). The two-catalog approach enables single-pass replay without needing separate replay runs.
 
 #### Rule Severities
 - **CRITICAL**: Causes downtime or data corruption (e.g., missing `CONCURRENTLY`)
@@ -147,30 +147,43 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **INFO**: Informational findings
 
 #### Rules
+
+**0xx — Unsafe DDL:**
 - **PGM001**: Missing `CONCURRENTLY` on `CREATE INDEX`
 - **PGM002**: Missing `CONCURRENTLY` on `DROP INDEX`
-- **PGM003**: Foreign key without covering index
-- **PGM004**: Table without primary key
-- **PGM005**: `UNIQUE NOT NULL` used instead of primary key
-- **PGM006**: `CONCURRENTLY` inside transaction
-- **PGM007**: Volatile default on column (forces table rewrite)
-- **PGM009**: `ALTER COLUMN TYPE` causing table rewrite
-- **PGM010**: `ADD COLUMN NOT NULL` without default
-- **PGM011**: `DROP COLUMN` on existing table
-- **PGM012**: `ADD PRIMARY KEY` without prior `UNIQUE` index
-- **PGM013**: `DROP COLUMN` silently removes unique constraint
-- **PGM014**: `DROP COLUMN` silently removes primary key
-- **PGM015**: `DROP COLUMN` silently removes foreign key
-- **PGM016**: `SET NOT NULL` requires ACCESS EXCLUSIVE lock
-- **PGM017**: `ADD FOREIGN KEY` without `NOT VALID`
-- **PGM018**: `ADD CHECK` without `NOT VALID`
-- **PGM019**: `RENAME TABLE` on existing table
-- **PGM020**: `RENAME COLUMN` on existing table
-- **PGM021**: `ADD UNIQUE` without `USING INDEX`
-- **PGM022**: `DROP TABLE` on existing table
-- **PGM023**: Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
+- **PGM003**: `CONCURRENTLY` inside transaction
+- **PGM006**: Volatile default on column (forces table rewrite)
+- **PGM007**: `ALTER COLUMN TYPE` causing table rewrite
+- **PGM008**: `ADD COLUMN NOT NULL` without default
+- **PGM009**: `DROP COLUMN` on existing table
+- **PGM010**: `DROP COLUMN` silently removes unique constraint
+- **PGM011**: `DROP COLUMN` silently removes primary key
+- **PGM012**: `DROP COLUMN` silently removes foreign key
+- **PGM013**: `SET NOT NULL` requires ACCESS EXCLUSIVE lock
+- **PGM014**: `ADD FOREIGN KEY` without `NOT VALID`
+- **PGM015**: `ADD CHECK` without `NOT VALID`
+- **PGM016**: `ADD PRIMARY KEY` without prior `UNIQUE` index
+- **PGM017**: `ADD UNIQUE` without `USING INDEX`
+
+**1xx — Type Anti-patterns:**
 - **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)
-- **PGM108**: Don't use `json` (use `jsonb`)
+- **PGM106**: Don't use `json` (use `jsonb`)
+
+**2xx — Destructive Operations:**
+- **PGM201**: `DROP TABLE` on existing table
+
+**4xx — Idempotency Guards:**
+- **PGM401**: Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
+- **PGM402**: Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
+
+**5xx — Schema Design:**
+- **PGM501**: Foreign key without covering index
+- **PGM502**: Table without primary key
+- **PGM503**: `UNIQUE NOT NULL` used instead of primary key
+- **PGM504**: `RENAME TABLE` on existing table
+- **PGM505**: `RENAME COLUMN` on existing table
+
+**9xx — Meta-behavior:**
 - **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule
 
 ### Suppression System
@@ -183,7 +196,7 @@ Inline SQL comments control rule suppression:
 CREATE INDEX idx_foo ON bar (col);
 
 -- File-level suppression (must appear before SQL statements)
--- pgm-lint:suppress-file PGM001,PGM003
+-- pgm-lint:suppress-file PGM001,PGM501
 ```
 
 ### Liquibase Support

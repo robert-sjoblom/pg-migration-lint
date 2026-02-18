@@ -1,7 +1,6 @@
 ---
 source: tests/integration.rs
-assertion_line: 369
-expression: pgm103
+expression: findings
 ---
 - rule_id: PGM103
   severity: Minor

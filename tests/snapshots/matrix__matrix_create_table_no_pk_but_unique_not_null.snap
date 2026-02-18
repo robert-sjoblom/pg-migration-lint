@@ -1,9 +1,8 @@
 ---
 source: tests/matrix.rs
-assertion_line: 307
 expression: findings
 ---
-- rule_id: PGM005
+- rule_id: PGM503
   severity: Info
   message: "Table 'users' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
   file: migrations/001.sql

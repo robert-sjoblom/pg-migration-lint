@@ -30,7 +30,7 @@ pub(super) const EXPLAIN: &str = "PGM002 — Missing CONCURRENTLY on DROP INDEX\
          \n\
          Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
          framework wraps each file in a transaction, you must disable that.\n\
-         See PGM006.";
+         See PGM003.";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -80,7 +80,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
-    use crate::rules::{MigrationRule, RuleId};
+    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -104,7 +104,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -130,7 +130,7 @@ mod tests {
                 .with_if_exists(false),
         ))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

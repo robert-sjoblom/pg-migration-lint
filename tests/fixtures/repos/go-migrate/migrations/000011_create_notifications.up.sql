@@ -1,5 +1,5 @@
--- PGM003: FK without index (on notification_preferences.user_id)
--- PGM007: Volatile default (on notifications.id)
+-- PGM501: FK without index (on notification_preferences.user_id)
+-- PGM006: Volatile default (on notifications.id)
 CREATE TABLE notifications (
     id UUID DEFAULT gen_random_uuid(),
     tenant_id BIGINT NOT NULL,

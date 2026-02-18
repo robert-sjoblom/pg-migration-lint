@@ -1,9 +1,8 @@
 ---
 source: tests/matrix.rs
-assertion_line: 461
 expression: findings
 ---
-- rule_id: PGM016
+- rule_id: PGM013
   severity: Critical
   message: "SET NOT NULL on column 'status' of existing table 'orders' requires an ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint with NOT VALID, validate it, then set NOT NULL."
   file: migrations/002.sql

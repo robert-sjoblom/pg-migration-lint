@@ -4,12 +4,12 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
 
     <!--
-        PGM010 VIOLATION: ADD COLUMN NOT NULL without a default value.
+        PGM008 VIOLATION: ADD COLUMN NOT NULL without a default value.
         Adding a NOT NULL column without a default to an existing table with rows
         may fail on PostgreSQL because existing rows might have no value.
     -->
 
-    <!-- NOT NULL column without default on existing table (PGM010) -->
+    <!-- NOT NULL column without default on existing table (PGM008) -->
     <changeSet id="008-add-region-to-accounts" author="bob">
         <addColumn tableName="accounts">
             <column name="region" type="VARCHAR(50)">
@@ -18,7 +18,7 @@
         </addColumn>
     </changeSet>
 
-    <!-- NOT NULL column WITH default on existing table (clean, no PGM010) -->
+    <!-- NOT NULL column WITH default on existing table (clean, no PGM008) -->
     <changeSet id="008-add-priority-to-orders" author="bob">
         <addColumn tableName="orders">
             <column name="priority" type="INT" defaultValueNumeric="0">
@@ -27,7 +27,7 @@
         </addColumn>
     </changeSet>
 
-    <!-- Another NOT NULL without default (PGM010) -->
+    <!-- Another NOT NULL without default (PGM008) -->
     <changeSet id="008-add-category-to-products" author="bob">
         <addColumn tableName="products">
             <column name="product_type" type="VARCHAR(100)">

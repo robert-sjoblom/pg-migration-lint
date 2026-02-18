@@ -4,7 +4,7 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
 
     <!--
-        PGM003 VIOLATION: Foreign key constraints without covering indexes.
+        PGM501 VIOLATION: Foreign key constraints without covering indexes.
         orders.user_id references users.id but there is no index on orders(user_id).
         orders.account_id has an index (idx_orders_account_id from 002), so that FK is safe.
     -->

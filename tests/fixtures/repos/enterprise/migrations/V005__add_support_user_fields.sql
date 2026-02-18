@@ -1,5 +1,5 @@
 -- Add support user fields to users table
--- Note: FK without covering index triggers PGM003
+-- Note: FK without covering index triggers PGM501
 
 ALTER TABLE users ADD COLUMN support_user_id bigint;
 ALTER TABLE users ADD COLUMN support_username varchar(100);

@@ -25,7 +25,7 @@
         </sql>
     </changeSet>
 
-    <!-- Raw SQL: Add a primary key to event_log (fixing PGM004 from earlier) -->
+    <!-- Raw SQL: Add a primary key to event_log (fixing PGM502 from earlier) -->
     <changeSet id="009-add-pk-to-event-log" author="charlie">
         <sql>
             ALTER TABLE event_log ADD PRIMARY KEY (event_id);

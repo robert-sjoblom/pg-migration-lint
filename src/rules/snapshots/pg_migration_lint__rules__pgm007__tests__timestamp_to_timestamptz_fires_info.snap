@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm007.rs
+expression: findings
+---
+- rule_id: PGM007
+  severity: Info
+  message: "Changing column type on existing table 'events' ('created_at': timestamp → timestamptz) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

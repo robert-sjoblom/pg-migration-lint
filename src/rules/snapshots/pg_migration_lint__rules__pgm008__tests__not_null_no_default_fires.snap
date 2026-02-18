@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm008.rs
+expression: findings
+---
+- rule_id: PGM008
+  severity: Critical
+  message: "Adding NOT NULL column 'status' to existing table 'orders' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

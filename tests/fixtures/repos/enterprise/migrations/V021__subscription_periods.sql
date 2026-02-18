@@ -1,5 +1,5 @@
 -- Subscription billing periods
--- Note: no PK (PGM004) and FK without covering index on subscription_id (PGM003)
+-- Note: no PK (PGM502) and FK without covering index on subscription_id (PGM501)
 
 CREATE TABLE subscription_periods (
     subscription_id uuid NOT NULL REFERENCES subscriptions(id),

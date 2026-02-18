@@ -31,7 +31,7 @@ pub(super) const EXPLAIN: &str = "PGM001 — Missing CONCURRENTLY on CREATE INDE
          \n\
          Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
          framework wraps each file in a transaction (e.g., Liquibase default),\n\
-         you must also disable that. See PGM006.\n\
+         you must also disable that. See PGM003.\n\
          \n\
          This rule does NOT fire when the table is created in the same set of\n\
          changed files, because locking an empty/new table is harmless.";
@@ -77,7 +77,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::*;
-    use crate::rules::{MigrationRule, RuleId};
+    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -103,7 +103,7 @@ mod tests {
             }]),
         ))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -130,7 +130,7 @@ mod tests {
             .with_concurrent(true),
         ))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -157,7 +157,7 @@ mod tests {
             }]),
         ))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

@@ -1,6 +1,5 @@
 ---
 source: tests/matrix.rs
-assertion_line: 562
 expression: findings
 ---
 - rule_id: PGM101

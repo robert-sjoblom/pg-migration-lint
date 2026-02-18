@@ -1,10 +1,9 @@
 ---
 source: src/output/text.rs
-assertion_line: 121
 expression: content
 ---
 CRITICAL PGM001 a.sql:1
   first finding
 
-MAJOR PGM003 b.sql:7
+MAJOR PGM501 b.sql:7
   second finding

@@ -1,5 +1,5 @@
 -- Add reseller order support
--- Note: reseller_orders has no PK (PGM004 violation)
+-- Note: reseller_orders has no PK (PGM502 violation)
 
 CREATE TABLE reseller_orders (
     order_id bigint NOT NULL REFERENCES orders(id),

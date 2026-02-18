@@ -37,48 +37,35 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 29 rules across two categories: migration safety rules (PGM001-PGM023) and PostgreSQL type anti-pattern rules (PGM101-PGM105, PGM108).
+pg-migration-lint ships with 29 rules across five categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
-### Migration Safety Rules
+### Unsafe DDL Rules (0xx)
 
 | Rule | Severity | Description | Example (bad) |
 |------|----------|-------------|---------------|
 | PGM001 | Critical | Missing `CONCURRENTLY` on `CREATE INDEX` | `CREATE INDEX idx_foo ON orders (status);` |
 | PGM002 | Critical | Missing `CONCURRENTLY` on `DROP INDEX` | `DROP INDEX idx_foo;` |
-| PGM003 | Major | Foreign key without covering index | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (customer_id) REFERENCES customers (id);` |
-| PGM004 | Major | Table without primary key | `CREATE TABLE events (name text, ts timestamptz);` |
-| PGM005 | Info | `UNIQUE NOT NULL` used instead of primary key | `CREATE TABLE t (id int NOT NULL UNIQUE);` |
-| PGM006 | Critical | `CONCURRENTLY` inside transaction | `CREATE INDEX CONCURRENTLY idx ON t (col);` inside a transactional changeset |
-| PGM007 | Minor | Volatile default on column | `ALTER TABLE t ADD COLUMN created_at timestamptz DEFAULT now();` |
-| PGM009 | Critical | `ALTER COLUMN TYPE` causing table rewrite | `ALTER TABLE orders ALTER COLUMN status TYPE int;` |
-| PGM010 | Critical | `ADD COLUMN NOT NULL` without default | `ALTER TABLE orders ADD COLUMN region text NOT NULL;` |
-| PGM011 | Info | `DROP COLUMN` on existing table | `ALTER TABLE orders DROP COLUMN legacy_col;` |
-| PGM012 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
-| PGM013 | Minor | `DROP COLUMN` silently removes unique constraint | `ALTER TABLE users DROP COLUMN email;` (where `email` has a UNIQUE constraint) |
-| PGM014 | Major | `DROP COLUMN` silently removes primary key | `ALTER TABLE orders DROP COLUMN id;` (where `id` is the PK) |
-| PGM015 | Minor | `DROP COLUMN` silently removes foreign key | `ALTER TABLE orders DROP COLUMN customer_id;` (where `customer_id` is an FK) |
-| PGM016 | Critical | `SET NOT NULL` requires ACCESS EXCLUSIVE lock | `ALTER TABLE orders ALTER COLUMN status SET NOT NULL;` |
-| PGM017 | Critical | `ADD FOREIGN KEY` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (cust_id) REFERENCES customers (id);` |
-| PGM018 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
-| PGM019 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
-| PGM020 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
-| PGM021 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
-| PGM022 | Minor | `DROP TABLE` on existing table | `DROP TABLE legacy_orders;` |
-| PGM023 | Minor | Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX` | `CREATE TABLE orders (id bigint PRIMARY KEY);` |
+| PGM003 | Critical | `CONCURRENTLY` inside transaction | `CREATE INDEX CONCURRENTLY idx ON t (col);` inside a transactional changeset |
+| PGM006 | Minor | Volatile default on column | `ALTER TABLE t ADD COLUMN created_at timestamptz DEFAULT now();` |
+| PGM007 | Critical | `ALTER COLUMN TYPE` causing table rewrite | `ALTER TABLE orders ALTER COLUMN status TYPE int;` |
+| PGM008 | Critical | `ADD COLUMN NOT NULL` without default | `ALTER TABLE orders ADD COLUMN region text NOT NULL;` |
+| PGM009 | Info | `DROP COLUMN` on existing table | `ALTER TABLE orders DROP COLUMN legacy_col;` |
+| PGM010 | Minor | `DROP COLUMN` silently removes unique constraint | `ALTER TABLE users DROP COLUMN email;` (where `email` has a UNIQUE constraint) |
+| PGM011 | Major | `DROP COLUMN` silently removes primary key | `ALTER TABLE orders DROP COLUMN id;` (where `id` is the PK) |
+| PGM012 | Minor | `DROP COLUMN` silently removes foreign key | `ALTER TABLE orders DROP COLUMN customer_id;` (where `customer_id` is an FK) |
+| PGM013 | Critical | `SET NOT NULL` requires ACCESS EXCLUSIVE lock | `ALTER TABLE orders ALTER COLUMN status SET NOT NULL;` |
+| PGM014 | Critical | `ADD FOREIGN KEY` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (cust_id) REFERENCES customers (id);` |
+| PGM015 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
+| PGM016 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
+| PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 
-PGM003 and PGM004 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives.
+PGM013, PGM014, and PGM015 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
 
-PGM016, PGM017, and PGM018 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
+PGM017 follows the same pattern as PGM016: create the unique index `CONCURRENTLY` first, then use `ADD CONSTRAINT ... UNIQUE USING INDEX` to promote it. This avoids a full table scan under an `ACCESS EXCLUSIVE` lock.
 
-PGM019 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
-
-PGM021 follows the same pattern as PGM012: create the unique index `CONCURRENTLY` first, then use `ADD CONSTRAINT ... UNIQUE USING INDEX` to promote it. This avoids a full table scan under an `ACCESS EXCLUSIVE` lock.
-
-PGM022 only fires on tables that existed before the current set of changed files. Dropping a table created in the same changeset is harmless.
-
-### PostgreSQL "Don't Do This" Rules
+### Type Anti-pattern Rules (1xx)
 
 These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.postgresql.org/wiki/Don%27t_Do_This) page. They detect type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
 
@@ -89,9 +76,38 @@ These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.
 | PGM103 | Minor | Don't use `char(n)` | `CREATE TABLE t (code char(3));` |
 | PGM104 | Minor | Don't use the `money` type | `CREATE TABLE t (price money);` |
 | PGM105 | Info | Don't use `serial` / `bigserial` | `CREATE TABLE t (id serial PRIMARY KEY);` |
-| PGM108 | Minor | Don't use `json` (use `jsonb`) | `CREATE TABLE t (data json);` |
+| PGM106 | Minor | Don't use `json` (use `jsonb`) | `CREATE TABLE t (data json);` |
 
-### Meta-behavior Rules
+### Destructive Operation Rules (2xx)
+
+| Rule | Severity | Description | Example (bad) |
+|------|----------|-------------|---------------|
+| PGM201 | Minor | `DROP TABLE` on existing table | `DROP TABLE legacy_orders;` |
+
+PGM201 only fires on tables that existed before the current set of changed files. Dropping a table created in the same changeset is harmless.
+
+### Idempotency Guard Rules (4xx)
+
+| Rule | Severity | Description | Example (bad) |
+|------|----------|-------------|---------------|
+| PGM401 | Minor | Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX` | `DROP TABLE orders;` |
+| PGM402 | Minor | Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX` | `CREATE TABLE orders (id bigint PRIMARY KEY);` |
+
+### Schema Design Rules (5xx)
+
+| Rule | Severity | Description | Example (bad) |
+|------|----------|-------------|---------------|
+| PGM501 | Major | Foreign key without covering index | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (customer_id) REFERENCES customers (id);` |
+| PGM502 | Major | Table without primary key | `CREATE TABLE events (name text, ts timestamptz);` |
+| PGM503 | Info | `UNIQUE NOT NULL` used instead of primary key | `CREATE TABLE t (id int NOT NULL UNIQUE);` |
+| PGM504 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
+| PGM505 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
+
+PGM501 and PGM502 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives.
+
+PGM504 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
+
+### Meta-behavior Rules (9xx)
 
 The 9xx range is reserved for meta-behaviors that modify how other rules operate. These are not standalone lint rules.
 
@@ -322,14 +338,14 @@ CREATE INDEX idx_foo ON bar (col);
 **Suppress multiple rules on the next statement:**
 
 ```sql
--- pgm-lint:suppress PGM001,PGM003
+-- pgm-lint:suppress PGM001,PGM501
 CREATE INDEX idx_foo ON bar (col);
 ```
 
 **Suppress rules for the entire file** (must appear before any SQL statements):
 
 ```sql
--- pgm-lint:suppress-file PGM001,PGM003
+-- pgm-lint:suppress-file PGM001,PGM501
 ```
 
 ### Liquibase XML files
@@ -346,7 +362,7 @@ The same directives work inside XML comments:
 ```
 
 ```xml
-<!-- pgm-lint:suppress-file PGM001,PGM003 -->
+<!-- pgm-lint:suppress-file PGM001,PGM501 -->
 ```
 
 Only single-line XML comments are recognized. Multi-line `<!-- ... -->` comments spanning multiple lines are not parsed for directives.

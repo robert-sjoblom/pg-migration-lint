@@ -1,37 +1,43 @@
-//! PGM014 — `DROP COLUMN` silently removes primary key
+//! PGM014 — ADD FOREIGN KEY on existing table without NOT VALID
 //!
-//! Detects `ALTER TABLE ... DROP COLUMN col` where `col` participates in the
-//! table's primary key (in `catalog_before`). Dropping a PK column (with
-//! `CASCADE`) silently removes the primary key constraint. The table loses its
-//! row identity, which affects replication, ORMs, query planning, and data
-//! integrity.
+//! Detects adding FK constraints without NOT VALID to tables that already
+//! exist. The safe pattern is ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT.
 
-use crate::catalog::types::ConstraintState;
-use crate::parser::ir::{AlterTableAction, IrNode, Located};
+use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes primary key";
+pub(super) const DESCRIPTION: &str = "ADD FOREIGN KEY on existing table without NOT VALID";
 
-pub(super) const EXPLAIN: &str = "PGM014 — DROP COLUMN silently removes primary key\n\
+pub(super) const EXPLAIN: &str = "PGM014 — ADD FOREIGN KEY on existing table without NOT VALID\n\
          \n\
          What it detects:\n\
-         ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
-         in the table's primary key constraint.\n\
+         ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table\n\
+         already exists and the constraint does not include NOT VALID.\n\
          \n\
-         Why it matters:\n\
-         Dropping a PK column (with CASCADE) silently removes the primary key\n\
-         constraint. The table loses its row identity, which affects replication,\n\
-         ORMs, query planning, and data integrity.\n\
+         Why it's dangerous:\n\
+         Adding a foreign key constraint without NOT VALID causes PostgreSQL\n\
+         to immediately validate all existing rows. This acquires a SHARE\n\
+         ROW EXCLUSIVE lock on the table and performs a full table scan, blocking\n\
+         concurrent data modifications for the duration. On large tables this can\n\
+         cause significant downtime.\n\
+         \n\
+         Safe alternative:\n\
+         Add the constraint with NOT VALID first, then validate it in a\n\
+         separate statement. VALIDATE CONSTRAINT only requires a SHARE\n\
+         UPDATE EXCLUSIVE lock, which allows concurrent reads and writes.\n\
          \n\
          Example (bad):\n\
-           -- Table has PRIMARY KEY (id)\n\
-           ALTER TABLE orders DROP COLUMN id;\n\
-           -- The primary key constraint is silently removed.\n\
+           ALTER TABLE orders\n\
+             ADD CONSTRAINT fk_customer\n\
+             FOREIGN KEY (customer_id) REFERENCES customers (id);\n\
          \n\
-         Fix:\n\
-         Add a new primary key on the remaining columns before or after\n\
-         dropping the column, or reconsider whether the column drop is\n\
-         necessary.";
+         Fix (safe pattern):\n\
+           ALTER TABLE orders\n\
+             ADD CONSTRAINT fk_customer\n\
+             FOREIGN KEY (customer_id) REFERENCES customers (id)\n\
+             NOT VALID;\n\
+           ALTER TABLE orders\n\
+             VALIDATE CONSTRAINT fk_customer;";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -41,38 +47,28 @@ pub(super) fn check(
     alter_table_check::check_alter_actions(
         statements,
         ctx,
-        TableScope::AnyPreExisting,
+        TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
-
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
-
-            let mut findings = Vec::new();
-
-            // Check PrimaryKey constraints that include this column.
-            for constraint in table.constraints_involving_column(name) {
-                if let ConstraintState::PrimaryKey { .. } = constraint {
-                    findings.push(rule.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' \
-                             silently removes the primary key. The table will \
-                             have no row identity. Add a new primary key or \
-                             reconsider the column drop.",
-                            col = name,
-                            table = at.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
-                }
+            if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
+                not_valid: false,
+                ..
+            }) = action
+            {
+                vec![rule.make_finding(
+                    format!(
+                        "Adding FOREIGN KEY constraint on existing table '{}' \
+                         without NOT VALID will scan the entire table while \
+                         holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT \
+                         ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
+                         statement.",
+                        at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
             }
-
-            findings
         },
     )
 }
@@ -84,220 +80,116 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{MigrationRule, RuleId};
+    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
+    /// Helper to build an ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY statement.
+    fn add_fk_stmt(table: &str, not_valid: bool) -> Located<IrNode> {
+        located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified(table),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid,
+                },
+            )],
+        }))
+    }
+
     #[test]
-    fn test_drop_pk_column_fires() {
+    fn test_fires_on_existing_table_without_not_valid() {
         let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .column("status", "text", true)
-                    .pk(&["id"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "id".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_fires_even_when_table_in_created_set() {
-        let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .column("status", "text", true)
-                    .pk(&["id"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/025.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string()); // table was created in an earlier changed file
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "id".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(
-            findings[0].rule_id,
-            RuleId::Migration(MigrationRule::Pgm014)
-        );
-    }
-
-    #[test]
-    fn test_drop_column_from_multi_column_pk_fires() {
-        let before = CatalogBuilder::new()
-            .table("order_items", |t| {
-                t.column("a", "integer", false)
-                    .column("b", "integer", false)
-                    .column("value", "text", true)
-                    .pk(&["a", "b"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("order_items"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "a".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_drop_non_pk_column_no_finding() {
-        let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .column("name", "text", true)
-                    .pk(&["id"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "name".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_table_not_in_catalog_before_no_finding() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("nonexistent"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "col".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_table_without_pk_drop_column_no_finding() {
-        let before = CatalogBuilder::new()
-            .table("events", |t| {
-                t.column("id", "integer", false)
-                    .column("payload", "text", true);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("events"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "id".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_drop_pk_column_created_via_using_index_fires() {
-        // PK was created via ADD PRIMARY KEY USING INDEX — replay resolves
-        // the index columns into the constraint so DROP COLUMN detects it.
-        use crate::catalog::replay::apply;
-        use crate::input::MigrationUnit;
-
-        // Step 1: build a table with an index (no PK yet).
-        let mut catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "bigint", false)
-                    .column("status", "text", true)
-                    .index("idx_orders_pk", &["id"], true);
+                    .column("customer_id", "bigint", true);
             })
             .build();
-
-        // Step 2: replay ADD PRIMARY KEY USING INDEX to get resolved columns.
-        let unit = MigrationUnit {
-            id: "add_pk".to_string(),
-            statements: vec![Located {
-                node: IrNode::AlterTable(AlterTable {
-                    name: QualifiedName::unqualified("orders"),
-                    actions: vec![AlterTableAction::AddConstraint(
-                        TableConstraint::PrimaryKey {
-                            columns: vec![], // empty with USING INDEX
-                            using_index: Some("idx_orders_pk".to_string()),
-                        },
-                    )],
-                }),
-                span: SourceSpan {
-                    start_line: 1,
-                    end_line: 1,
-                    start_offset: 0,
-                    end_offset: 0,
-                },
-            }],
-            source_file: PathBuf::from("migrations/001.sql"),
-            source_line_offset: 1,
-            run_in_transaction: true,
-            is_down: false,
-        };
-        apply(&mut catalog, &unit);
-
-        let before = catalog;
         let after = before.clone();
         let file = PathBuf::from("migrations/002.sql");
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "id".to_string(),
-            }],
-        }))];
+        let stmts = vec![add_fk_stmt("orders", false)];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm014).check(&stmts, &ctx);
-        assert_eq!(
-            findings.len(),
-            1,
-            "Should detect PK removal even when PK was created via USING INDEX"
-        );
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_no_finding_when_not_valid_is_true() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("customer_id", "bigint", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_fk_stmt("orders", true)];
+
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_no_finding_on_new_table() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("customer_id", "bigint", true);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let mut created = HashSet::new();
+        created.insert("orders".to_string());
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_fk_stmt("orders", false)];
+
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_no_finding_when_fk_in_create_table() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("customer_id", "bigint", true);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        // FK inside a CreateTable, not an AlterTable
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders"))
+                .with_columns(vec![
+                    ColumnDef::test("id", "bigint")
+                        .with_nullable(false)
+                        .with_inline_pk(),
+                    ColumnDef::test("customer_id", "bigint"),
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }]),
+        ))];
+
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        assert!(findings.is_empty());
     }
 }

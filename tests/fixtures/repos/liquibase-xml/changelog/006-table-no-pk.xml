@@ -4,7 +4,7 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
 
     <!--
-        PGM004 VIOLATION: Tables created without primary keys.
+        PGM502 VIOLATION: Tables created without primary keys.
     -->
 
     <!-- Event log table without PK -->
@@ -43,7 +43,7 @@
             </column>
         </createTable>
 
-        <!-- FK on subscription_invoices without covering index -> also PGM003 -->
+        <!-- FK on subscription_invoices without covering index -> also PGM501 -->
         <addForeignKeyConstraint constraintName="fk_subscription_invoices_subscription"
                                  baseTableName="subscription_invoices"
                                  baseColumnNames="subscription_id"
