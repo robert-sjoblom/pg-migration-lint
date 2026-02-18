@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.3.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.2...v2.3.0) (2026-02-18)
+
+
+### Features
+
+* **rules:** add PGM202 — DROP TABLE CASCADE on existing table ([fd75c6e](https://github.com/robert-sjoblom/pg-migration-lint/commit/fd75c6ee397dc6d80a79a0e04a71178346fae7a5))
+
 ## [2.2.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.2.1...v2.2.2) (2026-02-18)
 
 
