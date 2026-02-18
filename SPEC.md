@@ -399,6 +399,30 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (no known FK deps)**: `DROP TABLE CASCADE on '{table}' will silently drop all dependent objects (views, foreign keys, triggers). Review dependencies before proceeding.`
 - **Message (with FK deps)**: `DROP TABLE CASCADE on '{table}' will silently drop dependent objects. Known FK dependencies from: {dep_tables}.`
 
+#### PGM203 — `TRUNCATE TABLE` on existing table
+
+- **Severity**: MINOR
+- **Status**: Implemented.
+- **Triggers**: `TRUNCATE TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: `TRUNCATE` is instant DDL that does not scan rows and does not fire row-level `ON DELETE` triggers. All data in the table is permanently destroyed.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+- **Message**: `TRUNCATE TABLE '{table}' removes all rows from an existing table. This is irreversible and does not fire ON DELETE triggers.`
+
+#### PGM204 — `TRUNCATE TABLE ... CASCADE` on existing table
+
+- **Severity**: MAJOR
+- **Status**: Implemented.
+- **Triggers**: `TRUNCATE TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: `TRUNCATE CASCADE` automatically extends the truncate to all tables with FK references to the target table, recursively. The developer may not be aware of the full cascade chain.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - `TRUNCATE` without `CASCADE` (handled by PGM203)
+- **Message (no known FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
+- **Message (with FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Known FK dependencies from: {dep_tables}.`
+
 #### PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 
 - **Severity**: MINOR

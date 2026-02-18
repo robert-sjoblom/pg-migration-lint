@@ -2175,13 +2175,14 @@ fn test_bridge_lint_008_only() {
 }
 
 // ---------------------------------------------------------------------------
-// Bridge: Lint only 010 changesets (drop index / drop table without IF EXISTS)
+// Bridge: Lint only 010 changesets (drop index / drop table / truncate)
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "bridge-tests")]
 #[test]
 fn test_bridge_lint_010_only() {
     let mut findings = lint_via_bridge(&[
+        "010-truncate-event-log",
         "010-drop-unused-indexes",
         "010-drop-event-log",
         "010-drop-index-if-exists",
@@ -2199,6 +2200,34 @@ fn test_bridge_lint_010_only() {
         2,
         "Expected exactly 2 PGM401 findings (DROP INDEX + DROP TABLE without IF EXISTS).\n\
          The IF EXISTS variants must NOT fire.\nAll findings: {:?}",
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
+    );
+
+    // TRUNCATE TABLE event_log CASCADE should trigger PGM203 + PGM204
+    let pgm203: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM203")
+        .collect();
+    assert_eq!(
+        pgm203.len(),
+        1,
+        "Expected exactly 1 PGM203 finding (TRUNCATE TABLE on existing table).\nAll findings: {:?}",
+        findings
+            .iter()
+            .map(|f| format!("{}: {}", f.rule_id, f.message))
+            .collect::<Vec<_>>()
+    );
+    let pgm204: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id.as_str() == "PGM204")
+        .collect();
+    assert_eq!(
+        pgm204.len(),
+        1,
+        "Expected exactly 1 PGM204 finding (TRUNCATE TABLE CASCADE on existing table).\nAll findings: {:?}",
         findings
             .iter()
             .map(|f| format!("{}: {}", f.rule_id, f.message))

@@ -45,6 +45,9 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
         IrNode::DropTable(dt) => {
             dt.name.set_default_schema(default_schema);
         }
+        IrNode::TruncateTable(tt) => {
+            tt.name.set_default_schema(default_schema);
+        }
         IrNode::Unparseable { table_hint, .. } => {
             if let Some(hint) = table_hint
                 && !hint.contains('.')
@@ -363,6 +366,21 @@ mod tests {
             assert_eq!(name.catalog_key(), "public.orders");
         } else {
             panic!("Expected RenameTable");
+        }
+    }
+
+    #[test]
+    fn test_normalize_truncate_table_name() {
+        let mut units = vec![make_unit(vec![
+            TruncateTable::test(QualifiedName::unqualified("orders")).into(),
+        ])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::TruncateTable(tt) = &units[0].statements[0].node {
+            assert_eq!(tt.name.catalog_key(), "public.orders");
+        } else {
+            panic!("Expected TruncateTable");
         }
     }
 

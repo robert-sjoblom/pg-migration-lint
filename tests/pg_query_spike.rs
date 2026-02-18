@@ -423,3 +423,25 @@ fn spike_ignored_statements() {
         }
     }
 }
+
+#[test]
+fn spike_truncate_stmt() {
+    let sqls = [
+        "TRUNCATE TABLE audit_trail;",
+        "TRUNCATE TABLE audit_trail CASCADE;",
+        "TRUNCATE TABLE t1, t2, t3 CASCADE;",
+    ];
+
+    for sql in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        println!("\n=== {} ===", sql);
+        println!("{:#?}", stmt);
+    }
+}
