@@ -6,23 +6,23 @@ expression: findings
   severity: Critical
   message: "DROP INDEX 'idx_products_name_article' on existing table 'products' should use CONCURRENTLY to avoid holding an exclusive lock."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM201
   severity: Minor
   message: "DROP TABLE 'event_log' removes an existing table. This is irreversible and all data will be lost."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 12
+  end_line: 12
 - rule_id: PGM401
   severity: Minor
   message: "DROP INDEX 'idx_products_name_article': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM401
   severity: Minor
   message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 12
+  end_line: 12

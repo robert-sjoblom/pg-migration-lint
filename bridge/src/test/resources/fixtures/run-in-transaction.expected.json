@@ -4,7 +4,7 @@
     "author": "alice",
     "sql": "CREATE TABLE t1 (id INTEGER NOT NULL, CONSTRAINT t1_pkey PRIMARY KEY (id));",
     "xml_file": "run-in-transaction.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -12,7 +12,7 @@
     "author": "alice",
     "sql": "CREATE INDEX CONCURRENTLY idx_t1_id ON t1 (id);",
     "xml_file": "run-in-transaction.xml",
-    "xml_line": 1,
+    "xml_line": 15,
     "run_in_transaction": false
   }
 ]

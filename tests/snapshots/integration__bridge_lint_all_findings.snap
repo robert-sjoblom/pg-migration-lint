@@ -6,233 +6,233 @@ expression: findings
   severity: Minor
   message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'accounts' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 26
+  end_line: 26
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 45
+  end_line: 45
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM101
   severity: Minor
   message: "Column 'updated' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'order_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 32
+  end_line: 32
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'subscription_items' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 63
+  end_line: 63
 - rule_id: PGM101
   severity: Minor
   message: "Column 'created' on 'event_log' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11
 - rule_id: PGM101
   severity: Minor
   message: "Column 'processed_at' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 011-dont-do-this-types.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM103
   severity: Minor
   message: "Column 'region_code' on 'accounts' uses 'char(3)'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead."
   file: 011-dont-do-this-types.xml
-  start_line: 1
-  end_line: 1
+  start_line: 14
+  end_line: 14
 - rule_id: PGM106
   severity: Minor
   message: "Column 'price_structure' on 'products' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 64
+  end_line: 64
 - rule_id: PGM401
   severity: Minor
   message: "DROP INDEX 'idx_products_name_article': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM401
   severity: Minor
   message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 1
-  end_line: 1
+  start_line: 12
+  end_line: 12
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'accounts': add IF NOT EXISTS for idempotent migrations."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 26
+  end_line: 26
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 45
+  end_line: 45
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
   file: 001-base-tables.xml
-  start_line: 1
-  end_line: 1
+  start_line: 64
+  end_line: 64
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 7
+  end_line: 7
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'order_actions': add IF NOT EXISTS for idempotent migrations."
   file: 002-orders.xml
-  start_line: 1
-  end_line: 1
-- rule_id: PGM402
-  severity: Minor
-  message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
-  file: 002-orders.xml
-  start_line: 1
-  end_line: 1
+  start_line: 32
+  end_line: 32
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_order_actions_order_id': add IF NOT EXISTS for idempotent migrations."
   file: 002-orders.xml
-  start_line: 2
-  end_line: 2
-- rule_id: PGM402
-  severity: Minor
-  message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
-  file: 002-orders.xml
-  start_line: 2
-  end_line: 2
+  start_line: 33
+  end_line: 33
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_orders_account_id': add IF NOT EXISTS for idempotent migrations."
   file: 002-orders.xml
-  start_line: 3
-  end_line: 3
+  start_line: 34
+  end_line: 34
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
+  file: 002-orders.xml
+  start_line: 63
+  end_line: 63
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
+  file: 002-orders.xml
+  start_line: 64
+  end_line: 64
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_users_email': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 13
+  end_line: 13
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_subscriptions_account_id': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 19
+  end_line: 19
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_products_name_article': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 26
+  end_line: 26
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 27
+  end_line: 27
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'price_plans': add IF NOT EXISTS for idempotent migrations."
   file: 007-volatile-defaults.xml
-  start_line: 1
-  end_line: 1
+  start_line: 15
+  end_line: 15
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'price_plan_products': add IF NOT EXISTS for idempotent migrations."
   file: 007-volatile-defaults.xml
-  start_line: 1
-  end_line: 1
+  start_line: 40
+  end_line: 40
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_users_display_name': add IF NOT EXISTS for idempotent migrations."
   file: 012-suppressed.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'suppressed_audit': add IF NOT EXISTS for idempotent migrations."
   file: 012-suppressed.xml
-  start_line: 1
-  end_line: 1
+  start_line: 21
+  end_line: 21
 - rule_id: PGM403
   severity: Minor
   message: "CREATE TABLE IF NOT EXISTS 'users' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading."
   file: 013-if-not-exists.xml
-  start_line: 1
-  end_line: 1
+  start_line: 12
+  end_line: 12
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
   file: 005-add-fk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 13
+  end_line: 13
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
   file: 006-table-no-pk.xml
-  start_line: 2
-  end_line: 2
+  start_line: 28
+  end_line: 28
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'price_plan_products(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
   file: 007-volatile-defaults.xml
-  start_line: 2
-  end_line: 2
+  start_line: 41
+  end_line: 41
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'price_plan_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
   file: 007-volatile-defaults.xml
-  start_line: 3
-  end_line: 3
+  start_line: 42
+  end_line: 42
 - rule_id: PGM502
   severity: Major
   message: "Table 'subscription_invoices' has no primary key."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 27
+  end_line: 27
 - rule_id: PGM503
   severity: Info
   message: "Table 'event_log' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11

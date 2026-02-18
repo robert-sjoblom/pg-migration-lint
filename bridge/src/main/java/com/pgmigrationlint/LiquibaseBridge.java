@@ -17,9 +17,13 @@ import liquibase.sqlgenerator.SqlGeneratorFactory;
 import liquibase.statement.SqlStatement;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Minimal CLI that embeds Liquibase and produces JSON output mapping changesets
@@ -148,7 +152,43 @@ public class LiquibaseBridge {
                 + " changeset(s) skipped due to SQL generation errors");
         }
 
+        resolveXmlLineNumbers(entries, resourceRoot);
+
         return entries;
+    }
+
+    /**
+     * Post-process entries to resolve XML line numbers by scanning the source files
+     * for changeset ID attributes. Falls back to line 1 if the file cannot be read
+     * or the changeset ID is not found.
+     */
+    static void resolveXmlLineNumbers(List<ChangesetEntry> entries, Path resourceRoot) {
+        // Group entries by xml_file to avoid re-reading the same file
+        Map<String, List<ChangesetEntry>> byFile = new HashMap<>();
+        for (ChangesetEntry entry : entries) {
+            byFile.computeIfAbsent(entry.xml_file, k -> new ArrayList<>()).add(entry);
+        }
+
+        for (Map.Entry<String, List<ChangesetEntry>> group : byFile.entrySet()) {
+            Path filePath = resourceRoot.resolve(group.getKey());
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(filePath);
+            } catch (IOException e) {
+                // Can't read the file; leave all entries at default (1)
+                continue;
+            }
+
+            for (ChangesetEntry entry : group.getValue()) {
+                String needle = "id=\"" + entry.changeset_id + "\"";
+                for (int i = 0; i < lines.size(); i++) {
+                    if (lines.get(i).contains(needle)) {
+                        entry.xml_line = i + 1; // 1-based
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     /**

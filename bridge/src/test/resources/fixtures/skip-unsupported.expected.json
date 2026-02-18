@@ -4,7 +4,7 @@
     "author": "alice",
     "sql": "CREATE TABLE before_skip (id INTEGER NOT NULL, CONSTRAINT before_skip_pkey PRIMARY KEY (id));",
     "xml_file": "skip-unsupported.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -12,7 +12,7 @@
     "author": "alice",
     "sql": "CREATE TABLE after_skip (id INTEGER NOT NULL, CONSTRAINT after_skip_pkey PRIMARY KEY (id));",
     "xml_file": "skip-unsupported.xml",
-    "xml_line": 1,
+    "xml_line": 22,
     "run_in_transaction": true
   }
 ]

@@ -6,11 +6,11 @@ expression: findings
   severity: Critical
   message: "Adding NOT NULL column 'region' to existing table 'accounts' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
   file: 008-add-not-null.xml
-  start_line: 1
-  end_line: 1
+  start_line: 13
+  end_line: 13
 - rule_id: PGM008
   severity: Critical
   message: "Adding NOT NULL column 'product_type' to existing table 'products' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
   file: 008-add-not-null.xml
-  start_line: 1
-  end_line: 1
+  start_line: 31
+  end_line: 31

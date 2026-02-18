@@ -4,7 +4,7 @@
     "author": "alice",
     "sql": "CREATE TABLE orders (id BIGINT NOT NULL, customer_id BIGINT NOT NULL, CONSTRAINT orders_pkey PRIMARY KEY (id));\nCREATE INDEX idx_orders_customer ON orders(customer_id);",
     "xml_file": "multi-change-changeset.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   }
 ]

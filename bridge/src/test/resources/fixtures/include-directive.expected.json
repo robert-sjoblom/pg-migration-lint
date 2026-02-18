@@ -4,7 +4,7 @@
     "author": "alice",
     "sql": "CREATE TABLE parent_table (id BIGINT NOT NULL, CONSTRAINT parent_table_pkey PRIMARY KEY (id));",
     "xml_file": "include-directive.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -12,7 +12,7 @@
     "author": "bob",
     "sql": "CREATE TABLE child_table (id BIGINT NOT NULL, parent_id BIGINT NOT NULL, CONSTRAINT child_table_pkey PRIMARY KEY (id));",
     "xml_file": "include-child.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   }
 ]

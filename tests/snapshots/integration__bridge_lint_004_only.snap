@@ -6,35 +6,35 @@ expression: findings
   severity: Critical
   message: "CREATE INDEX on existing table 'users' should use CONCURRENTLY to avoid holding an exclusive lock."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 13
+  end_line: 13
 - rule_id: PGM001
   severity: Critical
   message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 19
+  end_line: 19
 - rule_id: PGM001
   severity: Critical
   message: "CREATE INDEX on existing table 'products' should use CONCURRENTLY to avoid holding an exclusive lock."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 26
+  end_line: 26
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_users_email': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 13
+  end_line: 13
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_subscriptions_account_id': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 19
+  end_line: 19
 - rule_id: PGM402
   severity: Minor
   message: "CREATE INDEX 'idx_products_name_article': add IF NOT EXISTS for idempotent migrations."
   file: 004-create-indexes.xml
-  start_line: 1
-  end_line: 1
+  start_line: 26
+  end_line: 26

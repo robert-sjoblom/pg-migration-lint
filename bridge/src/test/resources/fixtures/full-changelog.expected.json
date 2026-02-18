@@ -4,7 +4,7 @@
     "author": "alice",
     "sql": "CREATE TABLE users (id BIGINT NOT NULL, display_name VARCHAR(100), username VARCHAR(100) NOT NULL, email VARCHAR(255) NOT NULL, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, CONSTRAINT users_pkey PRIMARY KEY (id), UNIQUE (username));",
     "xml_file": "001-base-tables.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -12,7 +12,7 @@
     "author": "alice",
     "sql": "CREATE TABLE accounts (id BIGINT NOT NULL, name VARCHAR(200) NOT NULL, org_number VARCHAR(20), status VARCHAR(50) NOT NULL, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, CONSTRAINT accounts_pkey PRIMARY KEY (id));",
     "xml_file": "001-base-tables.xml",
-    "xml_line": 1,
+    "xml_line": 26,
     "run_in_transaction": true
   },
   {
@@ -20,7 +20,7 @@
     "author": "alice",
     "sql": "CREATE TABLE subscriptions (id UUID NOT NULL, account_id BIGINT NOT NULL, status VARCHAR(50) NOT NULL, payer_account_id BIGINT, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, CONSTRAINT subscriptions_pkey PRIMARY KEY (id));",
     "xml_file": "001-base-tables.xml",
-    "xml_line": 1,
+    "xml_line": 45,
     "run_in_transaction": true
   },
   {
@@ -28,7 +28,7 @@
     "author": "alice",
     "sql": "CREATE TABLE products (id INTEGER NOT NULL, name VARCHAR(1000) NOT NULL, article_number VARCHAR(100) NOT NULL, description VARCHAR(10000) NOT NULL, price_structure JSON NOT NULL, max_amount INTEGER, enabled BOOLEAN NOT NULL, CONSTRAINT products_pkey PRIMARY KEY (id), UNIQUE (name));",
     "xml_file": "001-base-tables.xml",
-    "xml_line": 1,
+    "xml_line": 64,
     "run_in_transaction": true
   },
   {
@@ -36,7 +36,7 @@
     "author": "bob",
     "sql": "CREATE TABLE orders (id BIGINT NOT NULL, account_id BIGINT NOT NULL, user_id BIGINT, order_type VARCHAR(50) NOT NULL, status VARCHAR(50) NOT NULL, products JSONB, notes TEXT, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, updated TIMESTAMP(6) WITHOUT TIME ZONE, CONSTRAINT orders_pkey PRIMARY KEY (id));",
     "xml_file": "002-orders.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -44,7 +44,7 @@
     "author": "bob",
     "sql": "CREATE TABLE order_actions (id UUID NOT NULL, order_id BIGINT NOT NULL, action_type VARCHAR(50) NOT NULL, status VARCHAR(50) NOT NULL, result VARCHAR(50), performed_by BIGINT, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, CONSTRAINT order_actions_pkey PRIMARY KEY (id));\nCREATE INDEX idx_order_actions_order_id ON order_actions(order_id);\nCREATE INDEX idx_orders_account_id ON orders(account_id);",
     "xml_file": "002-orders.xml",
-    "xml_line": 1,
+    "xml_line": 32,
     "run_in_transaction": true
   },
   {
@@ -52,7 +52,7 @@
     "author": "bob",
     "sql": "CREATE TABLE subscription_items (id UUID NOT NULL, subscription_id UUID NOT NULL, product_id BIGINT, status VARCHAR(50) NOT NULL, quantity INTEGER NOT NULL, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, CONSTRAINT subscription_items_pkey PRIMARY KEY (id));\nCREATE INDEX idx_subscription_items_subscription ON subscription_items(subscription_id);\nALTER TABLE subscription_items ADD CONSTRAINT fk_subscription_items_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions (id);",
     "xml_file": "002-orders.xml",
-    "xml_line": 1,
+    "xml_line": 63,
     "run_in_transaction": true
   },
   {
@@ -60,7 +60,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE orders ADD invoice_reference VARCHAR(100);\nALTER TABLE orders ADD your_reference VARCHAR(200);\nALTER TABLE orders ADD delivery_address TEXT;",
     "xml_file": "003-add-columns.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -68,7 +68,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE accounts ADD billing_email VARCHAR(255);\nALTER TABLE accounts ADD phone VARCHAR(50);\nALTER TABLE accounts ADD country_code VARCHAR(3) DEFAULT \u0027SE\u0027;",
     "xml_file": "003-add-columns.xml",
-    "xml_line": 1,
+    "xml_line": 16,
     "run_in_transaction": true
   },
   {
@@ -76,7 +76,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE subscriptions ADD subscription_type VARCHAR(50);",
     "xml_file": "003-add-columns.xml",
-    "xml_line": 1,
+    "xml_line": 25,
     "run_in_transaction": true
   },
   {
@@ -84,7 +84,7 @@
     "author": "alice",
     "sql": "CREATE INDEX idx_users_email ON users(email);",
     "xml_file": "004-create-indexes.xml",
-    "xml_line": 1,
+    "xml_line": 13,
     "run_in_transaction": true
   },
   {
@@ -92,7 +92,7 @@
     "author": "alice",
     "sql": "CREATE INDEX idx_subscriptions_account_id ON subscriptions(account_id);",
     "xml_file": "004-create-indexes.xml",
-    "xml_line": 1,
+    "xml_line": 19,
     "run_in_transaction": true
   },
   {
@@ -100,7 +100,7 @@
     "author": "alice",
     "sql": "CREATE INDEX idx_products_name_article ON products(name, article_number);",
     "xml_file": "004-create-indexes.xml",
-    "xml_line": 1,
+    "xml_line": 26,
     "run_in_transaction": true
   },
   {
@@ -108,7 +108,7 @@
     "author": "bob",
     "sql": "ALTER TABLE orders ADD CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id);",
     "xml_file": "005-add-fk.xml",
-    "xml_line": 1,
+    "xml_line": 13,
     "run_in_transaction": true
   },
   {
@@ -116,7 +116,7 @@
     "author": "bob",
     "sql": "ALTER TABLE subscriptions ADD CONSTRAINT fk_subscriptions_account FOREIGN KEY (account_id) REFERENCES accounts (id);",
     "xml_file": "005-add-fk.xml",
-    "xml_line": 1,
+    "xml_line": 22,
     "run_in_transaction": true
   },
   {
@@ -124,7 +124,7 @@
     "author": "bob",
     "sql": "ALTER TABLE orders ADD CONSTRAINT fk_orders_account FOREIGN KEY (account_id) REFERENCES accounts (id);",
     "xml_file": "005-add-fk.xml",
-    "xml_line": 1,
+    "xml_line": 31,
     "run_in_transaction": true
   },
   {
@@ -132,7 +132,7 @@
     "author": "charlie",
     "sql": "CREATE TABLE event_log (event_id UUID NOT NULL, event_type VARCHAR(100) NOT NULL, payload JSONB, created TIMESTAMP(6) WITHOUT TIME ZONE NOT NULL, UNIQUE (event_id));",
     "xml_file": "006-table-no-pk.xml",
-    "xml_line": 1,
+    "xml_line": 11,
     "run_in_transaction": true
   },
   {
@@ -140,7 +140,7 @@
     "author": "charlie",
     "sql": "CREATE TABLE subscription_invoices (subscription_id UUID NOT NULL, invoiced_from date NOT NULL, invoiced_until date NOT NULL, invoice_id VARCHAR(19) NOT NULL, invoice_total numeric(12, 2) NOT NULL);\nALTER TABLE subscription_invoices ADD CONSTRAINT fk_subscription_invoices_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions (id);",
     "xml_file": "006-table-no-pk.xml",
-    "xml_line": 1,
+    "xml_line": 27,
     "run_in_transaction": true
   },
   {
@@ -148,7 +148,7 @@
     "author": "alice",
     "sql": "CREATE TABLE price_plans (id INTEGER NOT NULL, name TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL, CONSTRAINT price_plans_pkey PRIMARY KEY (id), UNIQUE (name));",
     "xml_file": "007-volatile-defaults.xml",
-    "xml_line": 1,
+    "xml_line": 15,
     "run_in_transaction": true
   },
   {
@@ -156,7 +156,7 @@
     "author": "alice",
     "sql": "ALTER TABLE products ADD created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL;\nALTER TABLE products ADD updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();",
     "xml_file": "007-volatile-defaults.xml",
-    "xml_line": 1,
+    "xml_line": 30,
     "run_in_transaction": true
   },
   {
@@ -164,7 +164,7 @@
     "author": "alice",
     "sql": "CREATE TABLE price_plan_products (id INTEGER NOT NULL, price_plan_id INTEGER NOT NULL, product_id INTEGER NOT NULL, discount_type TEXT NOT NULL, discount_value INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL, CONSTRAINT price_plan_products_pkey PRIMARY KEY (id));\nALTER TABLE price_plan_products ADD CONSTRAINT fk_price_plan_products_plan FOREIGN KEY (price_plan_id) REFERENCES price_plans (id);\nALTER TABLE price_plan_products ADD CONSTRAINT fk_price_plan_products_product FOREIGN KEY (product_id) REFERENCES products (id);\nALTER TABLE price_plan_products ADD CONSTRAINT uq_price_plan_products UNIQUE (product_id, price_plan_id);",
     "xml_file": "007-volatile-defaults.xml",
-    "xml_line": 1,
+    "xml_line": 40,
     "run_in_transaction": true
   },
   {
@@ -172,7 +172,7 @@
     "author": "bob",
     "sql": "ALTER TABLE accounts ADD region VARCHAR(50) NOT NULL;",
     "xml_file": "008-add-not-null.xml",
-    "xml_line": 1,
+    "xml_line": 13,
     "run_in_transaction": true
   },
   {
@@ -180,7 +180,7 @@
     "author": "bob",
     "sql": "ALTER TABLE orders ADD priority INTEGER DEFAULT 0 NOT NULL;",
     "xml_file": "008-add-not-null.xml",
-    "xml_line": 1,
+    "xml_line": 22,
     "run_in_transaction": true
   },
   {
@@ -188,7 +188,7 @@
     "author": "bob",
     "sql": "ALTER TABLE products ADD product_type VARCHAR(100) NOT NULL;",
     "xml_file": "008-add-not-null.xml",
-    "xml_line": 1,
+    "xml_line": 31,
     "run_in_transaction": true
   },
   {
@@ -196,7 +196,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE subscription_invoices\n            ADD CONSTRAINT check_invoiced_from_before_until\n            CHECK (invoiced_from \u003c\u003d invoiced_until);\nALTER TABLE orders\n            ADD CONSTRAINT check_order_status\n            CHECK (status IN (\u0027PENDING\u0027, \u0027ACTIVE\u0027, \u0027COMPLETED\u0027, \u0027CANCELLED\u0027));",
     "xml_file": "009-raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -204,7 +204,7 @@
     "author": "charlie",
     "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS\n                idx_order_actions_status ON order_actions (status);",
     "xml_file": "009-raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 21,
     "run_in_transaction": false
   },
   {
@@ -212,7 +212,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE event_log ADD PRIMARY KEY (event_id);",
     "xml_file": "009-raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 29,
     "run_in_transaction": true
   },
   {
@@ -220,7 +220,7 @@
     "author": "charlie",
     "sql": "ALTER TABLE subscriptions\n            ADD CONSTRAINT check_subscription_type\n            CHECK (subscription_type IS NULL OR subscription_type IN (\u0027STANDARD\u0027, \u0027TRIAL\u0027, \u0027PARTNER\u0027));",
     "xml_file": "009-raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 36,
     "run_in_transaction": true
   },
   {
@@ -228,7 +228,7 @@
     "author": "alice",
     "sql": "DROP INDEX idx_products_name_article;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -236,7 +236,7 @@
     "author": "alice",
     "sql": "DROP TABLE event_log;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 12,
     "run_in_transaction": true
   },
   {
@@ -244,7 +244,7 @@
     "author": "alice",
     "sql": "DROP INDEX IF EXISTS idx_nonexistent;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 17,
     "run_in_transaction": true
   },
   {
@@ -252,7 +252,7 @@
     "author": "alice",
     "sql": "DROP TABLE IF EXISTS nonexistent_table;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 21,
     "run_in_transaction": true
   },
   {
@@ -260,7 +260,7 @@
     "author": "alice",
     "sql": "ALTER TABLE subscription_invoices ADD CONSTRAINT pk_subscription_invoices PRIMARY KEY (subscription_id, invoiced_from);",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 26,
     "run_in_transaction": true
   },
   {
@@ -268,7 +268,7 @@
     "author": "alice",
     "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS\n                idx_subscriptions_account_id_covering\n                ON subscriptions (account_id);",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 1,
+    "xml_line": 33,
     "run_in_transaction": false
   },
   {
@@ -276,7 +276,7 @@
     "author": "dave",
     "sql": "ALTER TABLE users ADD processed_at TIMESTAMP WITHOUT TIME ZONE;",
     "xml_file": "011-dont-do-this-types.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -284,7 +284,7 @@
     "author": "dave",
     "sql": "ALTER TABLE accounts ADD region_code CHAR(3);",
     "xml_file": "011-dont-do-this-types.xml",
-    "xml_line": 1,
+    "xml_line": 14,
     "run_in_transaction": true
   },
   {
@@ -292,7 +292,7 @@
     "author": "dave",
     "sql": "ALTER TABLE accounts ADD balance DECIMAL;",
     "xml_file": "011-dont-do-this-types.xml",
-    "xml_line": 1,
+    "xml_line": 21,
     "run_in_transaction": true
   },
   {
@@ -300,7 +300,7 @@
     "author": "bob",
     "sql": "CREATE INDEX idx_users_display_name ON users(display_name);",
     "xml_file": "012-suppressed.xml",
-    "xml_line": 1,
+    "xml_line": 11,
     "run_in_transaction": true
   },
   {
@@ -308,7 +308,7 @@
     "author": "bob",
     "sql": "CREATE TABLE suppressed_audit (event_type TEXT NOT NULL, payload TEXT);",
     "xml_file": "012-suppressed.xml",
-    "xml_line": 1,
+    "xml_line": 21,
     "run_in_transaction": true
   },
   {
@@ -316,7 +316,7 @@
     "author": "carol",
     "sql": "CREATE TABLE IF NOT EXISTS users (id BIGINT NOT NULL, display_name VARCHAR(100), CONSTRAINT users_pkey PRIMARY KEY (id));",
     "xml_file": "013-if-not-exists.xml",
-    "xml_line": 1,
+    "xml_line": 12,
     "run_in_transaction": true
   },
   {
@@ -324,7 +324,7 @@
     "author": "carol",
     "sql": "CREATE TABLE IF NOT EXISTS audit_log (id UUID NOT NULL, entity_type VARCHAR(100) NOT NULL, entity_id BIGINT NOT NULL, action VARCHAR(50) NOT NULL, performed_by BIGINT, created TIMESTAMP WITH TIME ZONE NOT NULL, CONSTRAINT audit_log_pkey PRIMARY KEY (id));",
     "xml_file": "013-if-not-exists.xml",
-    "xml_line": 1,
+    "xml_line": 22,
     "run_in_transaction": true
   }
 ]
