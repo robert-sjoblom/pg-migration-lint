@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.5.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.4.0...v2.5.0) (2026-02-18)
+
+
+### Features
+
+* **rules:** add PGM301, PGM302, PGM303, PGM506 — DML-in-migration and UNLOGGED TABLE rules ([4bca1a6](https://github.com/robert-sjoblom/pg-migration-lint/commit/4bca1a661a006fe47245b344f5ff4886177228fb))
+
 ## [2.4.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.3.0...v2.4.0) (2026-02-18)
 
 
