@@ -305,13 +305,25 @@ expression: parsed
       "ruleId": "PGM402"
     },
     {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
+        "textRange": {
+          "endLine": 26,
+          "startLine": 26
+        }
+      },
+      "ruleId": "PGM403"
+    },
+    {
       "effortMinutes": 15,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM501"
@@ -322,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM502"
@@ -334,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM503"
@@ -346,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM504"
@@ -358,8 +370,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 30,
-          "startLine": 30
+          "endLine": 31,
+          "startLine": 31
         }
       },
       "ruleId": "PGM505"
@@ -738,6 +750,21 @@ expression: parsed
         }
       ],
       "name": "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table\n\nWhat it detects:\nA CREATE TABLE IF NOT EXISTS statement targeting a table that already\nexists in the migration history (i.e. was created by an earlier migration).\n\nWhy it matters:\nIF NOT EXISTS makes the statement a silent no-op when the table already exists.\nIf the column definitions in the CREATE TABLE differ from the actual table state\n(built up from the original CREATE TABLE plus subsequent ALTER TABLE statements),\nthe migration author may believe the table has the shape described in this\nstatement, when in reality PostgreSQL ignores it entirely. The migration chain\nis ambiguous — two competing definitions of the same table exist in the history,\nand only the first one (plus its alterations) is truth.\n\nExample:\n-- V001: original table\nCREATE TABLE orders (id bigint PRIMARY KEY);\nALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\n-- V010: redundant re-creation (silently ignored)\nCREATE TABLE IF NOT EXISTS orders (\nid bigint PRIMARY KEY,\nstatus text NOT NULL DEFAULT 'pending',\ncreated_at timestamptz DEFAULT now()  -- this column will NOT be added\n);\n\nRecommended fix:\nRemove the redundant CREATE TABLE IF NOT EXISTS. If the intent is to\nadd columns, use ALTER TABLE ... ADD COLUMN instead.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM403",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
       "severity": "MINOR",
       "type": "CODE_SMELL"
     },
