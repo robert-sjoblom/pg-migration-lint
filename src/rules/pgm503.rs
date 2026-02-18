@@ -4,7 +4,7 @@
 //! constraint where all constituent columns are NOT NULL. This is functionally
 //! equivalent to a PK but less conventional.
 
-use crate::parser::ir::{IrNode, Located};
+use crate::parser::ir::{IrNode, Located, TablePersistence};
 use crate::rules::{Finding, LintContext, Rule};
 
 pub(super) const DESCRIPTION: &str = "UNIQUE NOT NULL used instead of PRIMARY KEY";
@@ -48,7 +48,7 @@ pub(super) fn check(
     for stmt in statements {
         if let IrNode::CreateTable(ref ct) = stmt.node {
             // Skip temporary tables.
-            if ct.temporary {
+            if ct.persistence == TablePersistence::Temporary {
                 continue;
             }
 

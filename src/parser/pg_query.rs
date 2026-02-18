@@ -5,9 +5,9 @@
 //! normalization, and source location tracking.
 
 use crate::parser::ir::{
-    AlterTable, AlterTableAction, ColumnDef, CreateIndex, CreateTable, DefaultExpr, DropIndex,
-    DropTable, IndexColumn, IrNode, Located, QualifiedName, SourceSpan, TableConstraint,
-    TruncateTable, TypeName,
+    AlterTable, AlterTableAction, ColumnDef, CreateIndex, CreateTable, DefaultExpr, DeleteFrom,
+    DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, QualifiedName, SourceSpan,
+    TableConstraint, TablePersistence, TruncateTable, TypeName, UpdateTable,
 };
 use pg_query::NodeEnum;
 
@@ -115,6 +115,9 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
         NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql),
         NodeEnum::RenameStmt(rename) => vec![convert_rename_stmt(rename, raw_sql)],
         NodeEnum::TruncateStmt(trunc) => convert_truncate_stmt(trunc),
+        NodeEnum::InsertStmt(insert) => vec![convert_insert_stmt(insert)],
+        NodeEnum::UpdateStmt(update) => vec![convert_update_stmt(update)],
+        NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete)],
         NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -133,11 +136,15 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
 fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str) -> IrNode {
     let name = relation_to_qualified_name(create.relation.as_ref());
 
-    let temporary = matches!(
+    let persistence = if matches!(
         create.oncommit(),
         pg_query::protobuf::OnCommitAction::OncommitDrop
             | pg_query::protobuf::OnCommitAction::OncommitDeleteRows
-    ) || is_temp_relation(create.relation.as_ref());
+    ) {
+        TablePersistence::Temporary
+    } else {
+        relation_persistence(create.relation.as_ref())
+    };
 
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
@@ -167,7 +174,7 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
         name,
         columns,
         constraints,
-        temporary,
+        persistence,
         if_not_exists: create.if_not_exists,
     })
 }
@@ -726,6 +733,28 @@ fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode
 }
 
 // ---------------------------------------------------------------------------
+// DML statements (INSERT, UPDATE, DELETE)
+// ---------------------------------------------------------------------------
+
+/// Convert an `InsertStmt` to `IrNode::InsertInto`.
+fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt) -> IrNode {
+    let table_name = relation_to_qualified_name(insert.relation.as_ref());
+    IrNode::InsertInto(InsertInto { table_name })
+}
+
+/// Convert an `UpdateStmt` to `IrNode::UpdateTable`.
+fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt) -> IrNode {
+    let table_name = relation_to_qualified_name(update.relation.as_ref());
+    IrNode::UpdateTable(UpdateTable { table_name })
+}
+
+/// Convert a `DeleteStmt` to `IrNode::DeleteFrom`.
+fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode {
+    let table_name = relation_to_qualified_name(delete.relation.as_ref());
+    IrNode::DeleteFrom(DeleteFrom { table_name })
+}
+
+// ---------------------------------------------------------------------------
 // DROP statement helpers
 // ---------------------------------------------------------------------------
 
@@ -806,14 +835,17 @@ fn relation_to_qualified_name(rel: Option<&pg_query::protobuf::RangeVar>) -> Qua
     }
 }
 
-/// Check if a `RangeVar` refers to a temporary table.
+/// Map a `RangeVar`'s `relpersistence` field to `TablePersistence`.
 ///
-/// In pg_query, temporary tables are indicated by the `relpersistence` field
-/// being set to `'t'` (temporary). Unlogged tables (`'u'`) are not skipped.
-fn is_temp_relation(rel: Option<&pg_query::protobuf::RangeVar>) -> bool {
-    match rel {
-        Some(r) => r.relpersistence == "t",
-        None => false,
+/// In pg_query, the `relpersistence` field is a single character:
+/// - `'t'` → Temporary
+/// - `'u'` → Unlogged
+/// - anything else (typically `'p'` or empty) → Permanent
+fn relation_persistence(rel: Option<&pg_query::protobuf::RangeVar>) -> TablePersistence {
+    match rel.map(|r| r.relpersistence.as_str()) {
+        Some("u") => TablePersistence::Unlogged,
+        Some("t") => TablePersistence::Temporary,
+        _ => TablePersistence::Permanent,
     }
 }
 
@@ -2057,7 +2089,11 @@ mod tests {
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
                 assert_eq!(ct.name.name, "scratch");
-                assert!(ct.temporary, "TEMP table should have temporary=true");
+                assert_eq!(
+                    ct.persistence,
+                    TablePersistence::Temporary,
+                    "TEMP table should have Temporary persistence"
+                );
                 assert_eq!(ct.columns.len(), 1);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
@@ -2070,7 +2106,11 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(ct.temporary, "TEMPORARY table should have temporary=true");
+                assert_eq!(
+                    ct.persistence,
+                    TablePersistence::Temporary,
+                    "TEMPORARY table should have Temporary persistence"
+                );
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -2082,7 +2122,29 @@ mod tests {
         let nodes = parse_sql(sql);
         match &nodes[0].node {
             IrNode::CreateTable(ct) => {
-                assert!(!ct.temporary, "Regular table should have temporary=false");
+                assert_eq!(
+                    ct.persistence,
+                    TablePersistence::Permanent,
+                    "Regular table should have Permanent persistence"
+                );
+            }
+            other => panic!("Expected CreateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_unlogged_table() {
+        let sql = "CREATE UNLOGGED TABLE scratch (id int, payload text);";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert_eq!(ct.name.name, "scratch");
+                assert_eq!(
+                    ct.persistence,
+                    TablePersistence::Unlogged,
+                    "UNLOGGED table should have Unlogged persistence"
+                );
+                assert_eq!(ct.columns.len(), 2);
             }
             other => panic!("Expected CreateTable, got: {:?}", other),
         }
@@ -2565,27 +2627,55 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_insert_ignored() {
+    fn test_parse_insert() {
         let sql = "INSERT INTO foo (id) VALUES (1);";
         let nodes = parse_sql(sql);
         assert_eq!(nodes.len(), 1);
-        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+        match &nodes[0].node {
+            IrNode::InsertInto(ii) => {
+                assert_eq!(ii.table_name.name, "foo");
+            }
+            other => panic!("Expected InsertInto, got: {:?}", other),
+        }
     }
 
     #[test]
-    fn test_parse_update_ignored() {
+    fn test_parse_insert_schema_qualified() {
+        let sql = "INSERT INTO myschema.foo (id) VALUES (1);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::InsertInto(ii) => {
+                assert_eq!(ii.table_name, QualifiedName::qualified("myschema", "foo"));
+            }
+            other => panic!("Expected InsertInto, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_update() {
         let sql = "UPDATE foo SET bar = 1 WHERE id = 2;";
         let nodes = parse_sql(sql);
         assert_eq!(nodes.len(), 1);
-        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+        match &nodes[0].node {
+            IrNode::UpdateTable(ut) => {
+                assert_eq!(ut.table_name.name, "foo");
+            }
+            other => panic!("Expected UpdateTable, got: {:?}", other),
+        }
     }
 
     #[test]
-    fn test_parse_delete_ignored() {
+    fn test_parse_delete() {
         let sql = "DELETE FROM foo WHERE id = 1;";
         let nodes = parse_sql(sql);
         assert_eq!(nodes.len(), 1);
-        assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
+        match &nodes[0].node {
+            IrNode::DeleteFrom(df) => {
+                assert_eq!(df.table_name.name, "foo");
+            }
+            other => panic!("Expected DeleteFrom, got: {:?}", other),
+        }
     }
 
     #[test]
@@ -2895,12 +2985,12 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // is_temp_relation with None input
+    // relation_persistence with None input
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_is_temp_relation_none() {
-        assert!(!is_temp_relation(None));
+    fn test_relation_persistence_none() {
+        assert_eq!(relation_persistence(None), TablePersistence::Permanent);
     }
 
     // -----------------------------------------------------------------------

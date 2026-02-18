@@ -36,6 +36,9 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
         IrNode::TruncateTable(_) => { /* TRUNCATE doesn't change schema state */ }
+        IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
+            /* DML: no schema change */
+        }
         IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint),
         IrNode::Ignored { .. } => { /* no-op */ }
     }

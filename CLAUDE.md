@@ -46,7 +46,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM017, PGM101-PGM106, PGM201-PGM204, PGM401-PGM403, PGM501-PGM505)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM017, PGM101-PGM106, PGM201-PGM204, PGM301-PGM303, PGM401-PGM403, PGM501-PGM506)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -61,10 +61,18 @@ pub enum IrNode {
     CreateIndex(CreateIndex),
     DropIndex(DropIndex),
     DropTable(DropTable),
+    TruncateTable(TruncateTable),
+    InsertInto(InsertInto),
+    UpdateTable(UpdateTable),
+    DeleteFrom(DeleteFrom),
+    RenameTable(RenameTable),
+    RenameColumn(RenameColumn),
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<String> },
 }
 ```
+
+`CreateTable` uses a `TablePersistence` enum (`Permanent`, `Unlogged`, `Temporary`) instead of a boolean `temporary` field.
 
 Supporting types:
 - `QualifiedName` - schema-qualified name with `catalog_key()` returning `"schema.name"` after normalization
@@ -175,9 +183,15 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM203**: `TRUNCATE TABLE` on existing table
 - **PGM204**: `TRUNCATE TABLE CASCADE` on existing table
 
+**3xx — DML in Migrations:**
+- **PGM301**: `INSERT INTO` existing table in migration
+- **PGM302**: `UPDATE` on existing table in migration
+- **PGM303**: `DELETE FROM` existing table in migration
+
 **4xx — Idempotency Guards:**
 - **PGM401**: Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
 - **PGM402**: Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
+- **PGM403**: `CREATE TABLE IF NOT EXISTS` for already-existing table
 
 **5xx — Schema Design:**
 - **PGM501**: Foreign key without covering index
@@ -185,6 +199,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM503**: `UNIQUE NOT NULL` used instead of primary key
 - **PGM504**: `RENAME TABLE` on existing table
 - **PGM505**: `RENAME COLUMN` on existing table
+- **PGM506**: `CREATE UNLOGGED TABLE`
 
 **9xx — Meta-behavior:**
 - **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule

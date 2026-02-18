@@ -120,68 +120,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-## 3xx — DML in migrations
-
-### PGM1301 — `INSERT INTO` existing table in migration
-
-- **Range**: 3xx
-- **Severity**: INFO
-- **Status**: Not yet implemented.
-- **Triggers**: `INSERT INTO` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Inserting into an existing table in a migration is often intentional seed or reference data, but bulk `INSERT ... SELECT` or large `VALUES` lists hold row locks for the full statement duration and can cause replication lag. The rule fires informational to prompt the author to confirm row volume is bounded and the insert is appropriate in a migration rather than application-layer seed code.
-- **Does not fire when**:
-  - The target table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `INSERT INTO existing table '{table}' in a migration. Ensure this is intentional seed data and that row volume is bounded. Bulk INSERT ... SELECT can cause replication lag and should be batched for large datasets.`
-- **IR impact**: Requires a new top-level `IrNode` variant `InsertInto { table: String }`. `pg_query` emits `InsertStmt`. Only the target table name needs to be extracted.
-
----
-
-### PGM1302 — `UPDATE` on existing table in migration
-
-- **Range**: 3xx
-- **Severity**: MINOR
-- **Status**: Not yet implemented.
-- **Triggers**: `UPDATE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Unbatched `UPDATE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent reads and writes, causes replication lag, and can cascade into lock queues behind the migration. The migration cannot know table row counts at analysis time, so the rule fires on any `UPDATE` against an existing table, prompting the author to verify row volume and consider batched execution.
-- **Does not fire when**:
-  - The target table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `UPDATE on existing table '{table}' in a migration. Unbatched updates hold row locks for the full statement duration. Verify row volume and consider batched execution to avoid replication lag and lock queue buildup.`
-- **IR impact**: Requires a new top-level `IrNode` variant `UpdateTable { table: String }`. `pg_query` emits `UpdateStmt`. Only the target table name needs to be extracted.
-
----
-
-### PGM1303 — `DELETE FROM` existing table in migration
-
-- **Range**: 3xx
-- **Severity**: MINOR
-- **Status**: Not yet implemented.
-- **Triggers**: `DELETE FROM` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Unbatched `DELETE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent writes, generates significant WAL, causes replication lag, and can cascade into lock queues. `DELETE` also does not reset sequences, unlike `TRUNCATE`, meaning a large delete followed by re-inserts can exhaust the sequence faster than expected.
-- **Does not fire when**:
-  - The target table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `DELETE FROM existing table '{table}' in a migration. Unbatched deletes hold row locks for the full statement duration and generate significant WAL. Verify row volume and consider batched execution to avoid replication lag and lock queue buildup.`
-- **IR impact**: Requires a new top-level `IrNode` variant `DeleteFrom { table: String }`. `pg_query` emits `DeleteStmt`. Only the target table name needs to be extracted.
-
----
-
 ## 5xx — Schema design & informational
-
-### PGM1506 — `CREATE UNLOGGED TABLE`
-
-- **Range**: 5xx (Informational)
-- **Severity**: INFO
-- **Status**: Not yet implemented.
-- **Triggers**: `CREATE TABLE ... UNLOGGED` for any table.
-- **Why**: Unlogged tables are not written to the WAL. This means: (1) all data is truncated on crash recovery, (2) they are not streamed to standby replicas via streaming replication, and (3) they are excluded from logical replication slots. In most production environments, unlogged tables are unsuitable for data that needs to survive a crash or be replicated. The pattern is sometimes used intentionally for ephemeral or staging data, so this is informational rather than a hard block.
-- **Does not fire when**:
-  - The `UNLOGGED` keyword is absent.
-- **Message**: `Table '{table}' is created as UNLOGGED. Unlogged tables are truncated on crash recovery and not replicated to standbys. Confirm this is intentional for ephemeral data.`
-- **IR impact**: Requires an `unlogged: bool` field on the `CreateTable` IR node alongside the existing `temporary: bool` field. `pg_query` exposes `relpersistence` on `CreateStmt` (`'p'` = permanent, `'u'` = unlogged, `'t'` = temporary).
-
----
 
 ### PGM1507 — `CREATE OR REPLACE FUNCTION` / `PROCEDURE` (maybe not?)
 
@@ -218,6 +157,6 @@ These rules extend the current rule set. Proposed rules use the `PGM1XXX` prefix
 Changes to existing spec sections required:
 
 - **§4.2**: Add promoted rules to the rule table.
-- **§3.2 IR node table**: Add `TruncateTable`, `DropSchema`, `InsertInto`, `UpdateTable`, `DeleteFrom`, `Cluster`, `DetachPartition`, `AttachPartition`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; extend `DropTable` with `cascade: bool`; extend `CreateTable` with `unlogged: bool`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude`.
+- **§3.2 IR node table**: Add `DropSchema`, `Cluster`, `DetachPartition`, `AttachPartition`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude`.
 - **§11 Project structure**: Add rule files to `src/rules/` as rules are promoted.
 - **PGM901 scope**: Update to cover all promoted rules.

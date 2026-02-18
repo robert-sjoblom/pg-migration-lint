@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm506.rs
+expression: findings
+---
+- rule_id: PGM506
+  severity: Info
+  message: "CREATE UNLOGGED TABLE 'scratch'. Unlogged tables are truncated on crash recovery and are not replicated to standbys."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

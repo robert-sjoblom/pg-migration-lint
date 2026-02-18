@@ -23,7 +23,7 @@ struct SonarQubeRuleMeta {
 /// here is a compile error.
 fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
     use crate::rules::{
-        DestructiveRule::*, IdempotencyRule::*, MetaRule, SchemaDesignRule::*,
+        DestructiveRule::*, DmlRule::*, IdempotencyRule::*, MetaRule, SchemaDesignRule::*,
         TypeAntiPatternRule::*, UnsafeDdlRule::*,
     };
     match rule_id {
@@ -78,6 +78,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "LOW",
         },
+        // CREATE UNLOGGED TABLE
+        RuleId::SchemaDesign(Pgm506) => SonarQubeRuleMeta {
+            clean_code_attribute: "CONVENTIONAL",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "LOW",
+        },
         // Destructive: DROP TABLE, TRUNCATE TABLE
         RuleId::Destructive(Pgm201 | Pgm203) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
@@ -91,6 +98,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             issue_type: "BUG",
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
+        },
+        // DML in migrations: INSERT, UPDATE, DELETE on existing tables
+        RuleId::Dml(Pgm301 | Pgm302 | Pgm303) => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "LOW",
         },
         // Idempotency: missing IF EXISTS / IF NOT EXISTS, redundant IF NOT EXISTS
         RuleId::Idempotency(Pgm401 | Pgm402 | Pgm403) => SonarQubeRuleMeta {
@@ -181,7 +195,7 @@ struct SonarQubeTextRange {
 /// Exhaustive — adding a new `RuleId` variant without handling it here is a compile error.
 fn effort_minutes(rule_id: RuleId) -> u32 {
     use crate::rules::{
-        DestructiveRule::*, IdempotencyRule::*, MetaRule, SchemaDesignRule::*,
+        DestructiveRule::*, DmlRule::*, IdempotencyRule::*, MetaRule, SchemaDesignRule::*,
         TypeAntiPatternRule::*, UnsafeDdlRule::*,
     };
     match rule_id {
@@ -193,9 +207,10 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::UnsafeDdl(Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015) => 30,
         // Schema quality / side-effect warnings
         RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012) => 10,
-        RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505) => 10,
+        RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505 | Pgm506) => 10,
         RuleId::Destructive(Pgm201 | Pgm203) => 10,
         RuleId::Destructive(Pgm202 | Pgm204) => 15,
+        RuleId::Dml(Pgm301 | Pgm302 | Pgm303) => 10,
         RuleId::Idempotency(Pgm401 | Pgm402 | Pgm403) => 10,
         // Type anti-pattern rules
         RuleId::TypeAntiPattern(Pgm101 | Pgm102 | Pgm103 | Pgm104 | Pgm105 | Pgm106) => 10,
