@@ -99,6 +99,7 @@ pub struct DropIndex {
 pub struct DropTable {
     pub name: QualifiedName,
     pub if_exists: bool,
+    pub cascade: bool,
 }
 
 // --- Supporting types ---
@@ -430,16 +431,22 @@ impl CreateIndex {
 
 #[cfg(test)]
 impl DropTable {
-    /// Minimal DROP TABLE: if_exists defaults to true (safe default).
+    /// Minimal DROP TABLE: if_exists defaults to true (safe default), cascade false.
     pub fn test(name: QualifiedName) -> Self {
         Self {
             name,
             if_exists: true,
+            cascade: false,
         }
     }
 
     pub fn with_if_exists(mut self, if_exists: bool) -> Self {
         self.if_exists = if_exists;
+        self
+    }
+
+    pub fn with_cascade(mut self, cascade: bool) -> Self {
+        self.cascade = cascade;
         self
     }
 }

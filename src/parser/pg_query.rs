@@ -663,6 +663,7 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> IrNo
                 Some(name) => IrNode::DropTable(DropTable {
                     name,
                     if_exists: drop.missing_ok,
+                    cascade: drop.behavior() == pg_query::protobuf::DropBehavior::DropCascade,
                 }),
                 None => IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
@@ -1391,6 +1392,7 @@ mod tests {
         match &nodes[0].node {
             IrNode::DropTable(dt) => {
                 assert_eq!(dt.name, QualifiedName::unqualified("orders"));
+                assert!(!dt.cascade, "Plain DROP TABLE should not have cascade");
             }
             other => panic!("Expected DropTable, got: {:?}", other),
         }
@@ -1403,6 +1405,35 @@ mod tests {
         match &nodes[0].node {
             IrNode::DropTable(dt) => {
                 assert_eq!(dt.name, QualifiedName::qualified("myschema", "orders"));
+                assert!(!dt.cascade);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_table_cascade() {
+        let sql = "DROP TABLE orders CASCADE;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("orders"));
+                assert!(dt.cascade, "DROP TABLE CASCADE should have cascade=true");
+                assert!(!dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_table_if_exists_cascade() {
+        let sql = "DROP TABLE IF EXISTS orders CASCADE;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("orders"));
+                assert!(dt.cascade);
+                assert!(dt.if_exists);
             }
             other => panic!("Expected DropTable, got: {:?}", other),
         }

@@ -14,28 +14,81 @@ use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+const APPLY_SUPPRESSIONS: bool = false;
+const SKIP_SUPPRESSIONS: bool = true;
+
+/// Return all non-baseline `.sql` filenames in a fixture's migrations dir.
+/// V001 is always the baseline (replayed but not linted), so it is excluded.
+fn changed_files_for(fixture_name: &str) -> Vec<String> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos")
+        .join(fixture_name)
+        .join("migrations");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("read fixture dir {}: {e}", dir.display()))
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".sql") && !name.starts_with("V001") {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 /// Run the full lint pipeline on a fixture repo.
 /// If `changed_files` is empty, all files are linted.
-fn lint_fixture(fixture_name: &str, changed_filenames: &[&str]) -> Vec<Finding> {
-    lint_fixture_inner(fixture_name, changed_filenames, "public", &[])
+fn lint_fixture<S: AsRef<str>>(fixture_name: &str, changed_filenames: &[S]) -> Vec<Finding> {
+    lint_fixture_inner(
+        fixture_name,
+        changed_filenames,
+        "public",
+        &[],
+        APPLY_SUPPRESSIONS,
+    )
+}
+
+/// Run the lint pipeline but skip applying suppressions.
+/// Returns raw findings before any suppression filtering.
+fn lint_fixture_no_suppress<S: AsRef<str>>(
+    fixture_name: &str,
+    changed_filenames: &[S],
+) -> Vec<Finding> {
+    lint_fixture_inner(
+        fixture_name,
+        changed_filenames,
+        "public",
+        &[],
+        SKIP_SUPPRESSIONS,
+    )
 }
 
 /// Run the lint pipeline on a fixture repo with only specific rules.
 /// If `only_rules` is empty, all rules are run.
-fn lint_fixture_rules(
+fn lint_fixture_rules<S: AsRef<str>>(
     fixture_name: &str,
-    changed_filenames: &[&str],
+    changed_filenames: &[S],
     only_rules: &[&str],
 ) -> Vec<Finding> {
-    lint_fixture_inner(fixture_name, changed_filenames, "public", only_rules)
+    lint_fixture_inner(
+        fixture_name,
+        changed_filenames,
+        "public",
+        only_rules,
+        APPLY_SUPPRESSIONS,
+    )
 }
 
 /// Shared implementation for all lint_fixture variants.
-fn lint_fixture_inner(
+fn lint_fixture_inner<S: AsRef<str>>(
     fixture_name: &str,
-    changed_filenames: &[&str],
+    changed_filenames: &[S],
     default_schema: &str,
     only_rules: &[&str],
+    skip_suppress: bool,
 ) -> Vec<Finding> {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos")
@@ -49,7 +102,10 @@ fn lint_fixture_inner(
 
     normalize::normalize_schemas(&mut history.units, default_schema);
 
-    let changed: HashSet<PathBuf> = changed_filenames.iter().map(|f| base.join(f)).collect();
+    let changed: HashSet<PathBuf> = changed_filenames
+        .iter()
+        .map(|f| base.join(f.as_ref()))
+        .collect();
 
     let mut catalog = Catalog::new();
     let mut registry = RuleRegistry::new();
@@ -90,9 +146,11 @@ fn lint_fixture_inner(
                 cap_for_down_migration(&mut unit_findings);
             }
 
-            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
-            let suppressions = parse_suppressions(&source);
-            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
+            if !skip_suppress {
+                let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+                let suppressions = parse_suppressions(&source);
+                unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
+            }
 
             all_findings.extend(unit_findings);
         } else {
@@ -136,7 +194,7 @@ fn normalize_findings(findings: Vec<Finding>, fixture_name: &str) -> Vec<Finding
 
 #[test]
 fn test_clean_repo_no_findings() {
-    let findings = lint_fixture("clean", &[]);
+    let findings = lint_fixture::<&str>("clean", &[]);
     assert!(
         findings.is_empty(),
         "Clean repo should have 0 findings but got {}: {:?}",
@@ -154,34 +212,26 @@ fn test_clean_repo_no_findings() {
 
 #[test]
 fn test_all_rules_trigger() {
-    // V002-V006 are changed; V001 is just replayed as baseline.
-    // This ensures tables from V001 are in catalog_before but NOT in
-    // tables_created_in_change, so rules that check for pre-existing tables
-    // (PGM001, PGM002, PGM007, PGM008, PGM009, PGM013-PGM505) will fire.
-    // V004 introduces "Don't Do This" type anti-patterns (PGM101-PGM105).
-    // V005 introduces PGM013-PGM505 violations.
-    // V006 introduces PGM106 (json type).
-    let findings = lint_fixture(
-        "all-rules",
-        &[
-            "V002__violations.sql",
-            "V003__more_violations.sql",
-            "V004__dont_do_this_types.sql",
-            "V005__new_violations.sql",
-            "V006__json_type.sql",
-        ],
-    );
+    // All migration files except V001 (baseline) are changed.
+    // V001 is just replayed so its tables appear in catalog_before.
+    // Every registered non-meta rule must fire at least once.
+    let changed = changed_files_for("all-rules");
+    let findings = lint_fixture("all-rules", &changed);
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
-    for expected in &[
-        "PGM001", "PGM002", "PGM003", "PGM006", "PGM007", "PGM008", "PGM009", "PGM010", "PGM011",
-        "PGM012", "PGM013", "PGM014", "PGM015", "PGM016", "PGM017", "PGM101", "PGM102", "PGM103",
-        "PGM104", "PGM105", "PGM106", "PGM402", "PGM501", "PGM502", "PGM503", "PGM504", "PGM505",
-    ] {
+    // Build the expected set from the registry, excluding meta rules
+    // (PGM9xx) which never produce findings on their own.
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    for rule in registry.iter() {
+        let id = rule.id();
+        if matches!(id, pg_migration_lint::rules::RuleId::Meta(_)) {
+            continue;
+        }
         assert!(
-            rule_ids.contains(expected),
-            "Expected {} finding but not found. Got:\n  {}",
-            expected,
+            rule_ids.contains(id.as_str()),
+            "Rule {} is registered but did not fire. Add a violation to the all-rules fixture. Got:\n  {}",
+            id,
             format_findings(&findings)
         );
     }
@@ -193,17 +243,31 @@ fn test_all_rules_trigger() {
 
 #[test]
 fn test_suppressed_repo_no_findings() {
-    // Only V002-V006 are changed; V001 just replays.
-    let findings = lint_fixture(
-        "suppressed",
-        &[
-            "V002__suppressed.sql",
-            "V003__suppressed.sql",
-            "V004__suppressed.sql",
-            "V005__suppressed.sql",
-            "V006__suppressed.sql",
-        ],
-    );
+    let changed = changed_files_for("suppressed");
+
+    // First: verify every non-meta rule fires before suppression.
+    // This ensures the suppressed fixture stays in sync with new rules.
+    let raw_findings = lint_fixture_no_suppress("suppressed", &changed);
+    let raw_rule_ids: HashSet<&str> = raw_findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+    let mut registry = RuleRegistry::new();
+    registry.register_defaults();
+    for rule in registry.iter() {
+        let id = rule.id();
+        if matches!(id, pg_migration_lint::rules::RuleId::Meta(_)) {
+            continue;
+        }
+        assert!(
+            raw_rule_ids.contains(id.as_str()),
+            "Rule {} is registered but did not fire in the suppressed fixture (pre-suppression). \
+             Add a suppressed violation for it. Got:\n  {}",
+            id,
+            format_findings(&raw_findings)
+        );
+    }
+
+    // Second: verify all findings are suppressed.
+    let findings = lint_fixture("suppressed", &changed);
     assert!(
         findings.is_empty(),
         "Suppressed repo should have 0 findings but got {}: {:?}",
@@ -314,7 +378,7 @@ fn test_all_rules_changed_files_all_empty() {
     // When all files are changed (empty changed_files), tables created in V001
     // are in tables_created_in_change, so PGM001/006/007/008/009 won't fire for
     // those tables. But PGM501, PGM502, PGM503, PGM003 should still fire.
-    let findings = lint_fixture("all-rules", &[]);
+    let findings = lint_fixture::<&str>("all-rules", &[]);
 
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
@@ -450,7 +514,7 @@ fn test_enterprise_parses_all_migrations() {
 
 #[test]
 fn test_enterprise_lint_all_finds_violations() {
-    let findings = lint_fixture("enterprise", &[]);
+    let findings = lint_fixture::<&str>("enterprise", &[]);
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     // PGM501 should fire (FKs without covering indexes in V005, V006, V010, V021, V029)
@@ -570,7 +634,7 @@ fn test_enterprise_changed_file_volatile_defaults() {
 #[test]
 fn test_enterprise_changed_files_reduces_fk_noise() {
     // Full run should produce PGM501 findings (FKs without covering indexes)
-    let findings_full = lint_fixture("enterprise", &[]);
+    let findings_full = lint_fixture::<&str>("enterprise", &[]);
     let pgm501_full: Vec<&Finding> = findings_full
         .iter()
         .filter(|f| f.rule_id.as_str() == "PGM501")
@@ -753,7 +817,7 @@ fn test_gomigrate_up_down_detection() {
 fn test_gomigrate_lint_all_finds_violations() {
     // When all files are changed, tables_created_in_change includes everything,
     // so only rules that don't check tables_created_in_change will fire.
-    let findings = lint_fixture("go-migrate", &[]);
+    let findings = lint_fixture::<&str>("go-migrate", &[]);
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
     // PGM501 should fire (FK without covering index on orders.assigned_user_id)
@@ -1077,16 +1141,8 @@ fn test_gomigrate_multi_file_changed_set() {
 fn test_sarif_output_valid_structure() {
     // Run the all-rules fixture through the full pipeline, emit SARIF, and
     // verify the output is valid SARIF 2.1.0 with correct structure.
-    let findings = lint_fixture(
-        "all-rules",
-        &[
-            "V002__violations.sql",
-            "V003__more_violations.sql",
-            "V004__dont_do_this_types.sql",
-            "V005__new_violations.sql",
-            "V006__json_type.sql",
-        ],
-    );
+    let changed = changed_files_for("all-rules");
+    let findings = lint_fixture("all-rules", &changed);
     assert!(
         !findings.is_empty(),
         "All-rules fixture should produce findings"
@@ -1271,16 +1327,8 @@ fn test_sarif_output_round_trip_from_fixture() {
 fn test_sonarqube_output_valid_structure() {
     // Run the all-rules fixture through the full pipeline, emit SonarQube JSON,
     // and verify the output has the correct Generic Issue Import structure.
-    let findings = lint_fixture(
-        "all-rules",
-        &[
-            "V002__violations.sql",
-            "V003__more_violations.sql",
-            "V004__dont_do_this_types.sql",
-            "V005__new_violations.sql",
-            "V006__json_type.sql",
-        ],
-    );
+    let changed = changed_files_for("all-rules");
+    let findings = lint_fixture("all-rules", &changed);
     assert!(
         !findings.is_empty(),
         "All-rules fixture should produce findings"
@@ -1450,16 +1498,8 @@ fn test_sonarqube_output_round_trip_from_fixture() {
 #[test]
 fn test_sarif_and_sonarqube_finding_counts_match() {
     // Both reporters should produce the same number of entries from the same findings.
-    let findings = lint_fixture(
-        "all-rules",
-        &[
-            "V002__violations.sql",
-            "V003__more_violations.sql",
-            "V004__dont_do_this_types.sql",
-            "V005__new_violations.sql",
-            "V006__json_type.sql",
-        ],
-    );
+    let changed = changed_files_for("all-rules");
+    let findings = lint_fixture("all-rules", &changed);
 
     let dir_sarif = tempfile::tempdir().expect("sarif tempdir");
     let dir_sonar = tempfile::tempdir().expect("sonar tempdir");
@@ -1577,7 +1617,7 @@ fn test_fk_cross_file_all_changed() {
     // All files are changed (empty changed set). V001 creates tables (no FK,
     // no finding). V002 adds FK without covering index -> PGM501 fires.
     // V003 adds the covering index -> no additional PGM501.
-    let findings = lint_fixture_rules("fk-with-later-index", &[], &["PGM501"]);
+    let findings = lint_fixture_rules::<&str>("fk-with-later-index", &[], &["PGM501"]);
 
     assert_eq!(
         findings.len(),
@@ -1750,6 +1790,7 @@ fn test_schema_qualified_custom_default_schema() {
         &["V002__add_fk_and_index.sql", "V003__alter_schema_table.sql"],
         "myschema",
         &["PGM001", "PGM501"],
+        APPLY_SUPPRESSIONS,
     );
 
     // PGM001 should fire for the myschema.customers index (V003)

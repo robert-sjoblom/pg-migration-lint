@@ -85,6 +85,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "MEDIUM",
         },
+        // Destructive: DROP TABLE CASCADE
+        RuleId::Destructive(Pgm202) => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "HIGH",
+        },
         // Idempotency: missing IF EXISTS / IF NOT EXISTS
         RuleId::Idempotency(Pgm401 | Pgm402) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
@@ -188,6 +195,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012) => 10,
         RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505) => 10,
         RuleId::Destructive(Pgm201) => 10,
+        RuleId::Destructive(Pgm202) => 15,
         RuleId::Idempotency(Pgm401 | Pgm402) => 10,
         // Type anti-pattern rules
         RuleId::TypeAntiPattern(Pgm101 | Pgm102 | Pgm103 | Pgm104 | Pgm105 | Pgm106) => 10,

@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm202.rs
+expression: findings
+---
+- rule_id: PGM202
+  severity: Major
+  message: "DROP TABLE CASCADE on 'customers' will silently drop dependent objects. Known FK dependencies from: addresses, orders."
+  file: migrations/010.sql
+  start_line: 1
+  end_line: 1

@@ -386,6 +386,19 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Table doesn't exist in `catalog_before`
 - **Message**: `DROP TABLE '{table}' removes an existing table. This is irreversible and all data will be lost.`
 
+#### PGM202 — `DROP TABLE CASCADE` on existing table
+
+- **Severity**: MAJOR
+- **Status**: Implemented.
+- **Triggers**: `DROP TABLE ... CASCADE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: `CASCADE` silently drops all dependent objects — foreign keys, views, triggers, and rules that reference the dropped table. Unlike a plain `DROP TABLE` (which fails if dependencies exist), `CASCADE` succeeds silently, potentially breaking other tables and application code without any warning at migration time.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - `DROP TABLE` without `CASCADE` (handled by PGM201)
+- **Message (no known FK deps)**: `DROP TABLE CASCADE on '{table}' will silently drop all dependent objects (views, foreign keys, triggers). Review dependencies before proceeding.`
+- **Message (with FK deps)**: `DROP TABLE CASCADE on '{table}' will silently drop dependent objects. Known FK dependencies from: {dep_tables}.`
+
 #### PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 
 - **Severity**: MINOR
