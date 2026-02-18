@@ -49,6 +49,8 @@ mod pgm106;
 // 2xx — Destructive operations
 mod pgm201;
 mod pgm202;
+mod pgm203;
+mod pgm204;
 
 // 4xx — Idempotency guards
 mod pgm401;
@@ -119,6 +121,8 @@ impl RuleId {
             RuleId::Destructive(r) => match r {
                 DestructiveRule::Pgm201 => "PGM201",
                 DestructiveRule::Pgm202 => "PGM202",
+                DestructiveRule::Pgm203 => "PGM203",
+                DestructiveRule::Pgm204 => "PGM204",
             },
             RuleId::Idempotency(r) => match r {
                 IdempotencyRule::Pgm401 => "PGM401",
@@ -184,6 +188,8 @@ impl FromStr for RuleId {
             "PGM106" => Ok(RuleId::TypeAntiPattern(TypeAntiPatternRule::Pgm106)),
             "PGM201" => Ok(RuleId::Destructive(DestructiveRule::Pgm201)),
             "PGM202" => Ok(RuleId::Destructive(DestructiveRule::Pgm202)),
+            "PGM203" => Ok(RuleId::Destructive(DestructiveRule::Pgm203)),
+            "PGM204" => Ok(RuleId::Destructive(DestructiveRule::Pgm204)),
             "PGM401" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm401)),
             "PGM402" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm402)),
             "PGM403" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm403)),
@@ -462,6 +468,10 @@ pub enum DestructiveRule {
     Pgm201,
     /// `DROP TABLE CASCADE` on existing table.
     Pgm202,
+    /// `TRUNCATE TABLE` on existing table.
+    Pgm203,
+    /// `TRUNCATE TABLE CASCADE` on existing table.
+    Pgm204,
 }
 
 impl DestructiveRule {
@@ -469,6 +479,8 @@ impl DestructiveRule {
         match *self {
             Self::Pgm201 => pgm201::DESCRIPTION,
             Self::Pgm202 => pgm202::DESCRIPTION,
+            Self::Pgm203 => pgm203::DESCRIPTION,
+            Self::Pgm204 => pgm204::DESCRIPTION,
         }
     }
 
@@ -476,6 +488,8 @@ impl DestructiveRule {
         match *self {
             Self::Pgm201 => pgm201::EXPLAIN,
             Self::Pgm202 => pgm202::EXPLAIN,
+            Self::Pgm203 => pgm203::EXPLAIN,
+            Self::Pgm204 => pgm204::EXPLAIN,
         }
     }
 
@@ -488,6 +502,8 @@ impl DestructiveRule {
         match *self {
             Self::Pgm201 => pgm201::check(rule, statements, ctx),
             Self::Pgm202 => pgm202::check(rule, statements, ctx),
+            Self::Pgm203 => pgm203::check(rule, statements, ctx),
+            Self::Pgm204 => pgm204::check(rule, statements, ctx),
         }
     }
 }
@@ -495,8 +511,8 @@ impl DestructiveRule {
 impl From<DestructiveRule> for Severity {
     fn from(value: DestructiveRule) -> Self {
         match value {
-            DestructiveRule::Pgm201 => Self::Minor,
-            DestructiveRule::Pgm202 => Self::Major,
+            DestructiveRule::Pgm201 | DestructiveRule::Pgm203 => Self::Minor,
+            DestructiveRule::Pgm202 | DestructiveRule::Pgm204 => Self::Major,
         }
     }
 }
@@ -987,8 +1003,8 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 15 unsafe DDL + 6 type anti-pattern + 2 destructive + 3 idempotency + 5 schema design + 1 meta = 32
-        assert_eq!(all.len(), 32);
+        // 15 unsafe DDL + 6 type anti-pattern + 4 destructive + 3 idempotency + 5 schema design + 1 meta = 34
+        assert_eq!(all.len(), 34);
     }
 
     #[test]

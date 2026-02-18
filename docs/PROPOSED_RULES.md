@@ -105,39 +105,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 2xx — Destructive operations
 
-### PGM1203 — `TRUNCATE TABLE` on existing table
-
-- **Range**: 2xx (TRUNCATE)
-- **Severity**: MINOR
-- **Status**: Not yet implemented.
-- **Triggers**: `TRUNCATE TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `TRUNCATE` is instant DDL (does not scan rows) and does not fire row-level `ON DELETE` triggers, bypassing any business logic or auditing those triggers enforce. All data in the table is permanently destroyed. Like `DROP TABLE`, the DDL cost is low but the consequence is irreversible data loss.
-- **Interaction with PGM1204**: Both this rule and PGM1204 fire when `TRUNCATE CASCADE` targets an existing table. This rule covers the irreversible data destruction aspect; PGM1204 covers the silent cascade to dependent tables.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `TRUNCATE TABLE '{table}' removes all rows from an existing table. This is irreversible and does not fire ON DELETE triggers.`
-- **IR impact**: Requires a new top-level `IrNode` variant `TruncateTable { tables: Vec<String>, cascade: bool }`. `pg_query` emits `TruncateStmt` for this operation.
-
----
-
-### PGM1204 — `TRUNCATE TABLE ... CASCADE` on existing table
-
-- **Range**: 2xx (TRUNCATE)
-- **Severity**: MAJOR
-- **Status**: Not yet implemented.
-- **Triggers**: `TRUNCATE TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `TRUNCATE CASCADE` automatically extends the truncate to all tables that have FK references to the target table — and recursively to any tables referencing those, without bound. None of the additionally truncated tables are listed in the migration statement. The author may not be aware of all tables in the cascade chain. This is a superset of the PGM1203 finding; both fire when `CASCADE` is present.
-- **Interaction with PGM1203**: Both PGM1203 and this rule fire when `TRUNCATE CASCADE` targets an existing table. PGM1203 covers the irreversible data destruction aspect; this rule covers the silent cascade to dependent tables.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-  - `CASCADE` is absent (PGM1203 handles the non-cascade case).
-- **Message**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
-- **IR impact**: Uses the `cascade: bool` field on `TruncateTable` introduced by PGM1203. No additional IR changes required.
-
----
-
 ### PGM1205 — `DROP SCHEMA ... CASCADE`
 
 - **Range**: 2xx (DROP SCHEMA)

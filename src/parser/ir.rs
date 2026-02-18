@@ -15,6 +15,7 @@ pub enum IrNode {
     CreateIndex(CreateIndex),
     DropIndex(DropIndex),
     DropTable(DropTable),
+    TruncateTable(TruncateTable),
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
     RenameTable {
         name: QualifiedName,
@@ -99,6 +100,12 @@ pub struct DropIndex {
 pub struct DropTable {
     pub name: QualifiedName,
     pub if_exists: bool,
+    pub cascade: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TruncateTable {
+    pub name: QualifiedName,
     pub cascade: bool,
 }
 
@@ -473,6 +480,22 @@ impl DropIndex {
     }
 }
 
+#[cfg(test)]
+impl TruncateTable {
+    /// Minimal TRUNCATE TABLE: cascade false.
+    pub fn test(name: QualifiedName) -> Self {
+        Self {
+            name,
+            cascade: false,
+        }
+    }
+
+    pub fn with_cascade(mut self, cascade: bool) -> Self {
+        self.cascade = cascade;
+        self
+    }
+}
+
 // Convenience conversions for test construction: builder.into() -> IrNode variant
 #[cfg(test)]
 impl From<CreateTable> for IrNode {
@@ -506,6 +529,13 @@ impl From<DropTable> for IrNode {
 impl From<DropIndex> for IrNode {
     fn from(value: DropIndex) -> Self {
         IrNode::DropIndex(value)
+    }
+}
+
+#[cfg(test)]
+impl From<TruncateTable> for IrNode {
+    fn from(value: TruncateTable) -> Self {
+        IrNode::TruncateTable(value)
     }
 }
 

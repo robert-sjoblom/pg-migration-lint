@@ -12,6 +12,18 @@ expression: findings
   severity: Minor
   message: "DROP TABLE 'event_log' removes an existing table. This is irreversible and all data will be lost."
   file: 010-cleanup.xml
+  start_line: 17
+  end_line: 17
+- rule_id: PGM203
+  severity: Minor
+  message: "TRUNCATE TABLE 'event_log' removes all rows from an existing table. This is irreversible and does not fire ON DELETE triggers."
+  file: 010-cleanup.xml
+  start_line: 12
+  end_line: 12
+- rule_id: PGM204
+  severity: Major
+  message: "TRUNCATE TABLE 'event_log' CASCADE silently extends to all tables with foreign key references to 'event_log', and recursively to their dependents. Verify the full cascade chain is intentionally truncated."
+  file: 010-cleanup.xml
   start_line: 12
   end_line: 12
 - rule_id: PGM401
@@ -24,5 +36,5 @@ expression: findings
   severity: Minor
   message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 12
-  end_line: 12
+  start_line: 17
+  end_line: 17

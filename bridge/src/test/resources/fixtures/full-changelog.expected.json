@@ -232,11 +232,19 @@
     "run_in_transaction": true
   },
   {
+    "changeset_id": "010-truncate-event-log",
+    "author": "alice",
+    "sql": "TRUNCATE TABLE event_log CASCADE;",
+    "xml_file": "010-cleanup.xml",
+    "xml_line": 12,
+    "run_in_transaction": true
+  },
+  {
     "changeset_id": "010-drop-event-log",
     "author": "alice",
     "sql": "DROP TABLE event_log;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 12,
+    "xml_line": 17,
     "run_in_transaction": true
   },
   {
@@ -244,7 +252,7 @@
     "author": "alice",
     "sql": "DROP INDEX IF EXISTS idx_nonexistent;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 17,
+    "xml_line": 22,
     "run_in_transaction": true
   },
   {
@@ -252,7 +260,7 @@
     "author": "alice",
     "sql": "DROP TABLE IF EXISTS nonexistent_table;",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 21,
+    "xml_line": 26,
     "run_in_transaction": true
   },
   {
@@ -260,7 +268,7 @@
     "author": "alice",
     "sql": "ALTER TABLE subscription_invoices ADD CONSTRAINT pk_subscription_invoices PRIMARY KEY (subscription_id, invoiced_from);",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 26,
+    "xml_line": 31,
     "run_in_transaction": true
   },
   {
@@ -268,7 +276,7 @@
     "author": "alice",
     "sql": "CREATE INDEX CONCURRENTLY IF NOT EXISTS\n                idx_subscriptions_account_id_covering\n                ON subscriptions (account_id);",
     "xml_file": "010-cleanup.xml",
-    "xml_line": 33,
+    "xml_line": 38,
     "run_in_transaction": false
   },
   {

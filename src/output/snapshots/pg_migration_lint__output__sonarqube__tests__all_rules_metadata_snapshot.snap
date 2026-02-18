@@ -284,10 +284,34 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "message": "PGM203: TRUNCATE TABLE on existing table",
         "textRange": {
           "endLine": 24,
           "startLine": 24
+        }
+      },
+      "ruleId": "PGM203"
+    },
+    {
+      "effortMinutes": 15,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM204: TRUNCATE TABLE CASCADE on existing table",
+        "textRange": {
+          "endLine": 25,
+          "startLine": 25
+        }
+      },
+      "ruleId": "PGM204"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "textRange": {
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM401"
@@ -298,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM402"
@@ -310,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM403"
@@ -322,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM501"
@@ -334,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM502"
@@ -346,8 +370,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 31,
+          "startLine": 31
         }
       },
       "ruleId": "PGM503"
@@ -358,8 +382,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 30,
-          "startLine": 30
+          "endLine": 32,
+          "startLine": 32
         }
       },
       "ruleId": "PGM504"
@@ -370,8 +394,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 31,
-          "startLine": 31
+          "endLine": 33,
+          "startLine": 33
         }
       },
       "ruleId": "PGM505"
@@ -720,6 +744,36 @@ expression: parsed
         }
       ],
       "name": "DROP TABLE CASCADE on existing table",
+      "severity": "MAJOR",
+      "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM203 — TRUNCATE TABLE on existing table\n\nWhat it detects:\nA TRUNCATE TABLE statement targeting a table that already exists in the\ndatabase (i.e., the table was not created in the same set of changed\nfiles).\n\nWhy it matters:\nTRUNCATE removes all rows from a table instantly without scanning them.\nUnlike DELETE, it does not fire ON DELETE triggers, does not log\nindividual row deletions, and cannot be filtered with a WHERE clause.\nThe operation is irreversible once committed.\n\nExample:\nTRUNCATE TABLE audit_trail;\n\nRecommended approach:\n1. Ensure the data is truly disposable or has been backed up.\n2. Consider whether ON DELETE triggers need to fire — if so, use DELETE.\n3. If truncating for a schema migration, document the intent clearly.\n\nThis rule is MINOR severity to flag the operation for human review.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM203",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "TRUNCATE TABLE on existing table",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM204 — TRUNCATE TABLE CASCADE on existing table\n\nWhat it detects:\nA TRUNCATE TABLE ... CASCADE statement targeting a table that already\nexists in the database.\n\nWhy it matters:\nCASCADE silently extends the truncation to all tables that have foreign\nkey references to the truncated table, and recursively to their\ndependents. The developer may not be aware of the full cascade chain,\nleading to unexpected data loss across multiple tables.\n\nA plain TRUNCATE (without CASCADE) would fail if FK dependencies exist,\nwhich is a safer default. CASCADE bypasses that safety net.\n\nExample:\nTRUNCATE TABLE customers CASCADE;\n\nIf the 'orders' table has a FK referencing 'customers', CASCADE will\nsilently truncate 'orders' as well.\n\nRecommended approach:\n1. Identify all dependent tables before truncating.\n2. Explicitly truncate each table in the correct order.\n3. Use plain TRUNCATE (without CASCADE) so PostgreSQL will error\nif unexpected dependencies remain.\n\nThis rule is MAJOR severity because CASCADE silently destroys\ndata in dependent tables the developer may not be aware of.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM204",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "TRUNCATE TABLE CASCADE on existing table",
       "severity": "MAJOR",
       "type": "BUG"
     },

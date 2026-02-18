@@ -46,7 +46,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM017, PGM101-PGM106, PGM201, PGM401-PGM402, PGM501-PGM505)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM017, PGM101-PGM106, PGM201-PGM204, PGM401-PGM403, PGM501-PGM505)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -172,6 +172,8 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 **2xx — Destructive Operations:**
 - **PGM201**: `DROP TABLE` on existing table
 - **PGM202**: `DROP TABLE CASCADE` on existing table
+- **PGM203**: `TRUNCATE TABLE` on existing table
+- **PGM204**: `TRUNCATE TABLE CASCADE` on existing table
 
 **4xx — Idempotency Guards:**
 - **PGM401**: Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`

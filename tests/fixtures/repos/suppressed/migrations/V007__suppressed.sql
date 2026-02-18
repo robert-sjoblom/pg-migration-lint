@@ -1,3 +1,5 @@
--- pgm-lint:suppress-file PGM201,PGM202,PGM401
+-- pgm-lint:suppress-file PGM201,PGM202,PGM203,PGM204,PGM401
+
+TRUNCATE TABLE audit_trail CASCADE;
 
 DROP TABLE audit_trail CASCADE;

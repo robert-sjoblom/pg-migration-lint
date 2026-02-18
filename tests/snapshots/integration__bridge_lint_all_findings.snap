@@ -78,8 +78,8 @@ expression: findings
   severity: Minor
   message: "DROP TABLE 'event_log': add IF EXISTS for idempotent migrations."
   file: 010-cleanup.xml
-  start_line: 12
-  end_line: 12
+  start_line: 17
+  end_line: 17
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."

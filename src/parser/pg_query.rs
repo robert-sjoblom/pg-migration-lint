@@ -6,7 +6,8 @@
 
 use crate::parser::ir::{
     AlterTable, AlterTableAction, ColumnDef, CreateIndex, CreateTable, DefaultExpr, DropIndex,
-    DropTable, IndexColumn, IrNode, Located, QualifiedName, SourceSpan, TableConstraint, TypeName,
+    DropTable, IndexColumn, IrNode, Located, QualifiedName, SourceSpan, TableConstraint,
+    TruncateTable, TypeName,
 };
 use pg_query::NodeEnum;
 
@@ -68,22 +69,26 @@ pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
 
         let stmt_node = raw_stmt.stmt.as_ref().and_then(|s| s.node.as_ref());
 
-        let ir_node = match stmt_node {
+        let ir_nodes = match stmt_node {
             Some(node_enum) => convert_node(node_enum, &raw_sql),
-            None => IrNode::Ignored {
+            None => vec![IrNode::Ignored {
                 raw_sql: raw_sql.clone(),
-            },
+            }],
         };
 
-        nodes.push(Located {
-            node: ir_node,
-            span: SourceSpan {
-                start_line,
-                end_line,
-                start_offset,
-                end_offset,
-            },
-        });
+        let span = SourceSpan {
+            start_line,
+            end_line,
+            start_offset,
+            end_offset,
+        };
+
+        for ir_node in ir_nodes {
+            nodes.push(Located {
+                node: ir_node,
+                span: span.clone(),
+            });
+        }
     }
 
     nodes
@@ -97,21 +102,26 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
     source[..clamped].matches('\n').count() + 1
 }
 
-/// Convert a pg_query `NodeEnum` into an IR node.
-fn convert_node(node: &NodeEnum, raw_sql: &str) -> IrNode {
+/// Convert a pg_query `NodeEnum` into one or more IR nodes.
+///
+/// Most statements produce a single IR node. Multi-target statements like
+/// `DROP TABLE t1, t2` or `TRUNCATE t1, t2, t3 CASCADE` produce one node
+/// per target table.
+fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
     match node {
-        NodeEnum::CreateStmt(create) => convert_create_table(create, raw_sql),
-        NodeEnum::AlterTableStmt(alter) => convert_alter_table(alter, raw_sql),
-        NodeEnum::IndexStmt(idx) => convert_create_index(idx),
+        NodeEnum::CreateStmt(create) => vec![convert_create_table(create, raw_sql)],
+        NodeEnum::AlterTableStmt(alter) => vec![convert_alter_table(alter, raw_sql)],
+        NodeEnum::IndexStmt(idx) => vec![convert_create_index(idx)],
         NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql),
-        NodeEnum::RenameStmt(rename) => convert_rename_stmt(rename, raw_sql),
-        NodeEnum::DoStmt(_) => IrNode::Unparseable {
+        NodeEnum::RenameStmt(rename) => vec![convert_rename_stmt(rename, raw_sql)],
+        NodeEnum::TruncateStmt(trunc) => convert_truncate_stmt(trunc),
+        NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
-        },
-        _ => IrNode::Ignored {
+        }],
+        _ => vec![IrNode::Ignored {
             raw_sql: raw_sql.to_string(),
-        },
+        }],
     }
 }
 
@@ -637,95 +647,145 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 // DROP statements
 // ---------------------------------------------------------------------------
 
-/// Convert a pg_query `DropStmt` to the appropriate IR node.
+/// Convert a pg_query `DropStmt` to the appropriate IR node(s).
 ///
-/// - `ObjectType::ObjectIndex` -> `IrNode::DropIndex`
-/// - `ObjectType::ObjectTable` -> `IrNode::DropTable`
+/// Multi-target statements like `DROP TABLE t1, t2` produce one IR node per
+/// target, fixing the previous behavior of only handling the first object.
+///
+/// - `ObjectType::ObjectIndex` -> `IrNode::DropIndex` (one per index)
+/// - `ObjectType::ObjectTable` -> `IrNode::DropTable` (one per table)
 /// - Everything else -> `IrNode::Ignored`
-fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> IrNode {
+fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<IrNode> {
     match drop.remove_type() {
         pg_query::protobuf::ObjectType::ObjectIndex => {
-            let index_name = extract_name_from_drop_objects(&drop.objects);
-            match index_name {
-                Some(name) => IrNode::DropIndex(DropIndex {
-                    index_name: name,
-                    concurrent: drop.concurrent,
-                    if_exists: drop.missing_ok,
-                }),
-                None => IrNode::Ignored {
+            let names = extract_all_names_from_drop_objects(&drop.objects);
+            if names.is_empty() {
+                return vec![IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
-                },
+                }];
             }
+            names
+                .into_iter()
+                .map(|name| {
+                    IrNode::DropIndex(DropIndex {
+                        index_name: name,
+                        concurrent: drop.concurrent,
+                        if_exists: drop.missing_ok,
+                    })
+                })
+                .collect()
         }
         pg_query::protobuf::ObjectType::ObjectTable => {
-            let table_name = extract_qualified_name_from_drop_objects(&drop.objects);
-            match table_name {
-                Some(name) => IrNode::DropTable(DropTable {
-                    name,
-                    if_exists: drop.missing_ok,
-                    cascade: drop.behavior() == pg_query::protobuf::DropBehavior::DropCascade,
-                }),
-                None => IrNode::Ignored {
+            let qualified_names = extract_all_qualified_names_from_drop_objects(&drop.objects);
+            if qualified_names.is_empty() {
+                return vec![IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
-                },
+                }];
             }
-        }
-        _ => IrNode::Ignored {
-            raw_sql: raw_sql.to_string(),
-        },
-    }
-}
-
-/// Extract the object name from `DropStmt.objects[]`.
-///
-/// For `DROP INDEX`, the objects list contains `List { items: [String(name)] }`.
-/// We take the last string element to get the unqualified name.
-fn extract_name_from_drop_objects(objects: &[pg_query::protobuf::Node]) -> Option<String> {
-    for obj in objects {
-        if let Some(NodeEnum::List(list)) = obj.node.as_ref() {
-            // Take the last string item as the name
-            for item in list.items.iter().rev() {
-                if let Some(NodeEnum::String(s)) = item.node.as_ref() {
-                    return Some(s.sval.clone());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract a qualified name from `DropStmt.objects[]` for DROP TABLE.
-///
-/// Handles both `DROP TABLE foo` (unqualified) and `DROP TABLE myschema.foo` (qualified).
-fn extract_qualified_name_from_drop_objects(
-    objects: &[pg_query::protobuf::Node],
-) -> Option<QualifiedName> {
-    for obj in objects {
-        if let Some(NodeEnum::List(list)) = obj.node.as_ref() {
-            let strings: Vec<String> = list
-                .items
-                .iter()
-                .filter_map(|item| match item.node.as_ref() {
-                    Some(NodeEnum::String(s)) => Some(s.sval.clone()),
-                    _ => None,
+            qualified_names
+                .into_iter()
+                .map(|name| {
+                    IrNode::DropTable(DropTable {
+                        name,
+                        if_exists: drop.missing_ok,
+                        cascade: drop.behavior() == pg_query::protobuf::DropBehavior::DropCascade,
+                    })
                 })
-                .collect();
-
-            return match strings.len() {
-                1 => Some(QualifiedName::unqualified(&strings[0])),
-                2 => Some(QualifiedName::qualified(&strings[0], &strings[1])),
-                _ if !strings.is_empty() => {
-                    // Take last two as schema.name (len >= 3 guaranteed here
-                    // since len == 1 and len == 2 are handled above)
-                    let name = strings.last().cloned().unwrap_or_default();
-                    let schema = strings[strings.len() - 2].clone();
-                    Some(QualifiedName::qualified(schema, name))
-                }
-                _ => None,
-            };
+                .collect()
         }
+        _ => vec![IrNode::Ignored {
+            raw_sql: raw_sql.to_string(),
+        }],
     }
-    None
+}
+
+// ---------------------------------------------------------------------------
+// TRUNCATE
+// ---------------------------------------------------------------------------
+
+/// Convert a pg_query `TruncateStmt` to one IR node per target table.
+///
+/// `TRUNCATE t1, t2, t3 CASCADE` produces three `TruncateTable` nodes,
+/// all sharing the same `cascade` flag.
+fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode> {
+    let cascade = trunc.behavior() == pg_query::protobuf::DropBehavior::DropCascade;
+
+    trunc
+        .relations
+        .iter()
+        .filter_map(|rel_node| {
+            rel_node.node.as_ref().and_then(|n| match n {
+                NodeEnum::RangeVar(rv) => Some(IrNode::TruncateTable(TruncateTable {
+                    name: relation_to_qualified_name(Some(rv)),
+                    cascade,
+                })),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// DROP statement helpers
+// ---------------------------------------------------------------------------
+
+/// Extract ALL object names from `DropStmt.objects[]`.
+///
+/// For `DROP INDEX idx1, idx2`, returns `["idx1", "idx2"]`.
+fn extract_all_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) -> Vec<String> {
+    objects
+        .iter()
+        .filter_map(|obj| {
+            if let Some(NodeEnum::List(list)) = obj.node.as_ref() {
+                // Take the last string item as the name
+                list.items.iter().rev().find_map(|item| {
+                    if let Some(NodeEnum::String(s)) = item.node.as_ref() {
+                        Some(s.sval.clone())
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Extract ALL qualified names from `DropStmt.objects[]` for multi-table DROP.
+///
+/// For `DROP TABLE foo, myschema.bar`, returns both names.
+fn extract_all_qualified_names_from_drop_objects(
+    objects: &[pg_query::protobuf::Node],
+) -> Vec<QualifiedName> {
+    objects
+        .iter()
+        .filter_map(|obj| {
+            if let Some(NodeEnum::List(list)) = obj.node.as_ref() {
+                let strings: Vec<String> = list
+                    .items
+                    .iter()
+                    .filter_map(|item| match item.node.as_ref() {
+                        Some(NodeEnum::String(s)) => Some(s.sval.clone()),
+                        _ => None,
+                    })
+                    .collect();
+
+                match strings.len() {
+                    1 => Some(QualifiedName::unqualified(&strings[0])),
+                    2 => Some(QualifiedName::qualified(&strings[0], &strings[1])),
+                    _ if !strings.is_empty() => {
+                        let name = strings.last().cloned().unwrap_or_default();
+                        let schema = strings[strings.len() - 2].clone();
+                        Some(QualifiedName::qualified(schema, name))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -2055,6 +2115,408 @@ mod tests {
                 assert!(ci.if_not_exists);
             }
             other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TRUNCATE TABLE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_truncate_table() {
+        let sql = "TRUNCATE TABLE foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::unqualified("foo"));
+                assert!(!tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_truncate_table_cascade() {
+        let sql = "TRUNCATE TABLE foo CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::unqualified("foo"));
+                assert!(tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_truncate_multi_table() {
+        let sql = "TRUNCATE TABLE t1, t2, t3 CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 3);
+        let names: Vec<&str> = nodes
+            .iter()
+            .map(|n| match &n.node {
+                IrNode::TruncateTable(tt) => {
+                    assert!(tt.cascade);
+                    tt.name.name.as_str()
+                }
+                other => panic!("Expected TruncateTable, got: {:?}", other),
+            })
+            .collect();
+        assert_eq!(names, vec!["t1", "t2", "t3"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-table DROP TABLE / DROP INDEX (regression tests)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_table_multi() {
+        let sql = "DROP TABLE t1, t2;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("t1"));
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("t2"));
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_index_multi() {
+        let sql = "DROP INDEX idx1, idx2;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx1");
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx2");
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // convert_drop_stmt — catch-all arm (non-table, non-index DROP)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_view_ignored() {
+        let sql = "DROP VIEW my_view;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Ignored { .. } => {} // Expected — DROP VIEW hits the catch-all arm
+            other => panic!("Expected Ignored for DROP VIEW, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_sequence_ignored() {
+        let sql = "DROP SEQUENCE my_seq;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Ignored { .. } => {} // Expected — DROP SEQUENCE hits the catch-all arm
+            other => panic!("Expected Ignored for DROP SEQUENCE, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_type_ignored() {
+        let sql = "DROP TYPE my_type;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Ignored { .. } => {} // Expected — DROP TYPE hits the catch-all arm
+            other => panic!("Expected Ignored for DROP TYPE, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TRUNCATE with schema-qualified name
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_truncate_schema_qualified() {
+        let sql = "TRUNCATE TABLE myschema.foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::qualified("myschema", "foo"));
+                assert!(!tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Single-target DROP TABLE / DROP INDEX variations
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_table_single_no_cascade_no_if_exists() {
+        let sql = "DROP TABLE foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("foo"));
+                assert!(!dt.cascade);
+                assert!(!dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_table_if_exists() {
+        let sql = "DROP TABLE IF EXISTS foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("foo"));
+                assert!(!dt.cascade);
+                assert!(dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_table_cascade_without_if_exists() {
+        let sql = "DROP TABLE foo CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("foo"));
+                assert!(dt.cascade);
+                assert!(!dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_index_single() {
+        let sql = "DROP INDEX foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "foo");
+                assert!(!di.concurrent);
+                assert!(!di.if_exists);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_index_if_exists() {
+        let sql = "DROP INDEX IF EXISTS foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "foo");
+                assert!(!di.concurrent);
+                assert!(di.if_exists);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_index_concurrently_if_exists() {
+        let sql = "DROP INDEX CONCURRENTLY IF EXISTS foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "foo");
+                assert!(di.concurrent);
+                assert!(di.if_exists);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Schema-qualified DROP TABLE / DROP INDEX
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_table_schema_qualified() {
+        let sql = "DROP TABLE myschema.foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::qualified("myschema", "foo"));
+                assert!(!dt.cascade);
+                assert!(!dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_index_schema_qualified_with_flags() {
+        let sql = "DROP INDEX CONCURRENTLY IF EXISTS myschema.idx_foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                // extract_all_names_from_drop_objects takes last string, which is the index name
+                assert_eq!(di.index_name, "idx_foo");
+                assert!(di.concurrent);
+                assert!(di.if_exists);
+            }
+            other => panic!("Expected DropIndex, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // extract_all_qualified_names_from_drop_objects — 3+ component names
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_table_three_part_name() {
+        // In PostgreSQL, `catalog.schema.table` is a valid 3-part name.
+        // pg_query parses this and produces 3 string components.
+        // This exercises the `_ if !strings.is_empty()` arm (line ~777).
+        let sql = "DROP TABLE mycat.myschema.foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                // The 3+ branch takes last two: schema = strings[len-2], name = strings[last]
+                assert_eq!(dt.name, QualifiedName::qualified("myschema", "foo"));
+                assert!(!dt.cascade);
+                assert!(!dt.if_exists);
+            }
+            other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-target DROP TABLE with mixed qualified names
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_table_multi_mixed_qualified() {
+        let sql = "DROP TABLE foo, myschema.bar;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::unqualified("foo"));
+            }
+            other => panic!("Expected DropTable for foo, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::DropTable(dt) => {
+                assert_eq!(dt.name, QualifiedName::qualified("myschema", "bar"));
+            }
+            other => panic!("Expected DropTable for bar, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_table_multi_cascade_if_exists() {
+        let sql = "DROP TABLE IF EXISTS t1, t2 CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        for (i, expected_name) in ["t1", "t2"].iter().enumerate() {
+            match &nodes[i].node {
+                IrNode::DropTable(dt) => {
+                    assert_eq!(dt.name, QualifiedName::unqualified(*expected_name));
+                    assert!(dt.cascade, "Expected cascade for {}", expected_name);
+                    assert!(dt.if_exists, "Expected if_exists for {}", expected_name);
+                }
+                other => panic!("Expected DropTable for {}, got: {:?}", expected_name, other),
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DROP INDEX — multi-target with schema-qualified names
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_index_multi_schema_qualified() {
+        let sql = "DROP INDEX myschema.idx1, myschema.idx2;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx1");
+            }
+            other => panic!("Expected DropIndex for idx1, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::DropIndex(di) => {
+                assert_eq!(di.index_name, "idx2");
+            }
+            other => panic!("Expected DropIndex for idx2, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TRUNCATE without TABLE keyword (bare TRUNCATE)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_truncate_bare() {
+        // "TRUNCATE foo" is valid SQL without the optional TABLE keyword
+        let sql = "TRUNCATE foo;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::unqualified("foo"));
+                assert!(!tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_truncate_multi_schema_qualified() {
+        let sql = "TRUNCATE TABLE myschema.t1, public.t2 CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::qualified("myschema", "t1"));
+                assert!(tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::TruncateTable(tt) => {
+                assert_eq!(tt.name, QualifiedName::qualified("public", "t2"));
+                assert!(tt.cascade);
+            }
+            other => panic!("Expected TruncateTable, got: {:?}", other),
         }
     }
 }

@@ -8,6 +8,11 @@
         <dropIndex indexName="idx_products_name_article" tableName="products"/>
     </changeSet>
 
+    <!-- Truncate a table before dropping it -->
+    <changeSet id="010-truncate-event-log" author="alice">
+        <sql>TRUNCATE TABLE event_log CASCADE;</sql>
+    </changeSet>
+
     <!-- Drop a table -->
     <changeSet id="010-drop-event-log" author="alice">
         <dropTable tableName="event_log"/>
