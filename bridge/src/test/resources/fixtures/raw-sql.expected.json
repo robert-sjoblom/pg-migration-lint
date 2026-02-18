@@ -4,7 +4,7 @@
     "author": "bob",
     "sql": "CREATE INDEX CONCURRENTLY idx_foo ON bar (baz);",
     "xml_file": "raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 7,
     "run_in_transaction": true
   },
   {
@@ -12,7 +12,7 @@
     "author": "bob",
     "sql": "ALTER TABLE orders\n            ADD CONSTRAINT check_status\n            CHECK (status IN (\u0027ACTIVE\u0027, \u0027CLOSED\u0027));",
     "xml_file": "raw-sql.xml",
-    "xml_line": 1,
+    "xml_line": 13,
     "run_in_transaction": true
   }
 ]

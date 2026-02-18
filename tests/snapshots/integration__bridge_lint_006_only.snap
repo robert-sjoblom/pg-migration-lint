@@ -6,35 +6,35 @@ expression: findings
   severity: Minor
   message: "Column 'created' on 'event_log' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 27
+  end_line: 27
 - rule_id: PGM501
   severity: Major
   message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
   file: 006-table-no-pk.xml
-  start_line: 2
-  end_line: 2
+  start_line: 28
+  end_line: 28
 - rule_id: PGM502
   severity: Major
   message: "Table 'subscription_invoices' has no primary key."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 27
+  end_line: 27
 - rule_id: PGM503
   severity: Info
   message: "Table 'event_log' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
   file: 006-table-no-pk.xml
-  start_line: 1
-  end_line: 1
+  start_line: 11
+  end_line: 11

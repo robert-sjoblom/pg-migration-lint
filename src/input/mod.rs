@@ -68,8 +68,24 @@ impl RawMigrationUnit {
     /// Parse the raw SQL into IR and produce a `MigrationUnit`.
     ///
     /// Uses the pg_query parser to convert the SQL text into IR nodes.
+    /// Adjusts statement line numbers by `source_line_offset` so that
+    /// findings point to the correct line in the original file (e.g., the
+    /// XML line for Liquibase changesets). For raw SQL files the offset
+    /// is 1, making this a no-op.
     pub fn into_migration_unit(self) -> MigrationUnit {
-        let statements = crate::parser::pg_query::parse_sql(&self.sql);
+        let mut statements = crate::parser::pg_query::parse_sql(&self.sql);
+
+        // Shift line numbers so they are absolute within the source file.
+        // The parser returns 1-based lines relative to the SQL snippet;
+        // source_line_offset is the 1-based line where the snippet starts.
+        if self.source_line_offset > 1 {
+            let delta = self.source_line_offset - 1;
+            for stmt in &mut statements {
+                stmt.span.start_line += delta;
+                stmt.span.end_line += delta;
+            }
+        }
+
         MigrationUnit {
             id: self.id,
             statements,
