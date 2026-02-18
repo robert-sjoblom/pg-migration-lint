@@ -4,13 +4,13 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
 
     <!--
-        PGM007 VIOLATION: Volatile defaults (NOW(), CURRENT_TIMESTAMP).
+        PGM006 VIOLATION: Volatile defaults (NOW(), CURRENT_TIMESTAMP).
         The defaultValueComputed attribute generates DEFAULT <expr> in the SQL.
         When applied to existing tables via addColumn, NOW() is volatile and
         can force a table rewrite on large tables.
     -->
 
-    <!-- Create price_plans table with volatile defaults (new table, may or may not trigger PGM007
+    <!-- Create price_plans table with volatile defaults (new table, may or may not trigger PGM006
          depending on whether the rule checks tables_created_in_change) -->
     <changeSet id="007-create-price-plans" author="alice">
         <createTable tableName="price_plans">

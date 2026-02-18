@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM013
+  severity: Critical
+  message: "SET NOT NULL on column 'customer_id' of existing table 'customers' requires an ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint with NOT VALID, validate it, then set NOT NULL."
+  file: repos/all-rules/migrations/V005__new_violations.sql
+  start_line: 1
+  end_line: 2

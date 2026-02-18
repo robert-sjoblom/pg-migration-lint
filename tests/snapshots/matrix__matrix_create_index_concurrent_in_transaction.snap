@@ -1,9 +1,8 @@
 ---
 source: tests/matrix.rs
-assertion_line: 172
 expression: findings
 ---
-- rule_id: PGM006
+- rule_id: PGM003
   severity: Critical
   message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
   file: migrations/002.sql

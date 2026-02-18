@@ -1,142 +1,177 @@
-//! PGM008 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
+//! PGM008 — `ADD COLUMN NOT NULL` without default on existing table
 //!
-//! Detects `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
-//! Without `IF EXISTS`, the statement fails if the object does not exist.
-//! In migration pipelines that may be re-run, this causes hard failures.
+//! Detects `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a `DEFAULT` clause
+//! on tables that already exist. This command will fail outright if the table
+//! has any rows.
 
-use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::parser::ir::{AlterTableAction, IrNode, Located};
+use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-pub(super) const DESCRIPTION: &str = "Missing IF EXISTS on DROP TABLE / DROP INDEX";
+pub(super) const DESCRIPTION: &str = "ADD COLUMN NOT NULL without DEFAULT on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM008 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\
+pub(super) const EXPLAIN: &str = "PGM008 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\
          \n\
          What it detects:\n\
-         A DROP TABLE or DROP INDEX statement that does not include the\n\
-         IF EXISTS clause.\n\
+         ALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,\n\
+         where the table already exists in the database (not created in the\n\
+         same set of changed files).\n\
          \n\
-         Why it matters:\n\
-         Without IF EXISTS, the statement fails if the object does not exist.\n\
-         In migration pipelines that may be re-run (e.g., idempotent migrations,\n\
-         manual re-execution after partial failure), this causes hard failures.\n\
-         Adding IF EXISTS makes the statement idempotent.\n\
+         Why it's dangerous:\n\
+         Adding a NOT NULL column without a default to a table that has\n\
+         existing rows will fail immediately with:\n\
+           ERROR: column \"x\" of relation \"t\" contains null values\n\
+         This is almost always a bug. The migration will fail at deploy time.\n\
          \n\
-         Example:\n\
-           -- Fails if 'orders' does not exist:\n\
-           DROP TABLE orders;\n\
-           DROP INDEX idx_orders_status;\n\
+         On PG 11+, ADD COLUMN ... NOT NULL DEFAULT <value> is safe — the\n\
+         default is applied lazily without rewriting the table (for non-volatile\n\
+         defaults).\n\
          \n\
-         Recommended fix:\n\
-           DROP TABLE IF EXISTS orders;\n\
-           DROP INDEX IF EXISTS idx_orders_status;";
+         Example (bad):\n\
+           ALTER TABLE orders ADD COLUMN status text NOT NULL;\n\
+         \n\
+         Fix (option A — add with default):\n\
+           ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\
+         \n\
+         Fix (option B — add nullable, backfill, then constrain):\n\
+           ALTER TABLE orders ADD COLUMN status text;\n\
+           UPDATE orders SET status = 'pending' WHERE status IS NULL;\n\
+           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
 
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for stmt in statements {
-        match &stmt.node {
-            IrNode::DropTable(dt) if !dt.if_exists => {
-                findings.push(rule.make_finding(
+    alter_table_check::check_alter_actions(
+        statements,
+        ctx,
+        TableScope::ExcludeCreatedInChange,
+        |at, action, stmt, ctx| {
+            if let AlterTableAction::AddColumn(col) = action
+                && !col.nullable
+                && col.default_expr.is_none()
+            {
+                vec![rule.make_finding(
                     format!(
-                        "DROP TABLE '{}': add IF EXISTS for idempotent migrations.",
-                        dt.name.display_name()
+                        "Adding NOT NULL column '{col}' to existing table '{table}' \
+                         without a DEFAULT will fail if the table has any rows. \
+                         Add a DEFAULT value, or add the column as nullable and backfill.",
+                        col = col.name,
+                        table = at.name.display_name(),
                     ),
                     ctx.file,
                     &stmt.span,
-                ));
+                )]
+            } else {
+                vec![]
             }
-            IrNode::DropIndex(di) if !di.if_exists => {
-                findings.push(rule.make_finding(
-                    format!(
-                        "DROP INDEX '{}': add IF EXISTS for idempotent migrations.",
-                        di.index_name
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
-            }
-            _ => {}
-        }
-    }
-
-    findings
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
+    use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{MigrationRule, RuleId};
+    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     #[test]
-    fn test_drop_table_without_if_exists_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
+    fn test_not_null_no_default_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropTable(
-            DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
-        ))];
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text").with_nullable(false),
+            )],
+        }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
-    fn test_drop_table_with_if_exists_no_finding() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
+    fn test_not_null_with_default_no_finding() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropTable(DropTable::test(
-            QualifiedName::unqualified("orders"),
-        )))];
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text")
+                    .with_nullable(false)
+                    .with_default(DefaultExpr::Literal("pending".to_string())),
+            )],
+        }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
     #[test]
-    fn test_drop_index_without_if_exists_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
+    fn test_nullable_no_default_no_finding() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
         let created = HashSet::new();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
-        ))];
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(ColumnDef::test(
+                "notes", "text",
+            ))],
+        }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm008).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
+        assert!(findings.is_empty());
     }
 
     #[test]
-    fn test_drop_index_with_if_exists_no_finding() {
+    fn test_new_table_not_null_no_default_no_finding() {
         let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let mut created = HashSet::new();
+        created.insert("orders".to_string());
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![located(IrNode::DropIndex(DropIndex::test(
-            "idx_orders_status",
-        )))];
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(
+                ColumnDef::test("status", "text").with_nullable(false),
+            )],
+        }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

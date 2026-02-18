@@ -1,6 +1,5 @@
 ---
 source: src/rules/pgm102.rs
-assertion_line: 109
 expression: findings
 ---
 - rule_id: PGM102

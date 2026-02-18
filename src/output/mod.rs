@@ -133,7 +133,7 @@ pub mod text;
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, MigrationRule, RuleId, Severity};
+    use crate::rules::{Finding, RuleId, SchemaDesignRule, Severity, UnsafeDdlRule};
     use std::path::PathBuf;
 
     #[test]
@@ -163,7 +163,7 @@ mod tests {
         let reporter = SarifReporter;
 
         let first = vec![Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm001),
+            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
             severity: Severity::Critical,
             message: "first".to_string(),
             file: PathBuf::from("a.sql"),
@@ -173,7 +173,7 @@ mod tests {
         reporter.emit(&first, dir.path()).expect("emit first");
 
         let second = vec![Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm003),
+            rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
             severity: Severity::Major,
             message: "second".to_string(),
             file: PathBuf::from("b.sql"),

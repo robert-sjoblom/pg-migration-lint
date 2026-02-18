@@ -78,7 +78,7 @@ impl Reporter for TextReporter {
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, MigrationRule, RuleId, Severity};
+    use crate::rules::{Finding, RuleId, SchemaDesignRule, Severity, UnsafeDdlRule};
     use std::path::PathBuf;
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
 
         let findings = vec![
             Finding {
-                rule_id: RuleId::Migration(MigrationRule::Pgm001),
+                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
                 severity: Severity::Critical,
                 message: "first finding".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -103,7 +103,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: RuleId::Migration(MigrationRule::Pgm003),
+                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
                 severity: Severity::Major,
                 message: "second finding".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn format_finding_uses_forward_slashes() {
         let finding = Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm001),
+            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
             severity: Severity::Critical,
             message: "test".to_string(),
             file: PathBuf::from("db/migrations/V042__add_index.sql"),

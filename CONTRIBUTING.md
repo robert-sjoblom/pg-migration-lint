@@ -50,23 +50,26 @@ The `EXPLAIN` text must reference the rule's own ID (e.g., `"PGMXXX"`) — this 
 
 In `src/rules/mod.rs`, add the variant to the appropriate enum:
 
-- `MigrationRule` for PGM0xx rules
-- `TypeChoiceRule` for PGM1xx rules
+- `UnsafeDdlRule` for PGM0xx rules
+- `TypeAntiPatternRule` for PGM1xx rules
+- `DestructiveRule` for PGM2xx rules
+- `IdempotencyRule` for PGM4xx rules
+- `SchemaDesignRule` for PGM5xx rules
 
 Then wire up the four dispatch match arms:
 
 ```rust
-// In MigrationRule::description()
+// In UnsafeDdlRule::description()
 Self::PgmXXX => pgmXXX::DESCRIPTION,
 
-// In MigrationRule::explain()
+// In UnsafeDdlRule::explain()
 Self::PgmXXX => pgmXXX::EXPLAIN,
 
-// In MigrationRule::check()
+// In UnsafeDdlRule::check()
 Self::PgmXXX => pgmXXX::check(rule, statements, ctx),
 
-// In From<MigrationRule> for Severity
-MigrationRule::PgmXXX => Self::Critical, // or Major, Minor, Info
+// In From<UnsafeDdlRule> for Severity
+UnsafeDdlRule::PgmXXX => Self::Critical, // or Major, Minor, Info
 ```
 
 Also add the variant to `RuleId::as_str()` and `RuleId::from_str()`.
@@ -107,7 +110,7 @@ fn test_violation_fires() {
         actions: vec![/* ... */],
     }))];
 
-    let findings = RuleId::Migration(MigrationRule::PgmXXX).check(&stmts, &ctx);
+    let findings = RuleId::UnsafeDdl(UnsafeDdlRule::PgmXXX).check(&stmts, &ctx);
     insta::assert_yaml_snapshot!(findings);
 }
 ```
@@ -153,8 +156,8 @@ Provided to every rule's `check()` function:
 `TableState` query methods:
 
 - `table.get_column(name)` — look up a column by name
-- `table.has_covering_index(fk_columns)` — prefix-matching for FK covering index checks (PGM003)
-- `table.has_unique_not_null()` — detect UNIQUE NOT NULL substitute for PK (PGM005)
+- `table.has_covering_index(fk_columns)` — prefix-matching for FK covering index checks (PGM501)
+- `table.has_unique_not_null()` — detect UNIQUE NOT NULL substitute for PK (PGM503)
 - `table.constraints_involving_column(name)` — find constraints that reference a column
 - `table.indexes_involving_column(name)` — find indexes that reference a column
 
@@ -174,7 +177,7 @@ Finding::new(rule.id(), Severity::Info, message, ctx.file, &stmt.span)
 
 ### `alter_table_check::check_alter_actions`
 
-For rules that inspect ALTER TABLE actions on existing tables (PGM009–PGM021). Handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
+For rules that inspect ALTER TABLE actions on existing tables (PGM007–PGM017). Handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
 
 ```rust
 pub fn check_alter_actions<F>(
@@ -189,7 +192,7 @@ where
 
 ### `column_type_check::check_column_types`
 
-For rules that flag specific column types across `CREATE TABLE`, `ADD COLUMN`, and `ALTER COLUMN TYPE` (PGM101–PGM104, PGM108):
+For rules that flag specific column types across `CREATE TABLE`, `ADD COLUMN`, and `ALTER COLUMN TYPE` (PGM101–PGM106):
 
 ```rust
 pub fn check_column_types(

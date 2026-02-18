@@ -1,6 +1,5 @@
 ---
 source: src/output/sarif.rs
-assertion_line: 229
 expression: parsed
 ---
 {

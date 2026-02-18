@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM505
+  severity: Info
+  message: "Renaming column 'address_id' to 'addr_id' on existing table 'addresses' will break queries referencing the old column name."
+  file: repos/all-rules/migrations/V005__new_violations.sql
+  start_line: 15
+  end_line: 16

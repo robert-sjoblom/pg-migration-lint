@@ -1,7 +1,6 @@
 ---
 source: tests/integration.rs
-assertion_line: 385
-expression: pgm105
+expression: findings
 ---
 - rule_id: PGM105
   severity: Info

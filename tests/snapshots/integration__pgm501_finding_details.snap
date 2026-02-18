@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM501
+  severity: Major
+  message: "Foreign key on 'customers(customer_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: repos/all-rules/migrations/V002__violations.sql
+  start_line: 4
+  end_line: 6

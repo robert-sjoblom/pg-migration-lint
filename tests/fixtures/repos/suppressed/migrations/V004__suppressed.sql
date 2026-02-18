@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM101,PGM102,PGM103,PGM104,PGM105,PGM004,PGM007,PGM023
+-- pgm-lint:suppress-file PGM101,PGM102,PGM103,PGM104,PGM105,PGM502,PGM006,PGM402
 
 -- PGM101: timestamp without time zone (suppressed)
 CREATE TABLE audit_log_v2 (

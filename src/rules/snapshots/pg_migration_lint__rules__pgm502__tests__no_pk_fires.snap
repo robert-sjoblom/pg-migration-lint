@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm502.rs
+expression: findings
+---
+- rule_id: PGM502
+  severity: Major
+  message: "Table 'events' has no primary key."
+  file: migrations/001.sql
+  start_line: 1
+  end_line: 1

@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm017.rs
+expression: findings
+---
+- rule_id: PGM017
+  severity: Critical
+  message: "ADD UNIQUE on existing table 'orders' without USING INDEX on column(s) [email]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

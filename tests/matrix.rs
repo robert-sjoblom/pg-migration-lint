@@ -62,7 +62,7 @@ fn run_selected_rules(
 }
 
 // ---------------------------------------------------------------------------
-// (a) ADD COLUMN NOT NULL with volatile default -> PGM007 fires, PGM010 does not
+// (a) ADD COLUMN NOT NULL with volatile default -> PGM006 fires, PGM008 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_column_not_null_with_volatile_default() {
@@ -91,12 +91,12 @@ fn test_matrix_add_column_not_null_with_volatile_default() {
         })],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM007", "PGM010"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM006", "PGM008"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (b) ADD COLUMN NOT NULL without default -> PGM010 fires, PGM007 does not
+// (b) ADD COLUMN NOT NULL without default -> PGM008 fires, PGM006 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_column_not_null_without_default() {
@@ -122,12 +122,12 @@ fn test_matrix_add_column_not_null_without_default() {
         })],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM007", "PGM010"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM006", "PGM008"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (c) CREATE INDEX CONCURRENTLY in transaction -> PGM006 fires, PGM001 does not
+// (c) CREATE INDEX CONCURRENTLY in transaction -> PGM003 fires, PGM001 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_index_concurrent_in_transaction() {
@@ -153,12 +153,12 @@ fn test_matrix_create_index_concurrent_in_transaction() {
         if_not_exists: false,
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM006"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (d) CREATE INDEX (non-concurrent) in transaction -> PGM001 fires, PGM006 does not
+// (d) CREATE INDEX (non-concurrent) in transaction -> PGM001 fires, PGM003 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_index_non_concurrent_in_transaction() {
@@ -183,12 +183,12 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
         if_not_exists: false,
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM006"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (e) CREATE TABLE no PK with FK no covering index -> PGM003 and PGM004 both fire
+// (e) CREATE TABLE no PK with FK no covering index -> PGM501 and PGM502 both fire
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_table_no_pk_with_fk_no_index() {
@@ -241,12 +241,12 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
         if_not_exists: false,
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM003", "PGM004"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM501", "PGM502"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (f) CREATE TABLE no PK but UNIQUE NOT NULL -> PGM005 fires, PGM004 does not
+// (f) CREATE TABLE no PK but UNIQUE NOT NULL -> PGM503 fires, PGM502 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_table_no_pk_but_unique_not_null() {
@@ -292,12 +292,12 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
         if_not_exists: false,
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM004", "PGM005"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM502", "PGM503"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (g) ADD FK without NOT VALID, no covering index -> PGM003 and PGM017 both fire
+// (g) ADD FK without NOT VALID, no covering index -> PGM501 and PGM014 both fire
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_fk_without_not_valid_no_index() {
@@ -340,12 +340,12 @@ fn test_matrix_add_fk_without_not_valid_no_index() {
         )],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM003", "PGM017"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM501", "PGM014"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (h) ADD FK NOT VALID, no covering index -> PGM003 fires, PGM017 does not
+// (h) ADD FK NOT VALID, no covering index -> PGM501 fires, PGM014 does not
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_fk_not_valid_no_index() {
@@ -388,12 +388,12 @@ fn test_matrix_add_fk_not_valid_no_index() {
         )],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM003", "PGM017"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM501", "PGM014"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (i) ADD CHECK without NOT VALID on existing table -> PGM018 fires
+// (i) ADD CHECK without NOT VALID on existing table -> PGM015 fires
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_check_without_not_valid() {
@@ -418,12 +418,12 @@ fn test_matrix_add_check_without_not_valid() {
         })],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM018"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM015"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (j) SET NOT NULL on existing table -> PGM016 fires
+// (j) SET NOT NULL on existing table -> PGM013 fires
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_set_not_null_on_existing() {
@@ -446,7 +446,7 @@ fn test_matrix_set_not_null_on_existing() {
         }],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM016"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM013"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
@@ -457,7 +457,7 @@ fn test_matrix_set_not_null_on_existing() {
 fn test_matrix_down_migration_caps_severity() {
     let mut findings = vec![
         Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm001),
+            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
             severity: Severity::Critical,
             message: "Missing CONCURRENTLY on CREATE INDEX".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -465,7 +465,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 1,
         },
         Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm003),
+            rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
             severity: Severity::Major,
             message: "FK without covering index".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -473,7 +473,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 3,
         },
         Finding {
-            rule_id: RuleId::Migration(MigrationRule::Pgm007),
+            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006),
             severity: Severity::Minor,
             message: "Volatile default on column".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -553,10 +553,10 @@ fn test_matrix_create_table_with_bad_types() {
 }
 
 // ---------------------------------------------------------------------------
-// (m) ADD PRIMARY KEY fires PGM012 only, not PGM021
+// (m) ADD PRIMARY KEY fires PGM016 only, not PGM017
 // ---------------------------------------------------------------------------
 #[test]
-fn test_matrix_add_pk_fires_pgm012_not_pgm021() {
+fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
     let before = CatalogBuilder::new()
         .table("orders", |t| {
             t.column("id", "bigint", false)
@@ -578,12 +578,12 @@ fn test_matrix_add_pk_fires_pgm012_not_pgm021() {
         )],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM012", "PGM021"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM016", "PGM017"]);
     insta::assert_yaml_snapshot!(findings);
 }
 
 // ---------------------------------------------------------------------------
-// (n) Multi-action ALTER TABLE: ADD PK + ADD UNIQUE fires both PGM012 and PGM021
+// (n) Multi-action ALTER TABLE: ADD PK + ADD UNIQUE fires both PGM016 and PGM017
 // ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_pk_and_add_unique_both_fire() {
@@ -613,6 +613,6 @@ fn test_matrix_add_pk_and_add_unique_both_fire() {
         ],
     }))];
 
-    let findings = run_selected_rules(&stmts, &ctx, &["PGM012", "PGM021"]);
+    let findings = run_selected_rules(&stmts, &ctx, &["PGM016", "PGM017"]);
     insta::assert_yaml_snapshot!(findings);
 }

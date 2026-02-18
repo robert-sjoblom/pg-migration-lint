@@ -1,5 +1,5 @@
 -- Add status tracking columns to orders
--- Note: FK without covering index triggers PGM003
+-- Note: FK without covering index triggers PGM501
 
 ALTER TABLE orders ADD COLUMN status_updated_by bigint;
 ALTER TABLE orders ADD COLUMN status_updated_at timestamp(6);

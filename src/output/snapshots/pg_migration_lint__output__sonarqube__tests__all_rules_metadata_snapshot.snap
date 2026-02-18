@@ -29,10 +29,10 @@ expression: parsed
       "ruleId": "PGM002"
     },
     {
-      "effortMinutes": 15,
+      "effortMinutes": 5,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM003: Foreign key without covering index on referencing columns",
+        "message": "PGM003: CONCURRENTLY inside transaction",
         "textRange": {
           "endLine": 3,
           "startLine": 3
@@ -41,37 +41,13 @@ expression: parsed
       "ruleId": "PGM003"
     },
     {
-      "effortMinutes": 10,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM004: Table without primary key",
+        "message": "PGM006: Volatile default on column",
         "textRange": {
           "endLine": 4,
           "startLine": 4
-        }
-      },
-      "ruleId": "PGM004"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM005: UNIQUE NOT NULL used instead of PRIMARY KEY",
-        "textRange": {
-          "endLine": 5,
-          "startLine": 5
-        }
-      },
-      "ruleId": "PGM005"
-    },
-    {
-      "effortMinutes": 5,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM006: CONCURRENTLY inside transaction",
-        "textRange": {
-          "endLine": 6,
-          "startLine": 6
         }
       },
       "ruleId": "PGM006"
@@ -80,46 +56,46 @@ expression: parsed
       "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM007: Volatile default on column",
+        "message": "PGM007: ALTER COLUMN TYPE on existing table causes table rewrite",
         "textRange": {
-          "endLine": 7,
-          "startLine": 7
+          "endLine": 5,
+          "startLine": 5
         }
       },
       "ruleId": "PGM007"
     },
     {
-      "effortMinutes": 10,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM008: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "message": "PGM008: ADD COLUMN NOT NULL without DEFAULT on existing table",
         "textRange": {
-          "endLine": 8,
-          "startLine": 8
+          "endLine": 6,
+          "startLine": 6
         }
       },
       "ruleId": "PGM008"
     },
     {
-      "effortMinutes": 30,
+      "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM009: ALTER COLUMN TYPE on existing table causes table rewrite",
+        "message": "PGM009: DROP COLUMN on existing table",
         "textRange": {
-          "endLine": 9,
-          "startLine": 9
+          "endLine": 7,
+          "startLine": 7
         }
       },
       "ruleId": "PGM009"
     },
     {
-      "effortMinutes": 30,
+      "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM010: ADD COLUMN NOT NULL without DEFAULT on existing table",
+        "message": "PGM010: DROP COLUMN silently removes unique constraint",
         "textRange": {
-          "endLine": 10,
-          "startLine": 10
+          "endLine": 8,
+          "startLine": 8
         }
       },
       "ruleId": "PGM010"
@@ -128,157 +104,85 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM011: DROP COLUMN on existing table",
+        "message": "PGM011: DROP COLUMN silently removes primary key",
         "textRange": {
-          "endLine": 11,
-          "startLine": 11
+          "endLine": 9,
+          "startLine": 9
         }
       },
       "ruleId": "PGM011"
     },
     {
-      "effortMinutes": 15,
+      "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM012: ADD PRIMARY KEY on existing table without USING INDEX",
+        "message": "PGM012: DROP COLUMN silently removes foreign key",
         "textRange": {
-          "endLine": 12,
-          "startLine": 12
+          "endLine": 10,
+          "startLine": 10
         }
       },
       "ruleId": "PGM012"
     },
     {
-      "effortMinutes": 10,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM013: DROP COLUMN silently removes unique constraint",
+        "message": "PGM013: SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock",
         "textRange": {
-          "endLine": 13,
-          "startLine": 13
+          "endLine": 11,
+          "startLine": 11
         }
       },
       "ruleId": "PGM013"
     },
     {
-      "effortMinutes": 10,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM014: DROP COLUMN silently removes primary key",
+        "message": "PGM014: ADD FOREIGN KEY on existing table without NOT VALID",
         "textRange": {
-          "endLine": 14,
-          "startLine": 14
+          "endLine": 12,
+          "startLine": 12
         }
       },
       "ruleId": "PGM014"
     },
     {
-      "effortMinutes": 10,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM015: DROP COLUMN silently removes foreign key",
+        "message": "PGM015: ADD CHECK on existing table without NOT VALID",
         "textRange": {
-          "endLine": 15,
-          "startLine": 15
+          "endLine": 13,
+          "startLine": 13
         }
       },
       "ruleId": "PGM015"
     },
     {
-      "effortMinutes": 30,
+      "effortMinutes": 15,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM016: SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock",
+        "message": "PGM016: ADD PRIMARY KEY on existing table without USING INDEX",
         "textRange": {
-          "endLine": 16,
-          "startLine": 16
+          "endLine": 14,
+          "startLine": 14
         }
       },
       "ruleId": "PGM016"
     },
     {
-      "effortMinutes": 30,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM017: ADD FOREIGN KEY on existing table without NOT VALID",
-        "textRange": {
-          "endLine": 17,
-          "startLine": 17
-        }
-      },
-      "ruleId": "PGM017"
-    },
-    {
-      "effortMinutes": 30,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM018: ADD CHECK on existing table without NOT VALID",
-        "textRange": {
-          "endLine": 18,
-          "startLine": 18
-        }
-      },
-      "ruleId": "PGM018"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM019: RENAME TABLE on existing table",
-        "textRange": {
-          "endLine": 19,
-          "startLine": 19
-        }
-      },
-      "ruleId": "PGM019"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM020: RENAME COLUMN on existing table",
-        "textRange": {
-          "endLine": 20,
-          "startLine": 20
-        }
-      },
-      "ruleId": "PGM020"
-    },
-    {
       "effortMinutes": 15,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM021: ADD UNIQUE on existing table without USING INDEX",
+        "message": "PGM017: ADD UNIQUE on existing table without USING INDEX",
         "textRange": {
-          "endLine": 21,
-          "startLine": 21
+          "endLine": 15,
+          "startLine": 15
         }
       },
-      "ruleId": "PGM021"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM022: DROP TABLE on existing table",
-        "textRange": {
-          "endLine": 22,
-          "startLine": 22
-        }
-      },
-      "ruleId": "PGM022"
-    },
-    {
-      "effortMinutes": 10,
-      "primaryLocation": {
-        "filePath": "test.sql",
-        "message": "PGM023: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
-        "textRange": {
-          "endLine": 23,
-          "startLine": 23
-        }
-      },
-      "ruleId": "PGM023"
+      "ruleId": "PGM017"
     },
     {
       "effortMinutes": 10,
@@ -286,8 +190,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM101: Column uses timestamp without time zone",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 16,
+          "startLine": 16
         }
       },
       "ruleId": "PGM101"
@@ -298,8 +202,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM102: Column uses timestamp or timestamptz with precision 0",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 17,
+          "startLine": 17
         }
       },
       "ruleId": "PGM102"
@@ -310,8 +214,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM103: Column uses char(n) type",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 18,
+          "startLine": 18
         }
       },
       "ruleId": "PGM103"
@@ -322,8 +226,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM104: Column uses the money type",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 19,
+          "startLine": 19
         }
       },
       "ruleId": "PGM104"
@@ -334,8 +238,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM105: Column uses serial/bigserial instead of identity column",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 20,
+          "startLine": 20
         }
       },
       "ruleId": "PGM105"
@@ -344,19 +248,115 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM108: Column uses json type instead of jsonb",
+        "message": "PGM106: Column uses json type instead of jsonb",
+        "textRange": {
+          "endLine": 21,
+          "startLine": 21
+        }
+      },
+      "ruleId": "PGM106"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM201: DROP TABLE on existing table",
+        "textRange": {
+          "endLine": 22,
+          "startLine": 22
+        }
+      },
+      "ruleId": "PGM201"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "textRange": {
+          "endLine": 23,
+          "startLine": 23
+        }
+      },
+      "ruleId": "PGM401"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
+        "textRange": {
+          "endLine": 24,
+          "startLine": 24
+        }
+      },
+      "ruleId": "PGM402"
+    },
+    {
+      "effortMinutes": 15,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM501: Foreign key without covering index on referencing columns",
+        "textRange": {
+          "endLine": 25,
+          "startLine": 25
+        }
+      },
+      "ruleId": "PGM501"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM502: Table without primary key",
+        "textRange": {
+          "endLine": 26,
+          "startLine": 26
+        }
+      },
+      "ruleId": "PGM502"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
+        "textRange": {
+          "endLine": 27,
+          "startLine": 27
+        }
+      },
+      "ruleId": "PGM503"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM504: RENAME TABLE on existing table",
+        "textRange": {
+          "endLine": 28,
+          "startLine": 28
+        }
+      },
+      "ruleId": "PGM504"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
           "endLine": 29,
           "startLine": 29
         }
       },
-      "ruleId": "PGM108"
+      "ruleId": "PGM505"
     }
   ],
   "rules": [
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\nWhat it detects:\nA CREATE INDEX statement that does not use the CONCURRENTLY option,\ntargeting a table that already exists in the database (i.e., the table\nwas not created in the same set of changed files).\n\nWhy it's dangerous:\nWithout CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\nthe table for the entire duration of the index build. This blocks ALL\nqueries — reads and writes — on the table. For large tables, index\ncreation can take minutes or hours, causing extended downtime.\n\nExample (bad):\nCREATE INDEX idx_orders_status ON orders (status);\n\nFix:\nCREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);\n\nNote: CONCURRENTLY cannot run inside a transaction. If your migration\nframework wraps each file in a transaction (e.g., Liquibase default),\nyou must also disable that. See PGM006.\n\nThis rule does NOT fire when the table is created in the same set of\nchanged files, because locking an empty/new table is harmless.",
+      "description": "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\nWhat it detects:\nA CREATE INDEX statement that does not use the CONCURRENTLY option,\ntargeting a table that already exists in the database (i.e., the table\nwas not created in the same set of changed files).\n\nWhy it's dangerous:\nWithout CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\nthe table for the entire duration of the index build. This blocks ALL\nqueries — reads and writes — on the table. For large tables, index\ncreation can take minutes or hours, causing extended downtime.\n\nExample (bad):\nCREATE INDEX idx_orders_status ON orders (status);\n\nFix:\nCREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);\n\nNote: CONCURRENTLY cannot run inside a transaction. If your migration\nframework wraps each file in a transaction (e.g., Liquibase default),\nyou must also disable that. See PGM003.\n\nThis rule does NOT fire when the table is created in the same set of\nchanged files, because locking an empty/new table is harmless.",
       "engineId": "pg-migration-lint",
       "id": "PGM001",
       "impacts": [
@@ -371,7 +371,7 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM002 — Missing CONCURRENTLY on DROP INDEX\n\nWhat it detects:\nA DROP INDEX statement that does not use the CONCURRENTLY option,\nwhere the index belongs to a table that already exists in the database.\n\nWhy it's dangerous:\nWithout CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\nthe table associated with the index for the duration of the drop\noperation. This blocks ALL queries — reads and writes — on the table.\nWhile DROP INDEX is usually fast, it still briefly blocks concurrent\naccess and can queue behind long-running queries, amplifying the impact.\n\nExample (bad):\nDROP INDEX idx_orders_status;\n\nFix:\nDROP INDEX CONCURRENTLY idx_orders_status;\n\nNote: CONCURRENTLY cannot run inside a transaction. If your migration\nframework wraps each file in a transaction, you must disable that.\nSee PGM006.",
+      "description": "PGM002 — Missing CONCURRENTLY on DROP INDEX\n\nWhat it detects:\nA DROP INDEX statement that does not use the CONCURRENTLY option,\nwhere the index belongs to a table that already exists in the database.\n\nWhy it's dangerous:\nWithout CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\nthe table associated with the index for the duration of the drop\noperation. This blocks ALL queries — reads and writes — on the table.\nWhile DROP INDEX is usually fast, it still briefly blocks concurrent\naccess and can queue behind long-running queries, amplifying the impact.\n\nExample (bad):\nDROP INDEX idx_orders_status;\n\nFix:\nDROP INDEX CONCURRENTLY idx_orders_status;\n\nNote: CONCURRENTLY cannot run inside a transaction. If your migration\nframework wraps each file in a transaction, you must disable that.\nSee PGM003.",
       "engineId": "pg-migration-lint",
       "id": "PGM002",
       "impacts": [
@@ -385,55 +385,10 @@ expression: parsed
       "type": "BUG"
     },
     {
-      "cleanCodeAttribute": "EFFICIENT",
-      "description": "PGM003 — Foreign key without covering index\n\nWhat it detects:\nA FOREIGN KEY constraint where the referencing table has no index\nwhose leading columns match the FK columns in order.\n\nWhy it's dangerous:\nWhen a row is deleted or updated in the referenced (parent) table,\nPostgreSQL must check that no rows in the referencing (child) table\nstill reference the old value. Without an index on the FK columns,\nthis check performs a sequential scan of the entire child table —\nonce per affected parent row. This can cause severe performance\ndegradation and lock contention.\n\nExample (bad):\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n-- No index on order_items(order_id)\n\nFix:\nCREATE INDEX idx_order_items_order_id\nON order_items (order_id);\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n\nPrefix matching: FK columns (a, b) are covered by index (a, b) or\n(a, b, c) but NOT by (b, a) or (a). Column order matters.\n\nThe check uses the catalog state AFTER the entire file is processed,\nso creating the index later in the same file avoids a false positive.",
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM003 — CONCURRENTLY inside transaction\n\nWhat it detects:\nA CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement\ninside a migration unit that runs in a transaction.\n\nWhy it's dangerous:\nPostgreSQL does not allow CONCURRENTLY operations inside a\ntransaction block. The command will fail with:\nERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block\nThis means the migration will fail at deploy time.\n\nExample (bad — Liquibase changeset with default runInTransaction):\n<changeSet id=\"1\" author=\"dev\">\n<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n</changeSet>\n\nFix:\n<changeSet id=\"1\" author=\"dev\" runInTransaction=\"false\">\n<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n</changeSet>\n\nFor go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\nthe migration file header.",
       "engineId": "pg-migration-lint",
       "id": "PGM003",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "Foreign key without covering index on referencing columns",
-      "severity": "MAJOR",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM004 — Table without primary key\n\nWhat it detects:\nA CREATE TABLE statement (non-temporary) that does not define a\nPRIMARY KEY constraint, and no ALTER TABLE ... ADD PRIMARY KEY\nfollows in the same file.\n\nWhy it's dangerous:\nTables without primary keys:\n- Cannot be reliably targeted by logical replication.\n- May cause issues with ORMs that require a PK for identity.\n- Make it harder to deduplicate or reference specific rows.\n- Are a strong code smell indicating incomplete schema design.\n\nExample (bad):\nCREATE TABLE events (event_type text, payload jsonb);\n\nFix:\nCREATE TABLE events (\nid bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\nevent_type text,\npayload jsonb\n);\n\nNote: Temporary tables are excluded. If PGM005 fires (UNIQUE NOT NULL\nused instead of PK), PGM004 does NOT fire for the same table.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM004",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "Table without primary key",
-      "severity": "MAJOR",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "CONVENTIONAL",
-      "description": "PGM005 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\nWhat it detects:\nA table that has no PRIMARY KEY but has at least one UNIQUE constraint\nwhere all constituent columns are NOT NULL. This combination is\nfunctionally equivalent to a PK.\n\nWhy it matters:\nWhile UNIQUE NOT NULL is functionally equivalent to PRIMARY KEY,\nusing PRIMARY KEY is more conventional and explicit. Tools, ORMs,\nand database administrators expect PK as the standard way to\nidentify rows. Using UNIQUE NOT NULL may confuse readers and\nprevent some tools from auto-detecting the identity column.\n\nExample (flagged):\nCREATE TABLE users (\nemail text NOT NULL UNIQUE,\nname text\n);\n\nFix:\nCREATE TABLE users (\nemail text PRIMARY KEY,\nname text\n);\n\nNote: When PGM005 fires, PGM004 (table without PK) does NOT fire\nfor the same table, since the situation is already flagged.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM005",
-      "impacts": [
-        {
-          "severity": "LOW",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "UNIQUE NOT NULL used instead of PRIMARY KEY",
-      "severity": "INFO",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM006 — CONCURRENTLY inside transaction\n\nWhat it detects:\nA CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement\ninside a migration unit that runs in a transaction.\n\nWhy it's dangerous:\nPostgreSQL does not allow CONCURRENTLY operations inside a\ntransaction block. The command will fail with:\nERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block\nThis means the migration will fail at deploy time.\n\nExample (bad — Liquibase changeset with default runInTransaction):\n<changeSet id=\"1\" author=\"dev\">\n<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n</changeSet>\n\nFix:\n<changeSet id=\"1\" author=\"dev\" runInTransaction=\"false\">\n<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n</changeSet>\n\nFor go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\nthe migration file header.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM006",
       "impacts": [
         {
           "severity": "HIGH",
@@ -446,9 +401,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM007 — Volatile default on column\n\nWhat it detects:\nA column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)\nthat uses a function call as the DEFAULT expression.\n\nWhy it's dangerous:\nOn PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\nthe table — they are applied lazily. Volatile defaults (now(), random(),\ngen_random_uuid(), etc.) must be evaluated per-row at write time,\nforcing a full table rewrite under an ACCESS EXCLUSIVE lock.\n\nSeverity levels:\n- MINOR (WARNING): Known volatile functions (now, current_timestamp,\nrandom, gen_random_uuid, uuid_generate_v4, clock_timestamp,\ntimeofday, txid_current)\n- MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n- INFO: Unknown function calls — developer should verify volatility\n- No finding: Literal defaults (0, 'active', TRUE)\n\nExample (flagged):\nALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();\n\nFix:\nALTER TABLE orders ADD COLUMN created_at timestamptz;\n-- Then backfill:\nUPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\nNote: For CREATE TABLE, volatile defaults are harmless (no existing\nrows) and are not flagged.",
+      "description": "PGM006 — Volatile default on column\n\nWhat it detects:\nA column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)\nthat uses a function call as the DEFAULT expression.\n\nWhy it's dangerous:\nOn PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\nthe table — they are applied lazily. Volatile defaults (now(), random(),\ngen_random_uuid(), etc.) must be evaluated per-row at write time,\nforcing a full table rewrite under an ACCESS EXCLUSIVE lock.\n\nSeverity levels:\n- MINOR (WARNING): Known volatile functions (now, current_timestamp,\nrandom, gen_random_uuid, uuid_generate_v4, clock_timestamp,\ntimeofday, txid_current)\n- MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n- INFO: Unknown function calls — developer should verify volatility\n- No finding: Literal defaults (0, 'active', TRUE)\n\nExample (flagged):\nALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();\n\nFix:\nALTER TABLE orders ADD COLUMN created_at timestamptz;\n-- Then backfill:\nUPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\nNote: For CREATE TABLE, volatile defaults are harmless (no existing\nrows) and are not flagged.",
       "engineId": "pg-migration-lint",
-      "id": "PGM007",
+      "id": "PGM006",
       "impacts": [
         {
           "severity": "MEDIUM",
@@ -461,24 +416,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM008 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\nWhat it detects:\nA DROP TABLE or DROP INDEX statement that does not include the\nIF EXISTS clause.\n\nWhy it matters:\nWithout IF EXISTS, the statement fails if the object does not exist.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' does not exist:\nDROP TABLE orders;\nDROP INDEX idx_orders_status;\n\nRecommended fix:\nDROP TABLE IF EXISTS orders;\nDROP INDEX IF EXISTS idx_orders_status;",
+      "description": "PGM007 — ALTER COLUMN TYPE on existing table\n\nWhat it detects:\nALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already\nexists in the database (not created in the same set of changed files).\n\nWhy it's dangerous:\nMost type changes require a full table rewrite and an ACCESS EXCLUSIVE\nlock for the duration. For large tables, this causes extended downtime.\nBinary-coercible casts (e.g., varchar widening) do NOT rewrite.\n\nSafe casts (no finding):\n- varchar(N) -> varchar(M) where M > N\n- varchar(N) -> text\n- numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n- bit(N) -> bit(M) where M > N\n- varbit(N) -> varbit(M) where M > N\n\nINFO cast:\n- timestamp -> timestamptz (safe in PG 15+ with UTC timezone;\nverify your timezone config)\n\nAll other type changes fire as CRITICAL.\n\nExample (bad):\nALTER TABLE orders ALTER COLUMN amount TYPE bigint;\n\nFix:\n-- Create a new column, backfill, and swap:\nALTER TABLE orders ADD COLUMN amount_new bigint;\nUPDATE orders SET amount_new = amount;\nALTER TABLE orders DROP COLUMN amount;\nALTER TABLE orders RENAME COLUMN amount_new TO amount;",
       "engineId": "pg-migration-lint",
-      "id": "PGM008",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "Missing IF EXISTS on DROP TABLE / DROP INDEX",
-      "severity": "MINOR",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM009 — ALTER COLUMN TYPE on existing table\n\nWhat it detects:\nALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already\nexists in the database (not created in the same set of changed files).\n\nWhy it's dangerous:\nMost type changes require a full table rewrite and an ACCESS EXCLUSIVE\nlock for the duration. For large tables, this causes extended downtime.\nBinary-coercible casts (e.g., varchar widening) do NOT rewrite.\n\nSafe casts (no finding):\n- varchar(N) -> varchar(M) where M > N\n- varchar(N) -> text\n- numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n- bit(N) -> bit(M) where M > N\n- varbit(N) -> varbit(M) where M > N\n\nINFO cast:\n- timestamp -> timestamptz (safe in PG 15+ with UTC timezone;\nverify your timezone config)\n\nAll other type changes fire as CRITICAL.\n\nExample (bad):\nALTER TABLE orders ALTER COLUMN amount TYPE bigint;\n\nFix:\n-- Create a new column, backfill, and swap:\nALTER TABLE orders ADD COLUMN amount_new bigint;\nUPDATE orders SET amount_new = amount;\nALTER TABLE orders DROP COLUMN amount;\nALTER TABLE orders RENAME COLUMN amount_new TO amount;",
-      "engineId": "pg-migration-lint",
-      "id": "PGM009",
+      "id": "PGM007",
       "impacts": [
         {
           "severity": "HIGH",
@@ -491,9 +431,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM010 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\nWhat it detects:\nALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,\nwhere the table already exists in the database (not created in the\nsame set of changed files).\n\nWhy it's dangerous:\nAdding a NOT NULL column without a default to a table that has\nexisting rows will fail immediately with:\nERROR: column \"x\" of relation \"t\" contains null values\nThis is almost always a bug. The migration will fail at deploy time.\n\nOn PG 11+, ADD COLUMN ... NOT NULL DEFAULT <value> is safe — the\ndefault is applied lazily without rewriting the table (for non-volatile\ndefaults).\n\nExample (bad):\nALTER TABLE orders ADD COLUMN status text NOT NULL;\n\nFix (option A — add with default):\nALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\nFix (option B — add nullable, backfill, then constrain):\nALTER TABLE orders ADD COLUMN status text;\nUPDATE orders SET status = 'pending' WHERE status IS NULL;\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;",
+      "description": "PGM008 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\nWhat it detects:\nALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,\nwhere the table already exists in the database (not created in the\nsame set of changed files).\n\nWhy it's dangerous:\nAdding a NOT NULL column without a default to a table that has\nexisting rows will fail immediately with:\nERROR: column \"x\" of relation \"t\" contains null values\nThis is almost always a bug. The migration will fail at deploy time.\n\nOn PG 11+, ADD COLUMN ... NOT NULL DEFAULT <value> is safe — the\ndefault is applied lazily without rewriting the table (for non-volatile\ndefaults).\n\nExample (bad):\nALTER TABLE orders ADD COLUMN status text NOT NULL;\n\nFix (option A — add with default):\nALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\nFix (option B — add nullable, backfill, then constrain):\nALTER TABLE orders ADD COLUMN status text;\nUPDATE orders SET status = 'pending' WHERE status IS NULL;\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;",
       "engineId": "pg-migration-lint",
-      "id": "PGM010",
+      "id": "PGM008",
       "impacts": [
         {
           "severity": "HIGH",
@@ -506,9 +446,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM011 — DROP COLUMN on existing table\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN on a table that already exists in the\ndatabase (not created in the same set of changed files).\n\nWhy it matters:\nPostgreSQL marks the column as dropped without rewriting the table,\nso the DDL operation itself is cheap and fast. However, the risk is\napplication-level: any queries, views, functions, or ORM mappings\nthat reference the dropped column will fail at runtime.\n\nExample:\nALTER TABLE orders DROP COLUMN legacy_status;\n\nRecommended approach:\n1. First remove all application references to the column.\n2. Deploy the application change.\n3. Then drop the column in a subsequent migration.\n\nThis rule is informational (INFO severity) to increase visibility\nof column drops in code review.",
+      "description": "PGM009 — DROP COLUMN on existing table\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN on a table that already exists in the\ndatabase (not created in the same set of changed files).\n\nWhy it matters:\nPostgreSQL marks the column as dropped without rewriting the table,\nso the DDL operation itself is cheap and fast. However, the risk is\napplication-level: any queries, views, functions, or ORM mappings\nthat reference the dropped column will fail at runtime.\n\nExample:\nALTER TABLE orders DROP COLUMN legacy_status;\n\nRecommended approach:\n1. First remove all application references to the column.\n2. Deploy the application change.\n3. Then drop the column in a subsequent migration.\n\nThis rule is informational (INFO severity) to increase visibility\nof column drops in code review.",
       "engineId": "pg-migration-lint",
-      "id": "PGM011",
+      "id": "PGM009",
       "impacts": [
         {
           "severity": "MEDIUM",
@@ -521,24 +461,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM012 — ADD PRIMARY KEY on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD PRIMARY KEY on an existing table that does not\nuse USING INDEX, or where the referenced index does not exist, is\nnot UNIQUE, or covers nullable columns.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\n\nEven with USING INDEX, if any of the PK columns are nullable,\nPostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires\na full table scan under ACCESS EXCLUSIVE lock.\n\nExample (bad):\nALTER TABLE orders ADD PRIMARY KEY (id);\n\nFix (safe pattern — build unique index concurrently first):\n-- Ensure columns are NOT NULL (use CHECK constraint trick if needed)\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;",
+      "description": "PGM010 — DROP COLUMN silently removes unique constraint\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin a UNIQUE constraint or unique index on the table.\n\nWhy it matters:\nPostgreSQL automatically drops any index or constraint that depends\non a dropped column. If the column was part of a UNIQUE constraint\nor unique index, the uniqueness guarantee is silently lost. This can\nlead to duplicate data being inserted without any error.\n\nExample (bad):\n-- Table has UNIQUE(email)\nALTER TABLE users DROP COLUMN email;\n-- The unique constraint on email is silently removed.\n\nFix:\nVerify that the uniqueness guarantee provided by the constraint or\nindex is no longer needed before dropping the column. If uniqueness\nis still required on the remaining columns, create a new constraint\nor index covering those columns.",
       "engineId": "pg-migration-lint",
-      "id": "PGM012",
-      "impacts": [
-        {
-          "severity": "HIGH",
-          "softwareQuality": "RELIABILITY"
-        }
-      ],
-      "name": "ADD PRIMARY KEY on existing table without USING INDEX",
-      "severity": "MAJOR",
-      "type": "BUG"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM013 — DROP COLUMN silently removes unique constraint\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin a UNIQUE constraint or unique index on the table.\n\nWhy it matters:\nPostgreSQL automatically drops any index or constraint that depends\non a dropped column. If the column was part of a UNIQUE constraint\nor unique index, the uniqueness guarantee is silently lost. This can\nlead to duplicate data being inserted without any error.\n\nExample (bad):\n-- Table has UNIQUE(email)\nALTER TABLE users DROP COLUMN email;\n-- The unique constraint on email is silently removed.\n\nFix:\nVerify that the uniqueness guarantee provided by the constraint or\nindex is no longer needed before dropping the column. If uniqueness\nis still required on the remaining columns, create a new constraint\nor index covering those columns.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM013",
+      "id": "PGM010",
       "impacts": [
         {
           "severity": "MEDIUM",
@@ -551,9 +476,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM014 — DROP COLUMN silently removes primary key\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin the table's primary key constraint.\n\nWhy it matters:\nDropping a PK column (with CASCADE) silently removes the primary key\nconstraint. The table loses its row identity, which affects replication,\nORMs, query planning, and data integrity.\n\nExample (bad):\n-- Table has PRIMARY KEY (id)\nALTER TABLE orders DROP COLUMN id;\n-- The primary key constraint is silently removed.\n\nFix:\nAdd a new primary key on the remaining columns before or after\ndropping the column, or reconsider whether the column drop is\nnecessary.",
+      "description": "PGM011 — DROP COLUMN silently removes primary key\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin the table's primary key constraint.\n\nWhy it matters:\nDropping a PK column (with CASCADE) silently removes the primary key\nconstraint. The table loses its row identity, which affects replication,\nORMs, query planning, and data integrity.\n\nExample (bad):\n-- Table has PRIMARY KEY (id)\nALTER TABLE orders DROP COLUMN id;\n-- The primary key constraint is silently removed.\n\nFix:\nAdd a new primary key on the remaining columns before or after\ndropping the column, or reconsider whether the column drop is\nnecessary.",
       "engineId": "pg-migration-lint",
-      "id": "PGM014",
+      "id": "PGM011",
       "impacts": [
         {
           "severity": "MEDIUM",
@@ -566,9 +491,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM015 — DROP COLUMN silently removes foreign key\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin a FOREIGN KEY constraint on the table.\n\nWhy it matters:\nDropping a column that is part of a foreign key (with CASCADE)\nsilently removes the FK constraint. The referential integrity\nguarantee is lost. This can lead to orphaned rows and data\ninconsistency without any error or warning from PostgreSQL.\n\nExample (bad):\n-- Table has FOREIGN KEY (customer_id) REFERENCES customers(id)\nALTER TABLE orders DROP COLUMN customer_id;\n-- The foreign key constraint is silently removed.\n\nFix:\nVerify that the referential integrity guarantee provided by the\nforeign key is no longer needed before dropping the column.",
+      "description": "PGM012 — DROP COLUMN silently removes foreign key\n\nWhat it detects:\nALTER TABLE ... DROP COLUMN where the dropped column participates\nin a FOREIGN KEY constraint on the table.\n\nWhy it matters:\nDropping a column that is part of a foreign key (with CASCADE)\nsilently removes the FK constraint. The referential integrity\nguarantee is lost. This can lead to orphaned rows and data\ninconsistency without any error or warning from PostgreSQL.\n\nExample (bad):\n-- Table has FOREIGN KEY (customer_id) REFERENCES customers(id)\nALTER TABLE orders DROP COLUMN customer_id;\n-- The foreign key constraint is silently removed.\n\nFix:\nVerify that the referential integrity guarantee provided by the\nforeign key is no longer needed before dropping the column.",
       "engineId": "pg-migration-lint",
-      "id": "PGM015",
+      "id": "PGM012",
       "impacts": [
         {
           "severity": "MEDIUM",
@@ -581,9 +506,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM016 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\nWhat it detects:\nALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already\nexists in the database (not created in the same set of changed files).\n\nWhy it's dangerous:\nSET NOT NULL acquires an ACCESS EXCLUSIVE lock on the table, blocking\nall concurrent reads and writes. PostgreSQL must also perform a full\ntable scan to verify that no existing rows contain NULL in the column.\nOn large tables this can cause significant downtime.\n\nSafe alternative (PostgreSQL 12+):\n1. Add a CHECK constraint with NOT VALID:\nALTER TABLE orders ADD CONSTRAINT orders_status_nn\nCHECK (status IS NOT NULL) NOT VALID;\n2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n3. Set NOT NULL (instant since PG 12 sees the validated CHECK):\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n4. Optionally drop the now-redundant CHECK constraint:\nALTER TABLE orders DROP CONSTRAINT orders_status_nn;\n\nExample (bad):\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\nFix (safe three-step pattern):\nALTER TABLE orders ADD CONSTRAINT orders_status_nn\nCHECK (status IS NOT NULL) NOT VALID;\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;",
+      "description": "PGM013 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\nWhat it detects:\nALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already\nexists in the database (not created in the same set of changed files).\n\nWhy it's dangerous:\nSET NOT NULL acquires an ACCESS EXCLUSIVE lock on the table, blocking\nall concurrent reads and writes. PostgreSQL must also perform a full\ntable scan to verify that no existing rows contain NULL in the column.\nOn large tables this can cause significant downtime.\n\nSafe alternative (PostgreSQL 12+):\n1. Add a CHECK constraint with NOT VALID:\nALTER TABLE orders ADD CONSTRAINT orders_status_nn\nCHECK (status IS NOT NULL) NOT VALID;\n2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n3. Set NOT NULL (instant since PG 12 sees the validated CHECK):\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n4. Optionally drop the now-redundant CHECK constraint:\nALTER TABLE orders DROP CONSTRAINT orders_status_nn;\n\nExample (bad):\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\nFix (safe three-step pattern):\nALTER TABLE orders ADD CONSTRAINT orders_status_nn\nCHECK (status IS NOT NULL) NOT VALID;\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\nALTER TABLE orders ALTER COLUMN status SET NOT NULL;",
       "engineId": "pg-migration-lint",
-      "id": "PGM016",
+      "id": "PGM013",
       "impacts": [
         {
           "severity": "HIGH",
@@ -596,9 +521,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM017 — ADD FOREIGN KEY on existing table without NOT VALID\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table\nalready exists and the constraint does not include NOT VALID.\n\nWhy it's dangerous:\nAdding a foreign key constraint without NOT VALID causes PostgreSQL\nto immediately validate all existing rows. This acquires a SHARE\nROW EXCLUSIVE lock on the table and performs a full table scan, blocking\nconcurrent data modifications for the duration. On large tables this can\ncause significant downtime.\n\nSafe alternative:\nAdd the constraint with NOT VALID first, then validate it in a\nseparate statement. VALIDATE CONSTRAINT only requires a SHARE\nUPDATE EXCLUSIVE lock, which allows concurrent reads and writes.\n\nExample (bad):\nALTER TABLE orders\nADD CONSTRAINT fk_customer\nFOREIGN KEY (customer_id) REFERENCES customers (id);\n\nFix (safe pattern):\nALTER TABLE orders\nADD CONSTRAINT fk_customer\nFOREIGN KEY (customer_id) REFERENCES customers (id)\nNOT VALID;\nALTER TABLE orders\nVALIDATE CONSTRAINT fk_customer;",
+      "description": "PGM014 — ADD FOREIGN KEY on existing table without NOT VALID\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table\nalready exists and the constraint does not include NOT VALID.\n\nWhy it's dangerous:\nAdding a foreign key constraint without NOT VALID causes PostgreSQL\nto immediately validate all existing rows. This acquires a SHARE\nROW EXCLUSIVE lock on the table and performs a full table scan, blocking\nconcurrent data modifications for the duration. On large tables this can\ncause significant downtime.\n\nSafe alternative:\nAdd the constraint with NOT VALID first, then validate it in a\nseparate statement. VALIDATE CONSTRAINT only requires a SHARE\nUPDATE EXCLUSIVE lock, which allows concurrent reads and writes.\n\nExample (bad):\nALTER TABLE orders\nADD CONSTRAINT fk_customer\nFOREIGN KEY (customer_id) REFERENCES customers (id);\n\nFix (safe pattern):\nALTER TABLE orders\nADD CONSTRAINT fk_customer\nFOREIGN KEY (customer_id) REFERENCES customers (id)\nNOT VALID;\nALTER TABLE orders\nVALIDATE CONSTRAINT fk_customer;",
       "engineId": "pg-migration-lint",
-      "id": "PGM017",
+      "id": "PGM014",
       "impacts": [
         {
           "severity": "HIGH",
@@ -611,9 +536,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM018 — ADD CHECK on existing table without NOT VALID\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... CHECK (...) on a table that already\nexists, without the NOT VALID modifier.\n\nWhy it's dangerous:\nAdding a CHECK constraint without NOT VALID acquires an ACCESS EXCLUSIVE\nlock and scans the entire table to verify all existing rows satisfy the\nconstraint. On large tables this can cause significant downtime.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT orders_status_check\nCHECK (status IN ('pending', 'shipped', 'delivered'));\n\nFix (safe two-step pattern):\n-- Step 1: Add with NOT VALID (instant, no scan)\nALTER TABLE orders ADD CONSTRAINT orders_status_check\nCHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;\n-- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;",
+      "description": "PGM015 — ADD CHECK on existing table without NOT VALID\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... CHECK (...) on a table that already\nexists, without the NOT VALID modifier.\n\nWhy it's dangerous:\nAdding a CHECK constraint without NOT VALID acquires an ACCESS EXCLUSIVE\nlock and scans the entire table to verify all existing rows satisfy the\nconstraint. On large tables this can cause significant downtime.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT orders_status_check\nCHECK (status IN ('pending', 'shipped', 'delivered'));\n\nFix (safe two-step pattern):\n-- Step 1: Add with NOT VALID (instant, no scan)\nALTER TABLE orders ADD CONSTRAINT orders_status_check\nCHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;\n-- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)\nALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;",
       "engineId": "pg-migration-lint",
-      "id": "PGM018",
+      "id": "PGM015",
       "impacts": [
         {
           "severity": "HIGH",
@@ -626,39 +551,24 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM019 — RENAME TABLE on existing table\n\nWhat it detects:\nALTER TABLE ... RENAME TO ... on a table that already exists in the\ndatabase (i.e., the table was not created in the same set of changed\nfiles).\n\nWhy it matters:\nRenaming a table breaks all queries, views, and functions that reference\nthe old name. While the rename itself is instant DDL (metadata-only),\nthe downstream breakage can be severe.\n\nExample (bad):\nALTER TABLE orders RENAME TO orders_archive;\n-- All queries referencing 'orders' will now fail.\n\nExample (safe — replacement pattern):\nALTER TABLE orders RENAME TO orders_old;\nCREATE TABLE orders (...);\n-- The old name is re-created, so existing queries still work.\n\nFix:\nUse a view to maintain backward compatibility during the transition:\nALTER TABLE orders RENAME TO orders_v2;\nCREATE VIEW orders AS SELECT * FROM orders_v2;\n\nThis rule does NOT fire when a replacement table with the old name\nis created in the same migration unit.",
+      "description": "PGM016 — ADD PRIMARY KEY on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD PRIMARY KEY on an existing table that does not\nuse USING INDEX, or where the referenced index does not exist, is\nnot UNIQUE, or covers nullable columns.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\n\nEven with USING INDEX, if any of the PK columns are nullable,\nPostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires\na full table scan under ACCESS EXCLUSIVE lock.\n\nExample (bad):\nALTER TABLE orders ADD PRIMARY KEY (id);\n\nFix (safe pattern — build unique index concurrently first):\n-- Ensure columns are NOT NULL (use CHECK constraint trick if needed)\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;",
       "engineId": "pg-migration-lint",
-      "id": "PGM019",
+      "id": "PGM016",
       "impacts": [
         {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
         }
       ],
-      "name": "RENAME TABLE on existing table",
-      "severity": "INFO",
-      "type": "CODE_SMELL"
+      "name": "ADD PRIMARY KEY on existing table without USING INDEX",
+      "severity": "MAJOR",
+      "type": "BUG"
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM020 — RENAME COLUMN on existing table\n\nWhat it detects:\nALTER TABLE ... RENAME COLUMN old_name TO new_name on a table that\nalready exists in the database (not created in the same set of changed\nfiles).\n\nWhy it matters:\nRenaming a column is a backwards-incompatible schema change. Any\nqueries, views, stored procedures, or application code that reference\nthe old column name will break immediately after the migration runs.\nUnlike adding or dropping a column, a rename silently invalidates\nexisting references without any compile-time or startup-time error.\n\nExample (bad):\nALTER TABLE orders RENAME COLUMN status TO order_status;\n-- All queries using 'status' will fail with 'column does not exist'\n\nFix:\nConsider a multi-step approach:\n1. Add the new column with the desired name.\n2. Backfill data from the old column to the new column.\n3. Update application code to use the new column name.\n4. Drop the old column once all references have been migrated.\n\nThis rule does NOT fire when the table is created in the same set of\nchanged files, because renaming a column on a new table has no\nexternal consumers.",
+      "description": "PGM017 — ADD UNIQUE on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... UNIQUE on an existing table that\ndoes not use USING INDEX, or where the referenced index does not\nexist or is not UNIQUE.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\nNOT VALID does NOT apply to UNIQUE constraints.\n\nWhen USING INDEX is specified, PostgreSQL validates that the\nreferenced index exists and is unique, then promotes it to a\nconstraint without rebuilding.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);\n\nFix (safe pattern — build unique index concurrently first):\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;",
       "engineId": "pg-migration-lint",
-      "id": "PGM020",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "RENAME COLUMN on existing table",
-      "severity": "INFO",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM021 — ADD UNIQUE on existing table without USING INDEX\n\nWhat it detects:\nALTER TABLE ... ADD CONSTRAINT ... UNIQUE on an existing table that\ndoes not use USING INDEX, or where the referenced index does not\nexist or is not UNIQUE.\n\nWhy it's dangerous:\nWithout USING INDEX, PostgreSQL always builds a new unique index\ninline under an ACCESS EXCLUSIVE lock, even if a matching unique\nindex already exists. For large tables this causes extended downtime.\nNOT VALID does NOT apply to UNIQUE constraints.\n\nWhen USING INDEX is specified, PostgreSQL validates that the\nreferenced index exists and is unique, then promotes it to a\nconstraint without rebuilding.\n\nExample (bad):\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);\n\nFix (safe pattern — build unique index concurrently first):\nCREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\nALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;",
-      "engineId": "pg-migration-lint",
-      "id": "PGM021",
+      "id": "PGM017",
       "impacts": [
         {
           "severity": "HIGH",
@@ -668,36 +578,6 @@ expression: parsed
       "name": "ADD UNIQUE on existing table without USING INDEX",
       "severity": "CRITICAL",
       "type": "BUG"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM022 — DROP TABLE on existing table\n\nWhat it detects:\nA DROP TABLE statement targeting a table that already exists in the\ndatabase (i.e., the table was not created in the same set of changed\nfiles).\n\nWhy it matters:\nDropping a table is intentional but destructive and irreversible in\nproduction. The DDL itself is instant — PostgreSQL does not scan the\ntable or hold an extended lock — so this is not a downtime risk.\nHowever, all data in the table is permanently lost, and any queries,\nviews, foreign keys, or application code referencing the table will\nbreak.\n\nExample:\nDROP TABLE orders;\n\nRecommended approach:\n1. Ensure no application code, views, or foreign keys reference the table.\n2. Consider renaming the table first and waiting before dropping.\n3. Take a backup of the table data if it may be needed later.\n\nThis rule is MINOR severity to flag the operation for human review.",
-      "engineId": "pg-migration-lint",
-      "id": "PGM022",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "DROP TABLE on existing table",
-      "severity": "MINOR",
-      "type": "CODE_SMELL"
-    },
-    {
-      "cleanCodeAttribute": "COMPLETE",
-      "description": "PGM023 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX\n\nWhat it detects:\nA CREATE TABLE or CREATE INDEX statement that does not include the\nIF NOT EXISTS clause.\n\nWhy it matters:\nWithout IF NOT EXISTS, the statement fails if the object already exists.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF NOT EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' already exists:\nCREATE TABLE orders (id bigint PRIMARY KEY);\nCREATE INDEX idx_orders_status ON orders (status);\n\nRecommended fix:\nCREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);\nCREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);",
-      "engineId": "pg-migration-lint",
-      "id": "PGM023",
-      "impacts": [
-        {
-          "severity": "MEDIUM",
-          "softwareQuality": "MAINTAINABILITY"
-        }
-      ],
-      "name": "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
-      "severity": "MINOR",
-      "type": "CODE_SMELL"
     },
     {
       "cleanCodeAttribute": "CONVENTIONAL",
@@ -776,9 +656,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "CONVENTIONAL",
-      "description": "PGM108 — Don't use `json` (prefer `jsonb`)\n\nWhat it detects:\nA column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\nWhy it's problematic:\nThe `json` type stores an exact copy of the input text and must re-parse\nit on every operation. `jsonb` stores a decomposed binary format that is\nsignificantly faster for queries, supports indexing (GIN), and supports\ncontainment/existence operators (`@>`, `?`, `?|`, `?&`). The only\nadvantages of `json` are preserving exact key order and duplicate keys\n— both rarely needed.\n\nExample (bad):\nCREATE TABLE events (payload json NOT NULL);\n\nFix:\nCREATE TABLE events (payload jsonb NOT NULL);",
+      "description": "PGM106 — Don't use `json` (prefer `jsonb`)\n\nWhat it detects:\nA column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\nWhy it's problematic:\nThe `json` type stores an exact copy of the input text and must re-parse\nit on every operation. `jsonb` stores a decomposed binary format that is\nsignificantly faster for queries, supports indexing (GIN), and supports\ncontainment/existence operators (`@>`, `?`, `?|`, `?&`). The only\nadvantages of `json` are preserving exact key order and duplicate keys\n— both rarely needed.\n\nExample (bad):\nCREATE TABLE events (payload json NOT NULL);\n\nFix:\nCREATE TABLE events (payload jsonb NOT NULL);",
       "engineId": "pg-migration-lint",
-      "id": "PGM108",
+      "id": "PGM106",
       "impacts": [
         {
           "severity": "LOW",
@@ -787,6 +667,126 @@ expression: parsed
       ],
       "name": "Column uses json type instead of jsonb",
       "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM201 — DROP TABLE on existing table\n\nWhat it detects:\nA DROP TABLE statement targeting a table that already exists in the\ndatabase (i.e., the table was not created in the same set of changed\nfiles).\n\nWhy it matters:\nDropping a table is intentional but destructive and irreversible in\nproduction. The DDL itself is instant — PostgreSQL does not scan the\ntable or hold an extended lock — so this is not a downtime risk.\nHowever, all data in the table is permanently lost, and any queries,\nviews, foreign keys, or application code referencing the table will\nbreak.\n\nExample:\nDROP TABLE orders;\n\nRecommended approach:\n1. Ensure no application code, views, or foreign keys reference the table.\n2. Consider renaming the table first and waiting before dropping.\n3. Take a backup of the table data if it may be needed later.\n\nThis rule is MINOR severity to flag the operation for human review.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM201",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "DROP TABLE on existing table",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\nWhat it detects:\nA DROP TABLE or DROP INDEX statement that does not include the\nIF EXISTS clause.\n\nWhy it matters:\nWithout IF EXISTS, the statement fails if the object does not exist.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' does not exist:\nDROP TABLE orders;\nDROP INDEX idx_orders_status;\n\nRecommended fix:\nDROP TABLE IF EXISTS orders;\nDROP INDEX IF EXISTS idx_orders_status;",
+      "engineId": "pg-migration-lint",
+      "id": "PGM401",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Missing IF EXISTS on DROP TABLE / DROP INDEX",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM402 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX\n\nWhat it detects:\nA CREATE TABLE or CREATE INDEX statement that does not include the\nIF NOT EXISTS clause.\n\nWhy it matters:\nWithout IF NOT EXISTS, the statement fails if the object already exists.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF NOT EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' already exists:\nCREATE TABLE orders (id bigint PRIMARY KEY);\nCREATE INDEX idx_orders_status ON orders (status);\n\nRecommended fix:\nCREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);\nCREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);",
+      "engineId": "pg-migration-lint",
+      "id": "PGM402",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "EFFICIENT",
+      "description": "PGM501 — Foreign key without covering index\n\nWhat it detects:\nA FOREIGN KEY constraint where the referencing table has no index\nwhose leading columns match the FK columns in order.\n\nWhy it's dangerous:\nWhen a row is deleted or updated in the referenced (parent) table,\nPostgreSQL must check that no rows in the referencing (child) table\nstill reference the old value. Without an index on the FK columns,\nthis check performs a sequential scan of the entire child table —\nonce per affected parent row. This can cause severe performance\ndegradation and lock contention.\n\nExample (bad):\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n-- No index on order_items(order_id)\n\nFix:\nCREATE INDEX idx_order_items_order_id\nON order_items (order_id);\nALTER TABLE order_items\nADD CONSTRAINT fk_order\nFOREIGN KEY (order_id) REFERENCES orders(id);\n\nPrefix matching: FK columns (a, b) are covered by index (a, b) or\n(a, b, c) but NOT by (b, a) or (a). Column order matters.\n\nThe check uses the catalog state AFTER the entire file is processed,\nso creating the index later in the same file avoids a false positive.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM501",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Foreign key without covering index on referencing columns",
+      "severity": "MAJOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM502 — Table without primary key\n\nWhat it detects:\nA CREATE TABLE statement (non-temporary) that does not define a\nPRIMARY KEY constraint, and no ALTER TABLE ... ADD PRIMARY KEY\nfollows in the same file.\n\nWhy it's dangerous:\nTables without primary keys:\n- Cannot be reliably targeted by logical replication.\n- May cause issues with ORMs that require a PK for identity.\n- Make it harder to deduplicate or reference specific rows.\n- Are a strong code smell indicating incomplete schema design.\n\nExample (bad):\nCREATE TABLE events (event_type text, payload jsonb);\n\nFix:\nCREATE TABLE events (\nid bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\nevent_type text,\npayload jsonb\n);\n\nNote: Temporary tables are excluded. If PGM503 fires (UNIQUE NOT NULL\nused instead of PK), PGM502 does NOT fire for the same table.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM502",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Table without primary key",
+      "severity": "MAJOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "CONVENTIONAL",
+      "description": "PGM503 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\nWhat it detects:\nA table that has no PRIMARY KEY but has at least one UNIQUE constraint\nwhere all constituent columns are NOT NULL. This combination is\nfunctionally equivalent to a PK.\n\nWhy it matters:\nWhile UNIQUE NOT NULL is functionally equivalent to PRIMARY KEY,\nusing PRIMARY KEY is more conventional and explicit. Tools, ORMs,\nand database administrators expect PK as the standard way to\nidentify rows. Using UNIQUE NOT NULL may confuse readers and\nprevent some tools from auto-detecting the identity column.\n\nExample (flagged):\nCREATE TABLE users (\nemail text NOT NULL UNIQUE,\nname text\n);\n\nFix:\nCREATE TABLE users (\nemail text PRIMARY KEY,\nname text\n);\n\nNote: When PGM503 fires, PGM502 (table without PK) does NOT fire\nfor the same table, since the situation is already flagged.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM503",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "UNIQUE NOT NULL used instead of PRIMARY KEY",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM504 — RENAME TABLE on existing table\n\nWhat it detects:\nALTER TABLE ... RENAME TO ... on a table that already exists in the\ndatabase (i.e., the table was not created in the same set of changed\nfiles).\n\nWhy it matters:\nRenaming a table breaks all queries, views, and functions that reference\nthe old name. While the rename itself is instant DDL (metadata-only),\nthe downstream breakage can be severe.\n\nExample (bad):\nALTER TABLE orders RENAME TO orders_archive;\n-- All queries referencing 'orders' will now fail.\n\nExample (safe — replacement pattern):\nALTER TABLE orders RENAME TO orders_old;\nCREATE TABLE orders (...);\n-- The old name is re-created, so existing queries still work.\n\nFix:\nUse a view to maintain backward compatibility during the transition:\nALTER TABLE orders RENAME TO orders_v2;\nCREATE VIEW orders AS SELECT * FROM orders_v2;\n\nThis rule does NOT fire when a replacement table with the old name\nis created in the same migration unit.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM504",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "RENAME TABLE on existing table",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM505 — RENAME COLUMN on existing table\n\nWhat it detects:\nALTER TABLE ... RENAME COLUMN old_name TO new_name on a table that\nalready exists in the database (not created in the same set of changed\nfiles).\n\nWhy it matters:\nRenaming a column is a backwards-incompatible schema change. Any\nqueries, views, stored procedures, or application code that reference\nthe old column name will break immediately after the migration runs.\nUnlike adding or dropping a column, a rename silently invalidates\nexisting references without any compile-time or startup-time error.\n\nExample (bad):\nALTER TABLE orders RENAME COLUMN status TO order_status;\n-- All queries using 'status' will fail with 'column does not exist'\n\nFix:\nConsider a multi-step approach:\n1. Add the new column with the desired name.\n2. Backfill data from the old column to the new column.\n3. Update application code to use the new column name.\n4. Drop the old column once all references have been migrated.\n\nThis rule does NOT fire when the table is created in the same set of\nchanged files, because renaming a column on a new table has no\nexternal consumers.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM505",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "RENAME COLUMN on existing table",
+      "severity": "INFO",
       "type": "CODE_SMELL"
     }
   ]

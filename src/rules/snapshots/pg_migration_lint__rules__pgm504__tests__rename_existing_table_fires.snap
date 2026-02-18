@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm504.rs
+expression: findings
+---
+- rule_id: PGM504
+  severity: Info
+  message: "Renaming existing table 'orders' to 'orders_archive' will break all queries, views, and functions referencing the old name."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

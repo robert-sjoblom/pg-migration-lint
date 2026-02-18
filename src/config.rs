@@ -153,7 +153,7 @@ impl Default for CliConfig {
 /// Configuration for rule selection.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RulesConfig {
-    /// Rule IDs to disable globally (e.g., `["PGM007", "PGM101"]`).
+    /// Rule IDs to disable globally (e.g., `["PGM006", "PGM101"]`).
     /// Findings from disabled rules are not emitted.
     /// Invalid rule IDs cause a config-load error (exit 2).
     #[serde(default)]
@@ -295,7 +295,7 @@ const SECTION_RULES: &str = "\
 
   disabled = []
     Rule IDs to disable globally. Findings from disabled rules are not emitted.
-    Example: [\"PGM007\", \"PGM101\"]
+    Example: [\"PGM006\", \"PGM101\"]
     Type: list of strings
     Default: []
 ";
@@ -453,12 +453,12 @@ mod tests {
 
     #[test]
     fn test_rules_disabled_deserialization() {
-        let toml = "[rules]\ndisabled = [\"PGM007\", \"PGM101\"]";
+        let toml = "[rules]\ndisabled = [\"PGM006\", \"PGM101\"]";
         let config = parse_and_validate(toml).unwrap();
         assert_eq!(
             config.rules.disabled,
             vec![
-                "PGM007".parse::<crate::rules::RuleId>().unwrap(),
+                "PGM006".parse::<crate::rules::RuleId>().unwrap(),
                 "PGM101".parse::<crate::rules::RuleId>().unwrap(),
             ]
         );

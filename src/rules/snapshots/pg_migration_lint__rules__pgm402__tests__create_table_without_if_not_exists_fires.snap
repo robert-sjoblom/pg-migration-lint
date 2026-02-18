@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm402.rs
+expression: findings
+---
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+  file: migrations/003.sql
+  start_line: 1
+  end_line: 1

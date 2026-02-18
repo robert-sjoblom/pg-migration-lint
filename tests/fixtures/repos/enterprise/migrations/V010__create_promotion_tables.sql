@@ -1,5 +1,5 @@
 -- Promotion tables with foreign keys
--- Only index on promotion_id, not product_id: triggers PGM003 for product_id FK
+-- Only index on promotion_id, not product_id: triggers PGM501 for product_id FK
 
 CREATE TABLE promotions (
     id uuid PRIMARY KEY,

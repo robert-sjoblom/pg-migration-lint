@@ -1,6 +1,5 @@
 ---
 source: tests/matrix.rs
-assertion_line: 500
 expression: findings
 ---
 - rule_id: PGM001
@@ -9,15 +8,15 @@ expression: findings
   file: migrations/002.down.sql
   start_line: 1
   end_line: 1
-- rule_id: PGM003
-  severity: Info
-  message: FK without covering index
-  file: migrations/002.down.sql
-  start_line: 3
-  end_line: 3
-- rule_id: PGM007
+- rule_id: PGM006
   severity: Info
   message: Volatile default on column
   file: migrations/002.down.sql
   start_line: 5
   end_line: 5
+- rule_id: PGM501
+  severity: Info
+  message: FK without covering index
+  file: migrations/002.down.sql
+  start_line: 3
+  end_line: 3

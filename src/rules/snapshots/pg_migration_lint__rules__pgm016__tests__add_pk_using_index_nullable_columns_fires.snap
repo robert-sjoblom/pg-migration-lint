@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm016.rs
+expression: findings
+---
+- rule_id: PGM016
+  severity: Major
+  message: "ADD PRIMARY KEY USING INDEX 'idx_orders_pk' on table 'orders': column(s) [id] are nullable. PostgreSQL will implicitly SET NOT NULL under ACCESS EXCLUSIVE lock. Run ALTER COLUMN ... SET NOT NULL with a CHECK constraint first."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

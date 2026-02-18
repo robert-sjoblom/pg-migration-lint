@@ -7,7 +7,7 @@ Only DDL-detectable anti-patterns are included. Query-level patterns (e.g., "don
 NOT IN with nullable columns", "don't use BETWEEN for timestamp ranges") are omitted
 because they do not appear in migration files.
 
-Rule IDs use the PGM1XX series to distinguish from core rules (PGM001-PGM023).
+Rule IDs use the PGM1XX series to distinguish from unsafe DDL rules (PGM0xx).
 
 ---
 
@@ -169,7 +169,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
   presence of a `DefaultExpr::FunctionCall { name: "nextval", .. }` on an
   `integer`/`bigint`/`smallint` column is a strong heuristic signal. The rule can flag
   `nextval()` defaults with a suggestion to use identity columns instead. This overlaps
-  with PGM007 (volatile default) but has a different message and rationale.
+  with PGM006 (volatile default) but has a different message and rationale.
 - **Example bad SQL**:
   ```sql
   CREATE TABLE orders (
@@ -188,14 +188,14 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 - **Message**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach.`
 - **Notes**: This rule should not fire on `ALTER TABLE ... ADD COLUMN` to existing tables
   where changing to identity is harder. Consider suppressing or lowering severity in that
-  context. Also coordinate with PGM007 to avoid duplicate noise -- if PGM105 fires, PGM007
+  context. Also coordinate with PGM006 to avoid duplicate noise -- if PGM105 fires, PGM006
   should not also fire for the same `nextval()` default.
 
 ---
 
-### PGM106 -- Don't use `integer` as primary key type
+### Don't use `integer` as primary key type
 
-- **Status**: **Not yet implemented.**
+- **Status**: **Not yet implemented. No rule ID assigned (PGM106 is now used by the json rule).**
 - **Detects**: A primary key column with `TypeName.name` in `("int4", "int2")` -- i.e.,
   `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or
   table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
@@ -229,7 +229,7 @@ These rules inspect `TypeName { name, modifiers }` on `ColumnDef` in `CreateTabl
 
 ---
 
-### PGM108 -- Don't use `json` (prefer `jsonb`)
+### PGM106 -- Don't use `json` (prefer `jsonb`)
 
 - **Status**: **Implemented.**
 - **Detects**: Column type `json` in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, or
@@ -419,8 +419,8 @@ beyond static analysis.
 | PGM103 | `char(n)` / `character(n)` | MINOR | `name == "bpchar"` | **Implemented** |
 | PGM104 | `money` type | MINOR | `name == "money"` | **Implemented** |
 | PGM105 | `serial` / `bigserial` (prefer identity) | INFO | `nextval()` default on `int4`/`int8`/`int2` | **Implemented** |
-| PGM106 | `integer` primary key (prefer bigint) | MAJOR | PK column with `name in ("int4", "int2")` | Not yet implemented |
-| PGM108 | `json` (prefer `jsonb`) | MINOR | `name == "json"` | **Implemented** |
+| -- | `integer` primary key (prefer bigint) | MAJOR | PK column with `name in ("int4", "int2")` | Not yet implemented (ID unassigned) |
+| PGM106 | `json` (prefer `jsonb`) | MINOR | `name == "json"` | **Implemented** |
 | -- | `varchar(n)` (prefer text) | INFO | `name == "varchar" && modifiers non-empty` | Deferred |
 | -- | `float` / `real` / `double precision` | INFO | `name in ("float4", "float8")` | Deferred |
 | -- | `INHERITS`-based partitioning | MINOR | Not in IR | Deferred (needs IR extension) |
@@ -487,16 +487,17 @@ aliases for each type.
 
 ### Interaction with Existing Rules
 
-- **PGM105 vs PGM007**: Both fire on `nextval()` defaults. This is intentional -- PGM007
+- **PGM105 vs PGM006**: Both fire on `nextval()` defaults. This is intentional -- PGM006
   warns about the volatile default aspect (table rewrite risk), PGM105 recommends the
   identity column alternative. Both findings are relevant and neither suppresses the other.
-- **PGM101 vs PGM009**: If someone uses `ALTER COLUMN TYPE` to change from `timestamptz`
-  to `timestamp`, both PGM009 (type change on existing table) and PGM101 (bad type) can
+- **PGM101 vs PGM007**: If someone uses `ALTER COLUMN TYPE` to change from `timestamptz`
+  to `timestamp`, both PGM007 (type change on existing table) and PGM101 (bad type) can
   fire. This is correct behavior -- both findings are relevant (one is about the
   dangerous operation, the other about the bad target type).
-- **PGM106 vs PGM105**: A `serial` column (expanded to `int4 + nextval()`) that is also
-  a PK will fire both PGM105 (prefer identity) and PGM106 (prefer bigint). Both findings
-  are relevant -- PGM105 is about the sequence mechanism, PGM106 is about the type size.
+- **Integer PK vs PGM105**: A `serial` column (expanded to `int4 + nextval()`) that is also
+  a PK would fire both PGM105 (prefer identity) and the integer PK rule (prefer bigint),
+  once the latter is implemented. Both findings would be relevant -- PGM105 is about the
+  sequence mechanism, the integer PK rule is about the type size.
 
 ### Configuration
 
@@ -504,7 +505,7 @@ The `rules.disabled` config key allows globally disabling rules:
 
 ```toml
 [rules]
-disabled = ["PGM106"]  # Team accepts integer PKs
+disabled = ["PGM107"]  # Team accepts integer PKs (ID TBD when implemented)
 ```
 
 ---
@@ -535,4 +536,4 @@ behavior:
 | Version | Date       | Changes |
 |---------|------------|---------|
 | 1.0     | 2026-02-10 | Initial draft. 8 rules proposed (PGM101-PGM107, PGM111). 4 rejected with rationale. |
-| 2.0     | 2026-02-16 | Major sync with SPEC v1.10. PGM101-PGM105, PGM108 marked Implemented. PGM106 reassigned from varchar(n) to integer PK (MAJOR). PGM108 reassigned from text-without-CHECK to json (MINOR). IDs removed from deferred rules (varchar, float, INHERITS). Not-recommended rules (text-CHECK, reserved words, unlogged) moved to separate section without IDs. Severity vocabulary normalized: WARNING → MINOR. Added PGM106 and PGM108 full specifications. |
+| 2.0     | 2026-02-16 | Major sync with SPEC v1.10. PGM101-PGM105, PGM106 (formerly PGM108) marked Implemented. Integer PK rule (formerly PGM106) deferred with ID unassigned. IDs removed from deferred rules (varchar, float, INHERITS). Not-recommended rules (text-CHECK, reserved words, unlogged) moved to separate section without IDs. Severity vocabulary normalized: WARNING → MINOR. |

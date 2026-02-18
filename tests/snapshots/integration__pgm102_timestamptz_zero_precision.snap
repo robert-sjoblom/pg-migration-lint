@@ -1,7 +1,6 @@
 ---
 source: tests/integration.rs
-assertion_line: 361
-expression: pgm102
+expression: findings
 ---
 - rule_id: PGM102
   severity: Minor

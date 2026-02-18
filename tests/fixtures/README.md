@@ -6,9 +6,9 @@ This directory contains test fixtures for pg-migration-lint.
 
 - `repos/` - Full fixture repositories for integration tests
   - `clean/` - All migrations correct, expect 0 findings
-  - `all-rules/` - One violation per rule (PGM001-PGM011), expect 11 findings
+  - `all-rules/` - One violation per rule, expect findings for all rules
   - `suppressed/` - All violations suppressed, expect 0 findings
-  - `fk-with-later-index/` - Tests PGM003 FK detection across migration boundaries
+  - `fk-with-later-index/` - Tests PGM501 FK detection across migration boundaries
   - `liquibase-xml/` - Liquibase XML fixture for bridge tests
   - `schema-qualified/` - Tests schema-qualified names and cross-schema references
 

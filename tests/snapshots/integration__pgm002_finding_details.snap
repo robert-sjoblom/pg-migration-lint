@@ -1,7 +1,6 @@
 ---
 source: tests/integration.rs
-assertion_line: 289
-expression: pgm002
+expression: findings
 ---
 - rule_id: PGM002
   severity: Critical

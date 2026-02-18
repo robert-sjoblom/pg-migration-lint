@@ -1,5 +1,5 @@
 -- Price plan tables
--- Note: now() defaults on new tables trigger PGM007
+-- Note: now() defaults on new tables trigger PGM006
 
 CREATE TABLE price_plans (
     id serial PRIMARY KEY,

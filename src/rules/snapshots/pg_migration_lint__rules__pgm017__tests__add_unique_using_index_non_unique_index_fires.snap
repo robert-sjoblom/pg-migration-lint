@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm017.rs
+expression: findings
+---
+- rule_id: PGM017
+  severity: Critical
+  message: "ADD UNIQUE USING INDEX 'idx_orders_email' on table 'orders': referenced index is not UNIQUE."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

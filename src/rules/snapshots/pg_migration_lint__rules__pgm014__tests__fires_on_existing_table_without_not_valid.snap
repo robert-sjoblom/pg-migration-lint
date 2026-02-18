@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm014.rs
+expression: findings
+---
+- rule_id: PGM014
+  severity: Critical
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

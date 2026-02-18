@@ -1,38 +1,47 @@
-//! PGM013 — `DROP COLUMN` silently removes unique constraint
+//! PGM013 — `SET NOT NULL` on existing table requires ACCESS EXCLUSIVE lock
 //!
-//! Detects `ALTER TABLE ... DROP COLUMN col` where `col` participates in a
-//! `UNIQUE` constraint or unique index on the table in `catalog_before`.
-//! PostgreSQL automatically drops any index or constraint that depends on the
-//! column, silently removing uniqueness guarantees.
+//! Detects `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on tables that
+//! already exist. This requires scanning the entire table and acquiring an
+//! ACCESS EXCLUSIVE lock. The safe pattern is to add a CHECK constraint
+//! with NOT VALID, validate it, then set NOT NULL.
 
-use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
 
-pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes unique constraint";
+pub(super) const DESCRIPTION: &str =
+    "SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock";
 
-pub(super) const EXPLAIN: &str = "PGM013 — DROP COLUMN silently removes unique constraint\n\
+pub(super) const EXPLAIN: &str = "PGM013 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\
          \n\
          What it detects:\n\
-         ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
-         in a UNIQUE constraint or unique index on the table.\n\
+         ALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already\n\
+         exists in the database (not created in the same set of changed files).\n\
          \n\
-         Why it matters:\n\
-         PostgreSQL automatically drops any index or constraint that depends\n\
-         on a dropped column. If the column was part of a UNIQUE constraint\n\
-         or unique index, the uniqueness guarantee is silently lost. This can\n\
-         lead to duplicate data being inserted without any error.\n\
+         Why it's dangerous:\n\
+         SET NOT NULL acquires an ACCESS EXCLUSIVE lock on the table, blocking\n\
+         all concurrent reads and writes. PostgreSQL must also perform a full\n\
+         table scan to verify that no existing rows contain NULL in the column.\n\
+         On large tables this can cause significant downtime.\n\
+         \n\
+         Safe alternative (PostgreSQL 12+):\n\
+         1. Add a CHECK constraint with NOT VALID:\n\
+            ALTER TABLE orders ADD CONSTRAINT orders_status_nn\n\
+              CHECK (status IS NOT NULL) NOT VALID;\n\
+         2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):\n\
+            ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
+         3. Set NOT NULL (instant since PG 12 sees the validated CHECK):\n\
+            ALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\
+         4. Optionally drop the now-redundant CHECK constraint:\n\
+            ALTER TABLE orders DROP CONSTRAINT orders_status_nn;\n\
          \n\
          Example (bad):\n\
-           -- Table has UNIQUE(email)\n\
-           ALTER TABLE users DROP COLUMN email;\n\
-           -- The unique constraint on email is silently removed.\n\
+           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\
          \n\
-         Fix:\n\
-         Verify that the uniqueness guarantee provided by the constraint or\n\
-         index is no longer needed before dropping the column. If uniqueness\n\
-         is still required on the remaining columns, create a new constraint\n\
-         or index covering those columns.";
+         Fix (safe three-step pattern):\n\
+           ALTER TABLE orders ADD CONSTRAINT orders_status_nn\n\
+             CHECK (status IS NOT NULL) NOT VALID;\n\
+           ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
+           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -42,65 +51,24 @@ pub(super) fn check(
     alter_table_check::check_alter_actions(
         statements,
         ctx,
-        TableScope::AnyPreExisting,
+        TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
-
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
-
-            let mut findings = Vec::new();
-
-            // Check UNIQUE constraints that include this column.
-            for constraint in table.constraints_involving_column(name) {
-                if let ConstraintState::Unique {
-                    name: constraint_name,
-                    columns,
-                } = constraint
-                {
-                    let constraint_description = match constraint_name {
-                        Some(n) => format!("'{n}'"),
-                        None => format!("UNIQUE({})", columns.join(", ")),
-                    };
-                    findings.push(rule.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' silently \
-                             removes unique constraint {constraint}. Verify that \
-                             the uniqueness guarantee is no longer needed.",
-                            col = name,
-                            table = at.name.display_name(),
-                            constraint = constraint_description,
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
-                }
+            if let AlterTableAction::SetNotNull { column_name } = action {
+                vec![rule.make_finding(
+                    format!(
+                        "SET NOT NULL on column '{col}' of existing table '{table}' \
+                         requires an ACCESS EXCLUSIVE lock and full table scan. \
+                         Use a CHECK constraint with NOT VALID, validate it, \
+                         then set NOT NULL.",
+                        col = column_name,
+                        table = at.name.display_name(),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                )]
+            } else {
+                vec![]
             }
-
-            // Check unique indexes that include this column.
-            // Skip PK indexes (named *_pkey) since PGM014 handles those.
-            for idx in table.indexes_involving_column(name) {
-                if idx.unique && !idx.name.ends_with("_pkey") {
-                    findings.push(rule.make_finding(
-                        format!(
-                            "Dropping column '{col}' from table '{table}' silently \
-                             removes unique constraint '{constraint}'. Verify that \
-                             the uniqueness guarantee is no longer needed.",
-                            col = name,
-                            table = at.name.display_name(),
-                            constraint = idx.name,
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    ));
-                }
-            }
-
-            findings
         },
     )
 }
@@ -112,18 +80,17 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{MigrationRule, RuleId};
+    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     #[test]
-    fn test_drop_column_with_unique_constraint_fires() {
+    fn test_set_not_null_on_existing_table_fires() {
         let before = CatalogBuilder::new()
-            .table("users", |t| {
+            .table("orders", |t| {
                 t.column("id", "integer", false)
-                    .column("email", "text", false)
-                    .pk(&["id"])
-                    .unique("uq_users_email", &["email"]);
+                    .column("status", "text", true)
+                    .pk(&["id"]);
             })
             .build();
         let after = before.clone();
@@ -132,71 +99,44 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("users"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "email".to_string(),
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetNotNull {
+                column_name: "status".to_string(),
             }],
         }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm013).check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
-    fn test_drop_column_with_unique_index_fires() {
-        let before = CatalogBuilder::new()
-            .table("products", |t| {
+    fn test_set_not_null_on_new_table_no_finding() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
                 t.column("id", "integer", false)
-                    .column("code", "text", false)
-                    .pk(&["id"])
-                    .index("idx_products_code_unique", &["code"], true);
+                    .column("status", "text", true)
+                    .pk(&["id"]);
             })
             .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
+        let file = PathBuf::from("migrations/001.sql");
+        let mut created = HashSet::new();
+        created.insert("orders".to_string());
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("products"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "code".to_string(),
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetNotNull {
+                column_name: "status".to_string(),
             }],
         }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_drop_column_not_in_unique_no_finding() {
-        let before = CatalogBuilder::new()
-            .table("users", |t| {
-                t.column("id", "integer", false)
-                    .column("email", "text", false)
-                    .column("name", "text", true)
-                    .pk(&["id"])
-                    .unique("uq_users_email", &["email"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("users"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "name".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm013).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
     #[test]
-    fn test_drop_column_nonexistent_table_no_finding() {
+    fn test_set_not_null_table_not_in_catalog_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
         let file = PathBuf::from("migrations/002.sql");
@@ -204,163 +144,13 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("nonexistent"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "col".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_drop_pk_column_does_not_fire_pgm013() {
-        // PK columns are handled by PGM014, not PGM013.
-        // PGM013 checks UNIQUE constraints and unique indexes, not PKs.
-        let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "integer", false).pk(&["id"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "id".to_string(),
+            actions: vec![AlterTableAction::SetNotNull {
+                column_name: "status".to_string(),
             }],
         }))];
 
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        // PK constraints are ConstraintState::PrimaryKey, not Unique, so PGM013 ignores them.
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm013).check(&stmts, &ctx);
         assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_fires_even_when_table_in_created_set() {
-        let before = CatalogBuilder::new()
-            .table("users", |t| {
-                t.column("id", "integer", false)
-                    .column("email", "text", false)
-                    .pk(&["id"])
-                    .unique("uq_users_email", &["email"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let mut created = HashSet::new();
-        created.insert("users".to_string()); // table was created in an earlier changed file
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("users"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "email".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(
-            findings[0].rule_id,
-            RuleId::Migration(MigrationRule::Pgm013)
-        );
-    }
-
-    #[test]
-    fn test_multi_column_unique_drop_one_fires() {
-        let before = CatalogBuilder::new()
-            .table("subscriptions", |t| {
-                t.column("id", "integer", false)
-                    .column("a", "text", false)
-                    .column("b", "text", false)
-                    .pk(&["id"])
-                    .unique("uq_subscriptions_a_b", &["a", "b"]);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("subscriptions"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "a".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_drop_unique_column_created_via_using_index_fires() {
-        // UNIQUE constraint was created via ADD UNIQUE USING INDEX — replay resolves
-        // the index columns into the constraint so DROP COLUMN detects it.
-        use crate::catalog::replay::apply;
-        use crate::input::MigrationUnit;
-
-        // Step 1: build a table with an index (no unique constraint yet).
-        let mut catalog = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "bigint", false)
-                    .column("email", "text", false)
-                    .pk(&["id"])
-                    .index("idx_orders_email", &["email"], true);
-            })
-            .build();
-
-        // Step 2: replay ADD UNIQUE USING INDEX to get resolved columns.
-        let unit = MigrationUnit {
-            id: "add_unique".to_string(),
-            statements: vec![Located {
-                node: IrNode::AlterTable(AlterTable {
-                    name: QualifiedName::unqualified("orders"),
-                    actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
-                        name: Some("uq_orders_email".to_string()),
-                        columns: vec![], // empty with USING INDEX
-                        using_index: Some("idx_orders_email".to_string()),
-                    })],
-                }),
-                span: SourceSpan {
-                    start_line: 1,
-                    end_line: 1,
-                    start_offset: 0,
-                    end_offset: 0,
-                },
-            }],
-            source_file: PathBuf::from("migrations/001.sql"),
-            source_line_offset: 1,
-            run_in_transaction: true,
-            is_down: false,
-        };
-        apply(&mut catalog, &unit);
-
-        let before = catalog;
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "email".to_string(),
-            }],
-        }))];
-
-        let findings = RuleId::Migration(MigrationRule::Pgm013).check(&stmts, &ctx);
-        // Fires twice: once for the UNIQUE constraint (resolved columns), once for
-        // the backing unique index — both involve the dropped column.
-        assert_eq!(
-            findings.len(),
-            2,
-            "Should detect unique constraint removal even when created via USING INDEX"
-        );
     }
 }
