@@ -8,7 +8,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 34 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 38 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 34 rules across five categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 38 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
 ### Unsafe DDL Rules (0xx)
 
@@ -89,6 +89,16 @@ These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.
 
 These rules only fire on tables that existed before the current set of changed files. Dropping or truncating a table created in the same changeset is harmless. The CASCADE variants (PGM202, PGM204) are Major because they silently affect dependent tables the developer may not be aware of.
 
+### DML in Migrations Rules (3xx)
+
+| Rule | Severity | Description | Example (bad) |
+|------|----------|-------------|---------------|
+| PGM301 | Info | `INSERT INTO` existing table in migration | `INSERT INTO config (key, value) VALUES ('feature_x', 'enabled');` |
+| PGM302 | Minor | `UPDATE` on existing table in migration | `UPDATE orders SET status = 'pending' WHERE status IS NULL;` |
+| PGM303 | Minor | `DELETE FROM` existing table in migration | `DELETE FROM audit_log WHERE created_at < '2020-01-01';` |
+
+These rules only fire on tables that existed before the current set of changed files. DML on a table created in the same changeset is expected and not flagged. PGM301 is informational (INSERT is often intentional seed data), while PGM302 and PGM303 are Minor because unbatched UPDATE/DELETE hold row locks and generate WAL pressure.
+
 ### Idempotency Guard Rules (4xx)
 
 | Rule | Severity | Description | Example (bad) |
@@ -106,6 +116,7 @@ These rules only fire on tables that existed before the current set of changed f
 | PGM503 | Info | `UNIQUE NOT NULL` used instead of primary key | `CREATE TABLE t (id int NOT NULL UNIQUE);` |
 | PGM504 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
 | PGM505 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
+| PGM506 | Info | `CREATE UNLOGGED TABLE` | `CREATE UNLOGGED TABLE scratch_data (id int, payload text);` |
 
 PGM501 and PGM502 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives.
 

@@ -52,6 +52,11 @@ mod pgm202;
 mod pgm203;
 mod pgm204;
 
+// 3xx — DML in migrations
+mod pgm301;
+mod pgm302;
+mod pgm303;
+
 // 4xx — Idempotency guards
 mod pgm401;
 mod pgm402;
@@ -63,6 +68,7 @@ mod pgm502;
 mod pgm503;
 mod pgm504;
 mod pgm505;
+mod pgm506;
 
 // ---------------------------------------------------------------------------
 // Rule ID enums
@@ -70,7 +76,7 @@ mod pgm505;
 
 /// Strongly-typed rule identifier.
 ///
-/// Wraps the six rule families so that match statements are exhaustive:
+/// Wraps the seven rule families so that match statements are exhaustive:
 /// adding a new variant forces updates in `sonarqube_meta()`, `effort_minutes()`,
 /// and everywhere else a rule ID is dispatched on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -81,6 +87,8 @@ pub enum RuleId {
     TypeAntiPattern(TypeAntiPatternRule),
     /// Destructive operation rules (2xx series).
     Destructive(DestructiveRule),
+    /// DML in migrations rules (3xx series).
+    Dml(DmlRule),
     /// Idempotency guard rules (4xx series).
     Idempotency(IdempotencyRule),
     /// Schema design & informational rules (5xx series).
@@ -124,6 +132,11 @@ impl RuleId {
                 DestructiveRule::Pgm203 => "PGM203",
                 DestructiveRule::Pgm204 => "PGM204",
             },
+            RuleId::Dml(r) => match r {
+                DmlRule::Pgm301 => "PGM301",
+                DmlRule::Pgm302 => "PGM302",
+                DmlRule::Pgm303 => "PGM303",
+            },
             RuleId::Idempotency(r) => match r {
                 IdempotencyRule::Pgm401 => "PGM401",
                 IdempotencyRule::Pgm402 => "PGM402",
@@ -135,6 +148,7 @@ impl RuleId {
                 SchemaDesignRule::Pgm503 => "PGM503",
                 SchemaDesignRule::Pgm504 => "PGM504",
                 SchemaDesignRule::Pgm505 => "PGM505",
+                SchemaDesignRule::Pgm506 => "PGM506",
             },
             RuleId::Meta(MetaRule::Pgm901) => "PGM901",
         }
@@ -190,6 +204,9 @@ impl FromStr for RuleId {
             "PGM202" => Ok(RuleId::Destructive(DestructiveRule::Pgm202)),
             "PGM203" => Ok(RuleId::Destructive(DestructiveRule::Pgm203)),
             "PGM204" => Ok(RuleId::Destructive(DestructiveRule::Pgm204)),
+            "PGM301" => Ok(RuleId::Dml(DmlRule::Pgm301)),
+            "PGM302" => Ok(RuleId::Dml(DmlRule::Pgm302)),
+            "PGM303" => Ok(RuleId::Dml(DmlRule::Pgm303)),
             "PGM401" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm401)),
             "PGM402" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm402)),
             "PGM403" => Ok(RuleId::Idempotency(IdempotencyRule::Pgm403)),
@@ -198,6 +215,7 @@ impl FromStr for RuleId {
             "PGM503" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm503)),
             "PGM504" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm504)),
             "PGM505" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm505)),
+            "PGM506" => Ok(RuleId::SchemaDesign(SchemaDesignRule::Pgm506)),
             "PGM901" => Ok(RuleId::Meta(MetaRule::Pgm901)),
             _ => Err(ParseRuleIdError(s.to_string())),
         }
@@ -224,6 +242,7 @@ impl Rule for RuleId {
             Self::UnsafeDdl(rule) => rule.into(),
             Self::TypeAntiPattern(rule) => rule.into(),
             Self::Destructive(rule) => rule.into(),
+            Self::Dml(rule) => rule.into(),
             Self::Idempotency(rule) => rule.into(),
             Self::SchemaDesign(rule) => rule.into(),
             Self::Meta(rule) => rule.into(),
@@ -235,6 +254,7 @@ impl Rule for RuleId {
             Self::UnsafeDdl(rule) => rule.description(),
             Self::TypeAntiPattern(rule) => rule.description(),
             Self::Destructive(rule) => rule.description(),
+            Self::Dml(rule) => rule.description(),
             Self::Idempotency(rule) => rule.description(),
             Self::SchemaDesign(rule) => rule.description(),
             Self::Meta(rule) => rule.description(),
@@ -246,6 +266,7 @@ impl Rule for RuleId {
             Self::UnsafeDdl(rule) => rule.explain(),
             Self::TypeAntiPattern(rule) => rule.explain(),
             Self::Destructive(rule) => rule.explain(),
+            Self::Dml(rule) => rule.explain(),
             Self::Idempotency(rule) => rule.explain(),
             Self::SchemaDesign(rule) => rule.explain(),
             Self::Meta(rule) => rule.explain(),
@@ -257,6 +278,7 @@ impl Rule for RuleId {
             Self::UnsafeDdl(rule) => rule.check(*self, statements, ctx),
             Self::TypeAntiPattern(rule) => rule.check(*self, statements, ctx),
             Self::Destructive(rule) => rule.check(*self, statements, ctx),
+            Self::Dml(rule) => rule.check(*self, statements, ctx),
             Self::Idempotency(rule) => rule.check(*self, statements, ctx),
             Self::SchemaDesign(rule) => rule.check(*self, statements, ctx),
             Self::Meta(rule) => rule.check(*self, statements, ctx),
@@ -517,6 +539,61 @@ impl From<DestructiveRule> for Severity {
     }
 }
 
+/// DML in migrations rules (PGM3xx).
+///
+/// These flag DML statements (INSERT, UPDATE, DELETE) in migration files
+/// targeting pre-existing tables, which may indicate unintentional data
+/// modification or performance risks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, EnumIter)]
+pub enum DmlRule {
+    /// `INSERT INTO` existing table in migration.
+    Pgm301,
+    /// `UPDATE` on existing table in migration.
+    Pgm302,
+    /// `DELETE FROM` existing table in migration.
+    Pgm303,
+}
+
+impl DmlRule {
+    fn description(&self) -> &'static str {
+        match *self {
+            Self::Pgm301 => pgm301::DESCRIPTION,
+            Self::Pgm302 => pgm302::DESCRIPTION,
+            Self::Pgm303 => pgm303::DESCRIPTION,
+        }
+    }
+
+    fn explain(&self) -> &'static str {
+        match *self {
+            Self::Pgm301 => pgm301::EXPLAIN,
+            Self::Pgm302 => pgm302::EXPLAIN,
+            Self::Pgm303 => pgm303::EXPLAIN,
+        }
+    }
+
+    fn check(
+        &self,
+        rule: impl Rule,
+        statements: &[Located<IrNode>],
+        ctx: &LintContext<'_>,
+    ) -> Vec<Finding> {
+        match *self {
+            Self::Pgm301 => pgm301::check(rule, statements, ctx),
+            Self::Pgm302 => pgm302::check(rule, statements, ctx),
+            Self::Pgm303 => pgm303::check(rule, statements, ctx),
+        }
+    }
+}
+
+impl From<DmlRule> for Severity {
+    fn from(value: DmlRule) -> Self {
+        match value {
+            DmlRule::Pgm301 => Self::Info,
+            DmlRule::Pgm302 | DmlRule::Pgm303 => Self::Minor,
+        }
+    }
+}
+
 /// Idempotency guard rules (PGM4xx).
 ///
 /// These flag missing safety guards like `IF EXISTS` / `IF NOT EXISTS`.
@@ -586,6 +663,8 @@ pub enum SchemaDesignRule {
     Pgm504,
     /// `RENAME COLUMN` on an existing table.
     Pgm505,
+    /// `CREATE UNLOGGED TABLE`.
+    Pgm506,
 }
 
 impl SchemaDesignRule {
@@ -596,6 +675,7 @@ impl SchemaDesignRule {
             Self::Pgm503 => pgm503::DESCRIPTION,
             Self::Pgm504 => pgm504::DESCRIPTION,
             Self::Pgm505 => pgm505::DESCRIPTION,
+            Self::Pgm506 => pgm506::DESCRIPTION,
         }
     }
 
@@ -606,6 +686,7 @@ impl SchemaDesignRule {
             Self::Pgm503 => pgm503::EXPLAIN,
             Self::Pgm504 => pgm504::EXPLAIN,
             Self::Pgm505 => pgm505::EXPLAIN,
+            Self::Pgm506 => pgm506::EXPLAIN,
         }
     }
 
@@ -621,6 +702,7 @@ impl SchemaDesignRule {
             Self::Pgm503 => pgm503::check(rule, statements, ctx),
             Self::Pgm504 => pgm504::check(rule, statements, ctx),
             Self::Pgm505 => pgm505::check(rule, statements, ctx),
+            Self::Pgm506 => pgm506::check(rule, statements, ctx),
         }
     }
 }
@@ -629,9 +711,10 @@ impl From<SchemaDesignRule> for Severity {
     fn from(value: SchemaDesignRule) -> Self {
         match value {
             SchemaDesignRule::Pgm501 | SchemaDesignRule::Pgm502 => Self::Major,
-            SchemaDesignRule::Pgm503 | SchemaDesignRule::Pgm504 | SchemaDesignRule::Pgm505 => {
-                Self::Info
-            }
+            SchemaDesignRule::Pgm503
+            | SchemaDesignRule::Pgm504
+            | SchemaDesignRule::Pgm505
+            | SchemaDesignRule::Pgm506 => Self::Info,
         }
     }
 }
@@ -869,6 +952,7 @@ impl RuleRegistry {
             .map(RuleId::UnsafeDdl)
             .chain(TypeAntiPatternRule::iter().map(RuleId::TypeAntiPattern))
             .chain(DestructiveRule::iter().map(RuleId::Destructive))
+            .chain(DmlRule::iter().map(RuleId::Dml))
             .chain(IdempotencyRule::iter().map(RuleId::Idempotency))
             .chain(SchemaDesignRule::iter().map(RuleId::SchemaDesign))
             .for_each(|r| self.register(r.into()));
@@ -993,6 +1077,7 @@ mod tests {
             .map(RuleId::UnsafeDdl)
             .chain(TypeAntiPatternRule::iter().map(RuleId::TypeAntiPattern))
             .chain(DestructiveRule::iter().map(RuleId::Destructive))
+            .chain(DmlRule::iter().map(RuleId::Dml))
             .chain(IdempotencyRule::iter().map(RuleId::Idempotency))
             .chain(SchemaDesignRule::iter().map(RuleId::SchemaDesign))
             .chain(MetaRule::iter().map(RuleId::Meta))
@@ -1003,8 +1088,8 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 15 unsafe DDL + 6 type anti-pattern + 4 destructive + 3 idempotency + 5 schema design + 1 meta = 34
-        assert_eq!(all.len(), 34);
+        // 15 unsafe DDL + 6 type anti-pattern + 4 destructive + 3 DML + 3 idempotency + 6 schema design + 1 meta = 38
+        assert_eq!(all.len(), 38);
     }
 
     #[test]
@@ -1026,15 +1111,13 @@ mod tests {
             RuleId::TypeAntiPattern(TypeAntiPatternRule::Pgm106)
                 < RuleId::Destructive(DestructiveRule::Pgm201)
         );
-        assert!(
-            RuleId::Destructive(DestructiveRule::Pgm201)
-                < RuleId::Idempotency(IdempotencyRule::Pgm401)
-        );
+        assert!(RuleId::Destructive(DestructiveRule::Pgm201) < RuleId::Dml(DmlRule::Pgm301));
+        assert!(RuleId::Dml(DmlRule::Pgm303) < RuleId::Idempotency(IdempotencyRule::Pgm401));
         assert!(
             RuleId::Idempotency(IdempotencyRule::Pgm402)
                 < RuleId::SchemaDesign(SchemaDesignRule::Pgm501)
         );
-        assert!(RuleId::SchemaDesign(SchemaDesignRule::Pgm505) < RuleId::Meta(MetaRule::Pgm901));
+        assert!(RuleId::SchemaDesign(SchemaDesignRule::Pgm506) < RuleId::Meta(MetaRule::Pgm901));
         // Within UnsafeDdl family
         assert!(
             RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001) < RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017)

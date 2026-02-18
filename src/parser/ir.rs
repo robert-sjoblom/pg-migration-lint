@@ -16,6 +16,12 @@ pub enum IrNode {
     DropIndex(DropIndex),
     DropTable(DropTable),
     TruncateTable(TruncateTable),
+    /// DML: INSERT INTO a table.
+    InsertInto(InsertInto),
+    /// DML: UPDATE rows in a table.
+    UpdateTable(UpdateTable),
+    /// DML: DELETE FROM a table.
+    DeleteFrom(DeleteFrom),
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
     RenameTable {
         name: QualifiedName,
@@ -40,12 +46,25 @@ pub enum IrNode {
     },
 }
 
+/// Table persistence mode, mapping 1:1 to PostgreSQL's `relpersistence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TablePersistence {
+    /// Regular permanent table (relpersistence = 'p', default).
+    Permanent,
+    /// Unlogged table — not WAL-logged, truncated on crash recovery,
+    /// not replicated to standbys (relpersistence = 'u').
+    Unlogged,
+    /// Temporary table — session-local, dropped at end of session or
+    /// transaction (relpersistence = 't').
+    Temporary,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTable {
     pub name: QualifiedName,
     pub columns: Vec<ColumnDef>,
     pub constraints: Vec<TableConstraint>,
-    pub temporary: bool,
+    pub persistence: TablePersistence,
     pub if_not_exists: bool,
 }
 
@@ -107,6 +126,21 @@ pub struct DropTable {
 pub struct TruncateTable {
     pub name: QualifiedName,
     pub cascade: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertInto {
+    pub table_name: QualifiedName,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateTable {
+    pub table_name: QualifiedName,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeleteFrom {
+    pub table_name: QualifiedName,
 }
 
 // --- Supporting types ---
@@ -369,13 +403,13 @@ impl ColumnDef {
 
 #[cfg(test)]
 impl CreateTable {
-    /// Minimal CREATE TABLE: no columns, no constraints, not temporary, no IF NOT EXISTS.
+    /// Minimal CREATE TABLE: no columns, no constraints, permanent, no IF NOT EXISTS.
     pub fn test(name: QualifiedName) -> Self {
         Self {
             name,
             columns: vec![],
             constraints: vec![],
-            temporary: false,
+            persistence: TablePersistence::Permanent,
             if_not_exists: false,
         }
     }
@@ -391,7 +425,16 @@ impl CreateTable {
     }
 
     pub fn with_temporary(mut self, temporary: bool) -> Self {
-        self.temporary = temporary;
+        self.persistence = if temporary {
+            TablePersistence::Temporary
+        } else {
+            TablePersistence::Permanent
+        };
+        self
+    }
+
+    pub fn with_persistence(mut self, persistence: TablePersistence) -> Self {
+        self.persistence = persistence;
         self
     }
 
@@ -496,6 +539,30 @@ impl TruncateTable {
     }
 }
 
+#[cfg(test)]
+impl InsertInto {
+    /// Minimal INSERT INTO.
+    pub fn test(table_name: QualifiedName) -> Self {
+        Self { table_name }
+    }
+}
+
+#[cfg(test)]
+impl UpdateTable {
+    /// Minimal UPDATE.
+    pub fn test(table_name: QualifiedName) -> Self {
+        Self { table_name }
+    }
+}
+
+#[cfg(test)]
+impl DeleteFrom {
+    /// Minimal DELETE FROM.
+    pub fn test(table_name: QualifiedName) -> Self {
+        Self { table_name }
+    }
+}
+
 // Convenience conversions for test construction: builder.into() -> IrNode variant
 #[cfg(test)]
 impl From<CreateTable> for IrNode {
@@ -536,6 +603,27 @@ impl From<DropIndex> for IrNode {
 impl From<TruncateTable> for IrNode {
     fn from(value: TruncateTable) -> Self {
         IrNode::TruncateTable(value)
+    }
+}
+
+#[cfg(test)]
+impl From<InsertInto> for IrNode {
+    fn from(value: InsertInto) -> Self {
+        IrNode::InsertInto(value)
+    }
+}
+
+#[cfg(test)]
+impl From<UpdateTable> for IrNode {
+    fn from(value: UpdateTable) -> Self {
+        IrNode::UpdateTable(value)
+    }
+}
+
+#[cfg(test)]
+impl From<DeleteFrom> for IrNode {
+    fn from(value: DeleteFrom) -> Self {
+        IrNode::DeleteFrom(value)
     }
 }
 

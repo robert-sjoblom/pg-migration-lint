@@ -308,10 +308,46 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "message": "PGM301: INSERT INTO existing table in migration",
         "textRange": {
           "endLine": 26,
           "startLine": 26
+        }
+      },
+      "ruleId": "PGM301"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM302: UPDATE on existing table in migration",
+        "textRange": {
+          "endLine": 27,
+          "startLine": 27
+        }
+      },
+      "ruleId": "PGM302"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM303: DELETE FROM existing table in migration",
+        "textRange": {
+          "endLine": 28,
+          "startLine": 28
+        }
+      },
+      "ruleId": "PGM303"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
+        "textRange": {
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM401"
@@ -322,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM402"
@@ -334,8 +370,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 31,
+          "startLine": 31
         }
       },
       "ruleId": "PGM403"
@@ -346,8 +382,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 32,
+          "startLine": 32
         }
       },
       "ruleId": "PGM501"
@@ -358,8 +394,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 30,
-          "startLine": 30
+          "endLine": 33,
+          "startLine": 33
         }
       },
       "ruleId": "PGM502"
@@ -370,8 +406,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 31,
-          "startLine": 31
+          "endLine": 34,
+          "startLine": 34
         }
       },
       "ruleId": "PGM503"
@@ -382,8 +418,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 32,
-          "startLine": 32
+          "endLine": 35,
+          "startLine": 35
         }
       },
       "ruleId": "PGM504"
@@ -394,11 +430,23 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 33,
-          "startLine": 33
+          "endLine": 36,
+          "startLine": 36
         }
       },
       "ruleId": "PGM505"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM506: CREATE UNLOGGED TABLE",
+        "textRange": {
+          "endLine": 37,
+          "startLine": 37
+        }
+      },
+      "ruleId": "PGM506"
     }
   ],
   "rules": [
@@ -779,6 +827,51 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM301 — INSERT INTO existing table in migration\n\nWhat it detects:\nAn INSERT INTO statement targeting a table that already exists in the\ndatabase (i.e., not created in the same set of changed files).\n\nWhy it matters:\nINSERT statements in migrations are sometimes used for seed data,\nlookup table population, or data backfill. While these are valid\nuse cases, they deserve human review because:\n- Large inserts can cause lock contention and WAL pressure.\n- Unbounded inserts may time out under migration tool timeouts.\n- Seed data should be idempotent (check for duplicates).\n\nExample (flagged):\nINSERT INTO config (key, value) VALUES ('feature_x', 'enabled');\n\nNot flagged:\n- INSERT into a table created in the same migration file\n(populating a brand-new table is expected).\n\nThis rule is INFO severity — it flags the DML for awareness rather\nthan treating it as a defect.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM301",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "INSERT INTO existing table in migration",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM302 — UPDATE on existing table in migration\n\nWhat it detects:\nAn UPDATE statement targeting a table that already exists in the\ndatabase (i.e., not created in the same set of changed files).\n\nWhy it matters:\nUPDATE statements in migrations typically backfill or transform\nexisting data. On large tables this can be problematic:\n- Row locks are held for the full statement duration.\n- The entire UPDATE generates WAL, which can spike replication lag.\n- Long-running updates may time out under migration tool limits.\n- They block autovacuum from processing dead tuples on the table.\n\nExample (flagged):\nUPDATE orders SET status = 'pending' WHERE status IS NULL;\n\nRecommended approach:\n1. Verify the row count is bounded (small lookup table = fine).\n2. For large tables, batch the update in chunks.\n3. Consider running the update outside the migration transaction.\n\nNot flagged:\n- UPDATE on a table created in the same migration file.\n\nThis rule is MINOR severity.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM302",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "UPDATE on existing table in migration",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "PGM303 — DELETE FROM existing table in migration\n\nWhat it detects:\nA DELETE FROM statement targeting a table that already exists in the\ndatabase (i.e., not created in the same set of changed files).\n\nWhy it matters:\nDELETE statements in migrations remove existing data. On large tables\nthis can be problematic:\n- Row locks are held for the full statement duration.\n- Each deleted row generates WAL, which can spike replication lag.\n- ON DELETE triggers fire for every row, adding overhead.\n- Long-running deletes may time out under migration tool limits.\n- Deleted rows become dead tuples until autovacuum runs.\n\nExample (flagged):\nDELETE FROM audit_log WHERE created_at < '2020-01-01';\n\nRecommended approach:\n1. Verify the row count is bounded.\n2. For large deletes, batch in chunks (e.g., 10k rows per iteration).\n3. If no triggers need to fire, consider TRUNCATE instead.\n\nNot flagged:\n- DELETE from a table created in the same migration file.\n\nThis rule is MINOR severity.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM303",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "DELETE FROM existing table in migration",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
       "description": "PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\nWhat it detects:\nA DROP TABLE or DROP INDEX statement that does not include the\nIF EXISTS clause.\n\nWhy it matters:\nWithout IF EXISTS, the statement fails if the object does not exist.\nIn migration pipelines that may be re-run (e.g., idempotent migrations,\nmanual re-execution after partial failure), this causes hard failures.\nAdding IF EXISTS makes the statement idempotent.\n\nExample:\n-- Fails if 'orders' does not exist:\nDROP TABLE orders;\nDROP INDEX idx_orders_status;\n\nRecommended fix:\nDROP TABLE IF EXISTS orders;\nDROP INDEX IF EXISTS idx_orders_status;",
       "engineId": "pg-migration-lint",
       "id": "PGM401",
@@ -894,6 +987,21 @@ expression: parsed
         }
       ],
       "name": "RENAME COLUMN on existing table",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "CONVENTIONAL",
+      "description": "PGM506 — CREATE UNLOGGED TABLE\n\nWhat it detects:\nA CREATE TABLE statement that uses the UNLOGGED keyword.\n\nWhy it matters:\nUnlogged tables offer better write performance because they skip\nthe write-ahead log, but come with significant trade-offs:\n- Data is TRUNCATED after a crash or unclean shutdown.\n- The table is NOT replicated to standby servers.\n- They cannot participate in logical replication.\nThese characteristics make unlogged tables unsuitable for any\ndata that must survive a crash or be available on replicas.\n\nExample (flagged):\nCREATE UNLOGGED TABLE scratch_data (id int, payload text);\n\nWhen unlogged tables are appropriate:\n- Ephemeral staging/import data that can be re-derived.\n- Materialised caches where the source of truth lives elsewhere.\n- ETL scratch space within a batch job.\n\nThis rule is INFO severity — it flags the table for review rather\nthan treating it as a defect.",
+      "engineId": "pg-migration-lint",
+      "id": "PGM506",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "CREATE UNLOGGED TABLE",
       "severity": "INFO",
       "type": "CODE_SMELL"
     }

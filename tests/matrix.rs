@@ -237,7 +237,7 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
             ref_columns: vec!["id".to_string()],
             not_valid: false,
         }],
-        temporary: false,
+        persistence: TablePersistence::Permanent,
         if_not_exists: false,
     }))];
 
@@ -288,7 +288,7 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
             columns: vec!["email".to_string()],
             using_index: None,
         }],
-        temporary: false,
+        persistence: TablePersistence::Permanent,
         if_not_exists: false,
     }))];
 
@@ -544,7 +544,7 @@ fn test_matrix_create_table_with_bad_types() {
             },
         ],
         constraints: vec![],
-        temporary: false,
+        persistence: TablePersistence::Permanent,
         if_not_exists: false,
     }))];
 

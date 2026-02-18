@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm302.rs
+expression: findings
+---
+- rule_id: PGM302
+  severity: Minor
+  message: "UPDATE on existing table 'orders' in a migration. Unbatched updates hold row locks for the full statement duration. Verify row volume and consider batched execution."
+  file: migrations/005.sql
+  start_line: 1
+  end_line: 1

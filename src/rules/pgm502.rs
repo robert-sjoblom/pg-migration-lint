@@ -5,7 +5,7 @@
 //! processed, so `ALTER TABLE ... ADD PRIMARY KEY` later in the same file
 //! avoids a false positive.
 
-use crate::parser::ir::{IrNode, Located};
+use crate::parser::ir::{IrNode, Located, TablePersistence};
 use crate::rules::{Finding, LintContext, Rule};
 
 pub(super) const DESCRIPTION: &str = "Table without primary key";
@@ -47,7 +47,7 @@ pub(super) fn check(
     for stmt in statements {
         if let IrNode::CreateTable(ref ct) = stmt.node {
             // Skip temporary tables.
-            if ct.temporary {
+            if ct.persistence == TablePersistence::Temporary {
                 continue;
             }
 

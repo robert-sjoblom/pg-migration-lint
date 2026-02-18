@@ -105,11 +105,15 @@ IR node types (non-exhaustive):
 
 | IR Node | Source AST |
 |---|---|
-| `CreateTable { name, columns, constraints, temporary }` | `CreateStmt` |
+| `CreateTable { name, columns, constraints, persistence }` | `CreateStmt` |
 | `AlterTable { name, actions[] }` | `AlterTableStmt` |
 | `CreateIndex { table, columns, unique, concurrent }` | `IndexStmt` |
 | `DropIndex { name, concurrent }` | `DropStmt(OBJECT_INDEX)` |
 | `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
+| `InsertInto { table_name }` | `InsertStmt` |
+| `UpdateTable { table_name }` | `UpdateStmt` |
+| `DeleteFrom { table_name }` | `DeleteStmt` |
+| `TruncateTable { table_name, cascade }` | `TruncateStmt` |
 | `AddColumn { table, column }` | `AlterTableCmd(AT_AddColumn)` |
 | `AddConstraint { table, constraint }` | `AlterTableCmd(AT_AddConstraint)` |
 
@@ -178,6 +182,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **PGM0xx**: Unsafe DDL rules — locking, rewrites, runtime failures, silent side effects
 - **PGM1xx**: Type anti-pattern rules ("Don't Do This")
 - **PGM2xx**: Destructive operation rules — data loss
+- **PGM3xx**: DML in migrations rules — INSERT, UPDATE, DELETE on existing tables
 - **PGM4xx**: Idempotency guard rules
 - **PGM5xx**: Schema design & informational rules
 - **PGM9xx**: Meta-behaviors that modify how other rules operate (not standalone rules)
@@ -423,6 +428,39 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (no known FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
 - **Message (with FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Known FK dependencies from: {dep_tables}.`
 
+#### PGM301 — `INSERT INTO` existing table in migration
+
+- **Severity**: INFO
+- **Status**: Implemented.
+- **Triggers**: `INSERT INTO` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Inserting into an existing table in a migration is often intentional seed or reference data, but bulk `INSERT ... SELECT` or large `VALUES` lists hold row locks for the full statement duration and can cause replication lag. The rule fires informational to prompt the author to confirm row volume is bounded.
+- **Does not fire when**:
+  - The target table is created in the same set of changed files.
+  - The table does not exist in `catalog_before`.
+- **Message**: `INSERT INTO existing table '{table}' in a migration. Ensure this is intentional seed data and that row volume is bounded.`
+
+#### PGM302 — `UPDATE` on existing table in migration
+
+- **Severity**: MINOR
+- **Status**: Implemented.
+- **Triggers**: `UPDATE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Unbatched `UPDATE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent reads and writes, causes replication lag, and can cascade into lock queues.
+- **Does not fire when**:
+  - The target table is created in the same set of changed files.
+  - The table does not exist in `catalog_before`.
+- **Message**: `UPDATE on existing table '{table}' in a migration. Unbatched updates hold row locks for the full statement duration. Verify row volume and consider batched execution.`
+
+#### PGM303 — `DELETE FROM` existing table in migration
+
+- **Severity**: MINOR
+- **Status**: Implemented.
+- **Triggers**: `DELETE FROM` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Unbatched `DELETE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent writes, generates significant WAL, and causes replication lag.
+- **Does not fire when**:
+  - The target table is created in the same set of changed files.
+  - The table does not exist in `catalog_before`.
+- **Message**: `DELETE FROM existing table '{table}' in a migration. Unbatched deletes hold row locks and generate significant WAL. Verify row volume and consider batched execution.`
+
 #### PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 
 - **Severity**: MINOR
@@ -502,6 +540,17 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
 - **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
 - **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
+
+#### PGM506 — `CREATE UNLOGGED TABLE`
+
+- **Severity**: INFO
+- **Status**: Implemented.
+- **Triggers**: `CREATE TABLE ... UNLOGGED` for any table.
+- **Why**: Unlogged tables are not written to the WAL. This means: (1) all data is truncated on crash recovery, (2) they are not streamed to standby replicas via streaming replication, and (3) they are excluded from logical replication slots. In most production environments, unlogged tables are unsuitable for data that needs to survive a crash or be replicated.
+- **Does not fire when**:
+  - The `UNLOGGED` keyword is absent (permanent or temporary tables).
+- **Message**: `CREATE UNLOGGED TABLE '{table}'. Unlogged tables are truncated on crash recovery and not replicated to standbys. Confirm this is intentional.`
+- **IR impact**: `CreateTable` uses `TablePersistence` enum (`Permanent`, `Unlogged`, `Temporary`) instead of `temporary: bool`. `pg_query` exposes `relpersistence` on `CreateStmt`.
 
 #### PGM901 — Down migration severity cap
 
@@ -845,3 +894,4 @@ pg-migration-lint/
 | 1.11    | 2026-02-16 | Renamed PGM008 → PGM901. Established 9xx range for meta-behaviors that modify how other rules operate. |
 | 1.12    | 2026-02-17 | Renumbered PGM024 (missing IF EXISTS) → PGM008 (slot freed by PGM008 → PGM901 rename). Updated PGM901 scope to PGM001–PGM023. |
 | 1.13    | 2026-02-18 | Promoted PGM1403 → PGM403 (CREATE TABLE IF NOT EXISTS for already-existing table, MINOR). No IR or catalog changes required. |
+| 1.14    | 2026-02-18 | Added PGM3xx DML-in-migrations category: PGM301 (INSERT INTO, INFO), PGM302 (UPDATE, MINOR), PGM303 (DELETE FROM, MINOR). Added PGM506 (CREATE UNLOGGED TABLE, INFO). IR changes: replaced `temporary: bool` on `CreateTable` with `TablePersistence` enum (Permanent/Unlogged/Temporary); added `InsertInto`, `UpdateTable`, `DeleteFrom` IR nodes. |
