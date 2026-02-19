@@ -170,10 +170,15 @@ fn run(args: Args) -> Result<bool> {
             // Apply unit to catalog
             replay::apply(&mut catalog, unit);
 
-            // Track tables created in this change (for PGM001/002 "new table" detection)
+            // Track tables created in this change (for PGM001/002 "new table" detection).
+            // Skip IF NOT EXISTS when the table already existed — that is a no-op,
+            // not a genuine creation, and must not mask rules on later statements.
             for stmt in &unit.statements {
                 if let IrNode::CreateTable(ct) = &stmt.node {
-                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                    let key = ct.name.catalog_key().to_string();
+                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
+                        tables_created_in_change.insert(key);
+                    }
                 }
             }
 
