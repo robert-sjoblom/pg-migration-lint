@@ -88,21 +88,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### PGM1020 — `CLUSTER` on existing table
-
-- **Range**: 0xx (Other locking)
-- **Severity**: CRITICAL
-- **Status**: Not yet implemented.
-- **Triggers**: `CLUSTER table_name [USING index_name]` where the table exists in `catalog_before`.
-- **Why**: `CLUSTER` rewrites the entire table and all its indexes in a new physical order, holding `ACCESS EXCLUSIVE` lock for the full duration of the rewrite. Unlike `VACUUM FULL`, there is no online alternative. On large tables this causes complete unavailability (all reads and writes blocked) for the duration — typically minutes to hours. It is almost never appropriate in an online migration.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `CLUSTER on table '{table}' rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration.`
-- **IR impact**: Requires a new top-level `IrNode` variant `Cluster { table: String, index: Option<String> }`. `pg_query` emits `ClusterStmt`.
-
----
-
 ## 2xx — Destructive operations
 
 ### PGM1205 — `DROP SCHEMA ... CASCADE`

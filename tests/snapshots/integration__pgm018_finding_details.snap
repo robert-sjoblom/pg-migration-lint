@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM018
+  severity: Critical
+  message: "CLUSTER on table 'events' rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration."
+  file: repos/all-rules/migrations/V010__cluster.sql
+  start_line: 1
+  end_line: 1

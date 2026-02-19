@@ -35,7 +35,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             old_name,
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
-        IrNode::TruncateTable(_) => { /* TRUNCATE doesn't change schema state */ }
+        IrNode::TruncateTable(_) | IrNode::Cluster(_) => { /* no schema state change */ }
         IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
             /* DML: no schema change */
         }
