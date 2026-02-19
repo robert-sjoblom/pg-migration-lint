@@ -16,6 +16,19 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.6.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.5.1...v2.6.0) (2026-02-19)
+
+
+### Features
+
+* **rules:** implement PGM018 — CLUSTER on existing table ([d5c66db](https://github.com/robert-sjoblom/pg-migration-lint/commit/d5c66dbb780ce61d8f80a56252daff70f40c364d))
+
+
+### Bug Fixes
+
+* **input:** warn when update-sql fails (duplication) ([0f009f5](https://github.com/robert-sjoblom/pg-migration-lint/commit/0f009f53d1745bc36be0d7c954e8368396a38585))
+* **main:** CREATE TABLE IF NOT EXISTS no-op should not mask existing-table rules ([8c110c2](https://github.com/robert-sjoblom/pg-migration-lint/commit/8c110c24452589c91d490e973fba8155dfc7758f))
+
 ## [2.5.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.5.0...v2.5.1) (2026-02-19)
 
 
