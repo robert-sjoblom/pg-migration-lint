@@ -162,12 +162,12 @@ jobs:
           locked: true
 
       - name: Download test archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: nextest-archive
 
       - name: Download bridge JAR
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: liquibase-bridge
           path: bridge/target/
