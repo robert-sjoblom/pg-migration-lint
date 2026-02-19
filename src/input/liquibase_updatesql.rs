@@ -15,9 +15,18 @@ use crate::input::LoadError;
 use crate::input::RawMigrationUnit;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Monotonic counter for unique offline temp directories.
+static OFFLINE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Loader that uses `liquibase update-sql` to generate SQL output,
 /// then parses changeset boundaries from the SQL comments.
+///
+/// Always runs Liquibase in offline mode (`offline:postgresql`) so that
+/// SQL is generated for **all** changesets without needing a live database.
+/// This is required because pg-migration-lint replays the full migration
+/// history to build its table catalog.
 pub struct UpdateSqlLoader {
     /// Path to the liquibase binary.
     pub binary_path: PathBuf,
@@ -44,17 +53,51 @@ impl UpdateSqlLoader {
 
     /// Load migration units from a changelog file by running `liquibase update-sql`.
     ///
-    /// Executes the liquibase binary and parses the output to identify changeset
-    /// boundaries and extract SQL statements for each changeset.
+    /// Runs in offline mode so all changesets produce SQL regardless of what
+    /// has been applied to any real database. An empty `databasechangelog.csv`
+    /// is created automatically in a temp directory.
     pub fn load(&self, changelog_path: &Path) -> Result<Vec<RawMigrationUnit>, LoadError> {
         let mut cmd = Command::new(&self.binary_path);
         if let Some(ref props) = self.properties_file {
             cmd.arg("--defaults-file").arg(props);
         }
+
+        // Run in offline mode so Liquibase generates SQL for ALL changesets
+        // without connecting to a database. Each invocation gets its own temp
+        // directory with a fresh empty CSV so parallel runs don't conflict
+        // (Liquibase writes applied changeset IDs back to the CSV).
+        let seq = OFFLINE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let offline_dir = std::env::temp_dir().join(format!(
+            "pg-migration-lint-offline-{}-{}",
+            std::process::id(),
+            seq
+        ));
+        std::fs::create_dir_all(&offline_dir).map_err(|e| LoadError::BridgeError {
+            message: format!("Failed to create offline temp dir: {}", e),
+        })?;
+        let csv_path = offline_dir.join("databasechangelog.csv");
+        std::fs::write(&csv_path, "").map_err(|e| LoadError::BridgeError {
+            message: format!("Failed to create empty databasechangelog.csv: {}", e),
+        })?;
+        let offline_url = format!("offline:postgresql?changeLogFile={}", csv_path.display());
+        cmd.arg("--url").arg(&offline_url);
+
+        // Liquibase resolves --changelog-file relative to its search path.
+        // Set --search-path to the changelog's parent directory and pass
+        // just the filename so Liquibase can find it (and any included files).
+        let search_path = changelog_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let changelog_name = changelog_path
+            .file_name()
+            .map(Path::new)
+            .unwrap_or(changelog_path);
+        cmd.arg("--search-path").arg(search_path);
         let output = cmd
             .arg("update-sql")
             .arg("--changelog-file")
-            .arg(changelog_path)
+            .arg(changelog_name)
             .output()
             .map_err(|e| LoadError::BridgeError {
                 message: format!(
@@ -63,6 +106,9 @@ impl UpdateSqlLoader {
                     e
                 ),
             })?;
+
+        // Best-effort cleanup of the temporary offline directory.
+        let _ = std::fs::remove_dir_all(&offline_dir);
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
