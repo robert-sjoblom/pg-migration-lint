@@ -1,0 +1,56 @@
+# pg-migration-lint configuration for Liquibase projects
+#
+# Liquibase manages its own execution order and idempotency via DATABASECHANGELOG,
+# so the 4xx idempotency-guard rules (IF EXISTS / IF NOT EXISTS) produce false
+# positives on the SQL that Liquibase generates. This config disables them.
+#
+# Copy this file to your project root as pg-migration-lint.toml, then adjust
+# paths and options for your layout.
+
+[migrations]
+# Point at your Liquibase changelog root(s).
+paths = ["db/changelog.xml"]
+
+# Tell the tool to use Liquibase for ordering and SQL extraction.
+strategy = "liquibase"
+
+# Schema applied to unqualified table names so that `orders` and
+# `public.orders` resolve to the same catalog entry.
+default_schema = "public"
+
+[liquibase]
+# The bridge JAR gives the best results: exact changeset-to-SQL mapping with
+# line numbers.  Falls back to `liquibase update-sql` if the JAR is missing.
+strategy = "auto"
+bridge_jar_path = "tools/liquibase-bridge.jar"
+
+# Path to the liquibase CLI binary (for update-sql fallback).
+# A bare name like "liquibase" is resolved via $PATH.
+binary_path = "liquibase"
+
+# Uncomment if you use a liquibase.properties file:
+# properties_file = "liquibase.properties"
+
+[output]
+# Emit SARIF for GitHub Code Scanning by default.
+# Add "sonarqube" or "text" as needed.
+formats = ["sarif"]
+dir = "build/reports/migration-lint"
+
+# Uncomment to strip a path prefix from findings (useful for monorepos):
+# strip_prefix = "impl/"
+
+[cli]
+# Exit non-zero when any finding is CRITICAL or above.
+# Set to "none" to always exit 0.
+fail_on = "critical"
+
+[rules]
+# Liquibase tracks execution state in DATABASECHANGELOG — each changeset runs
+# exactly once.  The idempotency-guard rules assume bare SQL files that might
+# be re-run, so they don't apply here:
+#
+#   PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX
+#   PGM402 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX
+#   PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table (silent no-op)
+disabled = ["PGM401", "PGM402", "PGM403"]
