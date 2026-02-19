@@ -64,9 +64,19 @@ RUN rustup component add clippy && \
     clang \
     pkg-config \
     libssl-dev \
+    wget \
     # JRE needed at test time so the bridge loader can shell out to `java`
     default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Liquibase CLI (pinned version) for update-sql E2E tests
+ARG LIQUIBASE_VERSION=5.0.1
+RUN wget -q -O /tmp/liquibase.tar.gz \
+    "https://github.com/liquibase/liquibase/releases/download/v${LIQUIBASE_VERSION}/liquibase-${LIQUIBASE_VERSION}.tar.gz" && \
+    mkdir -p /opt/liquibase && \
+    tar -xzf /tmp/liquibase.tar.gz -C /opt/liquibase && \
+    ln -s /opt/liquibase/liquibase /usr/local/bin/liquibase && \
+    rm /tmp/liquibase.tar.gz
 
 WORKDIR /app
 
@@ -95,4 +105,5 @@ RUN cargo build --tests --features bridge-tests 2>&1
 # -- Layer 5: Run all tests and clippy --
 # Snapshots are already committed in the repo and copied via COPY tests/ above,
 # so we run in verify mode (no INSTA_UPDATE).
+ENV PG_LINT_LIQUIBASE_PATH=/usr/local/bin/liquibase
 CMD ["sh", "-c", "cargo test --features bridge-tests && cargo clippy -- -D warnings"]
