@@ -10,6 +10,7 @@ pub mod input;
 pub mod normalize;
 pub mod output;
 pub mod parser;
+pub mod pipeline;
 pub mod rules;
 pub mod suppress;
 
@@ -18,4 +19,5 @@ pub use catalog::{Catalog, TableState};
 pub use config::Config;
 pub use output::RuleInfo;
 pub use parser::ir::{IrNode, Located};
+pub use pipeline::LintPipeline;
 pub use rules::{Finding, Rule, RuleRegistry, Severity};
