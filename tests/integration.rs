@@ -1,17 +1,13 @@
 //! Integration tests for the full lint pipeline.
 
-use pg_migration_lint::IrNode;
-use pg_migration_lint::catalog::Catalog;
-use pg_migration_lint::catalog::replay;
+use pg_migration_lint::LintPipeline;
 use pg_migration_lint::input::MigrationLoader;
-#[cfg(feature = "bridge-tests")]
-use pg_migration_lint::input::MigrationUnit;
 #[cfg(feature = "bridge-tests")]
 use pg_migration_lint::input::RawMigrationUnit;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, RuleInfo, SarifReporter, SonarQubeReporter};
-use pg_migration_lint::rules::{Finding, LintContext, Rule, RuleRegistry, cap_for_down_migration};
+use pg_migration_lint::rules::{Finding, Rule, RuleRegistry};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -49,6 +45,7 @@ fn lint_fixture<S: AsRef<str>>(fixture_name: &str, changed_filenames: &[S]) -> V
         changed_filenames,
         "public",
         &[],
+        &[],
         APPLY_SUPPRESSIONS,
     )
 }
@@ -63,6 +60,7 @@ fn lint_fixture_no_suppress<S: AsRef<str>>(
         fixture_name,
         changed_filenames,
         "public",
+        &[],
         &[],
         SKIP_SUPPRESSIONS,
     )
@@ -80,6 +78,7 @@ fn lint_fixture_rules<S: AsRef<str>>(
         changed_filenames,
         "public",
         only_rules,
+        &[],
         APPLY_SUPPRESSIONS,
     )
 }
@@ -90,6 +89,7 @@ fn lint_fixture_inner<S: AsRef<str>>(
     changed_filenames: &[S],
     default_schema: &str,
     only_rules: &[&str],
+    disabled_rules: &[&str],
     skip_suppress: bool,
 ) -> Vec<Finding> {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -109,47 +109,26 @@ fn lint_fixture_inner<S: AsRef<str>>(
         .map(|f| base.join(f.as_ref()))
         .collect();
 
-    let mut catalog = Catalog::new();
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
+
+    let disabled: HashSet<&str> = disabled_rules.iter().copied().collect();
+    let active_rules: Vec<&dyn Rule> = registry
+        .iter()
+        .filter(|r| {
+            (only_rules.is_empty() || only_rules.contains(&r.id().as_str()))
+                && !disabled.contains(r.id().as_str())
+        })
+        .collect();
+
+    let mut pipeline = LintPipeline::new();
     let mut all_findings: Vec<Finding> = Vec::new();
-    let mut tables_created_in_change: HashSet<String> = HashSet::new();
 
     for unit in &history.units {
         let is_changed = changed.is_empty() || changed.contains(&unit.source_file);
 
         if is_changed {
-            let catalog_before = catalog.clone();
-            replay::apply(&mut catalog, unit);
-
-            for stmt in &unit.statements {
-                if let IrNode::CreateTable(ct) = &stmt.node {
-                    let key = ct.name.catalog_key().to_string();
-                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
-                        tables_created_in_change.insert(key);
-                    }
-                }
-            }
-
-            let ctx = LintContext {
-                catalog_before: &catalog_before,
-                catalog_after: &catalog,
-                tables_created_in_change: &tables_created_in_change,
-                run_in_transaction: unit.run_in_transaction,
-                is_down: unit.is_down,
-                file: &unit.source_file,
-            };
-
-            let mut unit_findings: Vec<Finding> = Vec::new();
-            for rule in registry.iter() {
-                if only_rules.is_empty() || only_rules.contains(&rule.id().as_str()) {
-                    unit_findings.extend(rule.check(&unit.statements, &ctx));
-                }
-            }
-
-            if unit.is_down {
-                cap_for_down_migration(&mut unit_findings);
-            }
+            let mut unit_findings = pipeline.lint(unit, &active_rules);
 
             if !skip_suppress {
                 let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
@@ -159,7 +138,7 @@ fn lint_fixture_inner<S: AsRef<str>>(
 
             all_findings.extend(unit_findings);
         } else {
-            replay::apply(&mut catalog, unit);
+            pipeline.replay(unit);
         }
     }
 
@@ -740,39 +719,18 @@ fn test_enterprise_sliding_window() {
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
 
+    let all_rules: Vec<&dyn Rule> = registry.iter().collect();
+
     // Collect (filename, findings) for each step
     let mut steps: Vec<(String, Vec<Finding>)> = Vec::new();
-    let mut catalog = Catalog::new();
 
     for (i, unit) in history.units.iter().enumerate() {
-        let catalog_before = catalog.clone();
-        replay::apply(&mut catalog, unit);
-
-        // Track tables created in this single-file change
-        let mut tables_created_in_change: HashSet<String> = HashSet::new();
-        for stmt in &unit.statements {
-            if let IrNode::CreateTable(ct) = &stmt.node {
-                tables_created_in_change.insert(ct.name.catalog_key().to_string());
-            }
+        // Fresh pipeline per unit: replay all prior units, then lint the current one.
+        let mut pipeline = LintPipeline::new();
+        for prior in &history.units[..i] {
+            pipeline.replay(prior);
         }
-
-        let ctx = LintContext {
-            catalog_before: &catalog_before,
-            catalog_after: &catalog,
-            tables_created_in_change: &tables_created_in_change,
-            run_in_transaction: unit.run_in_transaction,
-            is_down: unit.is_down,
-            file: &unit.source_file,
-        };
-
-        let mut unit_findings: Vec<Finding> = Vec::new();
-        for rule in registry.iter() {
-            unit_findings.extend(rule.check(&unit.statements, &ctx));
-        }
-
-        if unit.is_down {
-            cap_for_down_migration(&mut unit_findings);
-        }
+        let mut unit_findings = pipeline.lint(unit, &all_rules);
 
         let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
         let suppressions = parse_suppressions(&source);
@@ -1847,6 +1805,7 @@ fn test_schema_qualified_custom_default_schema() {
         &["V002__add_fk_and_index.sql", "V003__alter_schema_table.sql"],
         "myschema",
         &["PGM001", "PGM501"],
+        &[],
         APPLY_SUPPRESSIONS,
     );
 
@@ -1885,77 +1844,14 @@ fn lint_fixture_with_disabled(
     changed_filenames: &[&str],
     disabled_rules: &[&str],
 ) -> Vec<Finding> {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/repos")
-        .join(fixture_name)
-        .join("migrations");
-
-    let loader = SqlLoader::default();
-    let mut history = loader
-        .load(std::slice::from_ref(&base))
-        .expect("Failed to load fixture");
-
-    normalize::normalize_schemas(&mut history.units, "public");
-
-    let changed: HashSet<PathBuf> = changed_filenames.iter().map(|f| base.join(f)).collect();
-    let disabled: HashSet<&str> = disabled_rules.iter().copied().collect();
-
-    let mut catalog = Catalog::new();
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    let active_rules: Vec<&dyn Rule> = registry
-        .iter()
-        .filter(|r| !disabled.contains(r.id().as_str()))
-        .collect();
-
-    let mut all_findings: Vec<Finding> = Vec::new();
-    let mut tables_created_in_change: HashSet<String> = HashSet::new();
-
-    for unit in &history.units {
-        let is_changed = changed.is_empty() || changed.contains(&unit.source_file);
-
-        if is_changed {
-            let catalog_before = catalog.clone();
-            replay::apply(&mut catalog, unit);
-
-            for stmt in &unit.statements {
-                if let IrNode::CreateTable(ct) = &stmt.node {
-                    let key = ct.name.catalog_key().to_string();
-                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
-                        tables_created_in_change.insert(key);
-                    }
-                }
-            }
-
-            let ctx = LintContext {
-                catalog_before: &catalog_before,
-                catalog_after: &catalog,
-                tables_created_in_change: &tables_created_in_change,
-                run_in_transaction: unit.run_in_transaction,
-                is_down: unit.is_down,
-                file: &unit.source_file,
-            };
-
-            let mut unit_findings: Vec<Finding> = Vec::new();
-            for rule in &active_rules {
-                unit_findings.extend(rule.check(&unit.statements, &ctx));
-            }
-
-            if unit.is_down {
-                cap_for_down_migration(&mut unit_findings);
-            }
-
-            let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
-            let suppressions = parse_suppressions(&source);
-            unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
-
-            all_findings.extend(unit_findings);
-        } else {
-            replay::apply(&mut catalog, unit);
-        }
-    }
-
-    all_findings
+    lint_fixture_inner(
+        fixture_name,
+        changed_filenames,
+        "public",
+        &[],
+        disabled_rules,
+        APPLY_SUPPRESSIONS,
+    )
 }
 
 #[test]
@@ -2019,7 +1915,7 @@ fn bridge_jar_path() -> PathBuf {
 /// `raw_units`; everything after that is identical.
 #[cfg(feature = "bridge-tests")]
 fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> Vec<Finding> {
-    let mut units: Vec<MigrationUnit> = raw_units
+    let mut units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
         .into_iter()
         .map(|r| r.into_migration_unit())
         .collect();
@@ -2028,45 +1924,18 @@ fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> 
 
     let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
 
-    let mut catalog = Catalog::new();
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
+    let all_rules: Vec<&dyn Rule> = registry.iter().collect();
+
+    let mut pipeline = LintPipeline::new();
     let mut all_findings: Vec<Finding> = Vec::new();
-    let mut tables_created_in_change: HashSet<String> = HashSet::new();
 
     for unit in &units {
         let is_changed = changed_set.is_empty() || changed_set.contains(&unit.id);
 
         if is_changed {
-            let catalog_before = catalog.clone();
-            replay::apply(&mut catalog, unit);
-
-            for stmt in &unit.statements {
-                if let IrNode::CreateTable(ct) = &stmt.node {
-                    let key = ct.name.catalog_key().to_string();
-                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
-                        tables_created_in_change.insert(key);
-                    }
-                }
-            }
-
-            let ctx = LintContext {
-                catalog_before: &catalog_before,
-                catalog_after: &catalog,
-                tables_created_in_change: &tables_created_in_change,
-                run_in_transaction: unit.run_in_transaction,
-                is_down: unit.is_down,
-                file: &unit.source_file,
-            };
-
-            let mut unit_findings: Vec<Finding> = Vec::new();
-            for rule in registry.iter() {
-                unit_findings.extend(rule.check(&unit.statements, &ctx));
-            }
-
-            if unit.is_down {
-                cap_for_down_migration(&mut unit_findings);
-            }
+            let mut unit_findings = pipeline.lint(unit, &all_rules);
 
             let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
             let suppressions = parse_suppressions(&source);
@@ -2074,7 +1943,7 @@ fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> 
 
             all_findings.extend(unit_findings);
         } else {
-            replay::apply(&mut catalog, unit);
+            pipeline.replay(unit);
         }
     }
 

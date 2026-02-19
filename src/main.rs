@@ -12,7 +12,6 @@ use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use pg_migration_lint::catalog::replay;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::input::{MigrationHistory, MigrationLoader};
@@ -20,9 +19,9 @@ use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
-use pg_migration_lint::rules::{self, LintContext, RuleId};
+use pg_migration_lint::rules::{self, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
-use pg_migration_lint::{Catalog, Config, Finding, IrNode, RuleRegistry, Severity};
+use pg_migration_lint::{Config, Finding, LintPipeline, RuleRegistry, Severity};
 
 /// Default config file name used when --config is not explicitly provided.
 const DEFAULT_CONFIG_FILE: &str = "pg-migration-lint.toml";
@@ -126,7 +125,7 @@ fn run(args: Args) -> Result<bool> {
     let lint_all = !selective_mode;
 
     // --- Step 3: Single-pass replay and lint ---
-    let mut catalog = Catalog::new();
+    let mut pipeline = LintPipeline::new();
     let mut registry = RuleRegistry::new();
     registry.register_defaults();
 
@@ -138,7 +137,6 @@ fn run(args: Args) -> Result<bool> {
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
-    let mut tables_created_in_change: HashSet<String> = HashSet::new();
     let mut changed_units_per_file: HashMap<PathBuf, usize> = HashMap::new();
 
     for unit in &history.units {
@@ -164,45 +162,7 @@ fn run(args: Args) -> Result<bool> {
                 .entry(unit.source_file.clone())
                 .or_insert(0) += 1;
 
-            // Clone catalog BEFORE applying this unit
-            let catalog_before = catalog.clone();
-
-            // Apply unit to catalog
-            replay::apply(&mut catalog, unit);
-
-            // Track tables created in this change (for PGM001/002 "new table" detection).
-            // Skip IF NOT EXISTS when the table already existed — that is a no-op,
-            // not a genuine creation, and must not mask rules on later statements.
-            for stmt in &unit.statements {
-                if let IrNode::CreateTable(ct) = &stmt.node {
-                    let key = ct.name.catalog_key().to_string();
-                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
-                        tables_created_in_change.insert(key);
-                    }
-                }
-            }
-
-            // Build lint context
-            let ctx = LintContext {
-                catalog_before: &catalog_before,
-                catalog_after: &catalog,
-                tables_created_in_change: &tables_created_in_change,
-                run_in_transaction: unit.run_in_transaction,
-                is_down: unit.is_down,
-                file: &unit.source_file,
-            };
-
-            // Run active rules (disabled rules already filtered out)
-            let mut unit_findings: Vec<Finding> = Vec::new();
-            for rule in &active_rules {
-                let mut findings = rule.check(&unit.statements, &ctx);
-                unit_findings.append(&mut findings);
-            }
-
-            // Cap severity for down migrations (PGM901)
-            if unit.is_down {
-                rules::cap_for_down_migration(&mut unit_findings);
-            }
+            let mut unit_findings = pipeline.lint(unit, &active_rules);
 
             // Parse suppressions from source file and filter findings.
             // Read the raw SQL source for suppression comments.
@@ -234,7 +194,7 @@ fn run(args: Args) -> Result<bool> {
             all_findings.append(&mut unit_findings);
         } else {
             // Not a changed file -- just replay to build catalog
-            replay::apply(&mut catalog, unit);
+            pipeline.replay(unit);
         }
     }
 
