@@ -112,6 +112,14 @@ impl UpdateSqlLoader {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("duplicate") && stderr.contains("changeset") {
+                eprintln!(
+                    "warning: liquibase update-sql rejected the changelog due to duplicate \
+                     changeset identifiers. This is a known limitation of update-sql; the \
+                     bridge JAR handles duplicate <include> directives correctly. \
+                     Consider configuring bridge_jar_path for this project."
+                );
+            }
             return Err(LoadError::BridgeError {
                 message: format!(
                     "liquibase update-sql exited with status {}: {}",

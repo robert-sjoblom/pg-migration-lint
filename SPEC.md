@@ -55,6 +55,8 @@ Down migrations are detected by filename suffix: the stem (filename minus `.sql`
 
 - **Limitation — rollback blocks**: Liquibase `<rollback>` elements inside changesets are not detected as down migrations. Both Liquibase loaders emit `is_down: false` for all changesets. SQL extracted from rollback blocks will be linted at full severity rather than being capped to INFO by PGM901.
 
+- **Limitation — `update-sql` rejects duplicate changeset includes**: If a master changelog `<include>`s the same file more than once (duplicate `<include>` directives), `liquibase update-sql` fails validation with "changesets had duplicate identifiers". The bridge jar handles this correctly. In production Liquibase, duplicates are silently skipped via the DATABASECHANGELOG tracking table, so these changelogs are valid and will apply without error. This is a known fidelity gap: `update-sql` runs without a database and applies stricter validation than the real Liquibase runtime. When the bridge jar is available, prefer it for this reason.
+
 ### 2.3 Migration ordering
 
 Configured explicitly per project (not inferred):
