@@ -124,7 +124,10 @@ fn lint_fixture_inner<S: AsRef<str>>(
 
             for stmt in &unit.statements {
                 if let IrNode::CreateTable(ct) = &stmt.node {
-                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                    let key = ct.name.catalog_key().to_string();
+                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
+                        tables_created_in_change.insert(key);
+                    }
                 }
             }
 
@@ -514,6 +517,40 @@ fn test_pgm018_finding_details() {
     let findings = lint_fixture_rules("all-rules", &["V010__cluster.sql"], &["PGM018"]);
     let findings = normalize_findings(findings, "all-rules");
     insta::assert_yaml_snapshot!(findings);
+}
+
+// ---------------------------------------------------------------------------
+// Regression: CREATE TABLE IF NOT EXISTS no-op must not mask existing-table rules
+// ---------------------------------------------------------------------------
+
+/// V008 contains `CREATE TABLE IF NOT EXISTS customers` which is a no-op (the
+/// table exists since V001). V011 contains `CLUSTER customers ...`. When both
+/// are in the changed set, PGM018 must still fire on `customers` because it is
+/// an existing table — the IF NOT EXISTS no-op must not add it to
+/// `tables_created_in_change`.
+#[test]
+fn test_if_not_exists_noop_does_not_mask_existing_table_rules() {
+    let findings = lint_fixture_rules(
+        "all-rules",
+        &[
+            "V008__if_not_exists_redundant.sql",
+            "V011__cluster_customers.sql",
+        ],
+        &["PGM018"],
+    );
+    assert_eq!(
+        findings.len(),
+        1,
+        "PGM018 should fire on CLUSTER customers even when V008's \
+         CREATE TABLE IF NOT EXISTS customers is in the same change set.\n\
+         Findings: {}",
+        format_findings(&findings),
+    );
+    assert!(
+        findings[0].message.contains("customers"),
+        "Finding should be about the 'customers' table, got: {}",
+        findings[0].message,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1883,7 +1920,10 @@ fn lint_fixture_with_disabled(
 
             for stmt in &unit.statements {
                 if let IrNode::CreateTable(ct) = &stmt.node {
-                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                    let key = ct.name.catalog_key().to_string();
+                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
+                        tables_created_in_change.insert(key);
+                    }
                 }
             }
 
@@ -2003,7 +2043,10 @@ fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> 
 
             for stmt in &unit.statements {
                 if let IrNode::CreateTable(ct) = &stmt.node {
-                    tables_created_in_change.insert(ct.name.catalog_key().to_string());
+                    let key = ct.name.catalog_key().to_string();
+                    if !(ct.if_not_exists && catalog_before.has_table(&key)) {
+                        tables_created_in_change.insert(key);
+                    }
                 }
             }
 
