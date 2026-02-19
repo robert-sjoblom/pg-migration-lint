@@ -128,7 +128,7 @@ The 9xx range is reserved for meta-behaviors that modify how other rules operate
 
 | Rule | Severity | Description |
 |------|----------|-------------|
-| PGM901 | -- | Down migration severity cap — all findings in `.down.sql` files are capped to Info |
+| PGM901 | -- | Down migration severity cap — all findings in `*.down.sql` / `*_down.sql` files are capped to Info |
 
 Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why it is dangerous and how to fix it:
 
@@ -259,6 +259,8 @@ The tool uses a two-tier approach for Liquibase XML processing (JRE required):
 1. **Bridge JAR (preferred)** -- A small Java CLI that embeds Liquibase to extract exact changeset-to-SQL-to-line mappings. Download `liquibase-bridge.jar` from the [releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) and place it at the configured `bridge_jar_path`. Requires a JRE.
 
 2. **`liquibase update-sql` (secondary)** -- If the bridge JAR is unavailable but the Liquibase binary is on the PATH, the tool invokes `liquibase update-sql` for less structured but functional output.
+
+> **Note:** Liquibase `<rollback>` blocks are not detected as down migrations. Down migration detection (PGM901 severity cap) only applies to SQL files with `.down.sql` or `_down.sql` filename suffixes.
 
 ## Configuration Reference
 

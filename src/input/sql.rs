@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 /// Reads `.sql` files from the configured migration directories, sorted
 /// lexicographically by filename. Each file becomes one `MigrationUnit`.
 ///
-/// Down migrations are detected by filename patterns: `.down.sql` or `_down.sql`.
+/// Down migrations are detected by filename suffix: the stem (minus `.sql`)
+/// must end with `.down` or `_down`.
 pub struct SqlLoader {
     run_in_transaction: bool,
 }
@@ -41,7 +42,7 @@ impl SqlLoader {
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
 
-        let is_down = filename.contains(".down.") || filename.contains("_down.");
+        let is_down = is_down_migration(&filename);
 
         Ok(MigrationUnit {
             id: filename,
@@ -142,6 +143,19 @@ fn is_sql_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Detect down migration by checking that the filename (minus `.sql` extension)
+/// ends with `.down` or `_down`.
+///
+/// Matches: `000001_create_users.down.sql`, `V001__drop_table_down.sql`
+/// Does not match: `downtown_orders.sql`, `V001_shutdown.sql`
+fn is_down_migration(filename: &str) -> bool {
+    let stem = filename
+        .strip_suffix(".sql")
+        .or_else(|| filename.strip_suffix(".SQL"))
+        .unwrap_or(filename);
+    stem.ends_with(".down") || stem.ends_with("_down")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +190,40 @@ mod tests {
         assert!(unit.run_in_transaction);
         assert!(!unit.is_down);
         assert!(!unit.statements.is_empty());
+    }
+
+    #[test]
+    fn test_is_down_migration_dot_suffix() {
+        assert!(is_down_migration("V001__create_users.down.sql"));
+        assert!(is_down_migration("000001_create_users.down.sql"));
+    }
+
+    #[test]
+    fn test_is_down_migration_underscore_suffix() {
+        assert!(is_down_migration("V001__create_users_down.sql"));
+        assert!(is_down_migration("000001_create_users_down.sql"));
+    }
+
+    #[test]
+    fn test_is_down_migration_case_insensitive_extension() {
+        assert!(is_down_migration("V001__drop.down.SQL"));
+        assert!(is_down_migration("V001__drop_down.SQL"));
+    }
+
+    #[test]
+    fn test_is_not_down_migration_regular_files() {
+        assert!(!is_down_migration("V001__create_users.sql"));
+        assert!(!is_down_migration("000001_create_users.sql"));
+    }
+
+    #[test]
+    fn test_is_not_down_false_positive_contains_down() {
+        // "down" appears in the name but is not a suffix — must NOT match
+        assert!(!is_down_migration("downtown_orders.sql"));
+        assert!(!is_down_migration("V001_shutdown.sql"));
+        assert!(!is_down_migration("markdown_notes.sql"));
+        assert!(!is_down_migration("V002__breakdown_tables.sql"));
+        assert!(!is_down_migration("V003__download_cache.sql"));
     }
 
     #[test]
