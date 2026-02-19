@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.5.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.5.0...v2.5.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* **input:** tighten down-migration filename detection to suffix-based matching ([68f8286](https://github.com/robert-sjoblom/pg-migration-lint/commit/68f82860c6b59fcaf7dd2e2dd6aa5a4b25be4301))
+
 ## [2.5.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.4.0...v2.5.0) (2026-02-18)
 
 
