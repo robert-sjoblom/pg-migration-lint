@@ -1,0 +1,29 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM102
+Severity: MINOR
+Description: Column uses timestamp or timestamptz with precision 0
+
+PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`
+
+What it detects:
+A column declared as `timestamp(0)` or `timestamptz(0)`.
+
+Why it's problematic:
+Precision 0 causes PostgreSQL to round the fractional seconds,
+not truncate them. A value of '2024-12-31 23:59:59.9' rounds to
+'2025-01-01 00:00:00', which is the next day (and potentially the
+next year). This can cause subtle bugs in date-boundary logic,
+audit trails, and ordering.
+
+The default precision (6 microseconds) is almost always sufficient.
+If you need to reduce storage or display precision, format the
+output rather than constraining the stored value.
+
+Example (bad):
+CREATE TABLE events (created_at timestamptz(0));
+
+Fix:
+CREATE TABLE events (created_at timestamptz);

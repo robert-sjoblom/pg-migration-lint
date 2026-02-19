@@ -1,0 +1,28 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM011
+Severity: MAJOR
+Description: DROP COLUMN silently removes primary key
+
+PGM011 — DROP COLUMN silently removes primary key
+
+What it detects:
+ALTER TABLE ... DROP COLUMN where the dropped column participates
+in the table's primary key constraint.
+
+Why it matters:
+Dropping a PK column (with CASCADE) silently removes the primary key
+constraint. The table loses its row identity, which affects replication,
+ORMs, query planning, and data integrity.
+
+Example (bad):
+-- Table has PRIMARY KEY (id)
+ALTER TABLE orders DROP COLUMN id;
+-- The primary key constraint is silently removed.
+
+Fix:
+Add a new primary key on the remaining columns before or after
+dropping the column, or reconsider whether the column drop is
+necessary.

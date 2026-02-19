@@ -1,0 +1,32 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM003
+Severity: CRITICAL
+Description: CONCURRENTLY inside transaction
+
+PGM003 — CONCURRENTLY inside transaction
+
+What it detects:
+A CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement
+inside a migration unit that runs in a transaction.
+
+Why it's dangerous:
+PostgreSQL does not allow CONCURRENTLY operations inside a
+transaction block. The command will fail with:
+ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+This means the migration will fail at deploy time.
+
+Example (bad — Liquibase changeset with default runInTransaction):
+<changeSet id="1" author="dev">
+<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>
+</changeSet>
+
+Fix:
+<changeSet id="1" author="dev" runInTransaction="false">
+<sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>
+</changeSet>
+
+For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to
+the migration file header.

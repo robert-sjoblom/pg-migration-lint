@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM104
+Severity: MINOR
+Description: Column uses the money type
+
+PGM104 — Don't use `money` type
+
+What it detects:
+A column declared as `money`.
+
+Why it's problematic:
+The `money` type formats its output (and parses input) according
+to the `lc_monetary` locale setting on the PostgreSQL server. This
+means the same stored value can appear differently on different
+servers, and importing/exporting data between servers with different
+locale settings can corrupt values. It also has limited precision
+(fixed to the locale's currency format) and poor interoperability
+with other numeric types.
+
+`numeric(p,s)` is the recommended alternative for monetary values.
+It has arbitrary precision, no locale dependency, and well-defined
+arithmetic behavior.
+
+Example (bad):
+CREATE TABLE orders (total money NOT NULL);
+
+Fix:
+CREATE TABLE orders (total numeric(12,2) NOT NULL);

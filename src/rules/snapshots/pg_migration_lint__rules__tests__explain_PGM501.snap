@@ -1,0 +1,40 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM501
+Severity: MAJOR
+Description: Foreign key without covering index on referencing columns
+
+PGM501 — Foreign key without covering index
+
+What it detects:
+A FOREIGN KEY constraint where the referencing table has no index
+whose leading columns match the FK columns in order.
+
+Why it's dangerous:
+When a row is deleted or updated in the referenced (parent) table,
+PostgreSQL must check that no rows in the referencing (child) table
+still reference the old value. Without an index on the FK columns,
+this check performs a sequential scan of the entire child table —
+once per affected parent row. This can cause severe performance
+degradation and lock contention.
+
+Example (bad):
+ALTER TABLE order_items
+ADD CONSTRAINT fk_order
+FOREIGN KEY (order_id) REFERENCES orders(id);
+-- No index on order_items(order_id)
+
+Fix:
+CREATE INDEX idx_order_items_order_id
+ON order_items (order_id);
+ALTER TABLE order_items
+ADD CONSTRAINT fk_order
+FOREIGN KEY (order_id) REFERENCES orders(id);
+
+Prefix matching: FK columns (a, b) are covered by index (a, b) or
+(a, b, c) but NOT by (b, a) or (a). Column order matters.
+
+The check uses the catalog state AFTER the entire file is processed,
+so creating the index later in the same file avoids a false positive.

@@ -1,0 +1,28 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM401
+Severity: MINOR
+Description: Missing IF EXISTS on DROP TABLE / DROP INDEX
+
+PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX
+
+What it detects:
+A DROP TABLE or DROP INDEX statement that does not include the
+IF EXISTS clause.
+
+Why it matters:
+Without IF EXISTS, the statement fails if the object does not exist.
+In migration pipelines that may be re-run (e.g., idempotent migrations,
+manual re-execution after partial failure), this causes hard failures.
+Adding IF EXISTS makes the statement idempotent.
+
+Example:
+-- Fails if 'orders' does not exist:
+DROP TABLE orders;
+DROP INDEX idx_orders_status;
+
+Recommended fix:
+DROP TABLE IF EXISTS orders;
+DROP INDEX IF EXISTS idx_orders_status;

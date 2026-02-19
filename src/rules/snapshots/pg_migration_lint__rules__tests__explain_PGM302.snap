@@ -1,0 +1,34 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM302
+Severity: MINOR
+Description: UPDATE on existing table in migration
+
+PGM302 — UPDATE on existing table in migration
+
+What it detects:
+An UPDATE statement targeting a table that already exists in the
+database (i.e., not created in the same set of changed files).
+
+Why it matters:
+UPDATE statements in migrations typically backfill or transform
+existing data. On large tables this can be problematic:
+- Row locks are held for the full statement duration.
+- The entire UPDATE generates WAL, which can spike replication lag.
+- Long-running updates may time out under migration tool limits.
+- They block autovacuum from processing dead tuples on the table.
+
+Example (flagged):
+UPDATE orders SET status = 'pending' WHERE status IS NULL;
+
+Recommended approach:
+1. Verify the row count is bounded (small lookup table = fine).
+2. For large tables, batch the update in chunks.
+3. Consider running the update outside the migration transaction.
+
+Not flagged:
+- UPDATE on a table created in the same migration file.
+
+This rule is MINOR severity.

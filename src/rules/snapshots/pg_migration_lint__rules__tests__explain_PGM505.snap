@@ -1,0 +1,36 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM505
+Severity: INFO
+Description: RENAME COLUMN on existing table
+
+PGM505 — RENAME COLUMN on existing table
+
+What it detects:
+ALTER TABLE ... RENAME COLUMN old_name TO new_name on a table that
+already exists in the database (not created in the same set of changed
+files).
+
+Why it matters:
+Renaming a column is a backwards-incompatible schema change. Any
+queries, views, stored procedures, or application code that reference
+the old column name will break immediately after the migration runs.
+Unlike adding or dropping a column, a rename silently invalidates
+existing references without any compile-time or startup-time error.
+
+Example (bad):
+ALTER TABLE orders RENAME COLUMN status TO order_status;
+-- All queries using 'status' will fail with 'column does not exist'
+
+Fix:
+Consider a multi-step approach:
+1. Add the new column with the desired name.
+2. Backfill data from the old column to the new column.
+3. Update application code to use the new column name.
+4. Drop the old column once all references have been migrated.
+
+This rule does NOT fire when the table is created in the same set of
+changed files, because renaming a column on a new table has no
+external consumers.

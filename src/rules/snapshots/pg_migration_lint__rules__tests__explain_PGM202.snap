@@ -1,0 +1,37 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM202
+Severity: MAJOR
+Description: DROP TABLE CASCADE on existing table
+
+PGM202 — DROP TABLE CASCADE on existing table
+
+What it detects:
+A DROP TABLE ... CASCADE statement targeting a table that already exists
+in the database.
+
+Why it matters:
+CASCADE silently drops all dependent objects — foreign keys, views,
+triggers, and rules — that reference the dropped table. The developer
+may not be aware of all dependencies, leading to unexpected breakage
+in other tables and application code.
+
+A plain DROP TABLE (without CASCADE) would fail if dependencies exist,
+which is a safer default. CASCADE bypasses that safety net.
+
+Example:
+DROP TABLE customers CASCADE;
+
+If the 'orders' table has a FK referencing 'customers', CASCADE will
+silently drop that FK constraint on 'orders'.
+
+Recommended approach:
+1. Identify all dependent objects before dropping.
+2. Explicitly drop or alter dependencies in separate migration steps.
+3. Use plain DROP TABLE (without CASCADE) so PostgreSQL will error
+if unexpected dependencies remain.
+
+This rule is MAJOR severity because CASCADE silently destroys
+dependent objects the developer may not be aware of.

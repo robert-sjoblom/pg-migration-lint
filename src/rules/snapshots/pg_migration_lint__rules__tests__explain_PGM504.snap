@@ -1,0 +1,36 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM504
+Severity: INFO
+Description: RENAME TABLE on existing table
+
+PGM504 — RENAME TABLE on existing table
+
+What it detects:
+ALTER TABLE ... RENAME TO ... on a table that already exists in the
+database (i.e., the table was not created in the same set of changed
+files).
+
+Why it matters:
+Renaming a table breaks all queries, views, and functions that reference
+the old name. While the rename itself is instant DDL (metadata-only),
+the downstream breakage can be severe.
+
+Example (bad):
+ALTER TABLE orders RENAME TO orders_archive;
+-- All queries referencing 'orders' will now fail.
+
+Example (safe — replacement pattern):
+ALTER TABLE orders RENAME TO orders_old;
+CREATE TABLE orders (...);
+-- The old name is re-created, so existing queries still work.
+
+Fix:
+Use a view to maintain backward compatibility during the transition:
+ALTER TABLE orders RENAME TO orders_v2;
+CREATE VIEW orders AS SELECT * FROM orders_v2;
+
+This rule does NOT fire when a replacement table with the old name
+is created in the same migration unit.

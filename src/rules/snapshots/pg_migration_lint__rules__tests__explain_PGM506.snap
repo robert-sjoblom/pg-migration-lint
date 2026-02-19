@@ -1,0 +1,32 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM506
+Severity: INFO
+Description: CREATE UNLOGGED TABLE
+
+PGM506 — CREATE UNLOGGED TABLE
+
+What it detects:
+A CREATE TABLE statement that uses the UNLOGGED keyword.
+
+Why it matters:
+Unlogged tables offer better write performance because they skip
+the write-ahead log, but come with significant trade-offs:
+- Data is TRUNCATED after a crash or unclean shutdown.
+- The table is NOT replicated to standby servers.
+- They cannot participate in logical replication.
+These characteristics make unlogged tables unsuitable for any
+data that must survive a crash or be available on replicas.
+
+Example (flagged):
+CREATE UNLOGGED TABLE scratch_data (id int, payload text);
+
+When unlogged tables are appropriate:
+- Ephemeral staging/import data that can be re-derived.
+- Materialised caches where the source of truth lives elsewhere.
+- ETL scratch space within a batch job.
+
+This rule is INFO severity — it flags the table for review rather
+than treating it as a defect.

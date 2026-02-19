@@ -1,0 +1,34 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM502
+Severity: MAJOR
+Description: Table without primary key
+
+PGM502 — Table without primary key
+
+What it detects:
+A CREATE TABLE statement (non-temporary) that does not define a
+PRIMARY KEY constraint, and no ALTER TABLE ... ADD PRIMARY KEY
+follows in the same file.
+
+Why it's dangerous:
+Tables without primary keys:
+- Cannot be reliably targeted by logical replication.
+- May cause issues with ORMs that require a PK for identity.
+- Make it harder to deduplicate or reference specific rows.
+- Are a strong code smell indicating incomplete schema design.
+
+Example (bad):
+CREATE TABLE events (event_type text, payload jsonb);
+
+Fix:
+CREATE TABLE events (
+id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+event_type text,
+payload jsonb
+);
+
+Note: Temporary tables are excluded. If PGM503 fires (UNIQUE NOT NULL
+used instead of PK), PGM502 does NOT fire for the same table.

@@ -1,0 +1,26 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM106
+Severity: MINOR
+Description: Column uses json type instead of jsonb
+
+PGM106 — Don't use `json` (prefer `jsonb`)
+
+What it detects:
+A column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.
+
+Why it's problematic:
+The `json` type stores an exact copy of the input text and must re-parse
+it on every operation. `jsonb` stores a decomposed binary format that is
+significantly faster for queries, supports indexing (GIN), and supports
+containment/existence operators (`@>`, `?`, `?|`, `?&`). The only
+advantages of `json` are preserving exact key order and duplicate keys
+— both rarely needed.
+
+Example (bad):
+CREATE TABLE events (payload json NOT NULL);
+
+Fix:
+CREATE TABLE events (payload jsonb NOT NULL);

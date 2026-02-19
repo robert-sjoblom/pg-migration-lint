@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM203
+Severity: MINOR
+Description: TRUNCATE TABLE on existing table
+
+PGM203 — TRUNCATE TABLE on existing table
+
+What it detects:
+A TRUNCATE TABLE statement targeting a table that already exists in the
+database (i.e., the table was not created in the same set of changed
+files).
+
+Why it matters:
+TRUNCATE removes all rows from a table instantly without scanning them.
+Unlike DELETE, it does not fire ON DELETE triggers, does not log
+individual row deletions, and cannot be filtered with a WHERE clause.
+The operation is irreversible once committed.
+
+Example:
+TRUNCATE TABLE audit_trail;
+
+Recommended approach:
+1. Ensure the data is truly disposable or has been backed up.
+2. Consider whether ON DELETE triggers need to fire — if so, use DELETE.
+3. If truncating for a schema migration, document the intent clearly.
+
+This rule is MINOR severity to flag the operation for human review.

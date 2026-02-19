@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM010
+Severity: MINOR
+Description: DROP COLUMN silently removes unique constraint
+
+PGM010 — DROP COLUMN silently removes unique constraint
+
+What it detects:
+ALTER TABLE ... DROP COLUMN where the dropped column participates
+in a UNIQUE constraint or unique index on the table.
+
+Why it matters:
+PostgreSQL automatically drops any index or constraint that depends
+on a dropped column. If the column was part of a UNIQUE constraint
+or unique index, the uniqueness guarantee is silently lost. This can
+lead to duplicate data being inserted without any error.
+
+Example (bad):
+-- Table has UNIQUE(email)
+ALTER TABLE users DROP COLUMN email;
+-- The unique constraint on email is silently removed.
+
+Fix:
+Verify that the uniqueness guarantee provided by the constraint or
+index is no longer needed before dropping the column. If uniqueness
+is still required on the remaining columns, create a new constraint
+or index covering those columns.

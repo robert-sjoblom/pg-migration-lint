@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM301
+Severity: INFO
+Description: INSERT INTO existing table in migration
+
+PGM301 — INSERT INTO existing table in migration
+
+What it detects:
+An INSERT INTO statement targeting a table that already exists in the
+database (i.e., not created in the same set of changed files).
+
+Why it matters:
+INSERT statements in migrations are sometimes used for seed data,
+lookup table population, or data backfill. While these are valid
+use cases, they deserve human review because:
+- Large inserts can cause lock contention and WAL pressure.
+- Unbounded inserts may time out under migration tool timeouts.
+- Seed data should be idempotent (check for duplicates).
+
+Example (flagged):
+INSERT INTO config (key, value) VALUES ('feature_x', 'enabled');
+
+Not flagged:
+- INSERT into a table created in the same migration file
+(populating a brand-new table is expected).
+
+This rule is INFO severity — it flags the DML for awareness rather
+than treating it as a defect.

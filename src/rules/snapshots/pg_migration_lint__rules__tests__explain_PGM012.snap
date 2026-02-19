@@ -1,0 +1,28 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM012
+Severity: MINOR
+Description: DROP COLUMN silently removes foreign key
+
+PGM012 — DROP COLUMN silently removes foreign key
+
+What it detects:
+ALTER TABLE ... DROP COLUMN where the dropped column participates
+in a FOREIGN KEY constraint on the table.
+
+Why it matters:
+Dropping a column that is part of a foreign key (with CASCADE)
+silently removes the FK constraint. The referential integrity
+guarantee is lost. This can lead to orphaned rows and data
+inconsistency without any error or warning from PostgreSQL.
+
+Example (bad):
+-- Table has FOREIGN KEY (customer_id) REFERENCES customers(id)
+ALTER TABLE orders DROP COLUMN customer_id;
+-- The foreign key constraint is silently removed.
+
+Fix:
+Verify that the referential integrity guarantee provided by the
+foreign key is no longer needed before dropping the column.

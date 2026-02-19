@@ -1052,6 +1052,23 @@ mod tests {
     }
 
     #[test]
+    fn test_explain_output_snapshots() {
+        let mut registry = RuleRegistry::new();
+        registry.register_defaults();
+
+        for rule in registry.iter() {
+            let output = format!(
+                "Rule: {}\nSeverity: {}\nDescription: {}\n\n{}",
+                rule.id(),
+                rule.default_severity(),
+                rule.description(),
+                rule.explain()
+            );
+            insta::assert_snapshot!(format!("explain_{}", rule.id()), output);
+        }
+    }
+
+    #[test]
     fn test_severity_parse() {
         assert_eq!(Severity::parse("blocker"), Some(Severity::Blocker));
         assert_eq!(Severity::parse("critical"), Some(Severity::Critical));

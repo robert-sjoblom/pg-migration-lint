@@ -1,0 +1,38 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM014
+Severity: CRITICAL
+Description: ADD FOREIGN KEY on existing table without NOT VALID
+
+PGM014 — ADD FOREIGN KEY on existing table without NOT VALID
+
+What it detects:
+ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table
+already exists and the constraint does not include NOT VALID.
+
+Why it's dangerous:
+Adding a foreign key constraint without NOT VALID causes PostgreSQL
+to immediately validate all existing rows. This acquires a SHARE
+ROW EXCLUSIVE lock on the table and performs a full table scan, blocking
+concurrent data modifications for the duration. On large tables this can
+cause significant downtime.
+
+Safe alternative:
+Add the constraint with NOT VALID first, then validate it in a
+separate statement. VALIDATE CONSTRAINT only requires a SHARE
+UPDATE EXCLUSIVE lock, which allows concurrent reads and writes.
+
+Example (bad):
+ALTER TABLE orders
+ADD CONSTRAINT fk_customer
+FOREIGN KEY (customer_id) REFERENCES customers (id);
+
+Fix (safe pattern):
+ALTER TABLE orders
+ADD CONSTRAINT fk_customer
+FOREIGN KEY (customer_id) REFERENCES customers (id)
+NOT VALID;
+ALTER TABLE orders
+VALIDATE CONSTRAINT fk_customer;
