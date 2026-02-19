@@ -146,14 +146,33 @@ jobs:
           retention-days: 14
 
   bridge-test:
-    name: Bridge integration tests
+    name: Liquibase integration tests (LB ${{ matrix.liquibase-version }})
     runs-on: ubuntu-latest
     needs: [test, build-bridge]
     # Skip on scheduled runs (only audit/mutants need the weekly trigger)
     if: github.event_name != 'schedule'
+    strategy:
+      matrix:
+        liquibase-version: ['4.31.1', '5.0.1']
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Liquibase CLI
+        run: |
+          wget -q -O /tmp/liquibase.tar.gz \
+            "https://github.com/liquibase/liquibase/releases/download/v${{ matrix.liquibase-version }}/liquibase-${{ matrix.liquibase-version }}.tar.gz"
+          sudo mkdir -p /opt/liquibase
+          sudo tar -xzf /tmp/liquibase.tar.gz -C /opt/liquibase
+          sudo ln -s /opt/liquibase/liquibase /usr/local/bin/liquibase
+          rm /tmp/liquibase.tar.gz
+          liquibase --version
 
       - name: Install cargo-nextest
         uses: baptiste0928/cargo-install@v3
@@ -172,10 +191,11 @@ jobs:
           name: liquibase-bridge
           path: bridge/target/
 
-      - name: Run bridge integration tests
+      - name: Run Liquibase integration tests
         env:
           BRIDGE_JAR_PATH: ${{ github.workspace }}/bridge/target/liquibase-bridge.jar
-        run: cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap ${{ github.workspace }} -E 'test(bridge)'
+          PG_LINT_LIQUIBASE_PATH: /usr/local/bin/liquibase
+        run: cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap ${{ github.workspace }} -E 'test(bridge) | test(updatesql)'
 
   coverage:
     name: Coverage
