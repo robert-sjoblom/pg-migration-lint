@@ -22,6 +22,8 @@ pub enum IrNode {
     UpdateTable(UpdateTable),
     /// DML: DELETE FROM a table.
     DeleteFrom(DeleteFrom),
+    /// CLUSTER rewrites the table under ACCESS EXCLUSIVE lock.
+    Cluster(Cluster),
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
     RenameTable {
         name: QualifiedName,
@@ -141,6 +143,12 @@ pub struct UpdateTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteFrom {
     pub table_name: QualifiedName,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cluster {
+    pub table: QualifiedName,
+    pub index: Option<String>,
 }
 
 // --- Supporting types ---
@@ -563,6 +571,19 @@ impl DeleteFrom {
     }
 }
 
+#[cfg(test)]
+impl Cluster {
+    /// Minimal CLUSTER: no index.
+    pub fn test(table: QualifiedName) -> Self {
+        Self { table, index: None }
+    }
+
+    pub fn with_index(mut self, index: impl Into<String>) -> Self {
+        self.index = Some(index.into());
+        self
+    }
+}
+
 // Convenience conversions for test construction: builder.into() -> IrNode variant
 #[cfg(test)]
 impl From<CreateTable> for IrNode {
@@ -624,6 +645,13 @@ impl From<UpdateTable> for IrNode {
 impl From<DeleteFrom> for IrNode {
     fn from(value: DeleteFrom) -> Self {
         IrNode::DeleteFrom(value)
+    }
+}
+
+#[cfg(test)]
+impl From<Cluster> for IrNode {
+    fn from(value: Cluster) -> Self {
+        IrNode::Cluster(value)
     }
 }
 

@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 38 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 39 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
 ### Unsafe DDL Rules (0xx)
 
@@ -58,6 +58,7 @@ pg-migration-lint ships with 38 rules across six categories: unsafe DDL rules (P
 | PGM015 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
 | PGM016 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
 | PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
+| PGM018 | Critical | `CLUSTER` on existing table | `CLUSTER orders USING idx_orders_id;` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
 

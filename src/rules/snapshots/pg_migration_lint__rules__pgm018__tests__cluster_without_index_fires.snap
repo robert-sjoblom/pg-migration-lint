@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm018.rs
+expression: findings
+---
+- rule_id: PGM018
+  severity: Critical
+  message: "CLUSTER on table 'customers' rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration."
+  file: migrations/010.sql
+  start_line: 1
+  end_line: 1

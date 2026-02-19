@@ -70,6 +70,9 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
         IrNode::DeleteFrom(df) => {
             df.table_name.set_default_schema(default_schema);
         }
+        IrNode::Cluster(c) => {
+            c.table.set_default_schema(default_schema);
+        }
         // DropIndex only has index_name: String — no QualifiedName to normalize.
         IrNode::DropIndex(_) | IrNode::Ignored { .. } => {}
     }

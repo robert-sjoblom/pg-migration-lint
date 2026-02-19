@@ -387,6 +387,18 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The constraint columns already have a `UNIQUE` constraint (exact column match)
 - **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
 
+#### PGM018 — `CLUSTER` on existing table
+
+- **Severity**: CRITICAL
+- **Status**: Implemented.
+- **Triggers**: `CLUSTER table_name [USING index_name]` where the table exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: `CLUSTER` rewrites the entire table and all its indexes in a new physical order, holding an `ACCESS EXCLUSIVE` lock for the full duration of the rewrite. Unlike `VACUUM FULL`, there is no online alternative. On large tables this causes complete unavailability (all reads and writes blocked) for the duration — typically minutes to hours. It is almost never appropriate in an online migration.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+- **Message**: `CLUSTER on table '{table}' [USING '{index}'] rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration.`
+- **IR impact**: New top-level `IrNode::Cluster(Cluster)` variant with `Cluster { table: QualifiedName, index: Option<String> }`. `pg_query` emits `ClusterStmt`.
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR

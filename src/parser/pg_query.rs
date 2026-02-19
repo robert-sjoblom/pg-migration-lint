@@ -5,9 +5,9 @@
 //! normalization, and source location tracking.
 
 use crate::parser::ir::{
-    AlterTable, AlterTableAction, ColumnDef, CreateIndex, CreateTable, DefaultExpr, DeleteFrom,
-    DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, QualifiedName, SourceSpan,
-    TableConstraint, TablePersistence, TruncateTable, TypeName, UpdateTable,
+    AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
+    DeleteFrom, DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, QualifiedName,
+    SourceSpan, TableConstraint, TablePersistence, TruncateTable, TypeName, UpdateTable,
 };
 use pg_query::NodeEnum;
 
@@ -118,6 +118,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
         NodeEnum::InsertStmt(insert) => vec![convert_insert_stmt(insert)],
         NodeEnum::UpdateStmt(update) => vec![convert_update_stmt(update)],
         NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete)],
+        NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster)],
         NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -752,6 +753,20 @@ fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt) -> IrNode {
 fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode {
     let table_name = relation_to_qualified_name(delete.relation.as_ref());
     IrNode::DeleteFrom(DeleteFrom { table_name })
+}
+
+// ---------------------------------------------------------------------------
+// CLUSTER
+// ---------------------------------------------------------------------------
+
+fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
+    let table = relation_to_qualified_name(cluster.relation.as_ref());
+    let index = if cluster.indexname.is_empty() {
+        None
+    } else {
+        Some(cluster.indexname.clone())
+    };
+    IrNode::Cluster(Cluster { table, index })
 }
 
 // ---------------------------------------------------------------------------
@@ -3007,5 +3022,52 @@ mod tests {
     fn test_extract_table_hint_empty() {
         let hint = extract_table_hint_from_raw("");
         assert!(hint.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // CLUSTER statement
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_cluster_with_index() {
+        let sql = "CLUSTER customers USING idx_customers_email;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Cluster(c) => {
+                assert_eq!(c.table, QualifiedName::unqualified("customers"));
+                assert_eq!(c.index.as_deref(), Some("idx_customers_email"));
+            }
+            other => panic!("Expected Cluster, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_cluster_without_index() {
+        let sql = "CLUSTER events;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Cluster(c) => {
+                assert_eq!(c.table, QualifiedName::unqualified("events"));
+                assert!(c.index.is_none());
+            }
+            other => panic!("Expected Cluster, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_cluster_schema_qualified() {
+        let sql = "CLUSTER myschema.orders USING idx_orders_id;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::Cluster(c) => {
+                assert_eq!(c.table.schema.as_deref(), Some("myschema"));
+                assert_eq!(c.table.name, "orders");
+                assert_eq!(c.index.as_deref(), Some("idx_orders_id"));
+            }
+            other => panic!("Expected Cluster, got: {:?}", other),
+        }
     }
 }
