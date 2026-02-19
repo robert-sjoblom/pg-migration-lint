@@ -418,7 +418,7 @@ See `test_plan.md` sections 3-5 for comprehensive test case coverage per rule.
 - All public functions require doc comments
 - Index column order must be preserved (affects FK covering index checks via `has_covering_index()`)
 - `pg_query` uses libpg_query bindings - consult its AST structure for parser work
-- Down migrations (`.down.sql`) always get INFO severity cap (PGM901)
+- Down migrations (`.down.sql` / `_down.sql` suffix) always get INFO severity cap (PGM901)
 - Error paths: config errors exit 2, parse failures on individual files warn and continue
 - Rules are `Send + Sync` to support parallel execution in the future
 - TypeName stores modifiers as `Vec<i64>` for types like `varchar(100)`, `numeric(10,2)`

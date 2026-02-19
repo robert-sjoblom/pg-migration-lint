@@ -22,8 +22,11 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
 ### 2.1 Raw SQL migrations
 
 - Individual `.up.sql` / `.down.sql` files (go-migrate convention)
+- `_down.sql` suffix convention (e.g., `V001__create_users_down.sql`)
 - Single-file-with-many-statements (`;`-delimited)
 - Standalone `.sql` files
+
+Down migrations are detected by filename suffix: the stem (filename minus `.sql` extension) must end with `.down` or `_down`. Files that merely contain "down" elsewhere in the name (e.g., `downtown_orders.sql`) are not treated as down migrations.
 
 ### 2.2 Liquibase
 
@@ -49,6 +52,8 @@ A Rust CLI tool that statically analyzes PostgreSQL migration files for common s
   2. **Secondary**: invoke `liquibase update-sql` directly if the bridge jar is unavailable but the Liquibase binary exists. Less structured output (raw SQL without changeset-to-line mapping), parsed heuristically.
 
 - Single XML files containing multiple `<changeSet>` elements are supported across both strategies.
+
+- **Limitation — rollback blocks**: Liquibase `<rollback>` elements inside changesets are not detected as down migrations. Both Liquibase loaders emit `is_down: false` for all changesets. SQL extracted from rollback blocks will be linted at full severity rather than being capped to INFO by PGM901.
 
 ### 2.3 Migration ordering
 
@@ -555,8 +560,9 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM901 — Down migration severity cap
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
-- The same rules apply to `.down.sql` / rollback SQL, but findings are informational only.
+- The same rules run on down migrations, but findings are informational only.
 - PGM901 is a meta-behavior, not a standalone lint rule. It has no `Rule` trait implementation and cannot be suppressed or disabled via inline comments. The 9xx range is reserved for meta-behaviors that modify how other rules operate.
+- **Scope**: Down migration detection relies on filename patterns (`.down.sql` / `_down.sql` suffixes). Liquibase `<rollback>` blocks are not currently detected as down migrations (see §2.2).
 
 ### 4.3 Type Anti-pattern Rules (PGM1xx)
 
