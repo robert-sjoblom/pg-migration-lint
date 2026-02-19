@@ -1,0 +1,32 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM201
+Severity: MINOR
+Description: DROP TABLE on existing table
+
+PGM201 — DROP TABLE on existing table
+
+What it detects:
+A DROP TABLE statement targeting a table that already exists in the
+database (i.e., the table was not created in the same set of changed
+files).
+
+Why it matters:
+Dropping a table is intentional but destructive and irreversible in
+production. The DDL itself is instant — PostgreSQL does not scan the
+table or hold an extended lock — so this is not a downtime risk.
+However, all data in the table is permanently lost, and any queries,
+views, foreign keys, or application code referencing the table will
+break.
+
+Example:
+DROP TABLE orders;
+
+Recommended approach:
+1. Ensure no application code, views, or foreign keys reference the table.
+2. Consider renaming the table first and waiting before dropping.
+3. Take a backup of the table data if it may be needed later.
+
+This rule is MINOR severity to flag the operation for human review.

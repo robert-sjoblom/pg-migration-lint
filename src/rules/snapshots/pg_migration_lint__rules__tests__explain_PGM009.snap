@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM009
+Severity: INFO
+Description: DROP COLUMN on existing table
+
+PGM009 — DROP COLUMN on existing table
+
+What it detects:
+ALTER TABLE ... DROP COLUMN on a table that already exists in the
+database (not created in the same set of changed files).
+
+Why it matters:
+PostgreSQL marks the column as dropped without rewriting the table,
+so the DDL operation itself is cheap and fast. However, the risk is
+application-level: any queries, views, functions, or ORM mappings
+that reference the dropped column will fail at runtime.
+
+Example:
+ALTER TABLE orders DROP COLUMN legacy_status;
+
+Recommended approach:
+1. First remove all application references to the column.
+2. Deploy the application change.
+3. Then drop the column in a subsequent migration.
+
+This rule is informational (INFO severity) to increase visibility
+of column drops in code review.

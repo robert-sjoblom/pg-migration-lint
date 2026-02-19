@@ -1,0 +1,41 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM007
+Severity: CRITICAL
+Description: ALTER COLUMN TYPE on existing table causes table rewrite
+
+PGM007 — ALTER COLUMN TYPE on existing table
+
+What it detects:
+ALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already
+exists in the database (not created in the same set of changed files).
+
+Why it's dangerous:
+Most type changes require a full table rewrite and an ACCESS EXCLUSIVE
+lock for the duration. For large tables, this causes extended downtime.
+Binary-coercible casts (e.g., varchar widening) do NOT rewrite.
+
+Safe casts (no finding):
+- varchar(N) -> varchar(M) where M > N
+- varchar(N) -> text
+- numeric(P,S) -> numeric(P2,S) where P2 > P and same scale
+- bit(N) -> bit(M) where M > N
+- varbit(N) -> varbit(M) where M > N
+
+INFO cast:
+- timestamp -> timestamptz (safe in PG 15+ with UTC timezone;
+verify your timezone config)
+
+All other type changes fire as CRITICAL.
+
+Example (bad):
+ALTER TABLE orders ALTER COLUMN amount TYPE bigint;
+
+Fix:
+-- Create a new column, backfill, and swap:
+ALTER TABLE orders ADD COLUMN amount_new bigint;
+UPDATE orders SET amount_new = amount;
+ALTER TABLE orders DROP COLUMN amount;
+ALTER TABLE orders RENAME COLUMN amount_new TO amount;

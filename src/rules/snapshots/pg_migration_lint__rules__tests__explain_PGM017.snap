@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM017
+Severity: CRITICAL
+Description: ADD UNIQUE on existing table without USING INDEX
+
+PGM017 — ADD UNIQUE on existing table without USING INDEX
+
+What it detects:
+ALTER TABLE ... ADD CONSTRAINT ... UNIQUE on an existing table that
+does not use USING INDEX, or where the referenced index does not
+exist or is not UNIQUE.
+
+Why it's dangerous:
+Without USING INDEX, PostgreSQL always builds a new unique index
+inline under an ACCESS EXCLUSIVE lock, even if a matching unique
+index already exists. For large tables this causes extended downtime.
+NOT VALID does NOT apply to UNIQUE constraints.
+
+When USING INDEX is specified, PostgreSQL validates that the
+referenced index exists and is unique, then promotes it to a
+constraint without rebuilding.
+
+Example (bad):
+ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);
+
+Fix (safe pattern — build unique index concurrently first):
+CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);
+ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;

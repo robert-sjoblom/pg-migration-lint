@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM002
+Severity: CRITICAL
+Description: Missing CONCURRENTLY on DROP INDEX
+
+PGM002 — Missing CONCURRENTLY on DROP INDEX
+
+What it detects:
+A DROP INDEX statement that does not use the CONCURRENTLY option,
+where the index belongs to a table that already exists in the database.
+
+Why it's dangerous:
+Without CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on
+the table associated with the index for the duration of the drop
+operation. This blocks ALL queries — reads and writes — on the table.
+While DROP INDEX is usually fast, it still briefly blocks concurrent
+access and can queue behind long-running queries, amplifying the impact.
+
+Example (bad):
+DROP INDEX idx_orders_status;
+
+Fix:
+DROP INDEX CONCURRENTLY idx_orders_status;
+
+Note: CONCURRENTLY cannot run inside a transaction. If your migration
+framework wraps each file in a transaction, you must disable that.
+See PGM003.

@@ -1,0 +1,33 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM001
+Severity: CRITICAL
+Description: Missing CONCURRENTLY on CREATE INDEX
+
+PGM001 — Missing CONCURRENTLY on CREATE INDEX
+
+What it detects:
+A CREATE INDEX statement that does not use the CONCURRENTLY option,
+targeting a table that already exists in the database (i.e., the table
+was not created in the same set of changed files).
+
+Why it's dangerous:
+Without CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on
+the table for the entire duration of the index build. This blocks ALL
+queries — reads and writes — on the table. For large tables, index
+creation can take minutes or hours, causing extended downtime.
+
+Example (bad):
+CREATE INDEX idx_orders_status ON orders (status);
+
+Fix:
+CREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);
+
+Note: CONCURRENTLY cannot run inside a transaction. If your migration
+framework wraps each file in a transaction (e.g., Liquibase default),
+you must also disable that. See PGM003.
+
+This rule does NOT fire when the table is created in the same set of
+changed files, because locking an empty/new table is harmless.

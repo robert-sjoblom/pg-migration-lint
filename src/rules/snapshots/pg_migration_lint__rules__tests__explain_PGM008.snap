@@ -1,0 +1,35 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM008
+Severity: CRITICAL
+Description: ADD COLUMN NOT NULL without DEFAULT on existing table
+
+PGM008 — ADD COLUMN NOT NULL without DEFAULT on existing table
+
+What it detects:
+ALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,
+where the table already exists in the database (not created in the
+same set of changed files).
+
+Why it's dangerous:
+Adding a NOT NULL column without a default to a table that has
+existing rows will fail immediately with:
+ERROR: column "x" of relation "t" contains null values
+This is almost always a bug. The migration will fail at deploy time.
+
+On PG 11+, ADD COLUMN ... NOT NULL DEFAULT <value> is safe — the
+default is applied lazily without rewriting the table (for non-volatile
+defaults).
+
+Example (bad):
+ALTER TABLE orders ADD COLUMN status text NOT NULL;
+
+Fix (option A — add with default):
+ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';
+
+Fix (option B — add nullable, backfill, then constrain):
+ALTER TABLE orders ADD COLUMN status text;
+UPDATE orders SET status = 'pending' WHERE status IS NULL;
+ALTER TABLE orders ALTER COLUMN status SET NOT NULL;

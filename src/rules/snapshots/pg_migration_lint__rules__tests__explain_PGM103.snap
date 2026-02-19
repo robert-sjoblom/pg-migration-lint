@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM103
+Severity: MINOR
+Description: Column uses char(n) type
+
+PGM103 — Don't use `char(n)`
+
+What it detects:
+A column declared as `char(n)` or `character(n)`.
+
+Why it's problematic:
+In PostgreSQL, `char(n)` pads values with trailing spaces to fill
+the declared length. This wastes storage, causes surprising equality
+semantics (trailing spaces are ignored in comparisons but present
+in the stored data), and is no faster than `text` or `varchar`.
+
+The PostgreSQL documentation itself recommends using `text` or
+`varchar` instead: "There is no performance difference among these
+three types" and "In most situations text or character varying
+should be used instead."
+
+Example (bad):
+CREATE TABLE countries (code char(2) NOT NULL);
+
+Fix:
+CREATE TABLE countries (code text NOT NULL);
+-- or: code varchar(2) NOT NULL

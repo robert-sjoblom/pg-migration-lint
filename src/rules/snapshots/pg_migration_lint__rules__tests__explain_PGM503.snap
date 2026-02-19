@@ -1,0 +1,36 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM503
+Severity: INFO
+Description: UNIQUE NOT NULL used instead of PRIMARY KEY
+
+PGM503 — UNIQUE NOT NULL used instead of PRIMARY KEY
+
+What it detects:
+A table that has no PRIMARY KEY but has at least one UNIQUE constraint
+where all constituent columns are NOT NULL. This combination is
+functionally equivalent to a PK.
+
+Why it matters:
+While UNIQUE NOT NULL is functionally equivalent to PRIMARY KEY,
+using PRIMARY KEY is more conventional and explicit. Tools, ORMs,
+and database administrators expect PK as the standard way to
+identify rows. Using UNIQUE NOT NULL may confuse readers and
+prevent some tools from auto-detecting the identity column.
+
+Example (flagged):
+CREATE TABLE users (
+email text NOT NULL UNIQUE,
+name text
+);
+
+Fix:
+CREATE TABLE users (
+email text PRIMARY KEY,
+name text
+);
+
+Note: When PGM503 fires, PGM502 (table without PK) does NOT fire
+for the same table, since the situation is already flagged.

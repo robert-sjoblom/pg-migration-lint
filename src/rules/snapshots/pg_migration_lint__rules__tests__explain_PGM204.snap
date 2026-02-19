@@ -1,0 +1,37 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM204
+Severity: MAJOR
+Description: TRUNCATE TABLE CASCADE on existing table
+
+PGM204 — TRUNCATE TABLE CASCADE on existing table
+
+What it detects:
+A TRUNCATE TABLE ... CASCADE statement targeting a table that already
+exists in the database.
+
+Why it matters:
+CASCADE silently extends the truncation to all tables that have foreign
+key references to the truncated table, and recursively to their
+dependents. The developer may not be aware of the full cascade chain,
+leading to unexpected data loss across multiple tables.
+
+A plain TRUNCATE (without CASCADE) would fail if FK dependencies exist,
+which is a safer default. CASCADE bypasses that safety net.
+
+Example:
+TRUNCATE TABLE customers CASCADE;
+
+If the 'orders' table has a FK referencing 'customers', CASCADE will
+silently truncate 'orders' as well.
+
+Recommended approach:
+1. Identify all dependent tables before truncating.
+2. Explicitly truncate each table in the correct order.
+3. Use plain TRUNCATE (without CASCADE) so PostgreSQL will error
+if unexpected dependencies remain.
+
+This rule is MAJOR severity because CASCADE silently destroys
+data in dependent tables the developer may not be aware of.

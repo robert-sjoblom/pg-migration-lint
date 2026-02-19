@@ -1,0 +1,38 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM006
+Severity: MINOR
+Description: Volatile default on column
+
+PGM006 — Volatile default on column
+
+What it detects:
+A column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)
+that uses a function call as the DEFAULT expression.
+
+Why it's dangerous:
+On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite
+the table — they are applied lazily. Volatile defaults (now(), random(),
+gen_random_uuid(), etc.) must be evaluated per-row at write time,
+forcing a full table rewrite under an ACCESS EXCLUSIVE lock.
+
+Severity levels:
+- MINOR (WARNING): Known volatile functions (now, current_timestamp,
+random, gen_random_uuid, uuid_generate_v4, clock_timestamp,
+timeofday, txid_current)
+- MINOR (WARNING): nextval (serial/bigserial) — standard but volatile
+- INFO: Unknown function calls — developer should verify volatility
+- No finding: Literal defaults (0, 'active', TRUE)
+
+Example (flagged):
+ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();
+
+Fix:
+ALTER TABLE orders ADD COLUMN created_at timestamptz;
+-- Then backfill:
+UPDATE orders SET created_at = now() WHERE created_at IS NULL;
+
+Note: For CREATE TABLE, volatile defaults are harmless (no existing
+rows) and are not flagged.

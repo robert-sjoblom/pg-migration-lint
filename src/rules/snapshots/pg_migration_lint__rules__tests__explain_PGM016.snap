@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM016
+Severity: MAJOR
+Description: ADD PRIMARY KEY on existing table without USING INDEX
+
+PGM016 — ADD PRIMARY KEY on existing table without USING INDEX
+
+What it detects:
+ALTER TABLE ... ADD PRIMARY KEY on an existing table that does not
+use USING INDEX, or where the referenced index does not exist, is
+not UNIQUE, or covers nullable columns.
+
+Why it's dangerous:
+Without USING INDEX, PostgreSQL always builds a new unique index
+inline under an ACCESS EXCLUSIVE lock, even if a matching unique
+index already exists. For large tables this causes extended downtime.
+
+Even with USING INDEX, if any of the PK columns are nullable,
+PostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires
+a full table scan under ACCESS EXCLUSIVE lock.
+
+Example (bad):
+ALTER TABLE orders ADD PRIMARY KEY (id);
+
+Fix (safe pattern — build unique index concurrently first):
+-- Ensure columns are NOT NULL (use CHECK constraint trick if needed)
+CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
+ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;

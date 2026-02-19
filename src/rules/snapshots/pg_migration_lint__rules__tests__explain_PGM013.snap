@@ -1,0 +1,39 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM013
+Severity: CRITICAL
+Description: SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock
+
+PGM013 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock
+
+What it detects:
+ALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already
+exists in the database (not created in the same set of changed files).
+
+Why it's dangerous:
+SET NOT NULL acquires an ACCESS EXCLUSIVE lock on the table, blocking
+all concurrent reads and writes. PostgreSQL must also perform a full
+table scan to verify that no existing rows contain NULL in the column.
+On large tables this can cause significant downtime.
+
+Safe alternative (PostgreSQL 12+):
+1. Add a CHECK constraint with NOT VALID:
+ALTER TABLE orders ADD CONSTRAINT orders_status_nn
+CHECK (status IS NOT NULL) NOT VALID;
+2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):
+ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
+3. Set NOT NULL (instant since PG 12 sees the validated CHECK):
+ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
+4. Optionally drop the now-redundant CHECK constraint:
+ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
+
+Example (bad):
+ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
+
+Fix (safe three-step pattern):
+ALTER TABLE orders ADD CONSTRAINT orders_status_nn
+CHECK (status IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
+ALTER TABLE orders ALTER COLUMN status SET NOT NULL;

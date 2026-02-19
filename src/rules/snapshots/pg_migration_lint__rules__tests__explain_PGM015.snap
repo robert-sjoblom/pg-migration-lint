@@ -1,0 +1,29 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM015
+Severity: CRITICAL
+Description: ADD CHECK on existing table without NOT VALID
+
+PGM015 — ADD CHECK on existing table without NOT VALID
+
+What it detects:
+ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) on a table that already
+exists, without the NOT VALID modifier.
+
+Why it's dangerous:
+Adding a CHECK constraint without NOT VALID acquires an ACCESS EXCLUSIVE
+lock and scans the entire table to verify all existing rows satisfy the
+constraint. On large tables this can cause significant downtime.
+
+Example (bad):
+ALTER TABLE orders ADD CONSTRAINT orders_status_check
+CHECK (status IN ('pending', 'shipped', 'delivered'));
+
+Fix (safe two-step pattern):
+-- Step 1: Add with NOT VALID (instant, no scan)
+ALTER TABLE orders ADD CONSTRAINT orders_status_check
+CHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;
+-- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)
+ALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;

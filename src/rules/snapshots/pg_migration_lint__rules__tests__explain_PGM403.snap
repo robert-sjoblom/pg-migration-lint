@@ -1,0 +1,38 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM403
+Severity: MINOR
+Description: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op
+
+PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table
+
+What it detects:
+A CREATE TABLE IF NOT EXISTS statement targeting a table that already
+exists in the migration history (i.e. was created by an earlier migration).
+
+Why it matters:
+IF NOT EXISTS makes the statement a silent no-op when the table already exists.
+If the column definitions in the CREATE TABLE differ from the actual table state
+(built up from the original CREATE TABLE plus subsequent ALTER TABLE statements),
+the migration author may believe the table has the shape described in this
+statement, when in reality PostgreSQL ignores it entirely. The migration chain
+is ambiguous — two competing definitions of the same table exist in the history,
+and only the first one (plus its alterations) is truth.
+
+Example:
+-- V001: original table
+CREATE TABLE orders (id bigint PRIMARY KEY);
+ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';
+
+-- V010: redundant re-creation (silently ignored)
+CREATE TABLE IF NOT EXISTS orders (
+id bigint PRIMARY KEY,
+status text NOT NULL DEFAULT 'pending',
+created_at timestamptz DEFAULT now()  -- this column will NOT be added
+);
+
+Recommended fix:
+Remove the redundant CREATE TABLE IF NOT EXISTS. If the intent is to
+add columns, use ALTER TABLE ... ADD COLUMN instead.

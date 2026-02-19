@@ -1,0 +1,30 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM101
+Severity: MINOR
+Description: Column uses timestamp without time zone
+
+PGM101 — Don't use `timestamp` (without time zone)
+
+What it detects:
+A column declared as `timestamp` (which PostgreSQL interprets as
+`timestamp without time zone`).
+
+Why it's problematic:
+`timestamp` (without time zone) stores a date/time value with no
+timezone context. This makes the stored values ambiguous — they could
+represent any timezone, and PostgreSQL performs no conversion on
+input or output. When servers, clients, or applications use different
+timezones, this leads to subtle, hard-to-debug data corruption.
+
+`timestamptz` (timestamp with time zone) stores values as UTC
+internally and converts to the session's timezone on output. This
+ensures unambiguous points in time.
+
+Example (bad):
+CREATE TABLE events (created_at timestamp NOT NULL);
+
+Fix:
+CREATE TABLE events (created_at timestamptz NOT NULL);
