@@ -9,6 +9,19 @@ use crate::rules::{Finding, RuleId};
 use serde::Serialize;
 use std::collections::HashSet;
 
+/// Base URL for the hosted rule documentation (GitHub Pages).
+const DOCS_BASE_URL: &str = "https://robert-sjoblom.github.io/pg-migration-lint/rules";
+
+/// Build a concise SonarQube rule description with a link to full documentation.
+///
+/// SonarQube's Generic Issue Import format only supports plain strings (no
+/// markdown or HTML), so we keep the description short and link out to the
+/// GitHub Pages docs for the full explanation.
+fn sonarqube_description(name: &str, rule_id: RuleId) -> String {
+    let anchor = rule_id.to_string().to_lowercase();
+    format!("{name}. See {DOCS_BASE_URL}#{anchor}")
+}
+
 /// SonarQube-specific metadata for a rule.
 struct SonarQubeRuleMeta {
     clean_code_attribute: &'static str,
@@ -239,7 +252,7 @@ impl Reporter for SonarQubeReporter {
                 SonarQubeRule {
                     id: r.id.to_string(),
                     name: r.name.clone(),
-                    description: r.description.clone(),
+                    description: sonarqube_description(&r.name, r.id),
                     engine_id: "pg-migration-lint",
                     clean_code_attribute: meta.clean_code_attribute,
                     issue_type: meta.issue_type,

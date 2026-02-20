@@ -1,12 +1,19 @@
+---
+layout: default
+title: Rule Reference
+---
+
 # Rule Reference
+{: #rule-reference}
 
-`pg-migration-lint` ships with 29 lint rules across five categories:
+`pg-migration-lint` ships with 38 lint rules across seven categories:
 
-- **Unsafe DDL** (PGM001–PGM017) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Unsafe DDL** (PGM001–PGM018) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
-- **Destructive Operations** (PGM201) — flag data-loss operations.
-- **Idempotency Guards** (PGM401–PGM402) — detect missing IF EXISTS / IF NOT EXISTS guards.
-- **Schema Design** (PGM501–PGM505) — schema quality and informational findings.
+- **Destructive Operations** (PGM201–PGM204) — flag data-loss operations.
+- **DML in Migrations** (PGM301–PGM303) — flag data manipulation statements on existing tables.
+- **Idempotency Guards** (PGM401–PGM403) — detect missing IF EXISTS / IF NOT EXISTS guards.
+- **Schema Design** (PGM501–PGM506) — schema quality and informational findings.
 - **Meta-behavior** (PGM901) — cross-cutting behavior modifiers (not standalone lint rules).
 
 ## How to use
@@ -40,6 +47,7 @@ CREATE INDEX idx_foo ON bar (col);
 ## 0xx — Unsafe DDL Rules
 
 ### PGM001 — Missing CONCURRENTLY on CREATE INDEX
+{: #pgm001}
 
 **Severity**: Critical
 
@@ -55,11 +63,12 @@ CREATE INDEX idx_orders_status ON orders (status);
 CREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);
 ```
 
-Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). See also [PGM003](#pgm003--concurrently-inside-transaction).
+Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). See also [PGM003](#pgm003).
 
 ---
 
 ### PGM002 — Missing CONCURRENTLY on DROP INDEX
+{: #pgm002}
 
 **Severity**: Critical
 
@@ -75,11 +84,12 @@ DROP INDEX idx_orders_status;
 DROP INDEX CONCURRENTLY idx_orders_status;
 ```
 
-See also [PGM003](#pgm003--concurrently-inside-transaction).
+See also [PGM003](#pgm003).
 
 ---
 
 ### PGM003 — CONCURRENTLY inside transaction
+{: #pgm003}
 
 **Severity**: Critical
 
@@ -99,11 +109,12 @@ Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migrat
 </changeSet>
 ```
 
-See also [PGM001](#pgm001--missing-concurrently-on-create-index) and [PGM002](#pgm002--missing-concurrently-on-drop-index).
+See also [PGM001](#pgm001) and [PGM002](#pgm002).
 
 ---
 
 ### PGM006 — Volatile default on column
+{: #pgm006}
 
 **Severity**: Minor
 
@@ -130,6 +141,7 @@ Does not fire on `CREATE TABLE` (no existing rows to rewrite).
 ---
 
 ### PGM007 — ALTER COLUMN TYPE on existing table
+{: #pgm007}
 
 **Severity**: Critical
 
@@ -161,6 +173,7 @@ ALTER TABLE orders RENAME COLUMN amount_new TO amount;
 ---
 
 ### PGM008 — ADD COLUMN NOT NULL without DEFAULT
+{: #pgm008}
 
 **Severity**: Critical
 
@@ -186,6 +199,7 @@ ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 ---
 
 ### PGM009 — DROP COLUMN on existing table
+{: #pgm009}
 
 **Severity**: Info
 
@@ -204,6 +218,7 @@ ALTER TABLE orders DROP COLUMN legacy_status;
 ---
 
 ### PGM010 — DROP COLUMN silently removes unique constraint
+{: #pgm010}
 
 **Severity**: Minor
 
@@ -218,11 +233,12 @@ ALTER TABLE users DROP COLUMN email;
 
 **Fix**: Verify that the uniqueness guarantee is no longer needed before dropping the column.
 
-See also [PGM011](#pgm011--drop-column-silently-removes-primary-key), [PGM012](#pgm012--drop-column-silently-removes-foreign-key).
+See also [PGM011](#pgm011), [PGM012](#pgm012).
 
 ---
 
 ### PGM011 — DROP COLUMN silently removes primary key
+{: #pgm011}
 
 **Severity**: Major
 
@@ -237,11 +253,12 @@ ALTER TABLE orders DROP COLUMN id;
 
 **Fix**: Add a new primary key on remaining columns before or after dropping the column.
 
-See also [PGM010](#pgm010--drop-column-silently-removes-unique-constraint), [PGM012](#pgm012--drop-column-silently-removes-foreign-key).
+See also [PGM010](#pgm010), [PGM012](#pgm012).
 
 ---
 
 ### PGM012 — DROP COLUMN silently removes foreign key
+{: #pgm012}
 
 **Severity**: Minor
 
@@ -256,11 +273,12 @@ ALTER TABLE orders DROP COLUMN customer_id;
 
 **Fix**: Verify that the referential integrity guarantee is no longer needed before dropping the column.
 
-See also [PGM010](#pgm010--drop-column-silently-removes-unique-constraint), [PGM011](#pgm011--drop-column-silently-removes-primary-key).
+See also [PGM010](#pgm010), [PGM011](#pgm011).
 
 ---
 
 ### PGM013 — SET NOT NULL requires ACCESS EXCLUSIVE lock
+{: #pgm013}
 
 **Severity**: Critical
 
@@ -284,11 +302,12 @@ ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
 ```
 
-See also [PGM015](#pgm015--add-check-without-not-valid).
+See also [PGM015](#pgm015).
 
 ---
 
 ### PGM014 — ADD FOREIGN KEY without NOT VALID
+{: #pgm014}
 
 **Severity**: Critical
 
@@ -310,11 +329,12 @@ ALTER TABLE orders
 ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;
 ```
 
-See also [PGM015](#pgm015--add-check-without-not-valid).
+See also [PGM015](#pgm015).
 
 ---
 
 ### PGM015 — ADD CHECK without NOT VALID
+{: #pgm015}
 
 **Severity**: Critical
 
@@ -335,11 +355,12 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_check
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;
 ```
 
-See also [PGM013](#pgm013--set-not-null-requires-access-exclusive-lock), [PGM014](#pgm014--add-foreign-key-without-not-valid).
+See also [PGM013](#pgm013), [PGM014](#pgm014).
 
 ---
 
 ### PGM016 — ADD PRIMARY KEY without USING INDEX
+{: #pgm016}
 
 **Severity**: Major
 
@@ -361,6 +382,7 @@ ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ---
 
 ### PGM017 — ADD UNIQUE without USING INDEX
+{: #pgm017}
 
 **Severity**: Critical
 
@@ -377,7 +399,26 @@ CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);
 ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;
 ```
 
-See also [PGM016](#pgm016--add-primary-key-without-using-index).
+See also [PGM016](#pgm016).
+
+---
+
+### PGM018 — CLUSTER on existing table
+{: #pgm018}
+
+**Severity**: Critical
+
+Detects a `CLUSTER` statement targeting a table that already exists in the database. `CLUSTER` rewrites the entire table and all its indexes in a new physical order, holding an ACCESS EXCLUSIVE lock for the full duration. Unlike `VACUUM FULL`, there is no online alternative. On large tables this causes complete unavailability for minutes to hours.
+
+**Example**:
+```sql
+CLUSTER orders USING idx_orders_created_at;
+```
+
+**Recommended approach**:
+1. Schedule `CLUSTER` during a maintenance window when downtime is acceptable.
+2. Consider `pg_repack` or `pg_squeeze` for online table rewrites.
+3. For new tables, `CLUSTER` is fine — this rule only fires on existing tables.
 
 ---
 
@@ -386,6 +427,7 @@ See also [PGM016](#pgm016--add-primary-key-without-using-index).
 These rules flag column types that should be avoided per the PostgreSQL wiki's ["Don't Do This"](https://wiki.postgresql.org/wiki/Don't_Do_This) recommendations.
 
 ### PGM101 — Don't use timestamp without time zone
+{: #pgm101}
 
 **Severity**: Minor
 
@@ -404,6 +446,7 @@ CREATE TABLE events (created_at timestamptz NOT NULL);
 ---
 
 ### PGM102 — Don't use timestamp(0) or timestamptz(0)
+{: #pgm102}
 
 **Severity**: Minor
 
@@ -422,6 +465,7 @@ CREATE TABLE events (created_at timestamptz);
 ---
 
 ### PGM103 — Don't use char(n)
+{: #pgm103}
 
 **Severity**: Minor
 
@@ -441,6 +485,7 @@ CREATE TABLE countries (code text NOT NULL);
 ---
 
 ### PGM104 — Don't use the money type
+{: #pgm104}
 
 **Severity**: Minor
 
@@ -459,6 +504,7 @@ CREATE TABLE orders (total numeric(12,2) NOT NULL);
 ---
 
 ### PGM105 — Don't use serial / bigserial
+{: #pgm105}
 
 **Severity**: Info
 
@@ -479,6 +525,7 @@ CREATE TABLE orders (
 ---
 
 ### PGM106 — Don't use json (prefer jsonb)
+{: #pgm106}
 
 **Severity**: Minor
 
@@ -499,6 +546,7 @@ CREATE TABLE events (payload jsonb NOT NULL);
 ## 2xx — Destructive Operation Rules
 
 ### PGM201 — DROP TABLE on existing table
+{: #pgm201}
 
 **Severity**: Minor
 
@@ -516,9 +564,129 @@ DROP TABLE orders;
 
 ---
 
+### PGM202 — DROP TABLE CASCADE on existing table
+{: #pgm202}
+
+**Severity**: Major
+
+Detects `DROP TABLE ... CASCADE` targeting a pre-existing table. `CASCADE` silently drops all dependent objects — foreign keys, views, triggers, and rules — that reference the dropped table. The developer may not be aware of all dependencies, leading to unexpected breakage.
+
+A plain `DROP TABLE` (without `CASCADE`) would fail if dependencies exist, which is a safer default. `CASCADE` bypasses that safety net.
+
+**Example**:
+```sql
+DROP TABLE customers CASCADE;
+-- If 'orders' has a FK referencing 'customers', CASCADE silently drops that FK.
+```
+
+**Recommended approach**:
+1. Identify all dependent objects before dropping.
+2. Explicitly drop or alter dependencies in separate migration steps.
+3. Use plain `DROP TABLE` (without `CASCADE`) so PostgreSQL will error if unexpected dependencies remain.
+
+---
+
+### PGM203 — TRUNCATE TABLE on existing table
+{: #pgm203}
+
+**Severity**: Minor
+
+Detects `TRUNCATE TABLE` targeting a pre-existing table. Unlike `DELETE`, `TRUNCATE` does not fire `ON DELETE` triggers, does not log individual row deletions, and cannot be filtered with a `WHERE` clause. The operation is irreversible once committed.
+
+**Example**:
+```sql
+TRUNCATE TABLE audit_trail;
+```
+
+**Recommended approach**:
+1. Ensure the data is truly disposable or has been backed up.
+2. Consider whether `ON DELETE` triggers need to fire — if so, use `DELETE`.
+3. If truncating for a schema migration, document the intent clearly.
+
+---
+
+### PGM204 — TRUNCATE TABLE CASCADE on existing table
+{: #pgm204}
+
+**Severity**: Major
+
+Detects `TRUNCATE TABLE ... CASCADE` targeting a pre-existing table. `CASCADE` silently extends the truncation to all tables that have foreign key references to the truncated table, and recursively to their dependents. The developer may not be aware of the full cascade chain, leading to unexpected data loss across multiple tables.
+
+A plain `TRUNCATE` (without `CASCADE`) would fail if FK dependencies exist, which is a safer default.
+
+**Example**:
+```sql
+TRUNCATE TABLE customers CASCADE;
+-- If 'orders' has a FK referencing 'customers', CASCADE silently truncates 'orders' as well.
+```
+
+**Recommended approach**:
+1. Identify all dependent tables before truncating.
+2. Explicitly truncate each table in the correct order.
+3. Use plain `TRUNCATE` (without `CASCADE`) so PostgreSQL will error if unexpected dependencies remain.
+
+---
+
+## 3xx — DML in Migration Rules
+
+### PGM301 — INSERT INTO existing table in migration
+{: #pgm301}
+
+**Severity**: Info
+
+Detects `INSERT INTO` targeting a table that already exists in the database (not created in the same migration file). While seed data and lookup table population are valid use cases, they deserve review because large inserts can cause lock contention, WAL pressure, and timeouts.
+
+**Example** (flagged):
+```sql
+INSERT INTO config (key, value) VALUES ('feature_x', 'enabled');
+```
+
+Not flagged when inserting into a table created in the same migration file.
+
+---
+
+### PGM302 — UPDATE on existing table in migration
+{: #pgm302}
+
+**Severity**: Minor
+
+Detects `UPDATE` targeting a table that already exists in the database. On large tables, updates hold row locks for the full statement duration, generate WAL (spiking replication lag), and may time out under migration tool limits.
+
+**Example** (flagged):
+```sql
+UPDATE orders SET status = 'pending' WHERE status IS NULL;
+```
+
+**Recommended approach**:
+1. Verify the row count is bounded (small lookup table = fine).
+2. For large tables, batch the update in chunks.
+3. Consider running the update outside the migration transaction.
+
+---
+
+### PGM303 — DELETE FROM existing table in migration
+{: #pgm303}
+
+**Severity**: Minor
+
+Detects `DELETE FROM` targeting a table that already exists in the database. On large tables, deletes hold row locks, generate WAL, fire `ON DELETE` triggers, and produce dead tuples until autovacuum runs.
+
+**Example** (flagged):
+```sql
+DELETE FROM audit_log WHERE created_at < '2020-01-01';
+```
+
+**Recommended approach**:
+1. Verify the row count is bounded.
+2. For large deletes, batch in chunks.
+3. If no triggers need to fire, consider `TRUNCATE` instead.
+
+---
+
 ## 4xx — Idempotency Guard Rules
 
 ### PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX
+{: #pgm401}
 
 **Severity**: Minor
 
@@ -539,6 +707,7 @@ DROP INDEX IF EXISTS idx_orders_status;
 ---
 
 ### PGM402 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX
+{: #pgm402}
 
 **Severity**: Minor
 
@@ -556,13 +725,39 @@ CREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 ```
 
-See also [PGM401](#pgm401--missing-if-exists-on-drop-table--drop-index).
+See also [PGM401](#pgm401).
+
+---
+
+### PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table
+{: #pgm403}
+
+**Severity**: Minor
+
+Detects `CREATE TABLE IF NOT EXISTS` targeting a table that already exists in the migration history. `IF NOT EXISTS` makes the statement a silent no-op — if the column definitions differ from the actual table state, the migration author may believe the table has the shape described in this statement, when in reality PostgreSQL ignores it entirely.
+
+**Example** (bad):
+```sql
+-- V001: original table
+CREATE TABLE orders (id bigint PRIMARY KEY);
+ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';
+
+-- V010: redundant re-creation (silently ignored)
+CREATE TABLE IF NOT EXISTS orders (
+  id bigint PRIMARY KEY,
+  status text NOT NULL DEFAULT 'pending',
+  created_at timestamptz DEFAULT now()  -- this column will NOT be added
+);
+```
+
+**Fix**: Remove the redundant `CREATE TABLE IF NOT EXISTS`. If the intent is to add columns, use `ALTER TABLE ... ADD COLUMN` instead.
 
 ---
 
 ## 5xx — Schema Design Rules
 
 ### PGM501 — Foreign key without covering index
+{: #pgm501}
 
 **Severity**: Major
 
@@ -589,6 +784,7 @@ Uses prefix matching: FK columns `(a, b)` are covered by index `(a, b)` or `(a, 
 ---
 
 ### PGM502 — Table without primary key
+{: #pgm502}
 
 **Severity**: Major
 
@@ -608,11 +804,12 @@ CREATE TABLE events (
 );
 ```
 
-Temporary tables are excluded. When [PGM503](#pgm503--unique-not-null-used-instead-of-primary-key) fires (UNIQUE NOT NULL substitute detected), PGM502 does not fire for the same table.
+Temporary tables are excluded. When [PGM503](#pgm503) fires (UNIQUE NOT NULL substitute detected), PGM502 does not fire for the same table.
 
 ---
 
 ### PGM503 — UNIQUE NOT NULL used instead of PRIMARY KEY
+{: #pgm503}
 
 **Severity**: Info
 
@@ -634,11 +831,12 @@ CREATE TABLE users (
 );
 ```
 
-When PGM503 fires, [PGM502](#pgm502--table-without-primary-key) does not fire for the same table.
+When PGM503 fires, [PGM502](#pgm502) does not fire for the same table.
 
 ---
 
 ### PGM504 — RENAME TABLE on existing table
+{: #pgm504}
 
 **Severity**: Info
 
@@ -661,6 +859,7 @@ Does not fire when a replacement table with the old name is created in the same 
 ---
 
 ### PGM505 — RENAME COLUMN on existing table
+{: #pgm505}
 
 **Severity**: Info
 
@@ -680,9 +879,29 @@ ALTER TABLE orders RENAME COLUMN status TO order_status;
 
 ---
 
+### PGM506 — CREATE UNLOGGED TABLE
+{: #pgm506}
+
+**Severity**: Info
+
+Detects `CREATE TABLE` with the `UNLOGGED` keyword. Unlogged tables skip the write-ahead log for better write performance, but data is **truncated after a crash** and the table is **not replicated** to standby servers.
+
+**Example** (flagged):
+```sql
+CREATE UNLOGGED TABLE scratch_data (id int, payload text);
+```
+
+**When unlogged tables are appropriate**:
+- Ephemeral staging/import data that can be re-derived.
+- Materialized caches where the source of truth lives elsewhere.
+- ETL scratch space within a batch job.
+
+---
+
 ## Meta-behavior Rules
 
 ### PGM901 — Down migration severity cap
+{: #pgm901}
 
 **Severity**: Info
 
@@ -703,33 +922,42 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 
 | Rule | Severity | Description |
 |------|----------|-------------|
-| PGM001 | Critical | Missing CONCURRENTLY on CREATE INDEX |
-| PGM002 | Critical | Missing CONCURRENTLY on DROP INDEX |
-| PGM003 | Critical | CONCURRENTLY inside transaction |
-| PGM006 | Minor | Volatile default on column |
-| PGM007 | Critical | ALTER COLUMN TYPE causes table rewrite |
-| PGM008 | Critical | ADD COLUMN NOT NULL without DEFAULT |
-| PGM009 | Info | DROP COLUMN on existing table |
-| PGM010 | Minor | DROP COLUMN silently removes unique constraint |
-| PGM011 | Major | DROP COLUMN silently removes primary key |
-| PGM012 | Minor | DROP COLUMN silently removes foreign key |
-| PGM013 | Critical | SET NOT NULL requires ACCESS EXCLUSIVE lock |
-| PGM014 | Critical | ADD FOREIGN KEY without NOT VALID |
-| PGM015 | Critical | ADD CHECK without NOT VALID |
-| PGM016 | Major | ADD PRIMARY KEY without USING INDEX |
-| PGM017 | Critical | ADD UNIQUE without USING INDEX |
-| PGM101 | Minor | Don't use timestamp without time zone |
-| PGM102 | Minor | Don't use timestamp(0) / timestamptz(0) |
-| PGM103 | Minor | Don't use char(n) |
-| PGM104 | Minor | Don't use money type |
-| PGM105 | Info | Don't use serial / bigserial |
-| PGM106 | Minor | Don't use json (prefer jsonb) |
-| PGM201 | Minor | DROP TABLE on existing table |
-| PGM401 | Minor | Missing IF EXISTS on DROP TABLE / DROP INDEX |
-| PGM402 | Minor | Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX |
-| PGM501 | Major | Foreign key without covering index |
-| PGM502 | Major | Table without primary key |
-| PGM503 | Info | UNIQUE NOT NULL used instead of PRIMARY KEY |
-| PGM504 | Info | RENAME TABLE on existing table |
-| PGM505 | Info | RENAME COLUMN on existing table |
-| PGM901 | Info | Down migration severity cap (meta-behavior) |
+| [PGM001](#pgm001) | Critical | Missing CONCURRENTLY on CREATE INDEX |
+| [PGM002](#pgm002) | Critical | Missing CONCURRENTLY on DROP INDEX |
+| [PGM003](#pgm003) | Critical | CONCURRENTLY inside transaction |
+| [PGM006](#pgm006) | Minor | Volatile default on column |
+| [PGM007](#pgm007) | Critical | ALTER COLUMN TYPE causes table rewrite |
+| [PGM008](#pgm008) | Critical | ADD COLUMN NOT NULL without DEFAULT |
+| [PGM009](#pgm009) | Info | DROP COLUMN on existing table |
+| [PGM010](#pgm010) | Minor | DROP COLUMN silently removes unique constraint |
+| [PGM011](#pgm011) | Major | DROP COLUMN silently removes primary key |
+| [PGM012](#pgm012) | Minor | DROP COLUMN silently removes foreign key |
+| [PGM013](#pgm013) | Critical | SET NOT NULL requires ACCESS EXCLUSIVE lock |
+| [PGM014](#pgm014) | Critical | ADD FOREIGN KEY without NOT VALID |
+| [PGM015](#pgm015) | Critical | ADD CHECK without NOT VALID |
+| [PGM016](#pgm016) | Major | ADD PRIMARY KEY without USING INDEX |
+| [PGM017](#pgm017) | Critical | ADD UNIQUE without USING INDEX |
+| [PGM018](#pgm018) | Critical | CLUSTER on existing table |
+| [PGM101](#pgm101) | Minor | Don't use timestamp without time zone |
+| [PGM102](#pgm102) | Minor | Don't use timestamp(0) / timestamptz(0) |
+| [PGM103](#pgm103) | Minor | Don't use char(n) |
+| [PGM104](#pgm104) | Minor | Don't use money type |
+| [PGM105](#pgm105) | Info | Don't use serial / bigserial |
+| [PGM106](#pgm106) | Minor | Don't use json (prefer jsonb) |
+| [PGM201](#pgm201) | Minor | DROP TABLE on existing table |
+| [PGM202](#pgm202) | Major | DROP TABLE CASCADE on existing table |
+| [PGM203](#pgm203) | Minor | TRUNCATE TABLE on existing table |
+| [PGM204](#pgm204) | Major | TRUNCATE TABLE CASCADE on existing table |
+| [PGM301](#pgm301) | Info | INSERT INTO existing table in migration |
+| [PGM302](#pgm302) | Minor | UPDATE on existing table in migration |
+| [PGM303](#pgm303) | Minor | DELETE FROM existing table in migration |
+| [PGM401](#pgm401) | Minor | Missing IF EXISTS on DROP TABLE / DROP INDEX |
+| [PGM402](#pgm402) | Minor | Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX |
+| [PGM403](#pgm403) | Minor | CREATE TABLE IF NOT EXISTS for already-existing table |
+| [PGM501](#pgm501) | Major | Foreign key without covering index |
+| [PGM502](#pgm502) | Major | Table without primary key |
+| [PGM503](#pgm503) | Info | UNIQUE NOT NULL used instead of PRIMARY KEY |
+| [PGM504](#pgm504) | Info | RENAME TABLE on existing table |
+| [PGM505](#pgm505) | Info | RENAME COLUMN on existing table |
+| [PGM506](#pgm506) | Info | CREATE UNLOGGED TABLE |
+| [PGM901](#pgm901) | Info | Down migration severity cap (meta-behavior) |
