@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.7.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.6.0...v2.7.0) (2026-02-20)
+
+
+### Features
+
+* **docs:** add GitHub Pages site and link SonarQube descriptions to docs ([1eb2458](https://github.com/robert-sjoblom/pg-migration-lint/commit/1eb2458753b9dcacbe618725b30bfabcb78508d9))
+
 ## [2.6.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.5.1...v2.6.0) (2026-02-19)
 
 
