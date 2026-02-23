@@ -108,6 +108,8 @@ pub struct CreateIndex {
     pub unique: bool,
     pub concurrent: bool,
     pub if_not_exists: bool,
+    /// Deparsed WHERE clause for partial indexes, e.g. `"active = true"`.
+    pub where_clause: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -338,10 +340,16 @@ pub enum TableConstraint {
     },
 }
 
+/// An element in an index's column list.
+///
+/// Most indexes reference plain column names, but expression indexes
+/// (e.g. `CREATE INDEX idx ON t (LOWER(email))`) store the deparsed SQL text.
 #[derive(Debug, Clone, PartialEq)]
-pub struct IndexColumn {
-    pub name: String,
-    // Future: ASC/DESC, NULLS FIRST/LAST, opclass. Not needed for v1.
+pub enum IndexColumn {
+    /// Simple column reference by name.
+    Column(String),
+    /// Expression index element, stored as deparsed SQL text.
+    Expression(String),
 }
 
 /// A parsed statement with its source location.
@@ -454,7 +462,7 @@ impl CreateTable {
 
 #[cfg(test)]
 impl CreateIndex {
-    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS.
+    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE.
     pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
         Self {
             index_name: index_name.into(),
@@ -463,7 +471,13 @@ impl CreateIndex {
             unique: false,
             concurrent: false,
             if_not_exists: false,
+            where_clause: None,
         }
+    }
+
+    pub fn with_where_clause(mut self, clause: impl Into<String>) -> Self {
+        self.where_clause = Some(clause.into());
+        self
     }
 
     pub fn with_columns(mut self, columns: Vec<IndexColumn>) -> Self {

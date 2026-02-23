@@ -82,14 +82,11 @@ pub(super) fn check(
                             // Check nullability using the INDEX's columns (constraint
                             // columns are empty with USING INDEX).
                             if let Some(table) = ctx.catalog_before.get_table(table_key) {
-                                let nullable_cols: Vec<&String> = idx
-                                    .columns
-                                    .iter()
+                                let nullable_cols: Vec<&str> = idx
+                                    .column_names()
                                     .filter(|c| table.get_column(c).is_some_and(|col| col.nullable))
                                     .collect();
                                 if !nullable_cols.is_empty() {
-                                    let cols_str: Vec<&str> =
-                                        nullable_cols.iter().map(|s| s.as_str()).collect();
                                     format!(
                                         "ADD PRIMARY KEY USING INDEX '{idx_name}' on table \
                                          '{table}': column(s) [{cols}] are nullable. PostgreSQL \
@@ -97,7 +94,7 @@ pub(super) fn check(
                                          lock. Run ALTER COLUMN ... SET NOT NULL with a CHECK \
                                          constraint first.",
                                         table = at.name.display_name(),
-                                        cols = cols_str.join(", "),
+                                        cols = nullable_cols.join(", "),
                                     )
                                 } else {
                                     return vec![]; // safe

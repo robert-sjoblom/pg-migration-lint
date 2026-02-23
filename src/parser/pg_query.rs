@@ -629,17 +629,21 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         .iter()
         .filter_map(|p| match p.node.as_ref() {
             Some(NodeEnum::IndexElem(elem)) => {
-                if elem.name.is_empty() {
-                    None
+                if !elem.name.is_empty() {
+                    // Simple column reference.
+                    Some(IndexColumn::Column(elem.name.clone()))
                 } else {
-                    Some(IndexColumn {
-                        name: elem.name.clone(),
-                    })
+                    // Expression index element — deparse the expression.
+                    elem.expr
+                        .as_ref()
+                        .map(|expr_node| IndexColumn::Expression(deparse_node(expr_node)))
                 }
             }
             _ => None,
         })
         .collect();
+
+    let where_clause = idx.where_clause.as_ref().map(|node| deparse_node(node));
 
     IrNode::CreateIndex(CreateIndex {
         index_name,
@@ -648,6 +652,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         unique: idx.unique,
         concurrent: idx.concurrent,
         if_not_exists: idx.if_not_exists,
+        where_clause,
     })
 }
 
@@ -1413,10 +1418,11 @@ mod tests {
                 assert_eq!(ci.index_name, Some("idx_status".to_string()));
                 assert_eq!(ci.table_name, QualifiedName::unqualified("orders"));
                 assert_eq!(ci.columns.len(), 1);
-                assert_eq!(ci.columns[0].name, "status");
+                assert_eq!(ci.columns[0], IndexColumn::Column("status".to_string()));
                 assert!(!ci.unique);
                 assert!(!ci.concurrent);
                 assert!(!ci.if_not_exists);
+                assert!(ci.where_clause.is_none());
             }
             other => panic!("Expected CreateIndex, got: {:?}", other),
         }
@@ -1455,8 +1461,11 @@ mod tests {
         match &nodes[0].node {
             IrNode::CreateIndex(ci) => {
                 assert_eq!(ci.columns.len(), 2);
-                assert_eq!(ci.columns[0].name, "customer_id");
-                assert_eq!(ci.columns[1].name, "status");
+                assert_eq!(
+                    ci.columns[0],
+                    IndexColumn::Column("customer_id".to_string())
+                );
+                assert_eq!(ci.columns[1], IndexColumn::Column("status".to_string()));
             }
             other => panic!("Expected CreateIndex, got: {:?}", other),
         }
@@ -3068,6 +3077,87 @@ mod tests {
                 assert_eq!(c.index.as_deref(), Some("idx_orders_id"));
             }
             other => panic!("Expected Cluster, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests: Partial and expression indexes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_expression_index() {
+        let sql = "CREATE INDEX idx_email_lower ON users (LOWER(email));";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert_eq!(ci.columns.len(), 1);
+                assert!(
+                    matches!(&ci.columns[0], IndexColumn::Expression(expr) if expr == "lower(email)"),
+                    "Expected Expression(lower(email)), got: {:?}",
+                    ci.columns[0]
+                );
+                assert!(ci.where_clause.is_none());
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_column_expression_index() {
+        let sql = "CREATE INDEX idx_tenant_email ON users (tenant_id, LOWER(email));";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert_eq!(ci.columns.len(), 2);
+                assert_eq!(ci.columns[0], IndexColumn::Column("tenant_id".to_string()));
+                assert!(
+                    matches!(&ci.columns[1], IndexColumn::Expression(expr) if expr == "lower(email)"),
+                    "Expected Expression(lower(email)), got: {:?}",
+                    ci.columns[1]
+                );
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_partial_index_where_clause() {
+        let sql = "CREATE INDEX idx_status ON orders (status) WHERE active = true;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert_eq!(ci.columns.len(), 1);
+                assert_eq!(ci.columns[0], IndexColumn::Column("status".to_string()));
+                assert!(ci.where_clause.is_some(), "Should have a WHERE clause");
+                let wc = ci.where_clause.as_deref().unwrap();
+                assert!(
+                    wc.contains("active") && wc.contains("true"),
+                    "WHERE clause should contain 'active' and 'true', got: {}",
+                    wc
+                );
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_partial_unique_index() {
+        let sql = "CREATE UNIQUE INDEX idx_email ON users (email) WHERE deleted_at IS NULL;";
+        let nodes = parse_sql(sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert!(ci.unique);
+                assert_eq!(ci.columns.len(), 1);
+                assert_eq!(ci.columns[0], IndexColumn::Column("email".to_string()));
+                assert!(ci.where_clause.is_some(), "Should have a WHERE clause");
+                let wc = ci.where_clause.as_deref().unwrap();
+                assert!(
+                    wc.contains("deleted_at") && wc.contains("IS NULL"),
+                    "WHERE clause should contain 'deleted_at' and 'IS NULL', got: {}",
+                    wc
+                );
+            }
+            other => panic!("Expected CreateIndex, got: {:?}", other),
         }
     }
 }

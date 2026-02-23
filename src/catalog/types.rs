@@ -3,7 +3,7 @@
 //! The catalog represents the database schema state at a point in migration history.
 //! It's built by replaying migrations in order.
 
-use crate::parser::ir::{DefaultExpr, TypeName};
+use crate::parser::ir::{DefaultExpr, IndexColumn, TypeName};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
@@ -107,9 +107,12 @@ impl TableState {
 
     pub fn remove_column(&mut self, name: &str) {
         self.columns.retain(|c| c.name != name);
-        // Also remove indexes that reference this column
+        // Remove indexes that reference this column as a plain column entry.
+        // Note: expression indexes that reference the column (e.g. `lower(email)`)
+        // are NOT detected here because expression text is opaque. PostgreSQL would
+        // drop such indexes, but our catalog retains them — a known limitation.
         self.indexes
-            .retain(|idx| !idx.columns.iter().any(|c| c == name));
+            .retain(|idx| !idx.column_names().any(|c| c == name));
 
         // Remove constraints referencing the dropped column.
         // PostgreSQL drops the entire constraint, not just the column from it.
@@ -129,17 +132,32 @@ impl TableState {
 
     /// Check if any index on this table covers the given columns as a prefix.
     /// Column order matters: [a, b] is covered by [a, b, c] but not [b, a].
+    ///
+    /// Partial indexes are skipped entirely — they cannot satisfy FK coverage
+    /// because they only index a subset of rows. An expression entry at
+    /// position N stops prefix matching, since expressions cannot match an
+    /// FK column name (e.g. FK `(a, b)` is NOT covered by index `(a, lower(b))`).
     pub fn has_covering_index(&self, fk_columns: &[String]) -> bool {
         self.indexes.iter().any(|idx| {
-            idx.columns.len() >= fk_columns.len()
-                && idx.columns.iter().zip(fk_columns).all(|(ic, fc)| ic == fc)
+            if idx.is_partial() {
+                return false;
+            }
+            idx.entries.len() >= fk_columns.len()
+                && idx
+                    .entries
+                    .iter()
+                    .zip(fk_columns)
+                    .all(|(entry, fc)| matches!(entry, IndexEntry::Column(name) if name == fc))
         })
     }
 
-    /// Check if this table has a UNIQUE constraint where all columns are NOT NULL.
-    /// Used for PGM005 (UNIQUE NOT NULL substitute for PK).
+    /// Check if this table has a UNIQUE constraint or unique index where all
+    /// columns are NOT NULL. Used for PGM503 (UNIQUE NOT NULL substitute for PK).
+    ///
+    /// Partial indexes and expression indexes are excluded — they cannot serve
+    /// as a PK substitute.
     pub fn has_unique_not_null(&self) -> bool {
-        self.constraints.iter().any(|c| {
+        let constraint_match = self.constraints.iter().any(|c| {
             if let ConstraintState::Unique { columns, .. } = c {
                 columns.iter().all(|col_name| {
                     self.get_column(col_name)
@@ -149,6 +167,19 @@ impl TableState {
             } else {
                 false
             }
+        });
+        if constraint_match {
+            return true;
+        }
+        self.indexes.iter().any(|idx| {
+            idx.unique
+                && !idx.is_partial()
+                && !idx.has_expressions()
+                && idx.column_names().all(|col_name| {
+                    self.get_column(col_name)
+                        .map(|col| !col.nullable)
+                        .unwrap_or(false)
+                })
         })
     }
 
@@ -160,11 +191,14 @@ impl TableState {
             .collect()
     }
 
-    /// Returns all indexes whose column list includes the given column.
+    /// Returns all indexes whose plain column entries include the given column.
+    ///
+    /// Expression entries (e.g. `lower(col)`) are not inspected — the column
+    /// reference inside expression text is opaque.
     pub fn indexes_involving_column(&self, col: &str) -> Vec<&IndexState> {
         self.indexes
             .iter()
-            .filter(|idx| idx.columns.iter().any(|c| c == col))
+            .filter(|idx| idx.column_names().any(|c| c == col))
             .collect()
     }
 }
@@ -178,12 +212,62 @@ pub struct ColumnState {
     pub default_expr: Option<DefaultExpr>, // Reuses the IR type
 }
 
+/// An element in an index, mirroring [`crate::parser::ir::IndexColumn`]
+/// at the catalog level.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IndexEntry {
+    /// Plain column reference.
+    Column(String),
+    /// Expression index element (deparsed SQL text).
+    Expression(String),
+}
+
+impl IndexEntry {
+    /// Returns the column name if this is a plain column, or `None` for expressions.
+    pub fn column_name(&self) -> Option<&str> {
+        match self {
+            Self::Column(n) => Some(n),
+            Self::Expression(_) => None,
+        }
+    }
+}
+
+impl From<&IndexColumn> for IndexEntry {
+    fn from(ic: &IndexColumn) -> Self {
+        match ic {
+            IndexColumn::Column(name) => Self::Column(name.clone()),
+            IndexColumn::Expression(expr) => Self::Expression(expr.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IndexState {
     pub name: String,
-    /// Column names in index order. Order matters for prefix matching.
-    pub columns: Vec<String>,
+    /// Index entries in definition order. Order matters for prefix matching.
+    pub entries: Vec<IndexEntry>,
     pub unique: bool,
+    /// Deparsed WHERE clause for partial indexes (e.g. `"active = true"`).
+    pub where_clause: Option<String>,
+}
+
+impl IndexState {
+    /// Iterator over plain column names, skipping expression entries.
+    pub fn column_names(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().filter_map(|e| e.column_name())
+    }
+
+    /// True if any entry is an expression (not a plain column).
+    pub fn has_expressions(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|e| matches!(e, IndexEntry::Expression(_)))
+    }
+
+    /// True if this is a partial index (has a WHERE clause).
+    pub fn is_partial(&self) -> bool {
+        self.where_clause.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]

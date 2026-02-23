@@ -98,9 +98,7 @@ mod tests {
                 Some("idx_orders_status".to_string()),
                 QualifiedName::unqualified("orders"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "status".to_string(),
-            }]),
+            .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
@@ -124,9 +122,7 @@ mod tests {
                 Some("idx_orders_status".to_string()),
                 QualifiedName::unqualified("orders"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "status".to_string(),
-            }])
+            .with_columns(vec![IndexColumn::Column("status".to_string())])
             .with_concurrent(true),
         ))];
 
@@ -152,9 +148,7 @@ mod tests {
                 Some("idx_orders_status".to_string()),
                 QualifiedName::unqualified("orders"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "status".to_string(),
-            }]),
+            .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);

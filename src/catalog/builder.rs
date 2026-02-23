@@ -21,7 +21,9 @@
 //!     .build();
 //! ```
 
-use crate::catalog::types::{Catalog, ColumnState, ConstraintState, IndexState, TableState};
+use crate::catalog::types::{
+    Catalog, ColumnState, ConstraintState, IndexEntry, IndexState, TableState,
+};
 use crate::parser::ir::{DefaultExpr, TypeName};
 
 /// Builder for constructing a Catalog in tests
@@ -110,8 +112,60 @@ impl TableBuilder {
     pub fn index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self {
         self.state.indexes.push(IndexState {
             name: name.to_string(),
-            columns: columns.iter().map(|s| s.to_string()).collect(),
+            entries: columns
+                .iter()
+                .map(|s| IndexEntry::Column(s.to_string()))
+                .collect(),
             unique,
+            where_clause: None,
+        });
+        self
+    }
+
+    /// Add a partial index (with a WHERE clause).
+    pub fn partial_index(
+        &mut self,
+        name: &str,
+        columns: &[&str],
+        unique: bool,
+        where_clause: &str,
+    ) -> &mut Self {
+        self.state.indexes.push(IndexState {
+            name: name.to_string(),
+            entries: columns
+                .iter()
+                .map(|s| IndexEntry::Column(s.to_string()))
+                .collect(),
+            unique,
+            where_clause: Some(where_clause.to_string()),
+        });
+        self
+    }
+
+    /// Add an expression index.
+    ///
+    /// Entries prefixed with `"expr:"` are treated as expressions; all others
+    /// are plain column names. Example: `&["tenant_id", "expr:lower(email)"]`.
+    pub fn expression_index(
+        &mut self,
+        name: &str,
+        entries_spec: &[&str],
+        unique: bool,
+    ) -> &mut Self {
+        self.state.indexes.push(IndexState {
+            name: name.to_string(),
+            entries: entries_spec
+                .iter()
+                .map(|s| {
+                    if let Some(expr) = s.strip_prefix("expr:") {
+                        IndexEntry::Expression(expr.to_string())
+                    } else {
+                        IndexEntry::Column(s.to_string())
+                    }
+                })
+                .collect(),
+            unique,
+            where_clause: None,
         });
         self
     }
@@ -243,5 +297,118 @@ mod tests {
 
         let users = catalog.get_table("users").unwrap();
         assert!(users.has_unique_not_null());
+    }
+
+    #[test]
+    fn test_has_unique_not_null_via_index() {
+        let catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false)
+                    .index("idx_email_unique", &["email"], true);
+            })
+            .build();
+
+        let users = catalog.get_table("users").unwrap();
+        assert!(users.has_unique_not_null());
+    }
+
+    #[test]
+    fn test_has_covering_index_skips_partial_index() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("status", "text", false).partial_index(
+                    "idx_status_active",
+                    &["status"],
+                    false,
+                    "active = true",
+                );
+            })
+            .build();
+        let orders = catalog.get_table("orders").unwrap();
+        assert!(
+            !orders.has_covering_index(&["status".to_string()]),
+            "Partial index should NOT satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_has_covering_index_skips_expression_prefix() {
+        let catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false).expression_index(
+                    "idx_email_lower",
+                    &["expr:lower(email)"],
+                    false,
+                );
+            })
+            .build();
+        let users = catalog.get_table("users").unwrap();
+        assert!(
+            !users.has_covering_index(&["email".to_string()]),
+            "Expression index should NOT satisfy FK coverage for column 'email'"
+        );
+    }
+
+    #[test]
+    fn test_has_covering_index_column_before_expression_prefix_matches() {
+        let catalog = CatalogBuilder::new()
+            .table("items", |t| {
+                t.column("tenant_id", "integer", false)
+                    .column("email", "text", false)
+                    .expression_index(
+                        "idx_tenant_email",
+                        &["tenant_id", "expr:lower(email)"],
+                        false,
+                    );
+            })
+            .build();
+        let items = catalog.get_table("items").unwrap();
+        // FK (tenant_id) is covered by index (tenant_id, lower(email)) — first entry is a plain column match.
+        assert!(
+            items.has_covering_index(&["tenant_id".to_string()]),
+            "FK (tenant_id) should be covered by index (tenant_id, lower(email))"
+        );
+        // FK (tenant_id, email) is NOT covered — second entry is an expression, not a column.
+        assert!(
+            !items.has_covering_index(&["tenant_id".to_string(), "email".to_string()]),
+            "FK (tenant_id, email) should NOT be covered by index (tenant_id, lower(email))"
+        );
+    }
+
+    #[test]
+    fn test_has_unique_not_null_skips_partial() {
+        let catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false).partial_index(
+                    "idx_email_active",
+                    &["email"],
+                    true,
+                    "deleted_at IS NULL",
+                );
+            })
+            .build();
+        let users = catalog.get_table("users").unwrap();
+        assert!(
+            !users.has_unique_not_null(),
+            "Partial unique index should NOT count as PK substitute"
+        );
+    }
+
+    #[test]
+    fn test_has_unique_not_null_skips_expression_index() {
+        let catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false).expression_index(
+                    "idx_email_lower",
+                    &["expr:lower(email)"],
+                    true,
+                );
+            })
+            .build();
+        let users = catalog.get_table("users").unwrap();
+        assert!(
+            !users.has_unique_not_null(),
+            "Expression unique index should NOT count as PK substitute"
+        );
     }
 }
