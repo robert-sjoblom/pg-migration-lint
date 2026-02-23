@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.8.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.7.0...v2.8.0) (2026-02-23)
+
+
+### Features
+
+* **catalog:** track partial and expression indexes in index pipeline ([dd89ce0](https://github.com/robert-sjoblom/pg-migration-lint/commit/dd89ce05532e766f0b016f1e4a0b73e32027b32b))
+
 ## [2.7.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.6.0...v2.7.0) (2026-02-20)
 
 
