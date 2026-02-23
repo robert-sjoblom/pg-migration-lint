@@ -93,9 +93,7 @@ mod tests {
                 Some("idx_foo".to_string()),
                 QualifiedName::unqualified("bar"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "col".to_string(),
-            }])
+            .with_columns(vec![IndexColumn::Column("col".to_string())])
             .with_concurrent(true),
         ))];
 
@@ -116,9 +114,7 @@ mod tests {
                 Some("idx_foo".to_string()),
                 QualifiedName::unqualified("bar"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "col".to_string(),
-            }])
+            .with_columns(vec![IndexColumn::Column("col".to_string())])
             .with_concurrent(true),
         ))];
 
@@ -139,9 +135,7 @@ mod tests {
                 Some("idx_foo".to_string()),
                 QualifiedName::unqualified("bar"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "col".to_string(),
-            }]),
+            .with_columns(vec![IndexColumn::Column("col".to_string())]),
         ))];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm003).check(&stmts, &ctx);

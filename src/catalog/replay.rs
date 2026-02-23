@@ -145,7 +145,7 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                 AlterTableAction::DropColumn { name } => {
                     // Collect index names that will be removed by the column drop.
                     for idx in &table.indexes {
-                        if idx.columns.iter().any(|c| c == name) {
+                        if idx.column_names().any(|c| c == name) {
                             indexes_to_unregister.push(idx.name.clone());
                         }
                     }
@@ -223,12 +223,13 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
         return;
     };
 
-    let columns: Vec<String> = ci.columns.iter().map(|ic| ic.name.clone()).collect();
+    let entries: Vec<IndexEntry> = ci.columns.iter().map(IndexEntry::from).collect();
 
     table.indexes.push(IndexState {
         name: index_name.clone(),
-        columns,
+        entries,
         unique: ci.unique,
+        where_clause: ci.where_clause.clone(),
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
@@ -296,9 +297,14 @@ fn apply_rename_column(
     }
 
     // Update indexes that reference the old column name.
+    // Expression entries are left as-is (they contain deparsed SQL, not column names).
+    // In PostgreSQL, expression text is updated internally on rename, so our catalog's
+    // expression text may be stale after a rename — a known simplification.
     for idx in &mut table.indexes {
-        for col in &mut idx.columns {
-            if *col == old_name {
+        for entry in &mut idx.entries {
+            if let IndexEntry::Column(col) = entry
+                && *col == old_name
+            {
                 *col = new_name.to_string();
             }
         }
@@ -371,6 +377,9 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             table.has_primary_key = true;
             // When USING INDEX is set, IR columns are empty — resolve from the
             // referenced index so downstream rules (e.g. PGM014) see the real columns.
+            // Expression entries are intentionally excluded (column_names() skips them)
+            // since PK constraints reference plain columns; in practice PostgreSQL
+            // rejects ADD PRIMARY KEY USING INDEX on expression indexes.
             let resolved_columns = if columns.is_empty() {
                 using_index
                     .as_ref()
@@ -379,7 +388,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                             .indexes
                             .iter()
                             .find(|idx| idx.name == *idx_name)
-                            .map(|idx| idx.columns.clone())
+                            .map(|idx| idx.column_names().map(str::to_string).collect())
                     })
                     .unwrap_or_default()
             } else {
@@ -393,8 +402,12 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             if using_index.is_none() {
                 table.indexes.push(IndexState {
                     name: format!("{}_pkey", table.name),
-                    columns: columns.clone(),
+                    entries: columns
+                        .iter()
+                        .map(|c| IndexEntry::Column(c.clone()))
+                        .collect(),
                     unique: true,
+                    where_clause: None,
                 });
             }
         }
@@ -429,7 +442,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                             .indexes
                             .iter()
                             .find(|idx| idx.name == *idx_name)
-                            .map(|idx| idx.columns.clone())
+                            .map(|idx| idx.column_names().map(str::to_string).collect())
                     })
                     .unwrap_or_default()
             } else {
@@ -512,9 +525,7 @@ mod tests {
                 .with_columns(vec![col_pk("id", "integer")])
                 .into(),
             CreateIndex::test(Some("idx_id".to_string()), qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "id".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("id".to_string())])
                 .into(),
             DropTable::test(qname("t")).with_if_exists(false).into(),
         ]);
@@ -552,9 +563,7 @@ mod tests {
             }
             .into(),
             CreateIndex::test(Some("idx_name".to_string()), qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "name".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("name".to_string())])
                 .into(),
         ]);
 
@@ -566,7 +575,10 @@ mod tests {
         assert_eq!(table.columns[1].name, "name");
         assert_eq!(table.indexes.len(), 1, "Should have 1 index");
         assert_eq!(table.indexes[0].name, "idx_name");
-        assert_eq!(table.indexes[0].columns, vec!["name".to_string()]);
+        assert_eq!(
+            table.indexes[0].column_names().collect::<Vec<_>>(),
+            vec!["name"]
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -657,9 +669,7 @@ mod tests {
                 .with_columns(vec![col("a", "integer", false)])
                 .into(),
             CreateIndex::test(Some("idx_a".to_string()), qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "a".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("a".to_string())])
                 .into(),
             DropIndex::test("idx_a").with_if_exists(false).into(),
         ]);
@@ -719,12 +729,8 @@ mod tests {
                 .into(),
             CreateIndex::test(Some("idx_ab".to_string()), qname("t"))
                 .with_columns(vec![
-                    IndexColumn {
-                        name: "a".to_string(),
-                    },
-                    IndexColumn {
-                        name: "b".to_string(),
-                    },
+                    IndexColumn::Column("a".to_string()),
+                    IndexColumn::Column("b".to_string()),
                 ])
                 .into(),
             AlterTable {
@@ -794,15 +800,9 @@ mod tests {
                 .into(),
             CreateIndex::test(Some("idx_abc".to_string()), qname("t"))
                 .with_columns(vec![
-                    IndexColumn {
-                        name: "a".to_string(),
-                    },
-                    IndexColumn {
-                        name: "b".to_string(),
-                    },
-                    IndexColumn {
-                        name: "c".to_string(),
-                    },
+                    IndexColumn::Column("a".to_string()),
+                    IndexColumn::Column("b".to_string()),
+                    IndexColumn::Column("c".to_string()),
                 ])
                 .into(),
         ]);
@@ -812,8 +812,8 @@ mod tests {
         let table = catalog.get_table("t").expect("table should exist");
         assert_eq!(table.indexes.len(), 1);
         assert_eq!(
-            table.indexes[0].columns,
-            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+            table.indexes[0].column_names().collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
         );
     }
 
@@ -999,9 +999,7 @@ mod tests {
 
         let unit = make_unit(vec![
             CreateIndex::test(Some("idx_x".to_string()), qname("nonexistent"))
-                .with_columns(vec![IndexColumn {
-                    name: "x".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("x".to_string())])
                 .into(),
         ]);
 
@@ -1023,9 +1021,7 @@ mod tests {
                 .with_columns(vec![col("a", "integer", false)])
                 .into(),
             CreateIndex::test(Some("idx_a".to_string()), qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "a".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("a".to_string())])
                 .into(),
             DropIndex::test("idx_nonexistent")
                 .with_if_exists(false)
@@ -1125,9 +1121,7 @@ mod tests {
                 .with_columns(vec![col("email", "text", false)])
                 .into(),
             CreateIndex::test(Some("idx_email_unique".to_string()), qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "email".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("email".to_string())])
                 .with_unique(true)
                 .into(),
         ]);
@@ -1213,9 +1207,7 @@ mod tests {
         // Unit 3: Add index
         let unit3 = make_unit(vec![
             CreateIndex::test(Some("idx_users_name".to_string()), qname("users"))
-                .with_columns(vec![IndexColumn {
-                    name: "name".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("name".to_string())])
                 .with_concurrent(true)
                 .into(),
         ]);
@@ -1314,9 +1306,7 @@ mod tests {
                 .with_columns(vec![col("a", "integer", false)])
                 .into(),
             CreateIndex::test(None, qname("t"))
-                .with_columns(vec![IndexColumn {
-                    name: "a".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("a".to_string())])
                 .into(),
         ]);
 
@@ -1698,8 +1688,8 @@ mod tests {
 
         // Index should reference the new column name
         assert_eq!(
-            table.indexes[0].columns,
-            vec!["order_status".to_string()],
+            table.indexes[0].column_names().collect::<Vec<_>>(),
+            vec!["order_status"],
             "Index should reference the new column name"
         );
     }
@@ -1922,9 +1912,7 @@ mod tests {
                 .with_columns(vec![col("id", "integer", false), col("name", "text", true)])
                 .into(),
             CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
-                .with_columns(vec![IndexColumn {
-                    name: "name".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("name".to_string())])
                 .into(),
         ]);
         apply(&mut catalog, &unit1);
@@ -1984,9 +1972,7 @@ mod tests {
                 .with_columns(vec![col("id", "integer", false), col("name", "text", true)])
                 .into(),
             CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
-                .with_columns(vec![IndexColumn {
-                    name: "name".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("name".to_string())])
                 .into(),
         ]);
         apply(&mut catalog, &unit1);
@@ -1999,9 +1985,7 @@ mod tests {
         // Should be a no-op.
         let unit2 = make_unit(vec![
             CreateIndex::test(Some("idx_orders_name".to_string()), qname("orders"))
-                .with_columns(vec![IndexColumn {
-                    name: "id".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("id".to_string())])
                 .with_unique(true)
                 .with_if_not_exists(true)
                 .into(),
@@ -2013,8 +1997,8 @@ mod tests {
             .expect("table should still exist");
         assert_eq!(after.indexes.len(), 1, "Should still have 1 index");
         assert_eq!(
-            after.indexes[0].columns,
-            vec!["name".to_string()],
+            after.indexes[0].column_names().collect::<Vec<_>>(),
+            vec!["name"],
             "Original index columns should be preserved"
         );
         assert!(
@@ -2032,9 +2016,7 @@ mod tests {
                 .with_columns(vec![col("id", "integer", false)])
                 .into(),
             CreateIndex::test(Some("idx_orders_id".to_string()), qname("orders"))
-                .with_columns(vec![IndexColumn {
-                    name: "id".to_string(),
-                }])
+                .with_columns(vec![IndexColumn::Column("id".to_string())])
                 .with_if_not_exists(true)
                 .into(),
         ]);
@@ -2080,5 +2062,132 @@ mod tests {
             }
             other => panic!("Expected PrimaryKey, got {:?}", other),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests: Partial and expression indexes in catalog replay
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_partial_index_stored_in_catalog() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("orders"))
+                .with_columns(vec![
+                    col("status", "text", false),
+                    col("active", "boolean", false),
+                ])
+                .into(),
+            CreateIndex::test(Some("idx_status_active".to_string()), qname("orders"))
+                .with_columns(vec![IndexColumn::Column("status".to_string())])
+                .with_where_clause("(active = true)")
+                .into(),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("orders").expect("table should exist");
+        assert_eq!(table.indexes.len(), 1);
+        let idx = &table.indexes[0];
+        assert_eq!(idx.name, "idx_status_active");
+        assert!(idx.is_partial(), "Index should be partial");
+        assert_eq!(idx.where_clause.as_deref(), Some("(active = true)"));
+        assert_eq!(idx.column_names().collect::<Vec<_>>(), vec!["status"]);
+    }
+
+    #[test]
+    fn test_create_expression_index_stored_in_catalog() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("users"))
+                .with_columns(vec![col("email", "text", false)])
+                .into(),
+            CreateIndex::test(Some("idx_email_lower".to_string()), qname("users"))
+                .with_columns(vec![IndexColumn::Expression("lower(email)".to_string())])
+                .into(),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("users").expect("table should exist");
+        assert_eq!(table.indexes.len(), 1);
+        let idx = &table.indexes[0];
+        assert_eq!(idx.name, "idx_email_lower");
+        assert!(!idx.is_partial(), "Index should not be partial");
+        assert!(idx.has_expressions(), "Index should have expressions");
+        assert_eq!(idx.column_names().count(), 0, "No plain column names");
+    }
+
+    #[test]
+    fn test_rename_column_updates_index_entries() {
+        let mut catalog = CatalogBuilder::new()
+            .table("public.orders", |t| {
+                t.column("status", "text", true)
+                    .column("active", "boolean", false)
+                    .expression_index("idx_mixed", &["status", "expr:lower(active::text)"], false);
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::qualified("public", "orders"),
+            old_name: "status".to_string(),
+            new_name: "order_status".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.orders")
+            .expect("table should exist");
+        let idx = &table.indexes[0];
+        // Column entry should be renamed; expression entry should be unchanged.
+        assert_eq!(
+            idx.entries,
+            vec![
+                IndexEntry::Column("order_status".to_string()),
+                IndexEntry::Expression("lower(active::text)".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_drop_column_retains_expression_index_referencing_column() {
+        // Known limitation: dropping a column does not remove expression indexes
+        // that reference it (e.g. `lower(email)`), because expression text is opaque.
+        // PostgreSQL would drop such indexes, but our catalog retains them.
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("users"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("email", "text", false),
+                ])
+                .into(),
+            CreateIndex::test(Some("idx_email_lower".to_string()), qname("users"))
+                .with_columns(vec![IndexColumn::Expression("lower(email)".to_string())])
+                .into(),
+            AlterTable {
+                name: qname("users"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "email".to_string(),
+                }],
+            }
+            .into(),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("users").expect("table should exist");
+        assert_eq!(table.columns.len(), 1, "Only 'id' should remain");
+        // Expression index is retained because column_names() doesn't see "email"
+        // inside the expression text "lower(email)".
+        assert_eq!(
+            table.indexes.len(),
+            1,
+            "Expression index is retained (known limitation: expression text is opaque)"
+        );
     }
 }

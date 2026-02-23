@@ -190,6 +190,29 @@ mod tests {
     }
 
     #[test]
+    fn test_unique_index_not_null_suppresses_pgm502() {
+        let before = Catalog::new();
+        // Table has unique index on NOT NULL column but no PK — PGM503 fires, PGM502 should not.
+        let after = CatalogBuilder::new()
+            .table("events", |t| {
+                t.column("email", "text", false)
+                    .index("idx_email_unique", &["email"], true);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
     fn test_unique_not_null_suppresses_pgm004() {
         let before = Catalog::new();
         // Table has UNIQUE NOT NULL but no PK — PGM503 fires, PGM502 should not.
@@ -215,5 +238,37 @@ mod tests {
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_partial_unique_index_does_not_suppress_pgm502() {
+        let before = Catalog::new();
+        // Table has a partial unique index on NOT NULL column — should NOT suppress PGM502
+        // because partial indexes don't count as PK substitutes.
+        let after = CatalogBuilder::new()
+            .table("events", |t| {
+                t.column("email", "text", false).partial_index(
+                    "idx_email_unique",
+                    &["email"],
+                    true,
+                    "deleted_at IS NULL",
+                );
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Partial unique index should NOT suppress PGM502"
+        );
     }
 }

@@ -233,9 +233,7 @@ mod tests {
                 Some("idx_orders_status".to_string()),
                 QualifiedName::unqualified("orders"),
             )
-            .with_columns(vec![IndexColumn {
-                name: "status".to_string(),
-            }])
+            .with_columns(vec![IndexColumn::Column("status".to_string())])
             .into(),
         ])];
 

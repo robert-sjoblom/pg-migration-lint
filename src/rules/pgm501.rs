@@ -294,4 +294,77 @@ mod tests {
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
+
+    #[test]
+    fn test_fk_with_partial_index_fires() {
+        let before = Catalog::new();
+        // After: child has FK and a partial index covering the FK columns,
+        // but partial indexes don't count for FK coverage.
+        let after = CatalogBuilder::new()
+            .table("child", |t| {
+                t.column("pid", "integer", false)
+                    .fk("fk_parent", &["pid"], "parent", &["id"])
+                    .partial_index("idx_pid_active", &["pid"], false, "active = true");
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("child"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_parent".to_string()),
+                    columns: vec!["pid".to_string()],
+                    ref_table: QualifiedName::unqualified("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Partial index should not satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_fk_with_expression_index_fires() {
+        let before = Catalog::new();
+        // After: child has FK on (pid) but index is on (lower(pid::text)) — expression
+        let after = CatalogBuilder::new()
+            .table("child", |t| {
+                t.column("pid", "integer", false)
+                    .fk("fk_parent", &["pid"], "parent", &["id"])
+                    .expression_index("idx_pid_expr", &["expr:lower(pid::text)"], false);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("child"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_parent".to_string()),
+                    columns: vec!["pid".to_string()],
+                    ref_table: QualifiedName::unqualified("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Expression index should not satisfy FK coverage"
+        );
+    }
 }

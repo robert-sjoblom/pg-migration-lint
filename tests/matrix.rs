@@ -145,12 +145,11 @@ fn test_matrix_create_index_concurrent_in_transaction() {
     let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
         index_name: Some("idx_orders_status".to_string()),
         table_name: QualifiedName::unqualified("orders"),
-        columns: vec![IndexColumn {
-            name: "status".to_string(),
-        }],
+        columns: vec![IndexColumn::Column("status".to_string())],
         unique: false,
         concurrent: true,
         if_not_exists: false,
+        where_clause: None,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
@@ -175,12 +174,11 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
     let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
         index_name: Some("idx_orders_status".to_string()),
         table_name: QualifiedName::unqualified("orders"),
-        columns: vec![IndexColumn {
-            name: "status".to_string(),
-        }],
+        columns: vec![IndexColumn::Column("status".to_string())],
         unique: false,
         concurrent: false,
         if_not_exists: false,
+        where_clause: None,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);

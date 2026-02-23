@@ -124,6 +124,31 @@ mod tests {
     }
 
     #[test]
+    fn test_unique_index_not_null_no_pk_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false)
+                    .column("name", "text", true)
+                    .index("idx_email_unique", &["email"], true);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
+                ColumnDef::test("email", "text").with_nullable(false),
+                ColumnDef::test("name", "text"),
+            ]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
     fn test_with_pk_no_finding() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()
@@ -161,5 +186,35 @@ mod tests {
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_partial_unique_not_null_does_not_trigger_pgm503() {
+        let before = Catalog::new();
+        // Table has partial unique index on NOT NULL column — should NOT trigger PGM503
+        // because partial indexes don't count as PK substitutes.
+        let after = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false)
+                    .column("name", "text", true)
+                    .partial_index("idx_email_unique", &["email"], true, "deleted_at IS NULL");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
+                ColumnDef::test("email", "text").with_nullable(false),
+                ColumnDef::test("name", "text"),
+            ]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Partial unique index should NOT trigger PGM503"
+        );
     }
 }
