@@ -425,6 +425,35 @@ fn spike_ignored_statements() {
 }
 
 #[test]
+fn spike_index_rangevar_inh() {
+    // Verifies RangeVar.inh behavior for CREATE INDEX with/without ONLY.
+    // Normal: inh = true (recurse into partitions).
+    // ONLY:   inh = false (parent-only, no recursion).
+    // pg_query explicitly sets inh=true for the normal case, so the protobuf
+    // bool default of false does not cause ambiguity.
+    let sqls = [
+        ("CREATE INDEX idx ON foo (col)", true),
+        ("CREATE INDEX idx ON ONLY foo (col)", false),
+    ];
+    for (sql, expected_inh) in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        if let pg_query::NodeEnum::IndexStmt(idx) = stmt {
+            let rel = idx.relation.as_ref().unwrap();
+            assert_eq!(rel.inh, expected_inh, "inh mismatch for: {}", sql);
+        } else {
+            panic!("expected IndexStmt for: {}", sql);
+        }
+    }
+}
+
+#[test]
 fn spike_truncate_stmt() {
     let sqls = [
         "TRUNCATE TABLE audit_trail;",
