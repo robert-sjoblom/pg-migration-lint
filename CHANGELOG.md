@@ -16,6 +16,14 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.9.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.8.0...v2.9.0) (2026-02-23)
+
+
+### Features
+
+* add SonarQube native plugin design document ([144e4fc](https://github.com/robert-sjoblom/pg-migration-lint/commit/144e4fca538a985d4bce815f5ab610b7b8c2f6d1))
+* **catalog:** track expression index column references for DROP/RENAME ([5ad8663](https://github.com/robert-sjoblom/pg-migration-lint/commit/5ad86630def98fec6a0bcb9e5a5e00805bc2a5d8))
+
 ## [2.8.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.7.0...v2.8.0) (2026-02-23)
 
 
