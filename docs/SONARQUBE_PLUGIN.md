@@ -13,6 +13,7 @@ The plugin will be a Java wrapper that bundles the Rust binary (x86_64 + aarch64
 - **Rule metadata**: Generated from Rust at build time via `--dump-rules-json` (no duplication)
 - **Binary delivery**: Bundled inside the plugin JAR, extracted at runtime
 - **Report capture**: Rust binary writes to stdout (new `--stdout` flag), sensor captures it directly
+- **Sensor run-gate**: Config file presence, not language file index (see [Part 5](#part-5-file-indexing-and-migration-scoping))
 
 ---
 
@@ -35,6 +36,26 @@ Implementation:
 
 The functions `sonarqube_meta()` and `effort_minutes()` are currently private to `src/output/sonarqube.rs`. They need to be made `pub(crate)` so `main.rs` can call them.
 
+#### Explain string format contract
+
+The `explain()` output from each rule follows a consistent structure that `RuleDescriptionFormatter` (Java) relies on for HTML conversion. The expected format is:
+
+```
+What it detects:
+  Prose description of the rule.
+
+Why it's dangerous:
+  Prose description of the risk.
+
+Example (bad):
+    CREATE INDEX idx_foo ON bar (col);
+
+Fix:
+    CREATE INDEX CONCURRENTLY idx_foo ON bar (col);
+```
+
+Sections are identified by a line ending in `:` with no leading indentation. SQL blocks are indented by 4+ spaces. This contract must be documented in the Rust codebase (e.g. as a doc comment on the `Rule::explain()` trait method) before the Java formatter is implemented.
+
 #### Example output
 
 ```json
@@ -55,13 +76,17 @@ The functions `sonarqube_meta()` and `effort_minutes()` are currently private to
 ]
 ```
 
+#### Test note
+
+The `--dump-rules-json` snapshot test emits all 39 rules (including PGM901). The 38-rule count referenced in the Java tests is correct because PGM901 exclusion is a Java-side concern — the Rust binary dumps everything, and `PgMigrationLintRulesDefinition` filters it out during registration.
+
 ### 1b. Add `--stdout` flag for report output
 
 **File**: `src/main.rs`
 
 Add a `--stdout` flag. When set, write the report to stdout instead of a file. This lets the SonarQube sensor capture output without needing to coordinate file paths.
 
-Implementation: In the emit loop, when `--stdout` is set, call `reporter.render()` and print the result instead of calling `reporter.emit()`.
+`--stdout` works with all `--format` values (sonarqube, sarif, text), not just sonarqube. The flag controls output destination, not format. Implementation: In the emit loop, when `--stdout` is set, call `reporter.render()` and print the result instead of calling `reporter.emit()`.
 
 ---
 
@@ -122,19 +147,21 @@ sonarqube-plugin/
 
 #### `PgMigrationLintPlugin`
 
-Entry point. Registers all extensions:
+Entry point. Registers all extensions including `BinaryExtractor` as a singleton (so the extracted path is cached across sensor re-instantiations within a single SonarQube analysis):
 
+- `BinaryExtractor.class` (singleton — injected into sensor)
 - `PgMigrationLanguage.class`
 - `PgMigrationLintRulesDefinition.class`
 - `PgMigrationLintSensor.class`
 - `PgMigrationLintQualityProfile.class`
-- Property definitions for `sonar.pgmigrationlint.configFile` (default: `pg-migration-lint.toml`) and `sonar.pgmigrationlint.binaryPath` (optional override)
+- Property definitions for `sonar.pgmigrationlint.configFile`, `sonar.pgmigrationlint.binaryPath`, `sonar.pgmigrationlint.file.suffixes`, and `sonar.pgmigrationlint.changedFiles`
 
 ```java
 public class PgMigrationLintPlugin implements Plugin {
     @Override
     public void define(Context context) {
         context.addExtensions(
+            BinaryExtractor.class,
             PgMigrationLanguage.class,
             PgMigrationLintRulesDefinition.class,
             PgMigrationLintSensor.class,
@@ -151,6 +178,17 @@ public class PgMigrationLintPlugin implements Plugin {
                 .name("Binary path override")
                 .description("Path to pg-migration-lint binary (overrides bundled)")
                 .category("pg-migration-lint")
+                .build(),
+            PropertyDefinition.builder("sonar.pgmigrationlint.file.suffixes")
+                .name("File suffixes")
+                .description("Comma-separated list of file suffixes for migration files")
+                .defaultValue(".sql,.xml")
+                .category("pg-migration-lint")
+                .build(),
+            PropertyDefinition.builder("sonar.pgmigrationlint.changedFiles")
+                .name("Changed files")
+                .description("Comma-separated list of changed migration files (set by CI)")
+                .category("pg-migration-lint")
                 .build()
         );
     }
@@ -159,7 +197,7 @@ public class PgMigrationLintPlugin implements Plugin {
 
 #### `PgMigrationLanguage`
 
-Registers `"pgmigration"` language with `.sql` and `.xml` file suffixes (matching the tool's default `include = ["*.sql", "*.xml"]`). Configurable via `sonar.pgmigrationlint.file.suffixes` property so users can add/remove extensions.
+Registers `"pgmigration"` language with `.sql` and `.xml` file suffixes (matching the tool's default `include = ["*.sql", "*.xml"]`). Configurable via `sonar.pgmigrationlint.file.suffixes` property (registered in plugin, configurable from the SonarQube UI).
 
 ```java
 public class PgMigrationLanguage extends AbstractLanguage {
@@ -194,6 +232,8 @@ Loads `rules.json` via `RuleMetadataLoader`, creates a repository `"pgmigrationl
 - Tags
 - PGM901 is excluded (meta-behavior, not a real rule)
 
+Note: `setDebtRemediationFunction` requires a two-step assignment — `NewRule` must be fully constructed before calling `debtRemediationFunctions()` on it.
+
 ```java
 public class PgMigrationLintRulesDefinition implements RulesDefinition {
     private static final String REPO_KEY = "pgmigrationlint";
@@ -215,11 +255,13 @@ public class PgMigrationLintRulesDefinition implements RulesDefinition {
                 .setStatus(RuleStatus.READY)
                 .addDefaultImpact(rule.sonarSoftwareQuality(), rule.sonarImpactSeverity())
                 .setCleanCodeAttribute(rule.sonarCleanCodeAttribute())
-                .setDebtRemediationFunction(
-                    newRule.debtRemediationFunctions()
-                        .constantPerIssue(rule.effortMinutes() + "min")
-                )
                 .setTags(rule.tags().toArray(String[]::new));
+
+            // Must be set after NewRule is constructed
+            newRule.setDebtRemediationFunction(
+                newRule.debtRemediationFunctions()
+                    .constantPerIssue(rule.effortMinutes() + "min")
+            );
         }
 
         repo.done();
@@ -293,8 +335,10 @@ Converts plain-text explain strings to HTML for SonarQube rule pages:
 
 - Escape HTML entities
 - Detect section headers ("What it detects:", "Why it's dangerous:", "Example (bad):", "Fix:") → `<h3>` tags
-- Detect indented SQL blocks → `<pre><code>` blocks
+- Detect indented SQL blocks (4+ spaces) → `<pre><code>` blocks
 - Append link to GitHub Pages docs
+
+This relies on the explain string format contract defined in [Part 1a](#explain-string-format-contract). The contract must be enforced in Rust before this formatter is implemented.
 
 ```java
 public final class RuleDescriptionFormatter {
@@ -339,16 +383,25 @@ public class PgMigrationLintQualityProfile implements BuiltInQualityProfilesDefi
 
 #### `PgMigrationLintSensor`
 
-The analysis engine:
+The analysis engine. Run-gate is config file presence, not language file index (see [Part 5](#part-5-file-indexing-and-migration-scoping)).
 
-1. `describe()`: only runs on `"pgmigration"` language files, creates issues for `"pgmigrationlint"` repository
+1. `describe()`: creates issues for `"pgmigrationlint"` repository
 2. `execute()`:
-   - Skip if no pgmigration-language files indexed (`.sql` or `.xml`)
-   - Resolve binary (user override → bundled extraction)
-   - Run: `pg-migration-lint --config <path> --format sonarqube --stdout --fail-on none`
+   - Skip if config file (`pg-migration-lint.toml`) does not exist at the configured path
+   - Resolve binary (user override → bundled extraction via injected `BinaryExtractor` singleton)
+   - Build command args: `pg-migration-lint --config <path> --format sonarqube --stdout --fail-on none`
+   - If `sonar.pgmigrationlint.changedFiles` is set, append `--changed-files <value>`
    - Capture stdout, parse as `SonarQubeReport` JSON
    - For each issue: look up `InputFile` by relative path, create `NewIssue` with `RuleKey.of("pgmigrationlint", ruleId)`, set location + message + line range
+   - When `fs.inputFile()` returns null for a reported file, log a warning (not silent drop) and continue
    - Log summary
+
+**Error handling for binary execution**: `--fail-on none` prevents non-zero exit from lint findings, but the binary can still fail (config not found, parse errors). On non-zero exit:
+- Log stderr at WARN level
+- If stdout contains valid JSON, process it (partial results are still useful)
+- If stdout is empty or not valid JSON, log an error and return without failing the analysis (do not throw `SonarRunnerException`)
+
+**Note on `fs.baseDir()`**: This method is deprecated in SonarQube 10.x. Verify the correct replacement in the 10.x API before implementation. Candidates include `context.project().baseDir()` or the module filesystem API.
 
 ```java
 public class PgMigrationLintSensor implements Sensor {
@@ -357,46 +410,61 @@ public class PgMigrationLintSensor implements Sensor {
     private final Configuration config;
     private final BinaryExtractor binaryExtractor;
 
-    public PgMigrationLintSensor(Configuration config) {
+    // BinaryExtractor injected as a singleton registered in PgMigrationLintPlugin
+    public PgMigrationLintSensor(Configuration config, BinaryExtractor binaryExtractor) {
         this.config = config;
-        this.binaryExtractor = new BinaryExtractor();
+        this.binaryExtractor = binaryExtractor;
     }
 
     @Override
     public void describe(SensorDescriptor descriptor) {
         descriptor.name("pg-migration-lint")
-            .onlyOnLanguage(PgMigrationLanguage.KEY)
             .createIssuesForRuleRepository("pgmigrationlint");
+        // No .onlyOnLanguage() — run-gate is config file presence, not file index
     }
 
     @Override
     public void execute(SensorContext context) {
-        FileSystem fs = context.fileSystem();
-        if (!fs.hasFiles(fs.predicates().hasLanguage(PgMigrationLanguage.KEY))) {
-            LOG.info("No pgmigration files found, skipping analysis");
+        String configFile = config.get("sonar.pgmigrationlint.configFile")
+            .orElse("pg-migration-lint.toml");
+
+        // Gate on config file presence, not language file index
+        Path configPath = context.fileSystem().baseDir().toPath().resolve(configFile);
+        if (!Files.exists(configPath)) {
+            LOG.info("Config file {} not found, skipping pg-migration-lint", configFile);
             return;
         }
 
         String binary = resolveBinary();
-        String configFile = config.get("sonar.pgmigrationlint.configFile")
-            .orElse("pg-migration-lint.toml");
-
-        ProcessBuilder pb = new ProcessBuilder(
+        List<String> command = new ArrayList<>(List.of(
             binary, "--config", configFile,
             "--format", "sonarqube", "--stdout", "--fail-on", "none"
-        );
-        pb.directory(fs.baseDir());
+        ));
+
+        // Forward changed-files from CI if present
+        config.get("sonar.pgmigrationlint.changedFiles")
+            .ifPresent(files -> {
+                command.add("--changed-files");
+                command.add(files);
+            });
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.directory(context.fileSystem().baseDir());
         pb.redirectErrorStream(false);
 
-        // Execute, capture stdout, parse JSON, create issues...
         SonarQubeReport report = runAndParse(pb);
+        if (report == null) return; // logged in runAndParse
 
+        FileSystem fs = context.fileSystem();
         int count = 0;
+        int skipped = 0;
         for (SonarQubeReport.Issue issue : report.issues()) {
             InputFile inputFile = fs.inputFile(
                 fs.predicates().hasRelativePath(issue.primaryLocation().filePath()));
             if (inputFile == null) {
-                LOG.warn("File not found: {}", issue.primaryLocation().filePath());
+                LOG.warn("File not indexed by SonarQube, issue skipped: {} ({})",
+                    issue.primaryLocation().filePath(), issue.ruleId());
+                skipped++;
                 continue;
             }
 
@@ -410,7 +478,8 @@ public class PgMigrationLintSensor implements Sensor {
             count++;
         }
 
-        LOG.info("pg-migration-lint reported {} issues", count);
+        LOG.info("pg-migration-lint reported {} issues ({} skipped — files not indexed)",
+            count, skipped);
     }
 
     private String resolveBinary() {
@@ -422,17 +491,17 @@ public class PgMigrationLintSensor implements Sensor {
 
 #### `BinaryExtractor`
 
-Platform-aware binary extraction:
+Platform-aware binary extraction. Registered as a singleton extension via `PgMigrationLintPlugin` so the extracted path is cached across sensor re-instantiations within a single SonarQube analysis.
 
 - Detect arch via `os.arch` (amd64/x86_64 → `x86_64`, aarch64/arm64 → `aarch64`)
 - Reject non-Linux (error message pointing to `sonar.pgmigrationlint.binaryPath`)
 - Extract from `/binaries/<arch>/pg-migration-lint` to `$TMPDIR/pg-migration-lint-sonar/pg-migration-lint`
 - Set executable permission
-- Cache extracted path in instance field (avoid re-extraction within same analysis)
+- Cache extracted path in static field (survives sensor re-instantiation)
 
 ```java
 public class BinaryExtractor {
-    private String cachedPath;
+    private static volatile String cachedPath;
 
     public String extract() {
         if (cachedPath != null) return cachedPath;
@@ -472,9 +541,13 @@ public class BinaryExtractor {
 
 DTOs for deserializing the Rust binary's JSON output. Reuses the existing format — no changes needed on the Rust output side.
 
+The `rules` field is present in the Rust JSON output but intentionally ignored by the sensor. The sensor only reads the `issues` array. Rule metadata for SonarQube comes from the build-time `rules.json`, not from the runtime report. The `rules` field is deserialized to avoid parse errors but never accessed.
+
+`TextRange` includes `startColumn`/`endColumn` for forward-compatibility with column-level highlighting, even though the Rust binary currently only emits line-level ranges.
+
 ```java
 public record SonarQubeReport(
-    List<Rule> rules,
+    List<Rule> rules,  // present in JSON but intentionally unused by sensor
     List<Issue> issues
 ) {
     public record Rule(String id, String name) {}
@@ -491,7 +564,12 @@ public record SonarQubeReport(
         TextRange textRange
     ) {}
 
-    public record TextRange(int startLine, int endLine) {}
+    public record TextRange(
+        int startLine,
+        int endLine,
+        @Nullable Integer startColumn,  // reserved for future column-level highlighting
+        @Nullable Integer endColumn     // reserved for future column-level highlighting
+    ) {}
 }
 ```
 
@@ -503,23 +581,29 @@ public record SonarQubeReport(
 
 ### 3a. Add aarch64 build job
 
-New job `build-aarch64` (parallel with existing `build`):
-- Install `aarch64-unknown-linux-musl` target + cross-linker (`gcc-aarch64-linux-gnu`)
-- `cargo build --release --target aarch64-unknown-linux-musl`
+New job `build-aarch64` (parallel with existing `build`).
+
+`libpg_query` cross-compilation via standard cargo + cross-linker is likely to fail because the `pg_query` crate uses `cc` to build libpg_query from C source. Use the [`cross`](https://github.com/cross-rs/cross) tool as the primary approach:
+
+- Install `cross` (`cargo install cross`)
+- `cross build --release --target aarch64-unknown-linux-musl`
 - Upload artifact `pg-migration-lint-aarch64`
 
-Note: `pg_query` crate uses `cc` to build libpg_query. Cross-compilation needs `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc` and possibly `CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc`. If this proves difficult, fall back to `cross` tool or QEMU-based Docker build.
+Fallback if `cross` proves insufficient: QEMU-based Docker build with a multi-arch Dockerfile.
 
 ### 3b. Add SonarQube plugin build job
 
-New job `build-sonarqube-plugin` (depends on `build` + `build-aarch64`):
+New job `build-sonarqube-plugin` (depends on `build` + `build-aarch64`).
+
+**Assumption**: This job runs on an x86_64 Linux runner (ubuntu-latest). The `--dump-rules-json` step executes the x86_64 binary directly. Add an explicit check that the binary is executable after artifact download.
 
 1. Download x86_64 and aarch64 binary artifacts
-2. Copy binaries to `sonarqube-plugin/src/main/resources/binaries/{x86_64,aarch64}/`
-3. Generate `rules.json`: run x86_64 binary with `--dump-rules-json > sonarqube-plugin/src/main/resources/com/pgmigrationlint/sonar/rules.json`
-4. Set up Java 17
-5. `mvn -f sonarqube-plugin/pom.xml package`
-6. Upload plugin JAR artifact
+2. `chmod +x` on x86_64 binary, verify it runs: `./pg-migration-lint --version || { echo "Binary not executable"; exit 1; }`
+3. Copy binaries to `sonarqube-plugin/src/main/resources/binaries/{x86_64,aarch64}/`
+4. Generate `rules.json`: `./pg-migration-lint --dump-rules-json > sonarqube-plugin/src/main/resources/com/pgmigrationlint/sonar/rules.json`
+5. Set up Java 17
+6. `mvn -f sonarqube-plugin/pom.xml package`
+7. Upload plugin JAR artifact
 
 ---
 
@@ -538,9 +622,64 @@ When a release is tagged, the plugin JAR should be attached as a release artifac
 
 ---
 
+## Part 5: File Indexing and Migration Scoping
+
+### The Problem
+
+The sensor must not use SonarQube's pgmigration language index as the gate for running analysis. SonarQube indexes files by suffix and source directory configuration; pg-migration-lint identifies migrations by path patterns in `pg-migration-lint.toml`. These two sets do not necessarily align.
+
+Failure modes if language index is used as gate:
+- Binary reports issues on files SonarQube did not index. `fs.inputFile()` returns null, issues are silently dropped.
+- No pgmigration files are indexed (misconfigured suffixes, wrong source directory) so the sensor exits early and the binary never runs, producing no output and no error.
+
+### Resolution
+
+- Gate on config file presence (`pg-migration-lint.toml` exists at the configured path), not on language file index.
+- Run the binary unconditionally when the config is present. Map issues back to `InputFile` after the fact.
+- When `fs.inputFile()` returns null, log a warning per file (including the rule ID) rather than dropping silently. Do not fail the analysis.
+- Migration directories must be listed under `sonar.sources` in `sonar-project.properties`. This is a user configuration requirement, not a plugin concern, but should be documented in the plugin's README.
+- The toml already specifies migration paths. No additional `sonar.pgmigrationlint.migrations` property is needed.
+
+---
+
+## Part 6: PR Analysis and Changed-File Scoping
+
+### Reporting Scope
+
+For PR decoration (showing issues only on changed lines), SonarQube handles this natively via `sonar.pullrequest.*` configuration. The binary can run on all migrations; SonarQube scopes the results to changed lines automatically. No plugin changes required for this case.
+
+### Performance Scope (linting only changed files)
+
+pg-migration-lint is stateful. Correctly linting a migration in a PR requires:
+
+1. **Catalog** — schema state derived by replaying all migrations on the base branch (pre-PR).
+2. **Delta** — the migrations introduced in the PR, linted against that catalog.
+
+This model is already implemented in the binary. A `CREATE INDEX WITHOUT CONCURRENTLY` on a table created in the same PR is correctly identified as safe because the catalog shows the table does not exist in production yet.
+
+### CI Integration
+
+Git work stays in CI, not in the binary. The CI step computes the delta:
+
+```sh
+git diff --name-only --diff-filter=A origin/main
+```
+
+`--diff-filter=A` restricts to added files. Migrations are append-only; modified existing migrations are a separate concern.
+
+The file list is passed to the binary via the existing `--changed-files` flag (comma-separated). The binary derives the catalog from all migration files in the configured paths that are not in the changed-files list, replays those to build schema state, then lints only the changed files.
+
+The sensor reads the `sonar.pgmigrationlint.changedFiles` property and forwards it to the binary via `--changed-files`. The CI step populates this property, either in `sonar-project.properties` or as a `-D` flag to `sonar-scanner`.
+
+### PR Reporting vs. Full Analysis
+
+In non-PR (full branch) analysis, `sonar.pgmigrationlint.changedFiles` is not set. The binary lints all migrations in discovery order. This is existing behavior and requires no changes.
+
+---
+
 ## Verification
 
-1. **Rust changes**: `cargo test` — all existing tests pass. New test for `--dump-rules-json` output (snapshot test verifying all 39 rules are present with correct structure).
+1. **Rust changes**: `cargo test` — all existing tests pass. New test for `--dump-rules-json` output (snapshot test verifying all 39 rules are present with correct structure, including PGM901).
 2. **Plugin unit tests**: `mvn -f sonarqube-plugin/pom.xml test` — verify rules registration (38 rules, excluding PGM901), quality profile activation, binary extraction logic, sensor issue reporting with mock data.
 3. **Manual integration test**: Install plugin JAR in a local SonarQube 10.x instance, run `sonar-scanner` against a project with migration files, verify rules appear in Quality Profiles and issues appear on dashboard.
 
@@ -549,18 +688,19 @@ When a release is tagged, the plugin JAR should be attached as a release artifac
 ## Implementation Order
 
 1. Rust: make `sonarqube_meta()` and `effort_minutes()` `pub(crate)`
-2. Rust: add `--dump-rules-json` flag + handler
-3. Rust: add `--stdout` flag + handler
-4. Rust: tests for new flags
-5. Java: scaffold `sonarqube-plugin/` with `pom.xml`
-6. Java: `RuleMetadata`, `RuleMetadataLoader`, `RuleDescriptionFormatter`
-7. Java: `PgMigrationLanguage`
-8. Java: `PgMigrationLintRulesDefinition`
-9. Java: `PgMigrationLintQualityProfile`
-10. Java: `BinaryExtractor`
-11. Java: `SonarQubeReport` DTOs
-12. Java: `PgMigrationLintSensor`
-13. Java: `PgMigrationLintPlugin` (wires everything together)
-14. Java: unit tests
-15. CI: aarch64 build job
-16. CI: plugin build job
+2. Rust: document explain string format contract on `Rule::explain()` trait method
+3. Rust: add `--dump-rules-json` flag + handler
+4. Rust: add `--stdout` flag + handler (all formats)
+5. Rust: tests for new flags
+6. Java: scaffold `sonarqube-plugin/` with `pom.xml`
+7. Java: `RuleMetadata`, `RuleMetadataLoader`, `RuleDescriptionFormatter`
+8. Java: `PgMigrationLanguage`
+9. Java: `PgMigrationLintRulesDefinition`
+10. Java: `PgMigrationLintQualityProfile`
+11. Java: `BinaryExtractor` (singleton)
+12. Java: `SonarQubeReport` DTOs (with column fields reserved)
+13. Java: `PgMigrationLintSensor` (config-file gate, changed-files forwarding, error handling)
+14. Java: `PgMigrationLintPlugin` (wires everything, registers all properties)
+15. Java: unit tests
+16. CI: aarch64 build job (via `cross`)
+17. CI: plugin build job (with binary executability check)
