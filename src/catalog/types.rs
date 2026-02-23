@@ -107,12 +107,9 @@ impl TableState {
 
     pub fn remove_column(&mut self, name: &str) {
         self.columns.retain(|c| c.name != name);
-        // Remove indexes that reference this column as a plain column entry.
-        // Note: expression indexes that reference the column (e.g. `lower(email)`)
-        // are NOT detected here because expression text is opaque. PostgreSQL would
-        // drop such indexes, but our catalog retains them — a known limitation.
-        self.indexes
-            .retain(|idx| !idx.column_names().any(|c| c == name));
+        // Remove indexes that reference this column — either as a plain column entry
+        // or inside an expression (e.g. `lower(email)` references `email`).
+        self.indexes.retain(|idx| !idx.references_column(name));
 
         // Remove constraints referencing the dropped column.
         // PostgreSQL drops the entire constraint, not just the column from it.
@@ -191,14 +188,12 @@ impl TableState {
             .collect()
     }
 
-    /// Returns all indexes whose plain column entries include the given column.
-    ///
-    /// Expression entries (e.g. `lower(col)`) are not inspected — the column
-    /// reference inside expression text is opaque.
+    /// Returns all indexes that reference the given column — either as a plain
+    /// column entry or inside an expression (e.g. `lower(col)` references `col`).
     pub fn indexes_involving_column(&self, col: &str) -> Vec<&IndexState> {
         self.indexes
             .iter()
-            .filter(|idx| idx.column_names().any(|c| c == col))
+            .filter(|idx| idx.references_column(col))
             .collect()
     }
 }
@@ -218,8 +213,11 @@ pub struct ColumnState {
 pub enum IndexEntry {
     /// Plain column reference.
     Column(String),
-    /// Expression index element (deparsed SQL text).
-    Expression(String),
+    /// Expression index element (deparsed SQL text) with extracted column references.
+    Expression {
+        text: String,
+        referenced_columns: Vec<String>,
+    },
 }
 
 impl IndexEntry {
@@ -227,7 +225,7 @@ impl IndexEntry {
     pub fn column_name(&self) -> Option<&str> {
         match self {
             Self::Column(n) => Some(n),
-            Self::Expression(_) => None,
+            Self::Expression { .. } => None,
         }
     }
 }
@@ -236,7 +234,13 @@ impl From<&IndexColumn> for IndexEntry {
     fn from(ic: &IndexColumn) -> Self {
         match ic {
             IndexColumn::Column(name) => Self::Column(name.clone()),
-            IndexColumn::Expression(expr) => Self::Expression(expr.clone()),
+            IndexColumn::Expression {
+                text,
+                referenced_columns,
+            } => Self::Expression {
+                text: text.clone(),
+                referenced_columns: referenced_columns.clone(),
+            },
         }
     }
 }
@@ -261,7 +265,17 @@ impl IndexState {
     pub fn has_expressions(&self) -> bool {
         self.entries
             .iter()
-            .any(|e| matches!(e, IndexEntry::Expression(_)))
+            .any(|e| matches!(e, IndexEntry::Expression { .. }))
+    }
+
+    /// True if any entry (plain column or expression) references the given column.
+    pub fn references_column(&self, col: &str) -> bool {
+        self.entries.iter().any(|e| match e {
+            IndexEntry::Column(name) => name == col,
+            IndexEntry::Expression {
+                referenced_columns, ..
+            } => referenced_columns.iter().any(|c| c == col),
+        })
     }
 
     /// True if this is a partial index (has a WHERE clause).

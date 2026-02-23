@@ -348,8 +348,12 @@ pub enum TableConstraint {
 pub enum IndexColumn {
     /// Simple column reference by name.
     Column(String),
-    /// Expression index element, stored as deparsed SQL text.
-    Expression(String),
+    /// Expression index element, stored as deparsed SQL text with
+    /// extracted column references for DROP/RENAME tracking.
+    Expression {
+        text: String,
+        referenced_columns: Vec<String>,
+    },
 }
 
 /// A parsed statement with its source location.

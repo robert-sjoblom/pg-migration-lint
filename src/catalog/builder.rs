@@ -26,6 +26,61 @@ use crate::catalog::types::{
 };
 use crate::parser::ir::{DefaultExpr, TypeName};
 
+/// Heuristic: extract bare identifiers from expression text as column references.
+///
+/// Splits on non-alphanumeric/underscore characters, filters out SQL keywords
+/// and purely numeric tokens. Good enough for test builder usage.
+fn extract_column_refs_from_expr_text(expr: &str) -> Vec<String> {
+    let keywords = [
+        "lower",
+        "upper",
+        "coalesce",
+        "cast",
+        "concat",
+        "replace",
+        "substring",
+        "trim",
+        "btrim",
+        "ltrim",
+        "rtrim",
+        "length",
+        "left",
+        "right",
+        "md5",
+        "text",
+        "integer",
+        "boolean",
+        "varchar",
+        "numeric",
+        "date",
+        "time",
+        "interval",
+        "json",
+        "jsonb",
+        "true",
+        "false",
+        "null",
+        "is",
+        "not",
+        "and",
+        "or",
+        "in",
+    ];
+    let mut refs = Vec::new();
+    for token in expr.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        let t = token.trim();
+        if !t.is_empty()
+            && !t.chars().all(|c| c.is_ascii_digit())
+            && !keywords.contains(&t.to_lowercase().as_str())
+            && !refs.contains(&t.to_string())
+        {
+            refs.push(t.to_string());
+        }
+    }
+    refs.sort();
+    refs
+}
+
 /// Builder for constructing a Catalog in tests
 pub struct CatalogBuilder {
     catalog: Catalog,
@@ -146,6 +201,10 @@ impl TableBuilder {
     ///
     /// Entries prefixed with `"expr:"` are treated as expressions; all others
     /// are plain column names. Example: `&["tenant_id", "expr:lower(email)"]`.
+    ///
+    /// Referenced columns are extracted heuristically from expression text:
+    /// bare identifiers that aren't SQL keywords are treated as column refs.
+    /// The result is sorted for deterministic ordering.
     pub fn expression_index(
         &mut self,
         name: &str,
@@ -158,7 +217,10 @@ impl TableBuilder {
                 .iter()
                 .map(|s| {
                     if let Some(expr) = s.strip_prefix("expr:") {
-                        IndexEntry::Expression(expr.to_string())
+                        IndexEntry::Expression {
+                            text: expr.to_string(),
+                            referenced_columns: extract_column_refs_from_expr_text(expr),
+                        }
                     } else {
                         IndexEntry::Column(s.to_string())
                     }
