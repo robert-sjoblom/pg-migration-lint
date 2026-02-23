@@ -633,10 +633,12 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
                     // Simple column reference.
                     Some(IndexColumn::Column(elem.name.clone()))
                 } else {
-                    // Expression index element — deparse the expression.
-                    elem.expr
-                        .as_ref()
-                        .map(|expr_node| IndexColumn::Expression(deparse_node(expr_node)))
+                    // Expression index element — deparse the expression and extract
+                    // column references for DROP/RENAME tracking.
+                    elem.expr.as_ref().map(|expr_node| IndexColumn::Expression {
+                        text: deparse_node(expr_node),
+                        referenced_columns: extract_column_refs(expr_node),
+                    })
                 }
             }
             _ => None,
@@ -880,6 +882,100 @@ fn extract_string_list(nodes: &[pg_query::protobuf::Node]) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// Extract column references from a pg_query expression node.
+///
+/// Recursively walks the AST collecting `ColumnRef` field names. For `ColumnRef`
+/// nodes, the last `String` field is taken as the column name (earlier fields
+/// are schema/table qualifiers). Constant nodes are skipped.
+///
+/// Covers: `ColumnRef`, `FuncCall`, `TypeCast`, `A_Expr`, `BoolExpr`,
+/// `CaseExpr`, `CaseWhen`, `CoalesceExpr`, `NullTest`, `MinMaxExpr`.
+fn extract_column_refs(node: &pg_query::protobuf::Node) -> Vec<String> {
+    let mut refs = Vec::new();
+    walk_node_for_column_refs(node, &mut refs);
+    refs.sort();
+    refs.dedup();
+    refs
+}
+
+/// Recursive helper for [`extract_column_refs`].
+fn walk_node_for_column_refs(node: &pg_query::protobuf::Node, refs: &mut Vec<String>) {
+    let Some(inner) = &node.node else {
+        return;
+    };
+
+    match inner {
+        NodeEnum::ColumnRef(cr) => {
+            // Take the last String field as the column name.
+            // Earlier fields are schema/table qualifiers.
+            if let Some(last) = cr.fields.last()
+                && let Some(NodeEnum::String(s)) = &last.node
+            {
+                refs.push(s.sval.clone());
+            }
+        }
+        NodeEnum::FuncCall(fc) => {
+            for arg in &fc.args {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        NodeEnum::TypeCast(tc) => {
+            if let Some(arg) = &tc.arg {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        NodeEnum::AExpr(expr) => {
+            if let Some(lexpr) = &expr.lexpr {
+                walk_node_for_column_refs(lexpr, refs);
+            }
+            if let Some(rexpr) = &expr.rexpr {
+                walk_node_for_column_refs(rexpr, refs);
+            }
+        }
+        NodeEnum::BoolExpr(be) => {
+            for arg in &be.args {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        NodeEnum::CaseExpr(ce) => {
+            if let Some(arg) = &ce.arg {
+                walk_node_for_column_refs(arg, refs);
+            }
+            for when in &ce.args {
+                walk_node_for_column_refs(when, refs);
+            }
+            if let Some(def) = &ce.defresult {
+                walk_node_for_column_refs(def, refs);
+            }
+        }
+        NodeEnum::CaseWhen(cw) => {
+            if let Some(expr) = &cw.expr {
+                walk_node_for_column_refs(expr, refs);
+            }
+            if let Some(result) = &cw.result {
+                walk_node_for_column_refs(result, refs);
+            }
+        }
+        NodeEnum::CoalesceExpr(ce) => {
+            for arg in &ce.args {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        NodeEnum::NullTest(nt) => {
+            if let Some(arg) = &nt.arg {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        NodeEnum::MinMaxExpr(mm) => {
+            for arg in &mm.args {
+                walk_node_for_column_refs(arg, refs);
+            }
+        }
+        // Constants and other nodes — no column references.
+        _ => {}
+    }
 }
 
 /// Deparse a pg_query node back to SQL text using pg_query's deparser.
@@ -3092,8 +3188,12 @@ mod tests {
             IrNode::CreateIndex(ci) => {
                 assert_eq!(ci.columns.len(), 1);
                 assert!(
-                    matches!(&ci.columns[0], IndexColumn::Expression(expr) if expr == "lower(email)"),
-                    "Expected Expression(lower(email)), got: {:?}",
+                    matches!(
+                        &ci.columns[0],
+                        IndexColumn::Expression { text, referenced_columns }
+                        if text == "lower(email)" && referenced_columns == &["email".to_string()]
+                    ),
+                    "Expected Expression {{ text: lower(email), referenced_columns: [email] }}, got: {:?}",
                     ci.columns[0]
                 );
                 assert!(ci.where_clause.is_none());
@@ -3111,8 +3211,12 @@ mod tests {
                 assert_eq!(ci.columns.len(), 2);
                 assert_eq!(ci.columns[0], IndexColumn::Column("tenant_id".to_string()));
                 assert!(
-                    matches!(&ci.columns[1], IndexColumn::Expression(expr) if expr == "lower(email)"),
-                    "Expected Expression(lower(email)), got: {:?}",
+                    matches!(
+                        &ci.columns[1],
+                        IndexColumn::Expression { text, referenced_columns }
+                        if text == "lower(email)" && referenced_columns == &["email".to_string()]
+                    ),
+                    "Expected Expression {{ text: lower(email), referenced_columns: [email] }}, got: {:?}",
                     ci.columns[1]
                 );
             }
@@ -3159,5 +3263,109 @@ mod tests {
             }
             other => panic!("Expected CreateIndex, got: {:?}", other),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests: extract_column_refs via expression index parsing
+    // -----------------------------------------------------------------------
+
+    /// Helper: parse a CREATE INDEX with the given expression and return the
+    /// referenced_columns from the first (expression) column.
+    fn expr_index_refs(expr: &str) -> Vec<String> {
+        let sql = format!("CREATE INDEX idx ON t ({});", expr);
+        let nodes = parse_sql(&sql);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => match &ci.columns[0] {
+                IndexColumn::Expression {
+                    referenced_columns, ..
+                } => referenced_columns.clone(),
+                IndexColumn::Column(name) => {
+                    panic!("Expected Expression, got Column({name})")
+                }
+            },
+            other => panic!("Expected CreateIndex, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_extract_refs_lower_email() {
+        assert_eq!(expr_index_refs("LOWER(email)"), vec!["email"]);
+    }
+
+    #[test]
+    fn test_extract_refs_typecast() {
+        // PostgreSQL requires parentheses around non-function expressions in indexes.
+        assert_eq!(expr_index_refs("(email::text)"), vec!["email"]);
+    }
+
+    #[test]
+    fn test_extract_refs_coalesce() {
+        let refs = expr_index_refs("COALESCE(a, b)");
+        assert_eq!(refs, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn test_extract_refs_arithmetic() {
+        // PostgreSQL requires parentheses around operator expressions in indexes.
+        assert_eq!(expr_index_refs("(a + 1)"), vec!["a"]);
+    }
+
+    #[test]
+    fn test_extract_refs_constants_only() {
+        // PostgreSQL requires parentheses around operator expressions in indexes.
+        assert_eq!(expr_index_refs("(1 + 2)"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_extract_refs_nested_func_typecast() {
+        assert_eq!(expr_index_refs("LOWER(email::text)"), vec!["email"]);
+    }
+
+    #[test]
+    fn test_extract_refs_multi_arg_func() {
+        let refs = expr_index_refs("COALESCE(first_name, last_name, 'unknown')");
+        assert_eq!(refs, vec!["first_name", "last_name"]);
+    }
+
+    #[test]
+    fn test_extract_refs_bool_expr() {
+        let refs = expr_index_refs("(a > 0 AND b > 0)");
+        assert_eq!(refs, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn test_extract_refs_case_with_default() {
+        let refs = expr_index_refs("(CASE WHEN status = 'active' THEN priority ELSE 0 END)");
+        assert_eq!(refs, vec!["priority", "status"]);
+    }
+
+    #[test]
+    fn test_extract_refs_case_simple_form() {
+        let refs = expr_index_refs("(CASE status WHEN 'a' THEN priority ELSE rank END)");
+        assert_eq!(refs, vec!["priority", "rank", "status"]);
+    }
+
+    #[test]
+    fn test_extract_refs_null_test_in_case() {
+        let refs = expr_index_refs("(CASE WHEN email IS NOT NULL THEN email ELSE 'none' END)");
+        assert_eq!(refs, vec!["email"]);
+    }
+
+    #[test]
+    fn test_extract_refs_greatest() {
+        let refs = expr_index_refs("GREATEST(a, b)");
+        assert_eq!(refs, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn test_extract_refs_least() {
+        let refs = expr_index_refs("LEAST(x, y, z)");
+        assert_eq!(refs, vec!["x", "y", "z"]);
+    }
+
+    #[test]
+    fn test_extract_refs_dedup() {
+        let refs = expr_index_refs("(a + a)");
+        assert_eq!(refs, vec!["a"]);
     }
 }

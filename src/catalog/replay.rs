@@ -144,8 +144,10 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                 }
                 AlterTableAction::DropColumn { name } => {
                     // Collect index names that will be removed by the column drop.
+                    // Uses references_column() to also detect expression indexes
+                    // that reference the dropped column (e.g. `lower(email)`).
                     for idx in &table.indexes {
-                        if idx.column_names().any(|c| c == name) {
+                        if idx.references_column(name) {
                             indexes_to_unregister.push(idx.name.clone());
                         }
                     }
@@ -297,15 +299,26 @@ fn apply_rename_column(
     }
 
     // Update indexes that reference the old column name.
-    // Expression entries are left as-is (they contain deparsed SQL, not column names).
-    // In PostgreSQL, expression text is updated internally on rename, so our catalog's
-    // expression text may be stale after a rename — a known simplification.
+    // Both plain column entries and expression referenced_columns are updated.
+    // Expression *text* is left as-is (it becomes stale after rename, but nothing
+    // in the codebase matches on expression text content).
     for idx in &mut table.indexes {
         for entry in &mut idx.entries {
-            if let IndexEntry::Column(col) = entry
-                && *col == old_name
-            {
-                *col = new_name.to_string();
+            match entry {
+                IndexEntry::Column(col) => {
+                    if *col == old_name {
+                        *col = new_name.to_string();
+                    }
+                }
+                IndexEntry::Expression {
+                    referenced_columns, ..
+                } => {
+                    for col in referenced_columns {
+                        if *col == old_name {
+                            *col = new_name.to_string();
+                        }
+                    }
+                }
             }
         }
     }
@@ -2105,7 +2118,10 @@ mod tests {
                 .with_columns(vec![col("email", "text", false)])
                 .into(),
             CreateIndex::test(Some("idx_email_lower".to_string()), qname("users"))
-                .with_columns(vec![IndexColumn::Expression("lower(email)".to_string())])
+                .with_columns(vec![IndexColumn::Expression {
+                    text: "lower(email)".to_string(),
+                    referenced_columns: vec!["email".to_string()],
+                }])
                 .into(),
         ]);
 
@@ -2142,21 +2158,25 @@ mod tests {
             .get_table("public.orders")
             .expect("table should exist");
         let idx = &table.indexes[0];
-        // Column entry should be renamed; expression entry should be unchanged.
+        // Column entry should be renamed; expression text should be unchanged,
+        // but referenced_columns should stay current.
         assert_eq!(
             idx.entries,
             vec![
                 IndexEntry::Column("order_status".to_string()),
-                IndexEntry::Expression("lower(active::text)".to_string()),
+                IndexEntry::Expression {
+                    text: "lower(active::text)".to_string(),
+                    referenced_columns: vec!["active".to_string()],
+                },
             ]
         );
     }
 
     #[test]
-    fn test_drop_column_retains_expression_index_referencing_column() {
-        // Known limitation: dropping a column does not remove expression indexes
-        // that reference it (e.g. `lower(email)`), because expression text is opaque.
-        // PostgreSQL would drop such indexes, but our catalog retains them.
+    fn test_drop_column_removes_expression_index_referencing_column() {
+        // Expression indexes that reference a dropped column are now removed,
+        // matching PostgreSQL behavior. The catalog tracks referenced_columns
+        // extracted at parse time.
         let mut catalog = Catalog::new();
 
         let unit = make_unit(vec![
@@ -2167,7 +2187,10 @@ mod tests {
                 ])
                 .into(),
             CreateIndex::test(Some("idx_email_lower".to_string()), qname("users"))
-                .with_columns(vec![IndexColumn::Expression("lower(email)".to_string())])
+                .with_columns(vec![IndexColumn::Expression {
+                    text: "lower(email)".to_string(),
+                    referenced_columns: vec!["email".to_string()],
+                }])
                 .into(),
             AlterTable {
                 name: qname("users"),
@@ -2182,12 +2205,88 @@ mod tests {
 
         let table = catalog.get_table("users").expect("table should exist");
         assert_eq!(table.columns.len(), 1, "Only 'id' should remain");
-        // Expression index is retained because column_names() doesn't see "email"
-        // inside the expression text "lower(email)".
         assert_eq!(
             table.indexes.len(),
-            1,
-            "Expression index is retained (known limitation: expression text is opaque)"
+            0,
+            "Expression index referencing dropped column should be removed"
+        );
+    }
+
+    #[test]
+    fn test_rename_column_updates_expression_referenced_columns() {
+        // Renaming a column that is referenced inside an expression should
+        // update referenced_columns while leaving the expression text unchanged.
+        let mut catalog = CatalogBuilder::new()
+            .table("public.users", |t| {
+                t.column("email", "text", false).expression_index(
+                    "idx_email_lower",
+                    &["expr:lower(email)"],
+                    false,
+                );
+            })
+            .build();
+
+        let unit = make_unit(vec![IrNode::RenameColumn {
+            table: QualifiedName::qualified("public", "users"),
+            old_name: "email".to_string(),
+            new_name: "mail".to_string(),
+        }]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("public.users")
+            .expect("table should exist");
+        let idx = &table.indexes[0];
+        assert_eq!(
+            idx.entries,
+            vec![IndexEntry::Expression {
+                text: "lower(email)".to_string(),
+                referenced_columns: vec!["mail".to_string()],
+            }],
+            "referenced_columns should be updated, text should stay stale"
+        );
+    }
+
+    #[test]
+    fn test_drop_plain_column_from_mixed_index_removes_index() {
+        // Dropping a plain column from a mixed index (tenant_id, lower(email))
+        // should remove the entire index, matching PostgreSQL behavior.
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("users"))
+                .with_columns(vec![
+                    col("tenant_id", "integer", false),
+                    col("email", "text", false),
+                ])
+                .into(),
+            CreateIndex::test(Some("idx_tenant_email".to_string()), qname("users"))
+                .with_columns(vec![
+                    IndexColumn::Column("tenant_id".to_string()),
+                    IndexColumn::Expression {
+                        text: "lower(email)".to_string(),
+                        referenced_columns: vec!["email".to_string()],
+                    },
+                ])
+                .into(),
+            AlterTable {
+                name: qname("users"),
+                actions: vec![AlterTableAction::DropColumn {
+                    name: "tenant_id".to_string(),
+                }],
+            }
+            .into(),
+        ]);
+
+        apply(&mut catalog, &unit);
+
+        let table = catalog.get_table("users").expect("table should exist");
+        assert_eq!(table.columns.len(), 1, "Only 'email' should remain");
+        assert_eq!(
+            table.indexes.len(),
+            0,
+            "Mixed index should be removed when plain column is dropped"
         );
     }
 }
