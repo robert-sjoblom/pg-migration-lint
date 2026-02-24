@@ -28,6 +28,11 @@ strum_macros = "0.27.2"
 
 [features]
 bridge-tests = []
+docgen = ["dep:minijinja"]
+
+[dependencies.minijinja]
+version = "2"
+optional = true
 
 [dev-dependencies]
 insta = { version = "1.34", features = ["json", "yaml", "redactions"] }

@@ -157,6 +157,34 @@ impl RuleId {
     }
 }
 
+impl RuleId {
+    /// The family prefix string (e.g. "0xx", "1xx", … "9xx").
+    pub fn family_prefix(&self) -> &'static str {
+        match self {
+            RuleId::UnsafeDdl(_) => "0xx",
+            RuleId::TypeAntiPattern(_) => "1xx",
+            RuleId::Destructive(_) => "2xx",
+            RuleId::Dml(_) => "3xx",
+            RuleId::Idempotency(_) => "4xx",
+            RuleId::SchemaDesign(_) => "5xx",
+            RuleId::Meta(_) => "9xx",
+        }
+    }
+
+    /// Human-readable family name (e.g. "Unsafe DDL", "Type Anti-pattern").
+    pub fn family_name(&self) -> &'static str {
+        match self {
+            RuleId::UnsafeDdl(_) => "Unsafe DDL",
+            RuleId::TypeAntiPattern(_) => "Type Anti-pattern",
+            RuleId::Destructive(_) => "Destructive Operation",
+            RuleId::Dml(_) => "DML in Migration",
+            RuleId::Idempotency(_) => "Idempotency Guard",
+            RuleId::SchemaDesign(_) => "Schema Design",
+            RuleId::Meta(_) => "Meta-behavior",
+        }
+    }
+}
+
 impl fmt::Display for RuleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -788,6 +816,17 @@ impl Severity {
             "critical" => Some(Self::Critical),
             "blocker" => Some(Self::Blocker),
             _ => None,
+        }
+    }
+
+    /// Title-case severity string for documentation output.
+    pub fn title_case(&self) -> &'static str {
+        match self {
+            Severity::Info => "Info",
+            Severity::Minor => "Minor",
+            Severity::Major => "Major",
+            Severity::Critical => "Critical",
+            Severity::Blocker => "Blocker",
         }
     }
 

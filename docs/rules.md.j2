@@ -1,0 +1,72 @@
+---
+layout: default
+title: Rule Reference
+---
+
+# Rule Reference
+{: #rule-reference}
+
+`pg-migration-lint` ships with {{ rule_count }} lint rules across seven categories:
+
+- **Unsafe DDL** (PGM001–PGM018) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
+- **Destructive Operations** (PGM201–PGM204) — flag data-loss operations.
+- **DML in Migrations** (PGM301–PGM303) — flag data manipulation statements on existing tables.
+- **Idempotency Guards** (PGM401–PGM403) — detect missing IF EXISTS / IF NOT EXISTS guards.
+- **Schema Design** (PGM501–PGM506) — schema quality and informational findings.
+- **Meta-behavior** (PGM901) — cross-cutting behavior modifiers (not standalone lint rules).
+
+## How to use
+
+Run `pg-migration-lint --explain PGM001` to see the full explanation for any rule from the CLI.
+
+### Suppression
+
+Rules can be suppressed inline with SQL comments:
+
+```sql
+-- Suppress a single statement:
+-- pgm-lint:suppress PGM001
+CREATE INDEX idx_foo ON bar (col);
+
+-- Suppress an entire file (must appear before any SQL statements):
+-- pgm-lint:suppress-file PGM001,PGM501
+```
+
+## Severity levels
+
+| Severity | Meaning |
+|----------|---------|
+| **Critical** | Causes downtime, data corruption, or deploy failure. Must be fixed. |
+| **Major** | Performance issues or schema-integrity problems. Should be fixed. |
+| **Minor** | Potentially unintended behavior or style issues. Review recommended. |
+| **Info** | Informational — flags intentional but noteworthy operations. |
+
+---
+{% for family in families %}
+
+## {{ family.heading }}
+{% if family.intro %}
+
+{{ family.intro }}
+{% endif %}
+{% for rule in family.rules %}
+
+### {{ rule.id }} — {{ rule.description }}
+{: #{{ rule.anchor }}}
+
+**Severity**: {{ rule.severity }}
+
+{{ rule.body }}
+
+---
+{% endfor -%}
+{% endfor %}
+
+## Quick reference table
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+{% for rule in all_rules -%}
+| [{{ rule.id }}](#{{ rule.anchor }}) | {{ rule.severity }} | {{ rule.description }} |
+{% endfor -%}

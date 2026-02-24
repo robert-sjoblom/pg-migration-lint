@@ -5,7 +5,7 @@
 IMAGE_NAME    := pg-migration-lint-test
 CONTAINER_NAME := pgml-bridge-gen
 
-.PHONY: bridge-generate bridge-verify bridge-clean test coverage
+.PHONY: bridge-generate bridge-verify bridge-clean test coverage docs-sync
 
 # ---------------------------------------------------------------------------
 # bridge-generate: Build everything in Docker, then extract golden files
@@ -61,6 +61,14 @@ test:
 #           Requires: cargo install cargo-llvm-cov
 #           Opens the report in the default browser when done.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# docs-sync: Sync generated rules doc from insta snapshot to docs/rules.md.
+#            Run after `cargo insta review` to accept snapshot changes.
+# ---------------------------------------------------------------------------
+docs-sync:
+	@sed '1,/^---$$/d' src/snapshots/pg_migration_lint__docgen__tests__rules_md.snap > docs/rules.md
+	@echo "==> docs/rules.md updated from snapshot."
+
 coverage:
 	cargo llvm-cov --html --output-dir $(HOME)/Downloads/pg-migration-lint-coverage
 	@chmod -R a+rX $(HOME)/Downloads/pg-migration-lint-coverage

@@ -1,4 +1,8 @@
 ---
+source: src/docgen.rs
+expression: rendered
+---
+---
 layout: default
 title: Rule Reference
 ---
