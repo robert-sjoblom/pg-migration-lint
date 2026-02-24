@@ -6,6 +6,8 @@
 
 pub mod catalog;
 pub mod config;
+#[cfg(feature = "docgen")]
+pub mod docgen;
 pub mod input;
 pub mod normalize;
 pub mod output;

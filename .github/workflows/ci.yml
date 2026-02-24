@@ -37,7 +37,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --features bridge-tests -- -D warnings
+        run: cargo clippy --all-targets --features bridge-tests,docgen -- -D warnings
 
       - name: Check compilation
         run: cargo check
@@ -63,7 +63,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo nextest run --profile ci
+        run: cargo nextest run --profile ci --features docgen
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}

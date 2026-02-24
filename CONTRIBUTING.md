@@ -116,13 +116,27 @@ fn test_violation_fires() {
 }
 ```
 
-### 6. Run tests and review snapshots
+### 6. Add a docs/examples body file
+
+Create `docs/examples/pgmXXX_body.md` with the rule's documentation content — everything that appears between the severity line and the `---` separator in `docs/rules.md`. This includes prose, examples (with fenced code blocks), fix suggestions, and cross-reference notes.
+
+Look at existing body files for the format. The content is rich markdown (bold, links, lists, code blocks) — it's the authoritative source for the generated docs, separate from the `EXPLAIN` constant which is plain text for terminal output.
+
+### 7. Run tests and review snapshots
 
 ```bash
-cargo test
+cargo test --features docgen
 ```
 
 New insta snapshots will be created automatically. Review them with `cargo insta review` or inspect the files in `src/rules/snapshots/`.
+
+After accepting snapshots, sync the generated docs:
+
+```bash
+make docs-sync
+```
+
+This updates `docs/rules.md` from the docgen snapshot. Commit both the snapshot and the generated docs.
 
 ## Key APIs
 
@@ -258,6 +272,49 @@ Rule IDs follow the pattern `PGM<family><number>`:
 Gaps within a family are intentional (e.g., PGM004–005 are unoccupied in 0xx). Do not reuse retired IDs.
 
 **Proposed rules** use 4-digit IDs (e.g., PGM1202). When promoted to stable, they become 3-digit, typically keeping the same last three digits (e.g., PGM1202 → PGM202).
+
+## Generated documentation (`docs/rules.md`)
+
+`docs/rules.md` is **generated** — do not edit it by hand. It is produced from three sources:
+
+1. **Rule metadata** — `DESCRIPTION` and `default_severity()` from each rule in `src/rules/`
+2. **Body files** — `docs/examples/pgmXXX_body.md` (one per rule, rich markdown)
+3. **Template** — `docs/rules.md.j2` (minijinja template for the overall page structure)
+
+The generation is feature-gated behind `--features docgen` (using the `minijinja` crate) and verified by an insta snapshot test.
+
+### Workflow
+
+```bash
+# 1. Change rule code, examples, or template
+# 2. Run tests — the docgen snapshot will fail if output changed
+cargo test --features docgen
+
+# 3. Review and accept the snapshot diff
+cargo insta review
+
+# 4. Sync snapshot → docs/rules.md
+make docs-sync
+
+# 5. Commit the snapshot + docs/rules.md together
+```
+
+### What triggers a snapshot failure
+
+- Changing a rule's `DESCRIPTION` or `default_severity()`
+- Editing any `docs/examples/pgmXXX_body.md` file
+- Adding or removing a rule
+- Changing `docs/rules.md.j2`
+
+### File layout
+
+| Path | Purpose |
+|------|---------|
+| `docs/examples/pgmXXX_body.md` | Per-rule content (prose, examples, notes) |
+| `docs/rules.md.j2` | Page template |
+| `src/docgen.rs` | Build context + render + snapshot test |
+| `src/snapshots/…rules_md.snap` | Accepted snapshot (source of truth) |
+| `docs/rules.md` | Generated output (synced from snapshot) |
 
 ## Conventions
 
