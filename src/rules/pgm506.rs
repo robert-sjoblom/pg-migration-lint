@@ -123,7 +123,7 @@ mod tests {
         let stmts = vec![located(
             CreateTable::test(QualifiedName::unqualified("tmp_data"))
                 .with_columns(vec![ColumnDef::test("id", "integer")])
-                .with_temporary(true)
+                .with_persistence(TablePersistence::Temporary)
                 .into(),
         )];
 

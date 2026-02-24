@@ -6,8 +6,9 @@
 
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
-    DeleteFrom, DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, QualifiedName,
-    SourceSpan, TableConstraint, TablePersistence, TruncateTable, TypeName, UpdateTable,
+    DeleteFrom, DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, PartitionBy,
+    PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence, TruncateTable,
+    TypeName, UpdateTable,
 };
 use pg_query::NodeEnum;
 
@@ -171,12 +172,56 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
         }
     }
 
+    // Extract PARTITION BY clause
+    let partition_by = create.partspec.as_ref().and_then(|spec| {
+        let strategy = match pg_query::protobuf::PartitionStrategy::try_from(spec.strategy) {
+            Ok(pg_query::protobuf::PartitionStrategy::Range) => Some(PartitionStrategy::Range),
+            Ok(pg_query::protobuf::PartitionStrategy::List) => Some(PartitionStrategy::List),
+            Ok(pg_query::protobuf::PartitionStrategy::Hash) => Some(PartitionStrategy::Hash),
+            _ => None,
+        }?;
+        let part_columns: Vec<String> = spec
+            .part_params
+            .iter()
+            .filter_map(|p| match p.node.as_ref() {
+                Some(NodeEnum::PartitionElem(elem)) => {
+                    if !elem.name.is_empty() {
+                        Some(elem.name.clone())
+                    } else {
+                        // Expression partition key — deparse the expression text.
+                        elem.expr.as_ref().map(|expr_node| deparse_node(expr_node))
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        Some(PartitionBy {
+            strategy,
+            columns: part_columns,
+        })
+    });
+
+    // Extract PARTITION OF parent (when partbound is present, inh_relations[0] is the parent)
+    let partition_of = if create.partbound.is_some() {
+        create
+            .inh_relations
+            .first()
+            .and_then(|node| match node.node.as_ref() {
+                Some(NodeEnum::RangeVar(rv)) => Some(relation_to_qualified_name(Some(rv))),
+                _ => None,
+            })
+    } else {
+        None
+    };
+
     IrNode::CreateTable(CreateTable {
         name,
         columns,
         constraints,
         persistence,
         if_not_exists: create.if_not_exists,
+        partition_by,
+        partition_of,
     })
 }
 
@@ -498,6 +543,46 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
         pg_query::protobuf::AlterTableType::AtDropNotNull => vec![AlterTableAction::Other {
             description: format!("DROP NOT NULL on {}", cmd.name),
         }],
+        pg_query::protobuf::AlterTableType::AtAttachPartition => {
+            let child = cmd
+                .def
+                .as_ref()
+                .and_then(|d| d.node.as_ref())
+                .and_then(|n| match n {
+                    NodeEnum::PartitionCmd(pc) => pc
+                        .name
+                        .as_ref()
+                        .map(|rv| relation_to_qualified_name(Some(rv))),
+                    _ => None,
+                });
+            match child {
+                Some(child) => vec![AlterTableAction::AttachPartition { child }],
+                None => vec![AlterTableAction::Other {
+                    description: "ATTACH PARTITION (unparseable)".to_string(),
+                }],
+            }
+        }
+        pg_query::protobuf::AlterTableType::AtDetachPartition => {
+            let result = cmd
+                .def
+                .as_ref()
+                .and_then(|d| d.node.as_ref())
+                .and_then(|n| match n {
+                    NodeEnum::PartitionCmd(pc) => pc
+                        .name
+                        .as_ref()
+                        .map(|rv| (relation_to_qualified_name(Some(rv)), pc.concurrent)),
+                    _ => None,
+                });
+            match result {
+                Some((child, concurrent)) => {
+                    vec![AlterTableAction::DetachPartition { child, concurrent }]
+                }
+                None => vec![AlterTableAction::Other {
+                    description: "DETACH PARTITION (unparseable)".to_string(),
+                }],
+            }
+        }
         other => vec![AlterTableAction::Other {
             description: format!("{:?}", other),
         }],
@@ -647,6 +732,10 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 
     let where_clause = idx.where_clause.as_ref().map(|node| deparse_node(node));
 
+    // `inh=true` means normal inheritance (indexes propagate to children),
+    // `inh=false` means ONLY (index on parent only, not propagated).
+    let only = idx.relation.as_ref().map(|r| !r.inh).unwrap_or(false);
+
     IrNode::CreateIndex(CreateIndex {
         index_name,
         table_name,
@@ -655,6 +744,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         concurrent: idx.concurrent,
         if_not_exists: idx.if_not_exists,
         where_clause,
+        only,
     })
 }
 
@@ -3367,5 +3457,196 @@ mod tests {
     fn test_extract_refs_dedup() {
         let refs = expr_index_refs("(a + a)");
         assert_eq!(refs, vec!["a"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Partition support tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_partition_by_range() {
+        let nodes = parse_sql(
+            "CREATE TABLE measurements (id int, ts timestamptz) PARTITION BY RANGE (ts);",
+        );
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let pb = ct
+                    .partition_by
+                    .as_ref()
+                    .expect("partition_by should be set");
+                assert_eq!(pb.strategy, PartitionStrategy::Range);
+                assert_eq!(pb.columns, vec!["ts".to_string()]);
+                assert!(ct.partition_of.is_none());
+            }
+            other => panic!("Expected CreateTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_partition_by_list() {
+        let nodes =
+            parse_sql("CREATE TABLE sales (region text, amount int) PARTITION BY LIST (region);");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let pb = ct
+                    .partition_by
+                    .as_ref()
+                    .expect("partition_by should be set");
+                assert_eq!(pb.strategy, PartitionStrategy::List);
+                assert_eq!(pb.columns, vec!["region".to_string()]);
+            }
+            other => panic!("Expected CreateTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_partition_by_hash() {
+        let nodes = parse_sql("CREATE TABLE data (id int) PARTITION BY HASH (id);");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let pb = ct
+                    .partition_by
+                    .as_ref()
+                    .expect("partition_by should be set");
+                assert_eq!(pb.strategy, PartitionStrategy::Hash);
+                assert_eq!(pb.columns, vec!["id".to_string()]);
+            }
+            other => panic!("Expected CreateTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_partition_of() {
+        let nodes = parse_sql(
+            "CREATE TABLE measurements_2024 PARTITION OF measurements FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');",
+        );
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                assert!(ct.partition_by.is_none());
+                let parent = ct
+                    .partition_of
+                    .as_ref()
+                    .expect("partition_of should be set");
+                assert_eq!(parent.name, "measurements");
+                assert!(parent.schema.is_none());
+            }
+            other => panic!("Expected CreateTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_attach_partition() {
+        let nodes = parse_sql(
+            "ALTER TABLE measurements ATTACH PARTITION measurements_2024 FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');",
+        );
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.name.name, "measurements");
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::AttachPartition { child } => {
+                        assert_eq!(child.name, "measurements_2024");
+                    }
+                    other => panic!("Expected AttachPartition, got {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_detach_partition() {
+        let nodes = parse_sql("ALTER TABLE measurements DETACH PARTITION measurements_2024;");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::DetachPartition { child, concurrent } => {
+                        assert_eq!(child.name, "measurements_2024");
+                        assert!(!concurrent);
+                    }
+                    other => panic!("Expected DetachPartition, got {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_detach_partition_concurrently() {
+        let nodes =
+            parse_sql("ALTER TABLE measurements DETACH PARTITION measurements_2024 CONCURRENTLY;");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterTable(at) => {
+                assert_eq!(at.actions.len(), 1);
+                match &at.actions[0] {
+                    AlterTableAction::DetachPartition { child, concurrent } => {
+                        assert_eq!(child.name, "measurements_2024");
+                        assert!(concurrent);
+                    }
+                    other => panic!("Expected DetachPartition, got {:?}", other),
+                }
+            }
+            other => panic!("Expected AlterTable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_create_index_only() {
+        let nodes = parse_sql("CREATE INDEX idx_ts ON ONLY measurements (ts);");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert!(ci.only, "ONLY should be true");
+                assert_eq!(ci.table_name.name, "measurements");
+            }
+            other => panic!("Expected CreateIndex, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_create_index_normal_not_only() {
+        let nodes = parse_sql("CREATE INDEX idx_foo ON foo (bar);");
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateIndex(ci) => {
+                assert!(!ci.only, "ONLY should be false for normal index");
+            }
+            other => panic!("Expected CreateIndex, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_partition_by_expression() {
+        let nodes = parse_sql(
+            "CREATE TABLE events (id int, ts timestamptz) PARTITION BY RANGE (EXTRACT(YEAR FROM ts));",
+        );
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::CreateTable(ct) => {
+                let pb = ct
+                    .partition_by
+                    .as_ref()
+                    .expect("partition_by should be set");
+                assert_eq!(pb.strategy, PartitionStrategy::Range);
+                assert_eq!(pb.columns.len(), 1);
+                // Expression key is deparsed into SQL text
+                assert!(
+                    pb.columns[0].contains("EXTRACT")
+                        || pb.columns[0].contains("extract")
+                        || pb.columns[0].contains("date_part"),
+                    "Expression partition key should contain function text, got: {}",
+                    pb.columns[0]
+                );
+            }
+            other => panic!("Expected CreateTable, got {:?}", other),
+        }
     }
 }

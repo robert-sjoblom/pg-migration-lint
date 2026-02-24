@@ -3,7 +3,7 @@
 //! The catalog represents the database schema state at a point in migration history.
 //! It's built by replaying migrations in order.
 
-use crate::parser::ir::{DefaultExpr, IndexColumn, TypeName};
+use crate::parser::ir::{DefaultExpr, IndexColumn, PartitionStrategy, TypeName};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
@@ -11,6 +11,8 @@ pub struct Catalog {
     tables: HashMap<String, TableState>,
     /// Reverse lookup: index name → owning table key.
     index_to_table: HashMap<String, String>,
+    /// Partition parent → children lookup: parent catalog key → vec of child catalog keys.
+    partition_children: HashMap<String, Vec<String>>,
 }
 
 impl Catalog {
@@ -46,6 +48,17 @@ impl Catalog {
             for idx in &table.indexes {
                 self.index_to_table.remove(&idx.name);
             }
+            // If this table is a partition child, remove it from the parent's children list.
+            if let Some(ref parent_key) = table.parent_table
+                && let Some(children) = self.partition_children.get_mut(parent_key)
+            {
+                children.retain(|c| c != name);
+                if children.is_empty() {
+                    self.partition_children.remove(parent_key);
+                }
+            }
+            // If this table is a partition parent, remove its partition_children entry.
+            self.partition_children.remove(name);
             Some(table)
         } else {
             None
@@ -80,6 +93,64 @@ impl Catalog {
     pub fn tables(&self) -> impl Iterator<Item = &TableState> {
         self.tables.values()
     }
+
+    /// Returns the catalog keys of all partition children of the given parent.
+    pub fn get_partition_children(&self, key: &str) -> &[String] {
+        self.partition_children
+            .get(key)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Returns `true` if the given table is a partition child (has a `parent_table`).
+    pub fn is_partition_child(&self, key: &str) -> bool {
+        self.tables
+            .get(key)
+            .and_then(|t| t.parent_table.as_ref())
+            .is_some()
+    }
+
+    /// Register a child partition under a parent in the partition_children map.
+    pub fn attach_partition(&mut self, parent_key: &str, child_key: &str) {
+        let children = self
+            .partition_children
+            .entry(parent_key.to_string())
+            .or_default();
+        if !children.contains(&child_key.to_string()) {
+            children.push(child_key.to_string());
+        }
+    }
+
+    /// Remove a child from a parent's partition_children list.
+    pub fn detach_partition(&mut self, parent_key: &str, child_key: &str) {
+        if let Some(children) = self.partition_children.get_mut(parent_key) {
+            children.retain(|c| c != child_key);
+            if children.is_empty() {
+                self.partition_children.remove(parent_key);
+            }
+        }
+    }
+
+    /// Remove and return the partition_children entry for a given parent key.
+    pub fn remove_partition_children(&mut self, key: &str) -> Option<Vec<String>> {
+        self.partition_children.remove(key)
+    }
+
+    /// Set the partition_children entry for a given parent key.
+    pub fn set_partition_children(&mut self, key: &str, children: Vec<String>) {
+        if children.is_empty() {
+            self.partition_children.remove(key);
+        } else {
+            self.partition_children.insert(key.to_string(), children);
+        }
+    }
+}
+
+/// Partition key specification stored in the catalog.
+#[derive(Debug, Clone)]
+pub struct PartitionByInfo {
+    pub strategy: PartitionStrategy,
+    pub columns: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +165,12 @@ pub struct TableState {
     /// True if an unparseable statement referenced this table.
     /// Rules should consider lowering confidence on findings for incomplete tables.
     pub incomplete: bool,
+    /// True if this table uses `PARTITION BY` (is a partitioned parent table).
+    pub is_partitioned: bool,
+    /// Partition strategy and columns, if this table is partitioned.
+    pub partition_by: Option<PartitionByInfo>,
+    /// Catalog key of the parent table, if this table is a partition child.
+    pub parent_table: Option<String>,
 }
 
 impl TableState {
@@ -317,5 +394,66 @@ impl ConstraintState {
             | ConstraintState::Unique { columns, .. } => columns.iter().any(|c| c == col),
             ConstraintState::Check { .. } => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::builder::CatalogBuilder;
+    use crate::parser::ir::PartitionStrategy;
+
+    #[test]
+    fn test_is_partition_child() {
+        let catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .table("standalone", |t| {
+                t.column("id", "integer", false);
+            })
+            .build();
+
+        assert!(catalog.is_partition_child("child"));
+        assert!(!catalog.is_partition_child("parent"));
+        assert!(!catalog.is_partition_child("standalone"));
+        assert!(!catalog.is_partition_child("nonexistent"));
+    }
+
+    #[test]
+    fn test_set_partition_children_empty_removes_entry() {
+        let mut catalog = Catalog::new();
+        catalog.attach_partition("parent", "child");
+        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+
+        // Setting to empty vec removes the entry entirely
+        catalog.set_partition_children("parent", vec![]);
+        assert!(catalog.get_partition_children("parent").is_empty());
+    }
+
+    #[test]
+    fn test_remove_table_cleans_up_parent_partition_children() {
+        let catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        // Removing a non-existent table returns None
+        let mut catalog_clone = catalog.clone();
+        assert!(catalog_clone.remove_table("nonexistent").is_none());
+
+        // Removing the parent cleans up partition_children
+        let mut catalog_clone = catalog.clone();
+        catalog_clone.remove_table("parent");
+        assert!(catalog_clone.get_partition_children("parent").is_empty());
     }
 }

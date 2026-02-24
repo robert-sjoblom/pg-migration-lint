@@ -70,17 +70,37 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
         );
     }
 
+    let parent_key = ct
+        .partition_of
+        .as_ref()
+        .map(|p| p.catalog_key().to_string());
+
     let mut table = TableState {
-        name: table_key,
+        name: table_key.clone(),
         display_name: ct.name.display_name(),
         columns: Vec::new(),
         indexes: Vec::new(),
         constraints: Vec::new(),
         has_primary_key: false,
         incomplete: false,
+        is_partitioned: ct.partition_by.is_some(),
+        partition_by: ct.partition_by.as_ref().map(|pb| PartitionByInfo {
+            strategy: pb.strategy,
+            columns: pb.columns.clone(),
+        }),
+        parent_table: parent_key.clone(),
     };
 
-    // Convert columns
+    // For PARTITION OF, inherit columns from the parent table if it exists.
+    if let Some(ref pk) = parent_key
+        && let Some(parent) = catalog.get_table(pk)
+    {
+        for col in &parent.columns {
+            table.columns.push(col.clone());
+        }
+    }
+
+    // Convert columns (explicit columns on the child, or regular table columns)
     for col in &ct.columns {
         table.columns.push(column_def_to_state(col));
 
@@ -102,6 +122,14 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
     }
 
     catalog.insert_table(table);
+
+    // Register as partition child only if parent exists in catalog.
+    // If parent is not tracked, skip partition_children registration.
+    if let Some(ref pk) = parent_key
+        && catalog.has_table(pk)
+    {
+        catalog.attach_partition(pk, &table_key);
+    }
 }
 
 /// Handle ALTER TABLE: apply each action to the existing table.
@@ -181,6 +209,10 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                         col.nullable = false;
                     }
                 }
+                AlterTableAction::AttachPartition { .. }
+                | AlterTableAction::DetachPartition { .. } => {
+                    // Handled below, outside the table mutable borrow.
+                }
                 AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
             }
         }
@@ -192,6 +224,30 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     }
     for name in indexes_to_register {
         catalog.register_index(&name, &table_key);
+    }
+
+    // Handle partition attach/detach outside the table borrow scope.
+    for action in &at.actions {
+        match action {
+            AlterTableAction::AttachPartition { child } => {
+                let child_key = child.catalog_key().to_string();
+                if catalog.has_table(&child_key) {
+                    if let Some(child_table) = catalog.get_table_mut(&child_key) {
+                        child_table.parent_table = Some(table_key.clone());
+                    }
+                    catalog.attach_partition(&table_key, &child_key);
+                }
+                // If child not in catalog: skip silently (no phantom entry).
+            }
+            AlterTableAction::DetachPartition { child, .. } => {
+                let child_key = child.catalog_key().to_string();
+                if let Some(child_table) = catalog.get_table_mut(&child_key) {
+                    child_table.parent_table = None;
+                }
+                catalog.detach_partition(&table_key, &child_key);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -253,14 +309,61 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
 }
 
 /// Handle DROP TABLE: remove the table from the catalog entirely.
+///
+/// For partitioned tables with CASCADE, recursively removes all partition
+/// children (depth-first). Without CASCADE, children keep stale `parent_table`.
 fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
-    let table_key = dt.name.catalog_key();
-    catalog.remove_table(table_key);
+    let table_key = dt.name.catalog_key().to_string();
+
+    // If table is partitioned and CASCADE, recursively remove the partition subtree.
+    if dt.cascade
+        && let Some(table) = catalog.get_table(&table_key)
+        && table.is_partitioned
+    {
+        let children_to_remove = collect_partition_subtree(catalog, &table_key);
+        for child_key in children_to_remove {
+            catalog.remove_table(&child_key);
+        }
+    }
+
+    catalog.remove_table(&table_key);
+}
+
+/// Collect all partition children recursively (depth-first) for cascade removal.
+/// Uses a visited set to prevent cycles.
+fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut stack = vec![root_key.to_string()];
+    let mut visited = std::collections::HashSet::new();
+
+    while let Some(key) = stack.pop() {
+        if !visited.insert(key.clone()) {
+            continue;
+        }
+        let children = catalog.get_partition_children(&key);
+        for child in children {
+            result.push(child.clone());
+            stack.push(child.clone());
+        }
+    }
+
+    result
 }
 
 /// Handle RENAME TABLE: move the table state to a new key.
+///
+/// Also updates partition tracking:
+/// - If the renamed table is a partitioned parent: migrates `partition_children`
+///   to the new key and updates each child's `parent_table`.
+/// - If the renamed table is a partition child: updates the parent's
+///   `partition_children` list (old key was already removed by `remove_table`;
+///   new key is re-added).
 fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &str) {
     let old_key = name.catalog_key().to_string();
+
+    // Grab partition children BEFORE remove_table, which cleans up partition_children.
+    let partition_children = catalog.remove_partition_children(&old_key);
+
     if let Some(mut table) = catalog.remove_table(&old_key) {
         // Build the new key using the same schema as the old name.
         let new_key = match &name.schema {
@@ -275,6 +378,27 @@ fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &st
                 }
             }
         };
+
+        // Migrate partition_children from old key to new key, and update
+        // each child's parent_table reference.
+        if table.is_partitioned
+            && let Some(children) = partition_children
+        {
+            for child_key in &children {
+                if let Some(child) = catalog.get_table_mut(child_key) {
+                    child.parent_table = Some(new_key.clone());
+                }
+            }
+            catalog.set_partition_children(&new_key, children);
+        }
+
+        // If the renamed table is a child, re-register under the new key
+        // in the parent's partition_children list. (remove_table already
+        // removed the old key from the parent's list.)
+        if let Some(ref parent_key) = table.parent_table {
+            catalog.attach_partition(parent_key, &new_key);
+        }
+
         table.name = new_key.clone();
         table.display_name = new_name.to_string();
         catalog.insert_table(table);
@@ -2288,5 +2412,464 @@ mod tests {
             0,
             "Mixed index should be removed when plain column is dropped"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Partition support tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_create_partitioned_table() {
+        let mut catalog = Catalog::new();
+        let unit = make_unit(vec![
+            CreateTable::test(qname("measurements"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("ts", "timestamptz", false),
+                ])
+                .with_partition_by(PartitionStrategy::Range, vec!["ts".to_string()])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        let table = catalog
+            .get_table("measurements")
+            .expect("table should exist");
+        assert!(table.is_partitioned);
+        let pb = table
+            .partition_by
+            .as_ref()
+            .expect("partition_by should be set");
+        assert!(matches!(pb.strategy, PartitionStrategy::Range));
+        assert_eq!(pb.columns, vec!["ts".to_string()]);
+        assert!(table.parent_table.is_none());
+    }
+
+    #[test]
+    fn test_create_partition_of_with_parent_in_catalog() {
+        let mut catalog = Catalog::new();
+
+        // Create parent
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("ts", "timestamptz", false),
+                ])
+                .with_partition_by(PartitionStrategy::Range, vec!["ts".to_string()])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        // Create child PARTITION OF parent
+        let unit2 = make_unit(vec![
+            CreateTable::test(qname("child"))
+                .with_partition_of(qname("parent"))
+                .into(),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let child = catalog.get_table("child").expect("child should exist");
+        assert_eq!(child.parent_table.as_deref(), Some("parent"));
+        // Child inherits parent's columns
+        assert_eq!(child.columns.len(), 2);
+        assert_eq!(child.columns[0].name, "id");
+        assert_eq!(child.columns[1].name, "ts");
+
+        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+    }
+
+    #[test]
+    fn test_create_partition_of_without_parent_in_catalog() {
+        let mut catalog = Catalog::new();
+
+        // Create child PARTITION OF non-existent parent
+        let unit = make_unit(vec![
+            CreateTable::test(qname("child"))
+                .with_partition_of(qname("unknown_parent"))
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        let child = catalog.get_table("child").expect("child should exist");
+        assert_eq!(child.parent_table.as_deref(), Some("unknown_parent"));
+        // No inherited columns since parent doesn't exist
+        assert_eq!(child.columns.len(), 0);
+        // partition_children NOT registered when parent doesn't exist in catalog
+        assert!(
+            catalog.get_partition_children("unknown_parent").is_empty(),
+            "No phantom entry should be created for unknown parent"
+        );
+    }
+
+    #[test]
+    fn test_attach_partition_existing_child() {
+        let mut catalog = Catalog::new();
+
+        let unit = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_partition_by(PartitionStrategy::Range, vec!["id".to_string()])
+                .into(),
+            CreateTable::test(qname("child"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        // Attach the child
+        let unit2 = make_unit(vec![
+            AlterTable {
+                name: qname("parent"),
+                actions: vec![AlterTableAction::AttachPartition {
+                    child: qname("child"),
+                }],
+            }
+            .into(),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        let child = catalog.get_table("child").expect("child should exist");
+        assert_eq!(child.parent_table.as_deref(), Some("parent"));
+        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+    }
+
+    #[test]
+    fn test_attach_partition_missing_child() {
+        let mut catalog = Catalog::new();
+
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_partition_by(PartitionStrategy::Range, vec!["id".to_string()])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        // Attach a child that doesn't exist yet
+        let unit2 = make_unit(vec![
+            AlterTable {
+                name: qname("parent"),
+                actions: vec![AlterTableAction::AttachPartition {
+                    child: qname("missing"),
+                }],
+            }
+            .into(),
+        ]);
+        apply(&mut catalog, &unit2);
+
+        // Should not panic; no phantom entry created since child doesn't exist
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "No phantom entry should be created for missing child"
+        );
+    }
+
+    #[test]
+    fn test_detach_partition_existing_child() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            AlterTable {
+                name: qname("parent"),
+                actions: vec![AlterTableAction::DetachPartition {
+                    child: qname("child"),
+                    concurrent: false,
+                }],
+            }
+            .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        let child = catalog.get_table("child").expect("child should exist");
+        assert!(
+            child.parent_table.is_none(),
+            "parent_table should be cleared"
+        );
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "parent should have no children"
+        );
+    }
+
+    #[test]
+    fn test_drop_parent_cascade_removes_children() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            DropTable::test(qname("parent"))
+                .with_cascade(true)
+                .with_if_exists(false)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(!catalog.has_table("parent"), "Parent should be removed");
+        assert!(
+            !catalog.has_table("child"),
+            "Child should be removed by CASCADE"
+        );
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "partition_children should be cleaned up"
+        );
+    }
+
+    #[test]
+    fn test_drop_parent_cascade_recursive() {
+        let mut catalog = CatalogBuilder::new()
+            .table("grandparent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"])
+                    .partition_of("grandparent");
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            DropTable::test(qname("grandparent"))
+                .with_cascade(true)
+                .with_if_exists(false)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(!catalog.has_table("grandparent"));
+        assert!(!catalog.has_table("parent"));
+        assert!(!catalog.has_table("child"));
+        assert!(
+            catalog.get_partition_children("grandparent").is_empty(),
+            "partition_children for grandparent should be cleaned up"
+        );
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "partition_children for parent should be cleaned up"
+        );
+    }
+
+    #[test]
+    fn test_drop_parent_no_cascade_keeps_children() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            DropTable::test(qname("parent"))
+                .with_cascade(false)
+                .with_if_exists(false)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(!catalog.has_table("parent"), "Parent should be removed");
+        assert!(
+            catalog.has_table("child"),
+            "Child should still exist without CASCADE"
+        );
+        // Child keeps stale parent_table
+        let child = catalog.get_table("child").unwrap();
+        assert_eq!(child.parent_table.as_deref(), Some("parent"));
+        // partition_children entry for the dropped parent should be cleaned up
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "partition_children entry for dropped parent should be cleaned up"
+        );
+    }
+
+    #[test]
+    fn test_drop_child_updates_parent_children() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            DropTable::test(qname("child")).with_if_exists(false).into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(catalog.has_table("parent"), "Parent should still exist");
+        assert!(!catalog.has_table("child"), "Child should be removed");
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "Parent should have no children after child drop"
+        );
+    }
+
+    #[test]
+    fn test_detach_partition_missing_child() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+
+        // Detach a child that doesn't exist — should not panic
+        let unit = make_unit(vec![
+            AlterTable {
+                name: qname("parent"),
+                actions: vec![AlterTableAction::DetachPartition {
+                    child: qname("ghost"),
+                    concurrent: false,
+                }],
+            }
+            .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(catalog.has_table("parent"), "Parent should still exist");
+        assert!(
+            catalog.get_partition_children("parent").is_empty(),
+            "No children should exist"
+        );
+    }
+
+    #[test]
+    fn test_drop_parent_cascade_multiple_siblings() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child_a", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .table("child_b", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .table("child_c", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        assert_eq!(catalog.get_partition_children("parent").len(), 3);
+
+        let unit = make_unit(vec![
+            DropTable::test(qname("parent"))
+                .with_cascade(true)
+                .with_if_exists(false)
+                .into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(!catalog.has_table("parent"));
+        assert!(!catalog.has_table("child_a"));
+        assert!(!catalog.has_table("child_b"));
+        assert!(!catalog.has_table("child_c"));
+        assert!(catalog.get_partition_children("parent").is_empty());
+    }
+
+    #[test]
+    fn test_rename_partitioned_parent() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child_a", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .table("child_b", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        assert_eq!(catalog.get_partition_children("parent").len(), 2);
+
+        let unit = make_unit(vec![IrNode::RenameTable {
+            name: qname("parent"),
+            new_name: "parent_v2".to_string(),
+        }]);
+        apply(&mut catalog, &unit);
+
+        // Old key gone, new key exists
+        assert!(!catalog.has_table("parent"));
+        assert!(catalog.has_table("parent_v2"));
+
+        // partition_children migrated to new key
+        assert!(catalog.get_partition_children("parent").is_empty());
+        let children = catalog.get_partition_children("parent_v2");
+        assert_eq!(children.len(), 2);
+        assert!(children.contains(&"child_a".to_string()));
+        assert!(children.contains(&"child_b".to_string()));
+
+        // Children's parent_table updated to new key
+        let child_a = catalog.get_table("child_a").unwrap();
+        assert_eq!(child_a.parent_table.as_deref(), Some("parent_v2"));
+        let child_b = catalog.get_table("child_b").unwrap();
+        assert_eq!(child_b.parent_table.as_deref(), Some("parent_v2"));
+
+        // Renamed table retains its partition properties
+        let parent = catalog.get_table("parent_v2").unwrap();
+        assert!(parent.is_partitioned);
+        assert_eq!(parent.display_name, "parent_v2");
+    }
+
+    #[test]
+    fn test_rename_partition_child() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+
+        let unit = make_unit(vec![IrNode::RenameTable {
+            name: qname("child"),
+            new_name: "child_v2".to_string(),
+        }]);
+        apply(&mut catalog, &unit);
+
+        // Old key gone, new key exists
+        assert!(!catalog.has_table("child"));
+        assert!(catalog.has_table("child_v2"));
+
+        // Parent's partition_children updated: old child removed, new child registered
+        let children = catalog.get_partition_children("parent");
+        assert_eq!(children, &["child_v2"]);
+
+        // Renamed child retains parent_table
+        let child = catalog.get_table("child_v2").unwrap();
+        assert_eq!(child.parent_table.as_deref(), Some("parent"));
+        assert_eq!(child.display_name, "child_v2");
     }
 }

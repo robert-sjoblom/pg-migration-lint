@@ -150,6 +150,7 @@ fn test_matrix_create_index_concurrent_in_transaction() {
         concurrent: true,
         if_not_exists: false,
         where_clause: None,
+        only: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
@@ -179,6 +180,7 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
         concurrent: false,
         if_not_exists: false,
         where_clause: None,
+        only: false,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
@@ -237,6 +239,8 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
         }],
         persistence: TablePersistence::Permanent,
         if_not_exists: false,
+        partition_by: None,
+        partition_of: None,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM501", "PGM502"]);
@@ -288,6 +292,8 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
         }],
         persistence: TablePersistence::Permanent,
         if_not_exists: false,
+        partition_by: None,
+        partition_of: None,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM502", "PGM503"]);
@@ -544,6 +550,8 @@ fn test_matrix_create_table_with_bad_types() {
         constraints: vec![],
         persistence: TablePersistence::Permanent,
         if_not_exists: false,
+        partition_by: None,
+        partition_of: None,
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM101", "PGM103", "PGM104", "PGM105"]);

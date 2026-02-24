@@ -5,7 +5,7 @@
 IMAGE_NAME    := pg-migration-lint-test
 CONTAINER_NAME := pgml-bridge-gen
 
-.PHONY: bridge-generate bridge-verify bridge-clean test
+.PHONY: bridge-generate bridge-verify bridge-clean test coverage
 
 # ---------------------------------------------------------------------------
 # bridge-generate: Build everything in Docker, then extract golden files
@@ -55,3 +55,15 @@ bridge-clean:
 test:
 	cargo test
 	cargo clippy -- -D warnings
+
+# ---------------------------------------------------------------------------
+# coverage: Generate an HTML code coverage report using cargo-llvm-cov.
+#           Requires: cargo install cargo-llvm-cov
+#           Opens the report in the default browser when done.
+# ---------------------------------------------------------------------------
+coverage:
+	cargo llvm-cov --html --output-dir $(HOME)/Downloads/pg-migration-lint-coverage
+	@chmod -R a+rX $(HOME)/Downloads/pg-migration-lint-coverage
+	@echo ""
+	@echo "==> Coverage report: $(HOME)/Downloads/pg-migration-lint-coverage/html/index.html"
+	@xdg-open $(HOME)/Downloads/pg-migration-lint-coverage/html/index.html 2>/dev/null || true
