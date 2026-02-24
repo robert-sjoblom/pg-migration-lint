@@ -22,9 +22,9 @@
 //! ```
 
 use crate::catalog::types::{
-    Catalog, ColumnState, ConstraintState, IndexEntry, IndexState, TableState,
+    Catalog, ColumnState, ConstraintState, IndexEntry, IndexState, PartitionByInfo, TableState,
 };
-use crate::parser::ir::{DefaultExpr, TypeName};
+use crate::parser::ir::{DefaultExpr, PartitionStrategy, TypeName};
 
 /// Heuristic: extract bare identifiers from expression text as column references.
 ///
@@ -102,7 +102,21 @@ impl CatalogBuilder {
         self
     }
 
-    pub fn build(self) -> Catalog {
+    pub fn build(mut self) -> Catalog {
+        // Build partition_children map from tables with parent_table set.
+        let pairs: Vec<(String, String)> = self
+            .catalog
+            .tables()
+            .filter_map(|table| {
+                table
+                    .parent_table
+                    .as_ref()
+                    .map(|pk| (pk.clone(), table.name.clone()))
+            })
+            .collect();
+        for (parent_key, child_key) in pairs {
+            self.catalog.attach_partition(&parent_key, &child_key);
+        }
         self.catalog
     }
 }
@@ -129,6 +143,9 @@ impl TableBuilder {
                 constraints: vec![],
                 has_primary_key: false,
                 incomplete: false,
+                is_partitioned: false,
+                partition_by: None,
+                parent_table: None,
             },
         }
     }
@@ -272,6 +289,22 @@ impl TableBuilder {
     /// Mark this table as incomplete (affected by unparseable SQL)
     pub fn incomplete(&mut self) -> &mut Self {
         self.state.incomplete = true;
+        self
+    }
+
+    /// Mark this table as partitioned with the given strategy and columns.
+    pub fn partitioned_by(&mut self, strategy: PartitionStrategy, columns: &[&str]) -> &mut Self {
+        self.state.is_partitioned = true;
+        self.state.partition_by = Some(PartitionByInfo {
+            strategy,
+            columns: columns.iter().map(|s| s.to_string()).collect(),
+        });
+        self
+    }
+
+    /// Mark this table as a partition child of the given parent.
+    pub fn partition_of(&mut self, parent_key: &str) -> &mut Self {
+        self.state.parent_table = Some(parent_key.to_string());
         self
     }
 
@@ -472,5 +505,64 @@ mod tests {
             !users.has_unique_not_null(),
             "Expression unique index should NOT count as PK substitute"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Partition support tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_partitioned_by_builder() {
+        use crate::parser::ir::PartitionStrategy;
+
+        let catalog = CatalogBuilder::new()
+            .table("measurements", |t| {
+                t.column("id", "integer", false)
+                    .column("ts", "timestamptz", false)
+                    .partitioned_by(PartitionStrategy::Range, &["ts"]);
+            })
+            .build();
+
+        let table = catalog.get_table("measurements").unwrap();
+        assert!(table.is_partitioned);
+        let pb = table.partition_by.as_ref().unwrap();
+        assert!(matches!(pb.strategy, PartitionStrategy::Range));
+        assert_eq!(pb.columns, vec!["ts".to_string()]);
+    }
+
+    #[test]
+    fn test_partition_of_builder() {
+        let catalog = CatalogBuilder::new()
+            .table("child", |t| {
+                t.column("id", "integer", false)
+                    .partition_of("public.parent");
+            })
+            .build();
+
+        let table = catalog.get_table("child").unwrap();
+        assert_eq!(table.parent_table.as_deref(), Some("public.parent"));
+    }
+
+    #[test]
+    fn test_partition_children_built_from_tables() {
+        use crate::parser::ir::PartitionStrategy;
+
+        let catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(PartitionStrategy::Range, &["id"]);
+            })
+            .table("child_a", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .table("child_b", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+
+        let children = catalog.get_partition_children("parent");
+        assert_eq!(children.len(), 2);
+        assert!(children.contains(&"child_a".to_string()));
+        assert!(children.contains(&"child_b".to_string()));
     }
 }

@@ -182,7 +182,7 @@ mod tests {
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("tmp_data"))
                 .with_columns(vec![ColumnDef::test("val", "text")])
-                .with_temporary(true),
+                .with_persistence(TablePersistence::Temporary),
         ))];
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);

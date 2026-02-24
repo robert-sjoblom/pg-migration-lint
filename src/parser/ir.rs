@@ -48,6 +48,21 @@ pub enum IrNode {
     },
 }
 
+/// Partition strategy for `CREATE TABLE ... PARTITION BY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionStrategy {
+    Range,
+    List,
+    Hash,
+}
+
+/// Partition key specification from `CREATE TABLE ... PARTITION BY strategy (columns)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionBy {
+    pub strategy: PartitionStrategy,
+    pub columns: Vec<String>,
+}
+
 /// Table persistence mode, mapping 1:1 to PostgreSQL's `relpersistence`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TablePersistence {
@@ -68,6 +83,10 @@ pub struct CreateTable {
     pub constraints: Vec<TableConstraint>,
     pub persistence: TablePersistence,
     pub if_not_exists: bool,
+    /// `PARTITION BY strategy (columns)` clause, if present.
+    pub partition_by: Option<PartitionBy>,
+    /// Parent table for `CREATE TABLE child PARTITION OF parent ...`.
+    pub partition_of: Option<QualifiedName>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,6 +113,15 @@ pub enum AlterTableAction {
     SetNotNull {
         column_name: String,
     },
+    /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`
+    AttachPartition {
+        child: QualifiedName,
+    },
+    /// `ALTER TABLE parent DETACH PARTITION child [CONCURRENTLY]`
+    DetachPartition {
+        child: QualifiedName,
+        concurrent: bool,
+    },
     /// Catch-all for ALTER TABLE actions we parse but don't model.
     Other {
         description: String,
@@ -110,6 +138,9 @@ pub struct CreateIndex {
     pub if_not_exists: bool,
     /// Deparsed WHERE clause for partial indexes, e.g. `"active = true"`.
     pub where_clause: Option<String>,
+    /// `CREATE INDEX ON ONLY parent_table` — index only on the parent,
+    /// not propagated to partitions.
+    pub only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -423,7 +454,7 @@ impl ColumnDef {
 
 #[cfg(test)]
 impl CreateTable {
-    /// Minimal CREATE TABLE: no columns, no constraints, permanent, no IF NOT EXISTS.
+    /// Minimal CREATE TABLE: no columns, no constraints, permanent, no IF NOT EXISTS, no partitions.
     pub fn test(name: QualifiedName) -> Self {
         Self {
             name,
@@ -431,6 +462,8 @@ impl CreateTable {
             constraints: vec![],
             persistence: TablePersistence::Permanent,
             if_not_exists: false,
+            partition_by: None,
+            partition_of: None,
         }
     }
 
@@ -444,15 +477,6 @@ impl CreateTable {
         self
     }
 
-    pub fn with_temporary(mut self, temporary: bool) -> Self {
-        self.persistence = if temporary {
-            TablePersistence::Temporary
-        } else {
-            TablePersistence::Permanent
-        };
-        self
-    }
-
     pub fn with_persistence(mut self, persistence: TablePersistence) -> Self {
         self.persistence = persistence;
         self
@@ -462,11 +486,21 @@ impl CreateTable {
         self.if_not_exists = if_not_exists;
         self
     }
+
+    pub fn with_partition_by(mut self, strategy: PartitionStrategy, columns: Vec<String>) -> Self {
+        self.partition_by = Some(PartitionBy { strategy, columns });
+        self
+    }
+
+    pub fn with_partition_of(mut self, parent: QualifiedName) -> Self {
+        self.partition_of = Some(parent);
+        self
+    }
 }
 
 #[cfg(test)]
 impl CreateIndex {
-    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE.
+    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE, not ONLY.
     pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
         Self {
             index_name: index_name.into(),
@@ -476,6 +510,7 @@ impl CreateIndex {
             concurrent: false,
             if_not_exists: false,
             where_clause: None,
+            only: false,
         }
     }
 

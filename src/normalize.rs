@@ -27,6 +27,9 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
     match node {
         IrNode::CreateTable(ct) => {
             ct.name.set_default_schema(default_schema);
+            if let Some(ref mut parent) = ct.partition_of {
+                parent.set_default_schema(default_schema);
+            }
             for constraint in &mut ct.constraints {
                 normalize_constraint(constraint, default_schema);
             }
@@ -34,8 +37,17 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
         IrNode::AlterTable(at) => {
             at.name.set_default_schema(default_schema);
             for action in &mut at.actions {
-                if let AlterTableAction::AddConstraint(constraint) = action {
-                    normalize_constraint(constraint, default_schema);
+                match action {
+                    AlterTableAction::AddConstraint(constraint) => {
+                        normalize_constraint(constraint, default_schema);
+                    }
+                    AlterTableAction::AttachPartition { child } => {
+                        child.set_default_schema(default_schema);
+                    }
+                    AlterTableAction::DetachPartition { child, .. } => {
+                        child.set_default_schema(default_schema);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -409,6 +421,80 @@ mod tests {
             assert_eq!(table.catalog_key(), "public.orders");
         } else {
             panic!("Expected RenameColumn");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Partition support tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_normalize_partition_of_name() {
+        let mut units = vec![make_unit(vec![
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_partition_of(QualifiedName::unqualified("parent"))
+                .into(),
+        ])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::CreateTable(ct) = &units[0].statements[0].node {
+            let parent = ct
+                .partition_of
+                .as_ref()
+                .expect("partition_of should be set");
+            assert_eq!(parent.catalog_key(), "public.parent");
+            assert_eq!(parent.schema, Some("public".to_string()));
+        } else {
+            panic!("Expected CreateTable");
+        }
+    }
+
+    #[test]
+    fn test_normalize_attach_partition_child() {
+        let mut units = vec![make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("parent"),
+            actions: vec![AlterTableAction::AttachPartition {
+                child: QualifiedName::unqualified("child"),
+            }],
+        })])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::AlterTable(at) = &units[0].statements[0].node {
+            assert_eq!(at.name.catalog_key(), "public.parent");
+            match &at.actions[0] {
+                AlterTableAction::AttachPartition { child } => {
+                    assert_eq!(child.catalog_key(), "public.child");
+                }
+                other => panic!("Expected AttachPartition, got {:?}", other),
+            }
+        } else {
+            panic!("Expected AlterTable");
+        }
+    }
+
+    #[test]
+    fn test_normalize_detach_partition_child() {
+        let mut units = vec![make_unit(vec![IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("parent"),
+            actions: vec![AlterTableAction::DetachPartition {
+                child: QualifiedName::unqualified("child"),
+                concurrent: false,
+            }],
+        })])];
+
+        normalize_schemas(&mut units, "public");
+
+        if let IrNode::AlterTable(at) = &units[0].statements[0].node {
+            match &at.actions[0] {
+                AlterTableAction::DetachPartition { child, .. } => {
+                    assert_eq!(child.catalog_key(), "public.child");
+                }
+                other => panic!("Expected DetachPartition, got {:?}", other),
+            }
+        } else {
+            panic!("Expected AlterTable");
         }
     }
 }
