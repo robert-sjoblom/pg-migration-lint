@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm001.rs
+expression: findings
+---
+- rule_id: PGM001
+  severity: Critical
+  message: "CREATE INDEX on partitioned table 'orders' will lock all partitions. Use CREATE INDEX ON ONLY, then CREATE INDEX CONCURRENTLY on each partition, then ALTER INDEX ... ATTACH PARTITION."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

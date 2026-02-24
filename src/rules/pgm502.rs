@@ -35,7 +35,13 @@ pub(super) const EXPLAIN: &str = "PGM502 — Table without primary key\n\
            );\n\
          \n\
          Note: Temporary tables are excluded. If PGM503 fires (UNIQUE NOT NULL\n\
-         used instead of PK), PGM502 does NOT fire for the same table.";
+         used instead of PK), PGM502 does NOT fire for the same table.\n\
+         \n\
+         Partition children (CREATE TABLE ... PARTITION OF parent) inherit the\n\
+         primary key from their parent table. This rule is suppressed for\n\
+         partition children when the parent already has a PK or when the\n\
+         parent is not in the catalog (common in incremental CI where only\n\
+         new migrations are analyzed).";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -52,6 +58,11 @@ pub(super) fn check(
             }
 
             let table_key = ct.name.catalog_key();
+
+            // Partition children inherit PK from their parent.
+            if ctx.partition_child_inherits_pk(ct.partition_of.as_ref(), table_key) {
+                continue;
+            }
 
             // Post-file check: look at catalog_after to see if a PK was added.
             let table_state = ctx.catalog_after.get_table(table_key);
@@ -238,6 +249,206 @@ mod tests {
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_partition_child_parent_has_pk_suppressed() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .pk(&["id"])
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)])
+                .with_partition_of(QualifiedName::unqualified("parent")),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_partition_child_parent_no_pk_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)])
+                .with_partition_of(QualifiedName::unqualified("parent")),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "Should fire when parent lacks PK");
+    }
+
+    #[test]
+    fn test_partition_child_parent_not_in_catalog_suppressed() {
+        let before = Catalog::new();
+        // Parent is NOT in the catalog (incremental CI case).
+        let after = CatalogBuilder::new()
+            .table("child", |t| {
+                t.column("id", "integer", false)
+                    .partition_of("unknown_parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)])
+                .with_partition_of(QualifiedName::unqualified("unknown_parent")),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_partitioned_parent_no_pk_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("parent"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)])
+                .with_partition_by(
+                    crate::parser::ir::PartitionStrategy::Range,
+                    vec!["id".to_string()],
+                ),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Partitioned parent without PK should fire normally"
+        );
+    }
+
+    #[test]
+    fn test_attach_partition_parent_has_pk_suppressed() {
+        // Table created without PARTITION OF, but ATTACHed as partition.
+        // The catalog's parent_table is set by replay of ATTACH PARTITION.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .pk(&["id"])
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        // IR has no partition_of — the table was ATTACHed, not created with PARTITION OF.
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "ATTACH PARTITION child with parent PK should be suppressed"
+        );
+    }
+
+    #[test]
+    fn test_attach_partition_parent_no_pk_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("child", |t| {
+                t.column("id", "integer", false).partition_of("parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        // IR has no partition_of — ATTACHed child, parent lacks PK.
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "ATTACH PARTITION child should fire when parent lacks PK"
+        );
+    }
+
+    #[test]
+    fn test_schema_qualified_partition_parent_suppressed() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("myschema.parent", |t| {
+                t.column("id", "integer", false)
+                    .pk(&["id"])
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("myschema.child", |t| {
+                t.column("id", "integer", false)
+                    .partition_of("myschema.parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::qualified("myschema", "child"))
+                .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)])
+                .with_partition_of(QualifiedName::qualified("myschema", "parent")),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Schema-qualified partition child with parent PK should be suppressed"
+        );
     }
 
     #[test]

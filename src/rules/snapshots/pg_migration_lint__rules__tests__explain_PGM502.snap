@@ -32,3 +32,9 @@ payload jsonb
 
 Note: Temporary tables are excluded. If PGM503 fires (UNIQUE NOT NULL
 used instead of PK), PGM502 does NOT fire for the same table.
+
+Partition children (CREATE TABLE ... PARTITION OF parent) inherit the
+primary key from their parent table. This rule is suppressed for
+partition children when the parent already has a PK or when the
+parent is not in the catalog (common in incremental CI where only
+new migrations are analyzed).

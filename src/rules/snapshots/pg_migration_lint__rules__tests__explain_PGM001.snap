@@ -14,10 +14,11 @@ targeting a table that already exists in the database (i.e., the table
 was not created in the same set of changed files).
 
 Why it's dangerous:
-Without CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on
-the table for the entire duration of the index build. This blocks ALL
-queries — reads and writes — on the table. For large tables, index
-creation can take minutes or hours, causing extended downtime.
+Without CONCURRENTLY, PostgreSQL acquires a SHARE lock on the table
+for the entire duration of the index build. This blocks all writes
+(inserts, updates, deletes) on the table while allowing reads.
+For large tables, index creation can take minutes or hours, blocking
+all write traffic for that duration.
 
 Example (bad):
 CREATE INDEX idx_orders_status ON orders (status);
@@ -31,3 +32,11 @@ you must also disable that. See PGM003.
 
 This rule does NOT fire when the table is created in the same set of
 changed files, because locking an empty/new table is harmless.
+
+Partitioned tables: CREATE INDEX on a partitioned parent propagates
+the index build to every partition, locking all of them. The safe
+pattern is: CREATE INDEX ON ONLY parent (creates an invalid parent-
+only index with no lock on children), then CREATE INDEX CONCURRENTLY
+on each partition, then ALTER INDEX parent_idx ATTACH PARTITION
+child_idx for each. CREATE INDEX ON ONLY is suppressed by this rule
+because it does not lock child partitions.
