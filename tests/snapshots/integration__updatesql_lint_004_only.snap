@@ -4,19 +4,19 @@ expression: findings
 ---
 - rule_id: PGM001
   severity: Critical
-  message: "CREATE INDEX on existing table 'users' should use CONCURRENTLY to avoid holding an exclusive lock."
+  message: "CREATE INDEX on existing table 'users' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM001
   severity: Critical
-  message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
+  message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM001
   severity: Critical
-  message: "CREATE INDEX on existing table 'products' should use CONCURRENTLY to avoid holding an exclusive lock."
+  message: "CREATE INDEX on existing table 'products' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1

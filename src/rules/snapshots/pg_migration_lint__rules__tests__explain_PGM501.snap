@@ -38,3 +38,9 @@ Prefix matching: FK columns (a, b) are covered by index (a, b) or
 
 The check uses the catalog state AFTER the entire file is processed,
 so creating the index later in the same file avoids a false positive.
+
+Partitioned tables: This rule is suppressed when the FK source table
+is partitioned or is a partition child. For partitioned tables,
+indexes must be created on each partition individually and cannot be
+reliably verified from the parent definition alone. Verify FK index
+coverage manually on each partition.

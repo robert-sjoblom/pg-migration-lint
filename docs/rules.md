@@ -51,7 +51,7 @@ CREATE INDEX idx_foo ON bar (col);
 
 **Severity**: Critical
 
-Detects `CREATE INDEX` on an existing table without the `CONCURRENTLY` option. Without `CONCURRENTLY`, PostgreSQL acquires an ACCESS EXCLUSIVE lock for the entire duration of the index build, blocking all reads and writes.
+Detects `CREATE INDEX` on an existing table without the `CONCURRENTLY` option. Without `CONCURRENTLY`, PostgreSQL acquires a SHARE lock for the entire duration of the index build, blocking all writes (inserts, updates, deletes) while allowing reads.
 
 **Example** (bad):
 ```sql

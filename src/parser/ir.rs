@@ -538,6 +538,11 @@ impl CreateIndex {
         self.if_not_exists = if_not_exists;
         self
     }
+
+    pub fn with_only(mut self, only: bool) -> Self {
+        self.only = only;
+        self
+    }
 }
 
 #[cfg(test)]

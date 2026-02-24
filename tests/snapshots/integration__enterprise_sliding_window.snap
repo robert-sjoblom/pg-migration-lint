@@ -148,15 +148,15 @@ expression: snapshot
   step: step_06_V006__add_order_status_columns
 - findings:
     - line: 1
-      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
+      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
       rule: PGM001
       severity: Critical
     - line: 5
-      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding an exclusive lock."
+      message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
       rule: PGM001
       severity: Critical
     - line: 6
-      message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
+      message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
       rule: PGM001
       severity: Critical
     - line: 1

@@ -41,7 +41,13 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
          (a, b, c) but NOT by (b, a) or (a). Column order matters.\n\
          \n\
          The check uses the catalog state AFTER the entire file is processed,\n\
-         so creating the index later in the same file avoids a false positive.";
+         so creating the index later in the same file avoids a false positive.\n\
+         \n\
+         Partitioned tables: This rule is suppressed when the FK source table\n\
+         is partitioned or is a partition child. For partitioned tables,\n\
+         indexes must be created on each partition individually and cannot be\n\
+         reliably verified from the parent definition alone. Verify FK index\n\
+         coverage manually on each partition.";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -88,13 +94,15 @@ pub(super) fn check(
     }
 
     // Post-file check: for each FK, check catalog_after for a covering index.
+    // Partitioned tables and partition children are suppressed — index coverage
+    // must be verified per-partition manually.
     let mut findings = Vec::new();
     for fk in &fks {
-        let has_index = ctx
-            .catalog_after
-            .get_table(&fk.table_name)
-            .map(|t| t.has_covering_index(&fk.columns))
-            .unwrap_or(false);
+        let has_index = match ctx.catalog_after.get_table(&fk.table_name) {
+            Some(table) if table.is_partitioned || table.parent_table.is_some() => continue,
+            Some(table) => table.has_covering_index(&fk.columns),
+            None => false,
+        };
 
         if !has_index {
             let cols_display = fk.columns.join(", ");
@@ -293,6 +301,121 @@ mod tests {
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_fk_on_partitioned_table_suppressed() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_fk_on_partition_child_suppressed() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .partition_of("orders_parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_fk_on_partitioned_table_via_create_table_suppressed() {
+        // FK defined inline in CREATE TABLE on a partitioned table.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("ref_table", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "ref_table", &["id"])
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders"))
+                .with_columns(vec![
+                    ColumnDef::test("id", "integer").with_nullable(false),
+                    ColumnDef::test("ref_id", "integer").with_nullable(false),
+                ])
+                .with_constraints(vec![TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("ref_table"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                }])
+                .with_partition_by(
+                    crate::parser::ir::PartitionStrategy::Range,
+                    vec!["id".to_string()],
+                ),
+        ))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "FK via CREATE TABLE on partitioned table should be suppressed"
+        );
     }
 
     #[test]

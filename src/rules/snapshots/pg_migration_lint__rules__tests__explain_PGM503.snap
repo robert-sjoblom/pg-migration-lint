@@ -34,3 +34,9 @@ name text
 
 Note: When PGM503 fires, PGM502 (table without PK) does NOT fire
 for the same table, since the situation is already flagged.
+
+Partition children (CREATE TABLE ... PARTITION OF parent) inherit the
+primary key from their parent table. This rule is suppressed for
+partition children when the parent already has a PK or when the
+parent is not in the catalog (common in incremental CI where only
+new migrations are analyzed).

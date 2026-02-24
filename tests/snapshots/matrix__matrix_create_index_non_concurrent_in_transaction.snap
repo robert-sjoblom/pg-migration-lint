@@ -4,7 +4,7 @@ expression: findings
 ---
 - rule_id: PGM001
   severity: Critical
-  message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
+  message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
   file: migrations/002.sql
   start_line: 1
   end_line: 1
