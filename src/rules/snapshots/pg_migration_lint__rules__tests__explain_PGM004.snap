@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM004
+Severity: CRITICAL
+Description: DETACH PARTITION on existing table without CONCURRENTLY
+
+PGM004 — DETACH PARTITION without CONCURRENTLY
+
+What it detects:
+  ALTER TABLE parent DETACH PARTITION child where the parent table
+  already exists and the CONCURRENTLY option is not used.
+
+Why it's dangerous:
+  Plain DETACH PARTITION acquires ACCESS EXCLUSIVE on both the parent
+  partitioned table and the child partition for the full duration of
+  the operation. This blocks all reads and writes on the parent (and
+  therefore all its partitions) until detach completes.
+
+Safe alternative:
+  Use DETACH PARTITION ... CONCURRENTLY (PostgreSQL 14+), which uses
+  SHARE UPDATE EXCLUSIVE instead, allowing concurrent reads and writes.
+
+Example (bad):
+  ALTER TABLE measurements DETACH PARTITION measurements_2023;
+
+Fix (safe):
+  ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
+
+Note: DETACH PARTITION CONCURRENTLY requires PostgreSQL 14+.

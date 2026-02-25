@@ -25,6 +25,8 @@ pub mod column_type_check;
 mod pgm001;
 mod pgm002;
 mod pgm003;
+mod pgm004;
+mod pgm005;
 mod pgm006;
 mod pgm007;
 mod pgm008;
@@ -106,6 +108,8 @@ impl RuleId {
                 UnsafeDdlRule::Pgm001 => "PGM001",
                 UnsafeDdlRule::Pgm002 => "PGM002",
                 UnsafeDdlRule::Pgm003 => "PGM003",
+                UnsafeDdlRule::Pgm004 => "PGM004",
+                UnsafeDdlRule::Pgm005 => "PGM005",
                 UnsafeDdlRule::Pgm006 => "PGM006",
                 UnsafeDdlRule::Pgm007 => "PGM007",
                 UnsafeDdlRule::Pgm008 => "PGM008",
@@ -212,6 +216,8 @@ impl FromStr for RuleId {
             "PGM001" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001)),
             "PGM002" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002)),
             "PGM003" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm003)),
+            "PGM004" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm004)),
+            "PGM005" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm005)),
             "PGM006" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006)),
             "PGM007" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm007)),
             "PGM008" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008)),
@@ -328,6 +334,10 @@ pub enum UnsafeDdlRule {
     Pgm002,
     /// Concurrent index operations inside a transaction.
     Pgm003,
+    /// `DETACH PARTITION` without `CONCURRENTLY` on existing tables.
+    Pgm004,
+    /// `ATTACH PARTITION` of existing table without pre-validated `CHECK`.
+    Pgm005,
     /// Volatile function defaults on columns.
     Pgm006,
     /// Column type changes on existing tables.
@@ -362,6 +372,8 @@ impl UnsafeDdlRule {
             Self::Pgm001 => pgm001::DESCRIPTION,
             Self::Pgm002 => pgm002::DESCRIPTION,
             Self::Pgm003 => pgm003::DESCRIPTION,
+            Self::Pgm004 => pgm004::DESCRIPTION,
+            Self::Pgm005 => pgm005::DESCRIPTION,
             Self::Pgm006 => pgm006::DESCRIPTION,
             Self::Pgm007 => pgm007::DESCRIPTION,
             Self::Pgm008 => pgm008::DESCRIPTION,
@@ -383,6 +395,8 @@ impl UnsafeDdlRule {
             Self::Pgm001 => pgm001::EXPLAIN,
             Self::Pgm002 => pgm002::EXPLAIN,
             Self::Pgm003 => pgm003::EXPLAIN,
+            Self::Pgm004 => pgm004::EXPLAIN,
+            Self::Pgm005 => pgm005::EXPLAIN,
             Self::Pgm006 => pgm006::EXPLAIN,
             Self::Pgm007 => pgm007::EXPLAIN,
             Self::Pgm008 => pgm008::EXPLAIN,
@@ -409,6 +423,8 @@ impl UnsafeDdlRule {
             Self::Pgm001 => pgm001::check(rule, statements, ctx),
             Self::Pgm002 => pgm002::check(rule, statements, ctx),
             Self::Pgm003 => pgm003::check(rule, statements, ctx),
+            Self::Pgm004 => pgm004::check(rule, statements, ctx),
+            Self::Pgm005 => pgm005::check(rule, statements, ctx),
             Self::Pgm006 => pgm006::check(rule, statements, ctx),
             Self::Pgm007 => pgm007::check(rule, statements, ctx),
             Self::Pgm008 => pgm008::check(rule, statements, ctx),
@@ -432,6 +448,7 @@ impl From<UnsafeDdlRule> for Severity {
             UnsafeDdlRule::Pgm001
             | UnsafeDdlRule::Pgm002
             | UnsafeDdlRule::Pgm003
+            | UnsafeDdlRule::Pgm004
             | UnsafeDdlRule::Pgm007
             | UnsafeDdlRule::Pgm008
             | UnsafeDdlRule::Pgm013
@@ -439,7 +456,7 @@ impl From<UnsafeDdlRule> for Severity {
             | UnsafeDdlRule::Pgm015
             | UnsafeDdlRule::Pgm017
             | UnsafeDdlRule::Pgm018 => Self::Critical,
-            UnsafeDdlRule::Pgm011 | UnsafeDdlRule::Pgm016 => Self::Major,
+            UnsafeDdlRule::Pgm005 | UnsafeDdlRule::Pgm011 | UnsafeDdlRule::Pgm016 => Self::Major,
             UnsafeDdlRule::Pgm006 | UnsafeDdlRule::Pgm010 | UnsafeDdlRule::Pgm012 => Self::Minor,
             UnsafeDdlRule::Pgm009 => Self::Info,
         }
@@ -1198,8 +1215,14 @@ mod tests {
             assert_eq!(*id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        // 16 unsafe DDL + 6 type anti-pattern + 4 destructive + 3 DML + 3 idempotency + 6 schema design + 1 meta = 39
-        assert_eq!(all.len(), 39);
+        let expected = UnsafeDdlRule::iter().count()
+            + TypeAntiPatternRule::iter().count()
+            + DestructiveRule::iter().count()
+            + DmlRule::iter().count()
+            + IdempotencyRule::iter().count()
+            + SchemaDesignRule::iter().count()
+            + MetaRule::iter().count();
+        assert_eq!(all.len(), expected);
     }
 
     #[test]

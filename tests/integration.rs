@@ -533,6 +533,32 @@ fn test_if_not_exists_noop_does_not_mask_existing_table_rules() {
 }
 
 // ---------------------------------------------------------------------------
+// Partition rules (PGM004, PGM005)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn all_rules_pgm004_detach_without_concurrently() {
+    let findings = lint_fixture_rules(
+        "all-rules",
+        &["V013__partition_violations.sql"],
+        &["PGM004"],
+    );
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn all_rules_pgm005_attach_without_check() {
+    let findings = lint_fixture_rules(
+        "all-rules",
+        &["V013__partition_violations.sql"],
+        &["PGM005"],
+    );
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+// ---------------------------------------------------------------------------
 // Enterprise fixture: realistic 31-file migration history
 // ---------------------------------------------------------------------------
 

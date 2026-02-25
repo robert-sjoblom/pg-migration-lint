@@ -286,6 +286,15 @@ impl TableBuilder {
         self
     }
 
+    /// Add a CHECK constraint
+    pub fn check_constraint(&mut self, name: Option<&str>, not_valid: bool) -> &mut Self {
+        self.state.constraints.push(ConstraintState::Check {
+            name: name.map(|s| s.to_string()),
+            not_valid,
+        });
+        self
+    }
+
     /// Mark this table as incomplete (affected by unparseable SQL)
     pub fn incomplete(&mut self) -> &mut Self {
         self.state.incomplete = true;

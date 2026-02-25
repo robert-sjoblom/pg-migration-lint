@@ -1,0 +1,39 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM005
+Severity: MAJOR
+Description: ATTACH PARTITION of existing table without pre-validated CHECK
+
+PGM005 — ATTACH PARTITION without pre-validated CHECK constraint
+
+What it detects:
+  ALTER TABLE parent ATTACH PARTITION child FOR VALUES ... where the
+  child table already exists, has existing rows, and has no CHECK
+  constraint in the catalog.
+
+Why it's dangerous:
+  When attaching a partition, PostgreSQL must verify that every existing
+  row in the child satisfies the partition bound. Without a pre-validated
+  CHECK constraint whose expression implies the partition bound, PostgreSQL
+  performs a full table scan under ACCESS EXCLUSIVE lock on the child
+  table. For large child tables this causes extended unavailability.
+
+Safe alternative (3-step pattern):
+  -- Step 1: Add a CHECK constraint mirroring the partition bound (NOT VALID)
+  ALTER TABLE orders_2024 ADD CONSTRAINT orders_2024_bound_check
+      CHECK (created_at >= '2024-01-01' AND created_at < '2025-01-01')
+      NOT VALID;
+
+  -- Step 2: Validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  ALTER TABLE orders_2024 VALIDATE CONSTRAINT orders_2024_bound_check;
+
+  -- Step 3: Attach (scan skipped because constraint is already validated)
+  ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
+      FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+
+Note: This rule does not verify whether the CHECK expression semantically
+implies the partition bound — it only checks for the presence of any CHECK
+constraint. A false negative occurs when a CHECK exists but does not match
+the bound; this is acceptable for v1.

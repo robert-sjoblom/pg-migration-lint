@@ -27,3 +27,26 @@ CREATE TABLE audit_trail (
 );
 CREATE INDEX idx_addresses_account_id ON addresses (account_id);
 CREATE INDEX idx_customers_email ON customers (email);
+
+-- Partitioned table setup for PGM004/PGM005 tests
+CREATE TABLE measurements (
+    id bigint NOT NULL,
+    ts timestamptz NOT NULL,
+    value double precision
+) PARTITION BY RANGE (ts);
+
+CREATE TABLE measurements_2023 (
+    id bigint NOT NULL,
+    ts timestamptz NOT NULL,
+    value double precision
+);
+ALTER TABLE measurements_2023 ADD CONSTRAINT measurements_2023_bound
+    CHECK (ts >= '2023-01-01' AND ts < '2024-01-01');
+ALTER TABLE measurements ATTACH PARTITION measurements_2023
+    FOR VALUES FROM ('2023-01-01') TO ('2024-01-01');
+
+CREATE TABLE measurements_2024 (
+    id bigint NOT NULL,
+    ts timestamptz NOT NULL,
+    value double precision
+);
