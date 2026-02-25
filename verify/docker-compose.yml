@@ -1,0 +1,60 @@
+services:
+  pg14:
+    image: postgres:14-alpine
+    ports: ["54314:5432"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: verify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg15:
+    image: postgres:15-alpine
+    ports: ["54315:5432"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: verify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg16:
+    image: postgres:16-alpine
+    ports: ["54316:5432"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: verify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg17:
+    image: postgres:17-alpine
+    ports: ["54317:5432"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: verify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  pg18:
+    image: postgres:18-alpine
+    ports: ["54318:5432"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: verify
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
