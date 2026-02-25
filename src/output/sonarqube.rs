@@ -42,13 +42,20 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
     match rule_id {
         // Safety-critical: causes lock contention, table rewrites, or data issues
         RuleId::UnsafeDdl(
-            Pgm001 | Pgm002 | Pgm003 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm016 | Pgm017
-            | Pgm018,
+            Pgm001 | Pgm002 | Pgm003 | Pgm004 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm016
+            | Pgm017 | Pgm018,
         ) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
+        },
+        // Attach partition without CHECK: lock contention during full table scan
+        RuleId::UnsafeDdl(Pgm005) => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "MEDIUM",
         },
         // Volatile default: potentially dangerous but severity is Minor (PG 11+ mitigates)
         RuleId::UnsafeDdl(Pgm006) => SonarQubeRuleMeta {
@@ -214,11 +221,13 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
     };
     match rule_id {
         // Concurrently fixes are usually quick
-        RuleId::UnsafeDdl(Pgm001 | Pgm002 | Pgm003) => 5,
+        RuleId::UnsafeDdl(Pgm001 | Pgm002 | Pgm003 | Pgm004) => 5,
         // Index/constraint additions
         RuleId::UnsafeDdl(Pgm016 | Pgm017) | RuleId::SchemaDesign(Pgm501) => 15,
         // Table rewrites / schema changes need more thought
-        RuleId::UnsafeDdl(Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm018) => 30,
+        RuleId::UnsafeDdl(
+            Pgm005 | Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm018,
+        ) => 30,
         // Schema quality / side-effect warnings
         RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012) => 10,
         RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505 | Pgm506) => 10,

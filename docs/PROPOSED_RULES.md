@@ -10,7 +10,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 - **Range**: 0xx (Partitions)
 - **Severity**: CRITICAL
-- **Status**: Not yet implemented.
+- **Status**: Promoted to PGM004.
 - **Triggers**: `ALTER TABLE parent DETACH PARTITION child` without the `CONCURRENTLY` option, where `parent` exists in `catalog_before`.
 - **Why**: Plain `DETACH PARTITION` acquires `ACCESS EXCLUSIVE` on both the parent partitioned table and the child partition for the full duration of the operation. This blocks all reads and writes on the parent (and therefore all its partitions) until detach completes. PostgreSQL 14+ introduced `DETACH PARTITION ... CONCURRENTLY`, which uses a weaker lock and allows concurrent reads and writes. There is no reason to use the blocking form in an online migration against an existing partitioned table.
 - **Does not fire when**:
@@ -27,7 +27,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 - **Range**: 0xx (Partitions)
 - **Severity**: MAJOR
-- **Status**: Not yet implemented.
+- **Status**: Promoted to PGM005.
 - **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where:
   - `parent` exists in `catalog_before`.
   - `child` exists in `catalog_before`.

@@ -10,7 +10,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 38 lint rules across seven categories:
+`pg-migration-lint` ships with 40 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM018) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -114,6 +114,55 @@ Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migrat
 ```
 
 See also [PGM001](#pgm001) and [PGM002](#pgm002).
+
+---
+
+### PGM004 — DETACH PARTITION on existing table without CONCURRENTLY
+{: #pgm004}
+
+**Severity**: Critical
+
+Detects `ALTER TABLE ... DETACH PARTITION` on a pre-existing partitioned table without the `CONCURRENTLY` option. Plain `DETACH PARTITION` acquires ACCESS EXCLUSIVE on the parent and child, blocking all reads and writes for the duration. PostgreSQL 14+ supports `DETACH PARTITION ... CONCURRENTLY`, which uses a weaker lock.
+
+**Example**:
+```sql
+ALTER TABLE measurements DETACH PARTITION measurements_2023;
+```
+
+**Fix**:
+```sql
+ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
+```
+
+Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.
+
+---
+
+### PGM005 — ATTACH PARTITION of existing table without pre-validated CHECK
+{: #pgm005}
+
+**Severity**: Major
+
+Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
+
+**Example**:
+```sql
+ALTER TABLE measurements ATTACH PARTITION measurements_2024
+    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+```
+
+**Recommended approach**:
+1. Add a CHECK constraint mirroring the partition bound with `NOT VALID`.
+2. Validate the constraint separately (`VALIDATE CONSTRAINT` — allows concurrent reads/writes).
+3. Attach the partition (scan is skipped because the constraint is already validated).
+
+```sql
+ALTER TABLE measurements_2024 ADD CONSTRAINT measurements_2024_bound
+    CHECK (ts >= '2024-01-01' AND ts < '2025-01-01') NOT VALID;
+ALTER TABLE measurements_2024 VALIDATE CONSTRAINT measurements_2024_bound;
+ALTER TABLE measurements ATTACH PARTITION measurements_2024
+    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+```
 
 ---
 
@@ -929,6 +978,8 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM001](#pgm001) | Critical | Missing CONCURRENTLY on CREATE INDEX |
 | [PGM002](#pgm002) | Critical | Missing CONCURRENTLY on DROP INDEX |
 | [PGM003](#pgm003) | Critical | CONCURRENTLY inside transaction |
+| [PGM004](#pgm004) | Critical | DETACH PARTITION on existing table without CONCURRENTLY |
+| [PGM005](#pgm005) | Major | ATTACH PARTITION of existing table without pre-validated CHECK |
 | [PGM006](#pgm006) | Minor | Volatile default on column |
 | [PGM007](#pgm007) | Critical | ALTER COLUMN TYPE on existing table causes table rewrite |
 | [PGM008](#pgm008) | Critical | ADD COLUMN NOT NULL without DEFAULT on existing table |

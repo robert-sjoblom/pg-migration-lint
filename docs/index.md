@@ -17,7 +17,10 @@ Static analysis for PostgreSQL migration files. Catches unsafe DDL, type anti-pa
 Download the latest release binary from the [releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases), or build from source:
 
 ```bash
-cargo install pg-migration-lint
+git clone https://github.com/robert-sjoblom/pg-migration-lint.git
+cd pg-migration-lint
+cargo build --release
+# Binary is at target/release/pg-migration-lint
 ```
 
 ## Usage

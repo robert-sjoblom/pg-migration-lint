@@ -41,13 +41,37 @@ expression: parsed
       "ruleId": "PGM003"
     },
     {
+      "effortMinutes": 5,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM004: DETACH PARTITION on existing table without CONCURRENTLY",
+        "textRange": {
+          "endLine": 4,
+          "startLine": 4
+        }
+      },
+      "ruleId": "PGM004"
+    },
+    {
+      "effortMinutes": 30,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM005: ATTACH PARTITION of existing table without pre-validated CHECK",
+        "textRange": {
+          "endLine": 5,
+          "startLine": 5
+        }
+      },
+      "ruleId": "PGM005"
+    },
+    {
       "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM006: Volatile default on column",
         "textRange": {
-          "endLine": 4,
-          "startLine": 4
+          "endLine": 6,
+          "startLine": 6
         }
       },
       "ruleId": "PGM006"
@@ -58,8 +82,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM007: ALTER COLUMN TYPE on existing table causes table rewrite",
         "textRange": {
-          "endLine": 5,
-          "startLine": 5
+          "endLine": 7,
+          "startLine": 7
         }
       },
       "ruleId": "PGM007"
@@ -70,8 +94,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM008: ADD COLUMN NOT NULL without DEFAULT on existing table",
         "textRange": {
-          "endLine": 6,
-          "startLine": 6
+          "endLine": 8,
+          "startLine": 8
         }
       },
       "ruleId": "PGM008"
@@ -82,8 +106,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM009: DROP COLUMN on existing table",
         "textRange": {
-          "endLine": 7,
-          "startLine": 7
+          "endLine": 9,
+          "startLine": 9
         }
       },
       "ruleId": "PGM009"
@@ -94,8 +118,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM010: DROP COLUMN silently removes unique constraint",
         "textRange": {
-          "endLine": 8,
-          "startLine": 8
+          "endLine": 10,
+          "startLine": 10
         }
       },
       "ruleId": "PGM010"
@@ -106,8 +130,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM011: DROP COLUMN silently removes primary key",
         "textRange": {
-          "endLine": 9,
-          "startLine": 9
+          "endLine": 11,
+          "startLine": 11
         }
       },
       "ruleId": "PGM011"
@@ -118,8 +142,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM012: DROP COLUMN silently removes foreign key",
         "textRange": {
-          "endLine": 10,
-          "startLine": 10
+          "endLine": 12,
+          "startLine": 12
         }
       },
       "ruleId": "PGM012"
@@ -130,8 +154,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM013: SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock",
         "textRange": {
-          "endLine": 11,
-          "startLine": 11
+          "endLine": 13,
+          "startLine": 13
         }
       },
       "ruleId": "PGM013"
@@ -142,8 +166,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM014: ADD FOREIGN KEY on existing table without NOT VALID",
         "textRange": {
-          "endLine": 12,
-          "startLine": 12
+          "endLine": 14,
+          "startLine": 14
         }
       },
       "ruleId": "PGM014"
@@ -154,8 +178,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM015: ADD CHECK on existing table without NOT VALID",
         "textRange": {
-          "endLine": 13,
-          "startLine": 13
+          "endLine": 15,
+          "startLine": 15
         }
       },
       "ruleId": "PGM015"
@@ -166,8 +190,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM016: ADD PRIMARY KEY on existing table without USING INDEX",
         "textRange": {
-          "endLine": 14,
-          "startLine": 14
+          "endLine": 16,
+          "startLine": 16
         }
       },
       "ruleId": "PGM016"
@@ -178,8 +202,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM017: ADD UNIQUE on existing table without USING INDEX",
         "textRange": {
-          "endLine": 15,
-          "startLine": 15
+          "endLine": 17,
+          "startLine": 17
         }
       },
       "ruleId": "PGM017"
@@ -190,8 +214,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM018: CLUSTER on existing table",
         "textRange": {
-          "endLine": 16,
-          "startLine": 16
+          "endLine": 18,
+          "startLine": 18
         }
       },
       "ruleId": "PGM018"
@@ -202,8 +226,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM101: Column uses timestamp without time zone",
         "textRange": {
-          "endLine": 17,
-          "startLine": 17
+          "endLine": 19,
+          "startLine": 19
         }
       },
       "ruleId": "PGM101"
@@ -214,8 +238,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM102: Column uses timestamp or timestamptz with precision 0",
         "textRange": {
-          "endLine": 18,
-          "startLine": 18
+          "endLine": 20,
+          "startLine": 20
         }
       },
       "ruleId": "PGM102"
@@ -226,8 +250,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM103: Column uses char(n) type",
         "textRange": {
-          "endLine": 19,
-          "startLine": 19
+          "endLine": 21,
+          "startLine": 21
         }
       },
       "ruleId": "PGM103"
@@ -238,8 +262,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM104: Column uses the money type",
         "textRange": {
-          "endLine": 20,
-          "startLine": 20
+          "endLine": 22,
+          "startLine": 22
         }
       },
       "ruleId": "PGM104"
@@ -250,8 +274,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM105: Column uses serial/bigserial instead of identity column",
         "textRange": {
-          "endLine": 21,
-          "startLine": 21
+          "endLine": 23,
+          "startLine": 23
         }
       },
       "ruleId": "PGM105"
@@ -262,8 +286,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM106: Column uses json type instead of jsonb",
         "textRange": {
-          "endLine": 22,
-          "startLine": 22
+          "endLine": 24,
+          "startLine": 24
         }
       },
       "ruleId": "PGM106"
@@ -274,8 +298,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM201: DROP TABLE on existing table",
         "textRange": {
-          "endLine": 23,
-          "startLine": 23
+          "endLine": 25,
+          "startLine": 25
         }
       },
       "ruleId": "PGM201"
@@ -286,8 +310,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM202: DROP TABLE CASCADE on existing table",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM202"
@@ -298,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM203: TRUNCATE TABLE on existing table",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM203"
@@ -310,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM204: TRUNCATE TABLE CASCADE on existing table",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM204"
@@ -322,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM301: INSERT INTO existing table in migration",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM301"
@@ -334,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM302: UPDATE on existing table in migration",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM302"
@@ -346,8 +370,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM303: DELETE FROM existing table in migration",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 31,
+          "startLine": 31
         }
       },
       "ruleId": "PGM303"
@@ -358,8 +382,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
         "textRange": {
-          "endLine": 30,
-          "startLine": 30
+          "endLine": 32,
+          "startLine": 32
         }
       },
       "ruleId": "PGM401"
@@ -370,8 +394,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 31,
-          "startLine": 31
+          "endLine": 33,
+          "startLine": 33
         }
       },
       "ruleId": "PGM402"
@@ -382,8 +406,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
         "textRange": {
-          "endLine": 32,
-          "startLine": 32
+          "endLine": 34,
+          "startLine": 34
         }
       },
       "ruleId": "PGM403"
@@ -394,8 +418,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 33,
-          "startLine": 33
+          "endLine": 35,
+          "startLine": 35
         }
       },
       "ruleId": "PGM501"
@@ -406,8 +430,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 34,
-          "startLine": 34
+          "endLine": 36,
+          "startLine": 36
         }
       },
       "ruleId": "PGM502"
@@ -418,8 +442,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 35,
-          "startLine": 35
+          "endLine": 37,
+          "startLine": 37
         }
       },
       "ruleId": "PGM503"
@@ -430,8 +454,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 36,
-          "startLine": 36
+          "endLine": 38,
+          "startLine": 38
         }
       },
       "ruleId": "PGM504"
@@ -442,8 +466,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 37,
-          "startLine": 37
+          "endLine": 39,
+          "startLine": 39
         }
       },
       "ruleId": "PGM505"
@@ -454,8 +478,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM506: CREATE UNLOGGED TABLE",
         "textRange": {
-          "endLine": 38,
-          "startLine": 38
+          "endLine": 40,
+          "startLine": 40
         }
       },
       "ruleId": "PGM506"
@@ -505,6 +529,36 @@ expression: parsed
       ],
       "name": "CONCURRENTLY inside transaction",
       "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "DETACH PARTITION on existing table without CONCURRENTLY. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004",
+      "engineId": "pg-migration-lint",
+      "id": "PGM004",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "DETACH PARTITION on existing table without CONCURRENTLY",
+      "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "ATTACH PARTITION of existing table without pre-validated CHECK. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm005",
+      "engineId": "pg-migration-lint",
+      "id": "PGM005",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "ATTACH PARTITION of existing table without pre-validated CHECK",
+      "severity": "MAJOR",
       "type": "BUG"
     },
     {

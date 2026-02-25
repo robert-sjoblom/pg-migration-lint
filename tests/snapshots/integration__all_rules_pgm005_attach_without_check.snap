@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM005
+  severity: Major
+  message: "ATTACH PARTITION of existing table 'measurements_2024' to 'measurements' will scan the entire child table under ACCESS EXCLUSIVE lock to verify the partition bound. Add a CHECK constraint mirroring the partition bound, validate it separately, then attach."
+  file: repos/all-rules/migrations/V013__partition_violations.sql
+  start_line: 4
+  end_line: 6
