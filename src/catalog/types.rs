@@ -194,7 +194,9 @@ impl TableState {
             ConstraintState::PrimaryKey { columns }
             | ConstraintState::ForeignKey { columns, .. }
             | ConstraintState::Unique { columns, .. } => !columns.iter().any(|c| c == name),
-            ConstraintState::Check { .. } => true,
+            ConstraintState::Check { expression, .. } => {
+                !expression_mentions_column(expression, name)
+            }
         });
 
         // Recalculate has_primary_key in case the PK was removed.
@@ -273,6 +275,31 @@ impl TableState {
             .filter(|idx| idx.references_column(col))
             .collect()
     }
+
+    /// Returns true if any CHECK constraint on this table references all of
+    /// the given column names. Used by PGM005 to verify that a CHECK is
+    /// relevant to the partition bound rather than an unrelated constraint.
+    pub fn has_check_referencing_columns(&self, columns: &[String]) -> bool {
+        self.constraints.iter().any(|c| {
+            if let ConstraintState::Check { expression, .. } = c {
+                columns
+                    .iter()
+                    .all(|col| expression_mentions_column(expression, col))
+            } else {
+                false
+            }
+        })
+    }
+}
+
+/// Check if an expression text contains a column name as an identifier.
+///
+/// Splits on non-identifier characters and checks for an exact token match.
+/// This avoids false positives like `ts` matching `timestamp`.
+fn expression_mentions_column(expression: &str, column: &str) -> bool {
+    expression
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|token| token == column)
 }
 
 #[derive(Debug, Clone)]
@@ -384,6 +411,7 @@ pub enum ConstraintState {
     },
     Check {
         name: Option<String>,
+        expression: String,
         not_valid: bool,
     },
 }
@@ -395,7 +423,9 @@ impl ConstraintState {
             ConstraintState::PrimaryKey { columns }
             | ConstraintState::ForeignKey { columns, .. }
             | ConstraintState::Unique { columns, .. } => columns.iter().any(|c| c == col),
-            ConstraintState::Check { .. } => false,
+            ConstraintState::Check { expression, .. } => {
+                expression_mentions_column(expression, col)
+            }
         }
     }
 }
@@ -458,5 +488,119 @@ mod tests {
         let mut catalog_clone = catalog.clone();
         catalog_clone.remove_table("parent");
         assert!(catalog_clone.get_partition_children("parent").is_empty());
+    }
+
+    #[test]
+    fn test_expression_mentions_column_simple() {
+        assert!(expression_mentions_column("(ts >= '2024-01-01')", "ts"));
+    }
+
+    #[test]
+    fn test_expression_mentions_column_cast() {
+        assert!(expression_mentions_column("ts::date >= '2024-01-01'", "ts"));
+    }
+
+    #[test]
+    fn test_expression_mentions_column_no_match() {
+        assert!(!expression_mentions_column("(amount > 0)", "ts"));
+    }
+
+    #[test]
+    fn test_expression_mentions_column_substring_no_false_positive() {
+        assert!(!expression_mentions_column("(id_type = 'foo')", "id"));
+    }
+
+    #[test]
+    fn test_expression_mentions_column_empty_expression() {
+        assert!(!expression_mentions_column("", "ts"));
+    }
+
+    #[test]
+    fn test_expression_mentions_column_function_call() {
+        assert!(expression_mentions_column("date_trunc('month', ts)", "ts"));
+    }
+
+    #[test]
+    fn test_involves_column_check_constraint_matches() {
+        let constraint = ConstraintState::Check {
+            name: Some("chk_positive".to_string()),
+            expression: "(amount > 0)".to_string(),
+            not_valid: false,
+        };
+        assert!(
+            constraint.involves_column("amount"),
+            "CHECK constraint with expression '(amount > 0)' should involve column 'amount'"
+        );
+    }
+
+    #[test]
+    fn test_involves_column_check_constraint_no_match() {
+        let constraint = ConstraintState::Check {
+            name: Some("chk_positive".to_string()),
+            expression: "(amount > 0)".to_string(),
+            not_valid: false,
+        };
+        assert!(
+            !constraint.involves_column("id"),
+            "CHECK constraint with expression '(amount > 0)' should not involve column 'id'"
+        );
+    }
+
+    #[test]
+    fn test_remove_column_drops_check_referencing_column() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("amount", "integer", false)
+                    .check_constraint(Some("chk_positive"), "(amount > 0)", false);
+            })
+            .build();
+
+        let mut table = catalog.get_table("orders").unwrap().clone();
+        assert_eq!(
+            table.constraints.len(),
+            1,
+            "should start with one CHECK constraint"
+        );
+
+        table.remove_column("amount");
+
+        assert!(
+            table.constraints.is_empty(),
+            "CHECK constraint referencing 'amount' should be removed after dropping 'amount'"
+        );
+    }
+
+    #[test]
+    fn test_remove_column_keeps_unrelated_check() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("amount", "integer", false)
+                    .column("extra", "text", true)
+                    .check_constraint(Some("chk_positive"), "(amount > 0)", false);
+            })
+            .build();
+
+        let mut table = catalog.get_table("orders").unwrap().clone();
+        assert_eq!(
+            table.constraints.len(),
+            1,
+            "should start with one CHECK constraint"
+        );
+
+        table.remove_column("extra");
+
+        assert_eq!(
+            table.constraints.len(),
+            1,
+            "CHECK constraint referencing 'amount' should be preserved after dropping unrelated 'extra'"
+        );
+        assert!(
+            table.constraints.iter().any(
+                |c| matches!(c, ConstraintState::Check { name: Some(n), .. } if n == "chk_positive")
+            ),
+            "chk_positive should still exist"
+        );
     }
 }

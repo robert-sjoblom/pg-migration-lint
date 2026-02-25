@@ -10,8 +10,8 @@ PGM005 — ATTACH PARTITION without pre-validated CHECK constraint
 
 What it detects:
   ALTER TABLE parent ATTACH PARTITION child FOR VALUES ... where the
-  child table already exists, has existing rows, and has no CHECK
-  constraint in the catalog.
+  child table already exists and has no CHECK constraint that references
+  the partition key columns.
 
 Why it's dangerous:
   When attaching a partition, PostgreSQL must verify that every existing
@@ -33,7 +33,6 @@ Safe alternative (3-step pattern):
   ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
       FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 
-Note: This rule does not verify whether the CHECK expression semantically
-implies the partition bound — it only checks for the presence of any CHECK
-constraint. A false negative occurs when a CHECK exists but does not match
-the bound; this is acceptable for v1.
+Note: The rule checks that at least one CHECK constraint on the child
+references all of the parent's partition key columns. It does not verify
+that the CHECK expression values semantically match the partition bound.

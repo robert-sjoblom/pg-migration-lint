@@ -446,6 +446,15 @@ fn apply_rename_column(
         col.name = new_name.to_string();
     }
 
+    // Update partition key columns if this table is partitioned.
+    if let Some(ref mut pb) = table.partition_by {
+        for col in &mut pb.columns {
+            if *col == old_name {
+                *col = new_name.to_string();
+            }
+        }
+    }
+
     // Update indexes that reference the old column name.
     // Both plain column entries and expression referenced_columns are updated.
     // Expression *text* is left as-is (it becomes stale after rename, but nothing
@@ -502,9 +511,46 @@ fn apply_rename_column(
                     }
                 }
             }
-            ConstraintState::Check { .. } => {}
+            ConstraintState::Check { expression, .. } => {
+                *expression = replace_column_in_expression(expression, old_name, new_name);
+            }
         }
     }
+}
+
+/// Replace a column name in an expression string, respecting word boundaries.
+///
+/// Splits the expression into identifier tokens (alphanumeric + underscore)
+/// and non-identifier separators. Tokens matching `old` are replaced with `new`.
+/// This avoids replacing substrings (e.g., renaming `id` won't affect `id_type`).
+fn replace_column_in_expression(expression: &str, old: &str, new: &str) -> String {
+    let mut result = String::with_capacity(expression.len());
+    let mut token = String::new();
+
+    for ch in expression.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            token.push(ch);
+        } else {
+            if !token.is_empty() {
+                if token == old {
+                    result.push_str(new);
+                } else {
+                    result.push_str(&token);
+                }
+                token.clear();
+            }
+            result.push(ch);
+        }
+    }
+    // Flush remaining token
+    if !token.is_empty() {
+        if token == old {
+            result.push_str(new);
+        } else {
+            result.push_str(&token);
+        }
+    }
+    result
 }
 
 /// Handle Unparseable: if a table_hint is provided, mark that table as incomplete.
@@ -616,10 +662,13 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             });
         }
         TableConstraint::Check {
-            name, not_valid, ..
+            name,
+            expression,
+            not_valid,
         } => {
             table.constraints.push(ConstraintState::Check {
                 name: name.clone(),
+                expression: expression.clone(),
                 not_valid: *not_valid,
             });
         }
@@ -2965,5 +3014,109 @@ mod tests {
 
         // Catalog unchanged
         assert!(catalog.has_table("parent"));
+    }
+
+    #[test]
+    fn test_rename_column_updates_check_expression() {
+        let mut catalog = Catalog::new();
+
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("t"))
+                .with_columns(vec![
+                    col("id", "integer", false),
+                    col("ts", "timestamptz", false),
+                ])
+                .with_constraints(vec![TableConstraint::Check {
+                    name: Some("chk_ts".to_string()),
+                    expression: "(ts >= '2024-01-01')".to_string(),
+                    not_valid: false,
+                }])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        let unit2 = make_unit(vec![IrNode::RenameColumn {
+            table: qname("t"),
+            old_name: "ts".to_string(),
+            new_name: "created_at".to_string(),
+        }]);
+        apply(&mut catalog, &unit2);
+
+        let table = catalog.get_table("t").expect("table should exist");
+        let check = table
+            .constraints
+            .iter()
+            .find(|c| matches!(c, ConstraintState::Check { name: Some(n), .. } if n == "chk_ts"))
+            .expect("CHECK constraint should still exist");
+
+        if let ConstraintState::Check { expression, .. } = check {
+            assert!(
+                expression.contains("created_at"),
+                "CHECK expression should contain 'created_at' after rename, got: {expression}"
+            );
+            assert!(
+                !expression.contains("ts"),
+                "CHECK expression should no longer contain 'ts' after rename, got: {expression}"
+            );
+        } else {
+            panic!("expected Check constraint");
+        }
+    }
+
+    #[test]
+    fn test_replace_column_in_expression_word_boundary() {
+        // Simple replacement
+        assert_eq!(
+            replace_column_in_expression("(id > 0)", "id", "user_id"),
+            "(user_id > 0)"
+        );
+
+        // Should NOT replace substring match: `id` inside `id_type`
+        assert_eq!(
+            replace_column_in_expression("(id_type = 'foo')", "id", "user_id"),
+            "(id_type = 'foo')"
+        );
+
+        // Multiple occurrences
+        assert_eq!(
+            replace_column_in_expression("(ts >= '2024' AND ts < '2025')", "ts", "created_at"),
+            "(created_at >= '2024' AND created_at < '2025')"
+        );
+    }
+
+    #[test]
+    fn test_rename_column_updates_partition_by_columns() {
+        let mut catalog = Catalog::new();
+
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("measurements"))
+                .with_columns(vec![
+                    col("id", "bigint", false),
+                    col("ts", "timestamptz", false),
+                ])
+                .with_partition_by(PartitionStrategy::Range, vec!["ts".to_string()])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        let unit2 = make_unit(vec![IrNode::RenameColumn {
+            table: qname("measurements"),
+            old_name: "ts".to_string(),
+            new_name: "created_at".to_string(),
+        }]);
+        apply(&mut catalog, &unit2);
+
+        let table = catalog
+            .get_table("measurements")
+            .expect("table should exist");
+        let pb = table
+            .partition_by
+            .as_ref()
+            .expect("partition_by should be set");
+        assert_eq!(
+            pb.columns,
+            vec!["created_at".to_string()],
+            "partition_by columns should be updated after rename"
+        );
     }
 }
