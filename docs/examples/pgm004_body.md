@@ -9,5 +9,3 @@ ALTER TABLE measurements DETACH PARTITION measurements_2023;
 ```sql
 ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
 ```
-
-Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.

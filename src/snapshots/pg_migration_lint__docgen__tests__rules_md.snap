@@ -134,8 +134,6 @@ ALTER TABLE measurements DETACH PARTITION measurements_2023;
 ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
 ```
 
-Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.
-
 ---
 
 ### PGM005 — ATTACH PARTITION of existing table without pre-validated CHECK
@@ -143,7 +141,7 @@ Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.
 
 **Severity**: Major
 
-Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
+Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint that references the partition key columns. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
 
 **Example**:
 ```sql

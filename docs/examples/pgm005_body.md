@@ -1,4 +1,4 @@
-Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
+Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint that references the partition key columns. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
 
 **Example**:
 ```sql
