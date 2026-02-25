@@ -111,7 +111,13 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
 fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
     match node {
         NodeEnum::CreateStmt(create) => vec![convert_create_table(create, raw_sql)],
-        NodeEnum::AlterTableStmt(alter) => vec![convert_alter_table(alter, raw_sql)],
+        NodeEnum::AlterTableStmt(alter) => {
+            if alter.objtype() == pg_query::protobuf::ObjectType::ObjectIndex {
+                convert_alter_index(alter, raw_sql)
+            } else {
+                vec![convert_alter_table(alter, raw_sql)]
+            }
+        }
         NodeEnum::IndexStmt(idx) => vec![convert_create_index(idx)],
         NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql),
         NodeEnum::RenameStmt(rename) => vec![convert_rename_stmt(rename, raw_sql)],
@@ -587,6 +593,57 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
             description: format!("{:?}", other),
         }],
     }
+}
+
+// ---------------------------------------------------------------------------
+// ALTER INDEX
+// ---------------------------------------------------------------------------
+
+/// Convert a pg_query `AlterTableStmt` with `objtype = ObjectIndex` to IR nodes.
+///
+/// pg_query represents `ALTER INDEX` as `AlterTableStmt` with `objtype = ObjectIndex`.
+/// We only model `ATTACH PARTITION`; all other ALTER INDEX subtypes are ignored.
+fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> Vec<IrNode> {
+    let parent_name = match alter.relation.as_ref() {
+        Some(r) => r.relname.clone(),
+        None => {
+            return vec![IrNode::Ignored {
+                raw_sql: raw_sql.to_string(),
+            }];
+        }
+    };
+
+    for cmd_node in &alter.cmds {
+        let cmd = match cmd_node.node.as_ref() {
+            Some(NodeEnum::AlterTableCmd(c)) => c,
+            _ => continue,
+        };
+
+        if cmd.subtype() == pg_query::protobuf::AlterTableType::AtAttachPartition {
+            let child = cmd
+                .def
+                .as_ref()
+                .and_then(|d| d.node.as_ref())
+                .and_then(|n| match n {
+                    NodeEnum::PartitionCmd(pc) => pc
+                        .name
+                        .as_ref()
+                        .map(|rv| relation_to_qualified_name(Some(rv))),
+                    _ => None,
+                });
+            if let Some(child_index_name) = child {
+                return vec![IrNode::AlterIndexAttachPartition {
+                    parent_index_name: parent_name,
+                    child_index_name,
+                }];
+            }
+        }
+    }
+
+    // All other ALTER INDEX subtypes (SET, RESET, SET TABLESPACE, etc.)
+    vec![IrNode::Ignored {
+        raw_sql: raw_sql.to_string(),
+    }]
 }
 
 // ---------------------------------------------------------------------------
@@ -3648,5 +3705,58 @@ mod tests {
             }
             other => panic!("Expected CreateTable, got {:?}", other),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // ALTER INDEX
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_alter_index_attach_partition() {
+        let sql = "ALTER INDEX idx_parent ATTACH PARTITION idx_child;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterIndexAttachPartition {
+                parent_index_name,
+                child_index_name,
+            } => {
+                assert_eq!(parent_index_name, "idx_parent");
+                assert_eq!(child_index_name.name, "idx_child");
+                assert!(child_index_name.schema.is_none());
+            }
+            other => panic!("Expected AlterIndexAttachPartition, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_alter_index_attach_partition_schema_qualified() {
+        let sql = "ALTER INDEX myschema.idx_parent ATTACH PARTITION myschema.idx_child;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::AlterIndexAttachPartition {
+                parent_index_name,
+                child_index_name,
+            } => {
+                // pg_query puts the parent name in relation.relname (without schema for index name lookup)
+                assert_eq!(parent_index_name, "idx_parent");
+                assert_eq!(child_index_name.name, "idx_child");
+                assert_eq!(child_index_name.schema.as_deref(), Some("myschema"));
+            }
+            other => panic!("Expected AlterIndexAttachPartition, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_alter_index_set_ignored() {
+        let sql = "ALTER INDEX idx_foo SET (fillfactor = 70);";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        assert!(
+            matches!(&nodes[0].node, IrNode::Ignored { .. }),
+            "ALTER INDEX SET should map to Ignored, got: {:?}",
+            nodes[0].node
+        );
     }
 }

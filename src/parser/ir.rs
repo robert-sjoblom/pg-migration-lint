@@ -24,6 +24,12 @@ pub enum IrNode {
     DeleteFrom(DeleteFrom),
     /// CLUSTER rewrites the table under ACCESS EXCLUSIVE lock.
     Cluster(Cluster),
+    /// `ALTER INDEX parent ATTACH PARTITION child` — attaches a child index
+    /// to a parent ON ONLY index, making it valid (recursive).
+    AlterIndexAttachPartition {
+        parent_index_name: String,
+        child_index_name: QualifiedName,
+    },
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
     RenameTable {
         name: QualifiedName,

@@ -39,8 +39,11 @@ Prefix matching: FK columns (a, b) are covered by index (a, b) or
 The check uses the catalog state AFTER the entire file is processed,
 so creating the index later in the same file avoids a false positive.
 
-Partitioned tables: This rule is suppressed when the FK source table
-is partitioned or is a partition child. For partitioned tables,
-indexes must be created on each partition individually and cannot be
-reliably verified from the parent definition alone. Verify FK index
-coverage manually on each partition.
+Partitioned tables:
+For partitioned parent tables, a recursive index (one not created
+with ON ONLY) covers all partitions and satisfies this check. An
+ON ONLY index is just a stub and does NOT provide FK coverage until
+child indexes are attached via ALTER INDEX ... ATTACH PARTITION.
+
+For partition children, the check first looks for an index on the
+child itself, then delegates to the parent's indexes.

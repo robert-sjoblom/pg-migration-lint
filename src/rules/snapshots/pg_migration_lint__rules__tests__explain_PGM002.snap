@@ -28,3 +28,15 @@ DROP INDEX CONCURRENTLY idx_orders_status;
 Note: CONCURRENTLY cannot run inside a transaction. If your migration
 framework wraps each file in a transaction, you must disable that.
 See PGM003.
+
+Partitioned tables:
+PostgreSQL does NOT support DROP INDEX CONCURRENTLY on partitioned
+parent indexes. Dropping a partitioned parent index acquires locks on
+all partitions. However, dropping an ON ONLY index (before child
+indexes are attached) is safe — it only affects the invalid parent stub.
+
+Safe pattern for partitioned indexes:
+1. CREATE INDEX ON ONLY parent_table (col);     -- parent stub
+2. CREATE INDEX CONCURRENTLY ON child (col);    -- per-child
+3. ALTER INDEX idx_parent ATTACH PARTITION idx_child;
+-- To remove: reverse the process before dropping the parent.

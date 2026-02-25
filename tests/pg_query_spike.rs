@@ -474,3 +474,47 @@ fn spike_truncate_stmt() {
         println!("{:#?}", stmt);
     }
 }
+
+#[test]
+fn spike_alter_index_attach_partition() {
+    // Investigates how pg_query represents ALTER INDEX ... ATTACH PARTITION.
+    // This is needed for partition-aware index tracking: when a child index is
+    // attached to a parent ON ONLY index, we flip parent.only = false.
+    let sqls = [
+        // Basic ATTACH PARTITION
+        "ALTER INDEX idx_parent ATTACH PARTITION idx_child;",
+        // Schema-qualified
+        "ALTER INDEX myschema.idx_parent ATTACH PARTITION myschema.idx_child;",
+        // For comparison: ALTER TABLE ... ATTACH PARTITION (table-level)
+        "ALTER TABLE parent_table ATTACH PARTITION child_table FOR VALUES FROM (1) TO (100);",
+        // ALTER INDEX with other operations (SET/RESET)
+        "ALTER INDEX idx_foo SET (fillfactor = 70);",
+        // ALTER INDEX RENAME
+        "ALTER INDEX idx_old RENAME TO idx_new;",
+        // ALTER INDEX SET TABLESPACE
+        "ALTER INDEX idx_foo SET TABLESPACE fast_ssd;",
+        // ALTER INDEX ALL IN TABLESPACE
+        "ALTER INDEX ALL IN TABLESPACE old_space SET TABLESPACE new_space;",
+    ];
+
+    for sql in sqls {
+        let result = pg_query::parse(sql);
+        println!("\n=== {} ===", sql);
+        match result {
+            Ok(parsed) => {
+                let stmt = parsed.protobuf.stmts[0]
+                    .stmt
+                    .as_ref()
+                    .unwrap()
+                    .node
+                    .as_ref()
+                    .unwrap();
+                // Print the discriminant to see which NodeEnum variant it is
+                println!("  Variant: {:?}", std::mem::discriminant(stmt));
+                println!("  Full AST:");
+                println!("{:#?}", stmt);
+            }
+            Err(e) => println!("  Parse error: {}", e),
+        }
+    }
+}

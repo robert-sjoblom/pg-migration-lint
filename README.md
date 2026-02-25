@@ -60,7 +60,7 @@ pg-migration-lint ships with 39 rules across six categories: unsafe DDL rules (P
 | PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
 | PGM018 | Critical | `CLUSTER` on existing table | `CLUSTER orders USING idx_orders_id;` |
 
-PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless.
+PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless. Both rules are partition-aware: PGM001 emits a partition-specific message for partitioned tables (where `CONCURRENTLY` is not supported); PGM002 suppresses findings for ON ONLY parent index stubs and warns that `CONCURRENTLY` is not supported on partitioned parent indexes. Use `--explain PGM001` or `--explain PGM002` for details.
 
 PGM013, PGM014, and PGM015 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
 
@@ -119,7 +119,7 @@ These rules only fire on tables that existed before the current set of changed f
 | PGM505 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
 | PGM506 | Info | `CREATE UNLOGGED TABLE` | `CREATE UNLOGGED TABLE scratch_data (id int, payload text);` |
 
-PGM501 and PGM502 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives.
+PGM501 and PGM502 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives. PGM501 is partition-aware: ON ONLY indexes are excluded from FK coverage checks, and partition children delegate to their parent's indexes. See `--explain PGM501` for details.
 
 PGM504 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
 
