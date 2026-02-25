@@ -97,6 +97,139 @@ impl RawMigrationUnit {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a `RawMigrationUnit` with the given SQL and line offset.
+    fn raw_unit(sql: &str, offset: usize) -> RawMigrationUnit {
+        RawMigrationUnit {
+            id: "test".to_string(),
+            sql: sql.to_string(),
+            source_file: PathBuf::from("test.sql"),
+            source_line_offset: offset,
+            run_in_transaction: true,
+            is_down: false,
+        }
+    }
+
+    /// With offset == 1 the parser's 1-based lines are already absolute,
+    /// so no adjustment must happen.
+    /// Kills the `>=` mutant (which would adjust at offset=1) and the `<`
+    /// mutant (which would also adjust at offset=1).
+    #[test]
+    fn test_offset_one_no_adjustment() {
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 1).into_migration_unit();
+        assert!(
+            !unit.statements.is_empty(),
+            "parser should produce at least one statement"
+        );
+        let span = &unit.statements[0].span;
+        assert_eq!(
+            span.start_line, 1,
+            "start_line must stay 1 when offset is 1"
+        );
+        assert_eq!(span.end_line, 1, "end_line must stay 1 when offset is 1");
+    }
+
+    /// With offset > 1 (here 10), lines must shift by offset - 1 = 9.
+    /// A statement originally on line 1 becomes line 10.
+    /// Kills arithmetic mutants: `-` vs `+` in `offset - 1`,
+    /// `+=` vs `-=`/`*=` in the delta application.
+    #[test]
+    fn test_offset_greater_than_one() {
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 10).into_migration_unit();
+        assert!(!unit.statements.is_empty());
+        let span = &unit.statements[0].span;
+        // Parser returns line 1; delta = 10 - 1 = 9; result = 1 + 9 = 10
+        assert_eq!(span.start_line, 10, "start_line should be shifted by 9");
+        assert_eq!(span.end_line, 10, "end_line should be shifted by 9");
+    }
+
+    /// With offset == 2, delta = 1. A statement on line 1 becomes line 2.
+    /// This kills the `==` mutant for `self.source_line_offset > 1`:
+    /// if the condition were `== 1` it would NOT fire for offset=2,
+    /// leaving lines unadjusted.
+    #[test]
+    fn test_offset_two_boundary() {
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 2).into_migration_unit();
+        assert!(!unit.statements.is_empty());
+        let span = &unit.statements[0].span;
+        assert_eq!(span.start_line, 2, "start_line should be shifted by 1");
+        assert_eq!(span.end_line, 2, "end_line should be shifted by 1");
+    }
+
+    /// With offset == 0, the condition `> 1` is false, so no adjustment.
+    /// This confirms the guard works for offset < 1 as well.
+    #[test]
+    fn test_offset_zero_no_adjustment() {
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 0).into_migration_unit();
+        assert!(!unit.statements.is_empty());
+        let span = &unit.statements[0].span;
+        assert_eq!(
+            span.start_line, 1,
+            "start_line must stay 1 when offset is 0"
+        );
+        assert_eq!(span.end_line, 1, "end_line must stay 1 when offset is 0");
+    }
+
+    /// Multi-line SQL: verify both start_line and end_line are adjusted
+    /// independently. A CREATE TABLE spanning lines 1-3 with offset=5
+    /// should become lines 5-7.
+    #[test]
+    fn test_offset_multiline_statement() {
+        let sql = "CREATE TABLE t (\n  id int,\n  name text\n);\n";
+        let unit = raw_unit(sql, 5).into_migration_unit();
+        assert!(!unit.statements.is_empty());
+        let span = &unit.statements[0].span;
+        // The CREATE TABLE spans lines 1..=4 in the snippet (4 lines),
+        // but pg_query may report different end_line. Regardless:
+        // start_line should be original + 4, end_line should be original + 4.
+        let delta: usize = 4; // 5 - 1
+        assert!(
+            span.start_line > 1,
+            "start_line should have been shifted from 1"
+        );
+        assert_eq!(
+            span.start_line,
+            1 + delta,
+            "start_line should be shifted by delta={delta}"
+        );
+        // end_line must also be shifted by the same delta
+        assert!(span.end_line >= span.start_line, "end_line >= start_line");
+        // The statement spans multiple lines, so end_line > start_line
+        // after the shift. We verify the delta was applied correctly:
+        // If original end_line was E, shifted should be E + delta.
+        // Parse the same SQL with offset=1 to get the original end_line.
+        let baseline = raw_unit(sql, 1).into_migration_unit();
+        let original_end = baseline.statements[0].span.end_line;
+        assert_eq!(
+            span.end_line,
+            original_end + delta,
+            "end_line should be shifted by the same delta as start_line"
+        );
+    }
+
+    /// Verify that metadata fields are passed through correctly.
+    #[test]
+    fn test_metadata_passthrough() {
+        let raw = RawMigrationUnit {
+            id: "cs-42".to_string(),
+            sql: "SELECT 1;".to_string(),
+            source_file: PathBuf::from("db/changelog.xml"),
+            source_line_offset: 7,
+            run_in_transaction: false,
+            is_down: true,
+        };
+        let unit = raw.into_migration_unit();
+        assert_eq!(unit.id, "cs-42");
+        assert_eq!(unit.source_file, PathBuf::from("db/changelog.xml"));
+        assert_eq!(unit.source_line_offset, 7);
+        assert!(!unit.run_in_transaction);
+        assert!(unit.is_down);
+    }
+}
+
 /// Trait for migration loaders. Each input format implements this.
 pub trait MigrationLoader {
     /// Load migrations from the given paths, in the configured order.
