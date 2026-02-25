@@ -1,0 +1,29 @@
+name: Verify PostgreSQL Behavior
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
+
+jobs:
+  verify:
+    name: Verify PG behavior claims
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run verification suite
+        run: |
+          chmod +x verify/run.sh verify/lib/runner.sh
+          cd verify && ./run.sh --verbose
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-verify-results
+          path: verify/
+          retention-days: 30
