@@ -16,6 +16,15 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.10.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.9.0...v2.10.0) (2026-02-25)
+
+
+### Features
+
+* **catalog:** add partition awareness to IR, parser, catalog, and replay ([07ced02](https://github.com/robert-sjoblom/pg-migration-lint/commit/07ced02b5bb4a2684ff24bd6bc3ad20e819c6527))
+* **rules:** add PGM004 and PGM005 partition rules ([d73bf24](https://github.com/robert-sjoblom/pg-migration-lint/commit/d73bf24c4e2755a2e4fca8ceabfc75027fb0d75a))
+* **rules:** make PGM001, PGM501, PGM502, PGM503 partition-aware (Pass 2) ([145a40d](https://github.com/robert-sjoblom/pg-migration-lint/commit/145a40d4678f3720b8d9cdb7cb704669364cb79b))
+
 ## [2.9.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.8.0...v2.9.0) (2026-02-23)
 
 
