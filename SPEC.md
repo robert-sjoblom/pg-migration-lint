@@ -112,26 +112,29 @@ IR node types (non-exhaustive):
 
 | IR Node | Source AST |
 |---|---|
-| `CreateTable { name, columns, constraints, persistence }` | `CreateStmt` |
-| `AlterTable { name, actions[] }` | `AlterTableStmt` |
-| `CreateIndex { table, columns, unique, concurrent }` | `IndexStmt` |
+| `CreateTable { name, columns, constraints, persistence, partition_by, partition_of }` | `CreateStmt` |
+| `AlterTable { name, actions[] }` | `AlterTableStmt` (objtype = ObjectTable) |
+| `CreateIndex { table, columns, unique, concurrent, only }` | `IndexStmt` |
 | `DropIndex { name, concurrent }` | `DropStmt(OBJECT_INDEX)` |
 | `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
+| `AlterIndexAttachPartition { parent_index_name, child_index_name }` | `AlterTableStmt` (objtype = ObjectIndex, AT_AttachPartition) |
+| `RenameTable { name, new_name }` | `RenameStmt` (ObjectTable) |
+| `RenameColumn { table, old_name, new_name }` | `RenameStmt` (ObjectColumn) |
+| `Cluster { table, index }` | `ClusterStmt` |
 | `InsertInto { table_name }` | `InsertStmt` |
 | `UpdateTable { table_name }` | `UpdateStmt` |
 | `DeleteFrom { table_name }` | `DeleteStmt` |
 | `TruncateTable { table_name, cascade }` | `TruncateStmt` |
-| `AddColumn { table, column }` | `AlterTableCmd(AT_AddColumn)` |
-| `AddConstraint { table, constraint }` | `AlterTableCmd(AT_AddConstraint)` |
+
+`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `AttachPartition`, `DetachPartition`, `Other`.
 
 **Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
 
 **`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM006 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
-| `Unparseable { raw_sql }` | Anything that fails IR conversion |
 
-`Column` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_pk`.
+`ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
 
-`Constraint` variants: `PrimaryKey`, `ForeignKey { columns, ref_table, ref_columns }`, `Unique`, `Check`.
+`TableConstraint` variants: `PrimaryKey { columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, using_index }`, `Check { name, expression, not_valid }`.
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 
@@ -141,23 +144,37 @@ Built by replaying all migration files in configured order. Represents the schem
 
 ```
 Catalog {
-    tables: HashMap<String, TableState>
+    tables: HashMap<String, TableState>,
+    index_to_table: HashMap<String, String>,       // reverse lookup: index name → table key
+    partition_children: HashMap<String, Vec<String>>, // parent key → child keys
 }
 
 TableState {
     name: String,
-    columns: Vec<ColumnState>,    // name, type, nullable, default
-    indexes: Vec<IndexState>,     // name, columns (ordered), unique
+    columns: Vec<ColumnState>,       // name, type, nullable, default
+    indexes: Vec<IndexState>,        // name, entries (ordered), unique, where_clause, only
     constraints: Vec<ConstraintState>,  // PK, FK, unique, check
     has_primary_key: bool,
-    incomplete: bool,             // true if any unparseable statement touched this table
+    incomplete: bool,                // true if any unparseable statement touched this table
+    is_partitioned: bool,            // true if PARTITION BY was used
+    partition_by: Option<PartitionByInfo>,  // strategy + columns
+    parent_table: Option<String>,    // catalog key of parent (if PARTITION OF)
+}
+
+IndexState {
+    name: String,
+    entries: Vec<IndexEntry>,        // Column(name) or Expression { text, referenced_columns }
+    unique: bool,
+    where_clause: Option<String>,    // partial index WHERE clause
+    only: bool,                      // CREATE INDEX ON ONLY (parent stub, not recursive)
 }
 ```
 
-- `CREATE TABLE` → insert into catalog
-- `DROP TABLE` → remove from catalog entirely
-- `ALTER TABLE` → mutate existing entry
-- `CREATE INDEX` → add to table's index list
+- `CREATE TABLE` → insert into catalog; if `PARTITION OF`, record parent relationship
+- `DROP TABLE` → remove from catalog entirely; CASCADE recursively removes partition children
+- `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking
+- `CREATE INDEX` → add to table's index list (preserving `only` flag)
+- `ALTER INDEX ATTACH PARTITION` → flip parent index's `only` from `true` to `false`
 - Unparseable statements → if they reference a known table (best-effort regex on table name), mark that table `incomplete = true`; otherwise skip silently
 
 ### 3.4 Changed file detection
@@ -207,7 +224,13 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `DROP INDEX` without `CONCURRENTLY`, where the index belongs to an existing table (same logic as PGM001).
-- **Message**: `DROP INDEX on existing table should use CONCURRENTLY to avoid holding an exclusive lock.`
+- **Message (non-partitioned)**: `DROP INDEX '{index}' on existing table '{table}' should use CONCURRENTLY to avoid holding an exclusive lock.`
+- **Message (partitioned parent)**: `DROP INDEX '{index}' on partitioned table '{table}' will lock all partitions. CONCURRENTLY is not supported for partitioned parent indexes.`
+- **Partition behavior**:
+  - **ON ONLY index on partitioned parent**: Suppressed — dropping an invalid parent-only stub is safe, no child locks taken.
+  - **Recursive/attached index on partitioned parent**: Emits the partition-specific message. PostgreSQL does NOT support `DROP INDEX CONCURRENTLY` on partitioned parent indexes; the standard advice does not apply.
+  - **Non-partitioned table**: Standard CONCURRENTLY advice.
+  - `ALTER INDEX ... ATTACH PARTITION` flips an ON ONLY index to recursive, so the suppression vs. warning is correctly distinguished even across migrations.
 
 #### PGM003 — `CONCURRENTLY` inside transaction
 
@@ -216,6 +239,42 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Liquibase changeset without `runInTransaction="false"`
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
+
+#### PGM004 — `DETACH PARTITION` without `CONCURRENTLY`
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... DETACH PARTITION child` without `CONCURRENTLY`, where the parent table exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Plain `DETACH PARTITION` acquires ACCESS EXCLUSIVE on both the parent partitioned table and the child partition for the full duration. This blocks all reads and writes on the parent (and all its partitions) until detach completes.
+- **Safe alternative**: Use `DETACH PARTITION ... CONCURRENTLY` (PostgreSQL 14+), which uses SHARE UPDATE EXCLUSIVE instead, allowing concurrent reads and writes.
+- **Does not fire when**:
+  - `CONCURRENTLY` is present
+  - The parent table is created in the same set of changed files
+  - The parent table does not exist in `catalog_before`
+- **Message**: `DETACH PARTITION on existing partitioned table '{table}' without CONCURRENTLY acquires ACCESS EXCLUSIVE on the entire table, blocking all reads and writes. Use DETACH PARTITION ... CONCURRENTLY (PostgreSQL 14+).`
+
+#### PGM005 — `ATTACH PARTITION` without pre-validated CHECK
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where the child table exists in `catalog_before`, is not created in the same set of changed files, and has no CHECK constraint in the catalog.
+- **Why**: When attaching a partition, PostgreSQL must verify that every existing row in the child satisfies the partition bound. Without a pre-validated CHECK constraint whose expression implies the bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock on the child table.
+- **Safe alternative** (3-step pattern):
+  ```sql
+  -- Step 1: add CHECK mirroring partition bound (NOT VALID)
+  ALTER TABLE orders_2024 ADD CONSTRAINT orders_2024_bound_check
+    CHECK (created_at >= '2024-01-01' AND created_at < '2025-01-01') NOT VALID;
+  -- Step 2: validate separately (SHARE UPDATE EXCLUSIVE)
+  ALTER TABLE orders_2024 VALIDATE CONSTRAINT orders_2024_bound_check;
+  -- Step 3: attach (scan skipped)
+  ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
+    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+  ```
+- **Does not fire when**:
+  - The child table has at least one CHECK constraint (used as a proxy for partition-bound-matching CHECK)
+  - The child is not in `catalog_before` (new table)
+  - The child is created in the same set of changed files
+  - The parent is created in the same set of changed files
+- **Known limitation**: The rule uses presence of any CHECK as a proxy for a partition-bound-matching CHECK. It does not verify expression semantics.
+- **Message**: `ATTACH PARTITION of existing table '{child}' to '{parent}' will scan the entire child table under ACCESS EXCLUSIVE lock to verify the partition bound. Add a CHECK constraint mirroring the partition bound, validate it separately, then attach.`
 
 #### PGM006 — Volatile default on column
 
@@ -270,7 +329,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM010 — `DROP COLUMN` silently removes unique constraint
 
 - **Severity**: WARNING
-- **Status**: Implemented.
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `UNIQUE` constraint or unique index on the table in `catalog_before`.
 - **Why**: PostgreSQL automatically drops any index or constraint that depends on the column. If the column was part of a unique constraint or unique index, the uniqueness guarantee is silently lost. This can lead to duplicate rows being inserted where they were previously impossible.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `Unique` or any `IndexState` where `is_unique` is true. If so, fire.
@@ -282,7 +340,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM011 — `DROP COLUMN` silently removes primary key
 
 - **Severity**: MAJOR
-- **Status**: Implemented.
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in the table's primary key (in `catalog_before`).
 - **Why**: Dropping a PK column (with `CASCADE`) silently removes the primary key constraint. The table loses its row identity, which affects replication, ORMs, query planning, and data integrity. PGM502 catches tables *created* without a PK, but cannot tell you which specific `DROP COLUMN` *caused* the loss.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `PrimaryKey`. If so, fire.
@@ -294,7 +351,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM012 — `DROP COLUMN` silently removes foreign key
 
 - **Severity**: WARNING
-- **Status**: Implemented.
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `FOREIGN KEY` constraint on the table in `catalog_before`.
 - **Why**: Dropping a column that is part of a foreign key (with `CASCADE`) silently removes the FK constraint. The referential integrity guarantee is lost — the table can now hold values with no corresponding row in the referenced table.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `ForeignKey`. If so, fire.
@@ -323,7 +379,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
 - **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans the table. Add a CHECK (col IS NOT NULL) NOT VALID constraint first, validate it separately, then SET NOT NULL.`
-- **IR impact**: Requires new `AlterTableAction::SetNotNull { column_name: String }` variant. Currently falls into `Other`.
 
 #### PGM014 — `ADD FOREIGN KEY` without `NOT VALID` on existing table
 
@@ -344,7 +399,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The constraint includes `NOT VALID`
 - **Interaction with PGM501**: PGM501 (missing FK index) fires independently. The rules are complementary.
 - **Message**: `Adding foreign key '{constraint}' on existing table '{table}' validates all rows, blocking writes. Use NOT VALID and validate in a separate migration.`
-- **IR impact**: Requires `not_valid: bool` field on `TableConstraint::ForeignKey`.
 
 #### PGM015 — `ADD CHECK` without `NOT VALID` on existing table
 
@@ -364,12 +418,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
   - The constraint includes `NOT VALID`
 - **Message**: `Adding CHECK constraint '{constraint}' on existing table '{table}' validates all rows under ACCESS EXCLUSIVE lock. Use NOT VALID and validate in a separate migration.`
-- **IR impact**: Requires `not_valid: bool` field on `TableConstraint::Check`.
 
 #### PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
 
 - **Severity**: CRITICAL
-- **Status**: Implemented.
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns)` where the table exists in `catalog_before` (not created in the same set of changed files) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
 - **Why**: Adding a UNIQUE constraint inline builds a unique index under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes for the duration. For large tables this can cause extended downtime. Unlike `CHECK` and `FOREIGN KEY` constraints, `NOT VALID` does NOT apply to `UNIQUE` constraints, so there is no `NOT VALID` escape hatch.
 - **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the constraint columns exactly (set equality). If neither exists, fire.
@@ -390,19 +442,16 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM018 — `CLUSTER` on existing table
 
 - **Severity**: CRITICAL
-- **Status**: Implemented.
 - **Triggers**: `CLUSTER table_name [USING index_name]` where the table exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: `CLUSTER` rewrites the entire table and all its indexes in a new physical order, holding an `ACCESS EXCLUSIVE` lock for the full duration of the rewrite. Unlike `VACUUM FULL`, there is no online alternative. On large tables this causes complete unavailability (all reads and writes blocked) for the duration — typically minutes to hours. It is almost never appropriate in an online migration.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
 - **Message**: `CLUSTER on table '{table}' [USING '{index}'] rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration.`
-- **IR impact**: New top-level `IrNode::Cluster(Cluster)` variant with `Cluster { table: QualifiedName, index: Option<String> }`. `pg_query` emits `ClusterStmt`.
 
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
-- **Status**: Implemented.
 - **Triggers**: `DROP TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: Dropping a table is intentional but destructive and irreversible in production. The DDL itself is instant — PostgreSQL does not scan the table or hold an extended lock — so this is not a downtime risk. However, all data in the table is permanently lost, and any queries, views, foreign keys, or application code referencing the table will break.
 - **Does not fire when**:
@@ -413,7 +462,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM202 — `DROP TABLE CASCADE` on existing table
 
 - **Severity**: MAJOR
-- **Status**: Implemented.
 - **Triggers**: `DROP TABLE ... CASCADE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: `CASCADE` silently drops all dependent objects — foreign keys, views, triggers, and rules that reference the dropped table. Unlike a plain `DROP TABLE` (which fails if dependencies exist), `CASCADE` succeeds silently, potentially breaking other tables and application code without any warning at migration time.
 - **Does not fire when**:
@@ -426,7 +474,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM203 — `TRUNCATE TABLE` on existing table
 
 - **Severity**: MINOR
-- **Status**: Implemented.
 - **Triggers**: `TRUNCATE TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: `TRUNCATE` is instant DDL that does not scan rows and does not fire row-level `ON DELETE` triggers. All data in the table is permanently destroyed.
 - **Does not fire when**:
@@ -437,7 +484,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM204 — `TRUNCATE TABLE ... CASCADE` on existing table
 
 - **Severity**: MAJOR
-- **Status**: Implemented.
 - **Triggers**: `TRUNCATE TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: `TRUNCATE CASCADE` automatically extends the truncate to all tables with FK references to the target table, recursively. The developer may not be aware of the full cascade chain.
 - **Does not fire when**:
@@ -450,7 +496,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM301 — `INSERT INTO` existing table in migration
 
 - **Severity**: INFO
-- **Status**: Implemented.
 - **Triggers**: `INSERT INTO` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: Inserting into an existing table in a migration is often intentional seed or reference data, but bulk `INSERT ... SELECT` or large `VALUES` lists hold row locks for the full statement duration and can cause replication lag. The rule fires informational to prompt the author to confirm row volume is bounded.
 - **Does not fire when**:
@@ -461,7 +506,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM302 — `UPDATE` on existing table in migration
 
 - **Severity**: MINOR
-- **Status**: Implemented.
 - **Triggers**: `UPDATE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: Unbatched `UPDATE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent reads and writes, causes replication lag, and can cascade into lock queues.
 - **Does not fire when**:
@@ -472,7 +516,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM303 — `DELETE FROM` existing table in migration
 
 - **Severity**: MINOR
-- **Status**: Implemented.
 - **Triggers**: `DELETE FROM` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: Unbatched `DELETE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent writes, generates significant WAL, and causes replication lag.
 - **Does not fire when**:
@@ -483,14 +526,12 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
 
 - **Severity**: MINOR
-- **Status**: Not yet implemented.
 - **Triggers**: `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause.
 - **Why**: Without `IF NOT EXISTS`, the statement fails if the object already exists. In migration pipelines that may be re-run (e.g., idempotent migrations, manual re-execution after partial failure), this causes hard failures. Adding `IF NOT EXISTS` makes the statement idempotent.
 - **Does not fire when**:
   - The statement already includes `IF NOT EXISTS`
 - **Message (CREATE TABLE)**: `CREATE TABLE '{table}' without IF NOT EXISTS will fail if the table already exists.`
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
-- **IR impact**: Requires `if_not_exists: bool` field on `CreateTable` and `CreateIndex`.
 
 #### PGM403 — `CREATE TABLE IF NOT EXISTS` for already-existing table
 
@@ -501,20 +542,16 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not already exist in the catalog (the statement genuinely creates it).
   - `IF NOT EXISTS` is absent (a duplicate `CREATE TABLE` without the guard would fail at runtime, which is a different problem).
 - **Message**: `CREATE TABLE IF NOT EXISTS '{table}' is a no-op — the table already exists in the migration history. The definition in this statement is silently ignored by PostgreSQL. If the column definitions differ from the actual table state, this migration is misleading.`
-- **IR impact**: None — `CreateTable.if_not_exists` already exists in the IR. The rule only needs `catalog_before` to check for prior existence.
-- **Catalog impact**: The replay engine already skips `CREATE TABLE IF NOT EXISTS` when the table exists.
 
 #### PGM401 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
 
 - **Severity**: MINOR
-- **Status**: Not yet implemented.
 - **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
 - **Why**: Without `IF EXISTS`, the statement fails if the object does not exist. In migration pipelines that may be re-run, this causes hard failures. Adding `IF EXISTS` makes the statement idempotent.
 - **Does not fire when**:
   - The statement already includes `IF EXISTS`
 - **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
-- **IR impact**: Requires `if_exists: bool` field on `DropTable` and `DropIndex`.
 
 #### PGM501 — Foreign key without index on referencing columns
 
@@ -522,6 +559,11 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no index exists on the referencing table with `cols` as a prefix of the index columns.
 - **Prefix matching**: FK columns `(a, b)` are covered by index `(a, b)` or `(a, b, c)` but NOT by `(b, a)` or `(a)`. Column order matters.
 - **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
+- **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage.
+- **Partition behavior**:
+  - **Partitioned parent tables**: Checks `has_covering_index` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
+  - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).
+  - `ALTER INDEX ... ATTACH PARTITION` flips `only` to `false`, so after all children are attached, the parent index correctly satisfies FK coverage.
 - **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`
 
 #### PGM502 — Table without primary key
@@ -546,8 +588,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
   - A replacement table with the old name is created in the same migration unit
 - **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
-- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new IR support — either `AlterTableAction::RenameTable { new_name: String }` or a new top-level `IrNode` variant.
-- **Catalog impact**: Replay should update the table name in the catalog so subsequent rules see the new name.
 
 #### PGM505 — `RENAME COLUMN`
 
@@ -557,19 +597,15 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Does not fire when**:
   - The table does not exist in `catalog_before`
 - **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
-- **IR impact**: pg_query emits `RenameStmt` for this operation. Needs new `AlterTableAction::RenameColumn { old_name: String, new_name: String }` or a new top-level `IrNode` variant.
-- **Catalog impact**: Replay should update the column name in the catalog so subsequent rules see the new name.
 
 #### PGM506 — `CREATE UNLOGGED TABLE`
 
 - **Severity**: INFO
-- **Status**: Implemented.
 - **Triggers**: `CREATE TABLE ... UNLOGGED` for any table.
 - **Why**: Unlogged tables are not written to the WAL. This means: (1) all data is truncated on crash recovery, (2) they are not streamed to standby replicas via streaming replication, and (3) they are excluded from logical replication slots. In most production environments, unlogged tables are unsuitable for data that needs to survive a crash or be replicated.
 - **Does not fire when**:
   - The `UNLOGGED` keyword is absent (permanent or temporary tables).
 - **Message**: `CREATE UNLOGGED TABLE '{table}'. Unlogged tables are truncated on crash recovery and not replicated to standbys. Confirm this is intentional.`
-- **IR impact**: `CreateTable` uses `TablePersistence` enum (`Permanent`, `Unlogged`, `Temporary`) instead of `temporary: bool`. `pg_query` exposes `relpersistence` on `CreateStmt`.
 
 #### PGM901 — Down migration severity cap
 
@@ -915,3 +951,4 @@ pg-migration-lint/
 | 1.12    | 2026-02-17 | Renumbered PGM024 (missing IF EXISTS) → PGM008 (slot freed by PGM008 → PGM901 rename). Updated PGM901 scope to PGM001–PGM023. |
 | 1.13    | 2026-02-18 | Promoted PGM1403 → PGM403 (CREATE TABLE IF NOT EXISTS for already-existing table, MINOR). No IR or catalog changes required. |
 | 1.14    | 2026-02-18 | Added PGM3xx DML-in-migrations category: PGM301 (INSERT INTO, INFO), PGM302 (UPDATE, MINOR), PGM303 (DELETE FROM, MINOR). Added PGM506 (CREATE UNLOGGED TABLE, INFO). IR changes: replaced `temporary: bool` on `CreateTable` with `TablePersistence` enum (Permanent/Unlogged/Temporary); added `InsertInto`, `UpdateTable`, `DeleteFrom` IR nodes. |
+| 1.15    | 2026-02-25 | Spec sync with implementation. Added PGM004 (DETACH PARTITION without CONCURRENTLY, CRITICAL) and PGM005 (ATTACH PARTITION without CHECK, CRITICAL). Added partition support: `AlterIndexAttachPartition` IR node, `only` field on `IndexState`, partition-aware behavior for PGM002 and PGM501. Updated IR table with all implemented nodes (Cluster, RenameTable, RenameColumn, AlterIndexAttachPartition) and fields (partition_by, partition_of on CreateTable; only on CreateIndex). Updated `TableConstraint` to reflect `not_valid`, `using_index`, `name` fields. Updated `ColumnDef` to reflect `is_inline_pk`, `is_serial` fields. Updated Catalog/TableState/IndexState structs with partition fields. Removed all stale "Status: Implemented/Not yet implemented" markers and "IR impact" notes — all described rules and IR changes are now implemented. |

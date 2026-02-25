@@ -35,6 +35,9 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             old_name,
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
+        IrNode::AlterIndexAttachPartition {
+            parent_index_name, ..
+        } => apply_alter_index_attach(catalog, parent_index_name),
         IrNode::TruncateTable(_) | IrNode::Cluster(_) => { /* no schema state change */ }
         IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
             /* DML: no schema change */
@@ -288,6 +291,7 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
         entries,
         unique: ci.unique,
         where_clause: ci.where_clause.clone(),
+        only: ci.only,
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
@@ -305,6 +309,26 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
 
     if let Some(table) = catalog.get_table_mut(&table_name) {
         table.indexes.retain(|idx| idx.name != di.index_name);
+    }
+}
+
+/// Handle ALTER INDEX ... ATTACH PARTITION: flip `only` to `false` on the parent index.
+///
+/// When all child partitions have their own indexes attached, the parent
+/// ON ONLY index becomes a valid recursive index covering all partitions.
+fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
+    let Some(table_key) = catalog.table_for_index(parent_index_name).map(String::from) else {
+        return;
+    };
+    let Some(table) = catalog.get_table_mut(&table_key) else {
+        return;
+    };
+    if let Some(idx) = table
+        .indexes
+        .iter_mut()
+        .find(|i| i.name == parent_index_name)
+    {
+        idx.only = false;
     }
 }
 
@@ -545,6 +569,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                         .collect(),
                     unique: true,
                     where_clause: None,
+                    only: false,
                 });
             }
         }
@@ -2871,5 +2896,74 @@ mod tests {
         let child = catalog.get_table("child_v2").unwrap();
         assert_eq!(child.parent_table.as_deref(), Some("parent"));
         assert_eq!(child.display_name, "child_v2");
+    }
+
+    // -----------------------------------------------------------------------
+    // ALTER INDEX ATTACH PARTITION
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_alter_index_attach_partition_flips_only() {
+        let mut catalog = Catalog::new();
+
+        // Create a partitioned table with an ON ONLY index
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col("id", "integer", false)])
+                .with_partition_by(PartitionStrategy::Range, vec!["id".to_string()])
+                .into(),
+            IrNode::CreateIndex(
+                CreateIndex::test(Some("idx_parent".to_string()), qname("parent"))
+                    .with_columns(vec![IndexColumn::Column("id".to_string())])
+                    .with_only(true),
+            ),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        // Verify the index starts as only=true
+        let table = catalog.get_table("parent").unwrap();
+        let idx = table
+            .indexes
+            .iter()
+            .find(|i| i.name == "idx_parent")
+            .unwrap();
+        assert!(idx.only, "Index should start as ON ONLY");
+
+        // ALTER INDEX ATTACH PARTITION flips only to false
+        let unit2 = make_unit(vec![IrNode::AlterIndexAttachPartition {
+            parent_index_name: "idx_parent".to_string(),
+            child_index_name: QualifiedName::unqualified("idx_child"),
+        }]);
+        apply(&mut catalog, &unit2);
+
+        let table = catalog.get_table("parent").unwrap();
+        let idx = table
+            .indexes
+            .iter()
+            .find(|i| i.name == "idx_parent")
+            .unwrap();
+        assert!(!idx.only, "ATTACH should flip only to false");
+    }
+
+    #[test]
+    fn test_alter_index_attach_partition_missing_index_is_noop() {
+        let mut catalog = Catalog::new();
+
+        let unit1 = make_unit(vec![
+            CreateTable::test(qname("parent"))
+                .with_columns(vec![col("id", "integer", false)])
+                .into(),
+        ]);
+        apply(&mut catalog, &unit1);
+
+        // ATTACH PARTITION on an index that doesn't exist — should not panic
+        let unit2 = make_unit(vec![IrNode::AlterIndexAttachPartition {
+            parent_index_name: "idx_nonexistent".to_string(),
+            child_index_name: QualifiedName::unqualified("idx_child"),
+        }]);
+        apply(&mut catalog, &unit2);
+
+        // Catalog unchanged
+        assert!(catalog.has_table("parent"));
     }
 }

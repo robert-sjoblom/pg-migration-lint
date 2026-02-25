@@ -43,11 +43,14 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
          The check uses the catalog state AFTER the entire file is processed,\n\
          so creating the index later in the same file avoids a false positive.\n\
          \n\
-         Partitioned tables: This rule is suppressed when the FK source table\n\
-         is partitioned or is a partition child. For partitioned tables,\n\
-         indexes must be created on each partition individually and cannot be\n\
-         reliably verified from the parent definition alone. Verify FK index\n\
-         coverage manually on each partition.";
+         Partitioned tables:\n\
+         For partitioned parent tables, a recursive index (one not created\n\
+         with ON ONLY) covers all partitions and satisfies this check. An\n\
+         ON ONLY index is just a stub and does NOT provide FK coverage until\n\
+         child indexes are attached via ALTER INDEX ... ATTACH PARTITION.\n\
+         \n\
+         For partition children, the check first looks for an index on the\n\
+         child itself, then delegates to the parent's indexes.";
 
 pub(super) fn check(
     rule: impl Rule,
@@ -94,12 +97,27 @@ pub(super) fn check(
     }
 
     // Post-file check: for each FK, check catalog_after for a covering index.
-    // Partitioned tables and partition children are suppressed — index coverage
-    // must be verified per-partition manually.
+    // For partitioned tables, has_covering_index already excludes ON ONLY indexes.
+    // For partition children, delegate to the parent's indexes if the child has none.
     let mut findings = Vec::new();
     for fk in &fks {
         let has_index = match ctx.catalog_after.get_table(&fk.table_name) {
-            Some(table) if table.is_partitioned || table.parent_table.is_some() => continue,
+            Some(table) if table.is_partitioned => table.has_covering_index(&fk.columns),
+            Some(table) if table.parent_table.is_some() => {
+                if table.has_covering_index(&fk.columns) {
+                    true
+                } else {
+                    // Delegate to parent — a recursive parent index covers all children.
+                    match table
+                        .parent_table
+                        .as_ref()
+                        .and_then(|k| ctx.catalog_after.get_table(k))
+                    {
+                        Some(parent) => parent.has_covering_index(&fk.columns),
+                        None => continue, // parent not in catalog: suppress conservatively
+                    }
+                }
+            }
             Some(table) => table.has_covering_index(&fk.columns),
             None => false,
         };
@@ -304,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fk_on_partitioned_table_suppressed() {
+    fn test_fk_on_partitioned_table_no_index_fires() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()
             .table("parent_ref", |t| {
@@ -335,7 +353,11 @@ mod tests {
         }))];
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
-        assert!(findings.is_empty());
+        assert_eq!(
+            findings.len(),
+            1,
+            "FK on partitioned table without covering index should fire"
+        );
     }
 
     #[test]
@@ -374,8 +396,8 @@ mod tests {
     }
 
     #[test]
-    fn test_fk_on_partitioned_table_via_create_table_suppressed() {
-        // FK defined inline in CREATE TABLE on a partitioned table.
+    fn test_fk_on_partitioned_table_via_create_table_fires() {
+        // FK defined inline in CREATE TABLE on a partitioned table, no index.
         let before = Catalog::new();
         let after = CatalogBuilder::new()
             .table("ref_table", |t| {
@@ -412,9 +434,10 @@ mod tests {
         ))];
 
         let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
-        assert!(
-            findings.is_empty(),
-            "FK via CREATE TABLE on partitioned table should be suppressed"
+        assert_eq!(
+            findings.len(),
+            1,
+            "FK via CREATE TABLE on partitioned table without index should fire"
         );
     }
 
@@ -488,6 +511,254 @@ mod tests {
             findings.len(),
             1,
             "Expression index should not satisfy FK coverage"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Partition-aware tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_fk_on_partitioned_table_with_regular_index_no_finding() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .index("idx_orders_ref_id", &["ref_id"], false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Recursive index on partitioned table should satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_fk_on_partitioned_table_with_only_index_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .only_index("idx_orders_ref_id", &["ref_id"], false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "ON ONLY index should NOT satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_fk_on_partitioned_table_after_attach_no_finding() {
+        // ON ONLY index was created, then ALTER INDEX ATTACH flipped only to false.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .index("idx_orders_ref_id", &["ref_id"], false) // only=false after attach
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "After ATTACH, index should satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_fk_on_partition_child_with_own_index_no_finding() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .index("idx_child_ref_id", &["ref_id"], false)
+                    .partition_of("orders_parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(findings.is_empty(), "Child with own index should not fire");
+    }
+
+    #[test]
+    fn test_fk_on_partition_child_delegates_to_parent() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders_parent", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .index("idx_parent_ref_id", &["ref_id"], false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("orders_child", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .partition_of("orders_parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders_child"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Child should delegate to parent's recursive index"
+        );
+    }
+
+    #[test]
+    fn test_fk_on_partition_child_parent_only_index_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("parent_ref", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("orders_parent", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .only_index("idx_parent_ref_id", &["ref_id"], false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("orders_child", |t| {
+                t.column("id", "integer", false)
+                    .column("ref_id", "integer", false)
+                    .fk("fk_ref", &["ref_id"], "parent_ref", &["id"])
+                    .partition_of("orders_parent");
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders_child"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_ref".to_string()),
+                    columns: vec!["ref_id".to_string()],
+                    ref_table: QualifiedName::unqualified("parent_ref"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Parent's ON ONLY index should NOT satisfy child FK coverage"
         );
     }
 }

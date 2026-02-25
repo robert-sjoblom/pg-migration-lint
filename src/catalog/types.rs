@@ -213,7 +213,7 @@ impl TableState {
     /// FK column name (e.g. FK `(a, b)` is NOT covered by index `(a, lower(b))`).
     pub fn has_covering_index(&self, fk_columns: &[String]) -> bool {
         self.indexes.iter().any(|idx| {
-            if idx.is_partial() {
+            if idx.is_partial() || idx.only {
                 return false;
             }
             idx.entries.len() >= fk_columns.len()
@@ -330,6 +330,9 @@ pub struct IndexState {
     pub unique: bool,
     /// Deparsed WHERE clause for partial indexes (e.g. `"active = true"`).
     pub where_clause: Option<String>,
+    /// `CREATE INDEX ON ONLY parent_table` — index exists only on the parent,
+    /// not propagated to partitions. Flipped to `false` by `ALTER INDEX ATTACH PARTITION`.
+    pub only: bool,
 }
 
 impl IndexState {

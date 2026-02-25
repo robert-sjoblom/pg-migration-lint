@@ -190,6 +190,22 @@ impl TableBuilder {
                 .collect(),
             unique,
             where_clause: None,
+            only: false,
+        });
+        self
+    }
+
+    /// Add an ON ONLY index (not propagated to partitions).
+    pub fn only_index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self {
+        self.state.indexes.push(IndexState {
+            name: name.to_string(),
+            entries: columns
+                .iter()
+                .map(|s| IndexEntry::Column(s.to_string()))
+                .collect(),
+            unique,
+            where_clause: None,
+            only: true,
         });
         self
     }
@@ -210,6 +226,7 @@ impl TableBuilder {
                 .collect(),
             unique,
             where_clause: Some(where_clause.to_string()),
+            only: false,
         });
         self
     }
@@ -245,6 +262,7 @@ impl TableBuilder {
                 .collect(),
             unique,
             where_clause: None,
+            only: false,
         });
         self
     }
@@ -432,6 +450,21 @@ mod tests {
         assert!(
             !orders.has_covering_index(&["status".to_string()]),
             "Partial index should NOT satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_has_covering_index_skips_only_index() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("ref_id", "integer", false)
+                    .only_index("idx_ref", &["ref_id"], false);
+            })
+            .build();
+        let orders = catalog.get_table("orders").unwrap();
+        assert!(
+            !orders.has_covering_index(&["ref_id".to_string()]),
+            "ON ONLY index should NOT satisfy FK coverage"
         );
     }
 
