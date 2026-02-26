@@ -25,7 +25,6 @@ pub(super) const EXPLAIN: &str = "PGM007 — ALTER COLUMN TYPE on existing table
          - varchar(N) -> varchar(M) where M > N\n\
          - varchar(N) -> text\n\
          - numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n\
-         - bit(N) -> bit(M) where M > N\n\
          - varbit(N) -> varbit(M) where M > N\n\
          \n\
          INFO cast:\n\
@@ -130,7 +129,6 @@ pub enum CastSafety {
 /// - `varchar(N)` -> `varchar(M)` where M > N
 /// - `varchar(N)` -> `text` (text has no modifiers)
 /// - `numeric(P,S)` -> `numeric(P2,S)` where P2 > P and same scale
-/// - `bit(N)` -> `bit(M)` where M > N
 /// - `varbit(N)` -> `varbit(M)` where M > N
 ///
 /// INFO casts:
@@ -155,11 +153,6 @@ pub fn is_safe_cast(old: &TypeName, new: &TypeName) -> CastSafety {
     // numeric/decimal precision widening (same scale)
     if is_numeric_type(&old_name) && is_numeric_type(&new_name) {
         return check_numeric_widening(old, new);
-    }
-
-    // bit widening
-    if old_name == "bit" && new_name == "bit" {
-        return check_widening_single_modifier(old, new);
     }
 
     // varbit widening
@@ -200,7 +193,7 @@ fn is_timestamptz_type(name: &str) -> bool {
     matches!(name, "timestamptz" | "timestamp with time zone")
 }
 
-/// For types with a single modifier (e.g., varchar(N), bit(N)):
+/// For types with a single modifier (e.g., varchar(N), varbit(N)):
 /// check if new modifier >= old modifier.
 fn check_widening_single_modifier(old: &TypeName, new: &TypeName) -> CastSafety {
     match (old.modifiers.first(), new.modifiers.first()) {
@@ -583,17 +576,14 @@ mod tests {
         assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
     }
 
-    // Mutants #2, #3, #4: line 60 bit == checks and && vs ||.
-    // Need a test proving bit(N)->bit(M) widening IS safe.
-    // With == -> != or && -> ||, these would break.
+    // bit(N) is fixed-width in PostgreSQL — widening is NOT safe
+    // (requires explicit USING clause and full table rewrite).
     #[test]
-    fn test_bit_widening_safe() {
-        // bit(8) -> bit(16) should be Safe (widening).
-        // Killed by: == -> != on either operand (would skip the branch),
-        // and && -> || (would enter branch when only one side is "bit").
+    fn test_bit_widening_unsafe() {
+        // bit(8) -> bit(16) should be Unsafe (fixed-width type).
         let old = TypeName::with_modifiers("bit", vec![8]);
         let new = TypeName::with_modifiers("bit", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
     }
 
     #[test]
@@ -607,9 +597,6 @@ mod tests {
     #[test]
     fn test_bit_to_varbit_unsafe() {
         // bit -> varbit is NOT in the allowlist, should be Unsafe.
-        // With && -> || on line 60, "bit" on old_name alone would enter
-        // the bit branch and return Safe (since widening check with no
-        // modifiers returns Safe). This test ensures it stays Unsafe.
         let old = TypeName::with_modifiers("bit", vec![8]);
         let new = TypeName::with_modifiers("varbit", vec![16]);
         assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
@@ -618,8 +605,6 @@ mod tests {
     #[test]
     fn test_varbit_to_bit_unsafe() {
         // varbit -> bit is NOT in the allowlist, should be Unsafe.
-        // With && -> || on line 60, "bit" on new_name alone would enter
-        // the bit branch.
         let old = TypeName::with_modifiers("varbit", vec![16]);
         let new = TypeName::with_modifiers("bit", vec![8]);
         assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);

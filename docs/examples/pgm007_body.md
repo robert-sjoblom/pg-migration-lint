@@ -4,7 +4,6 @@ Detects `ALTER TABLE ... ALTER COLUMN ... TYPE ...` on pre-existing tables. Most
 - `varchar(N)` → `varchar(M)` where M > N
 - `varchar(N)` → `text`
 - `numeric(P,S)` → `numeric(P2,S)` where P2 > P and same scale
-- `bit(N)` → `bit(M)` where M > N
 - `varbit(N)` → `varbit(M)` where M > N
 
 **Info cast**: `timestamp` → `timestamptz` (safe in PG 15+ with UTC timezone; verify your timezone config)
