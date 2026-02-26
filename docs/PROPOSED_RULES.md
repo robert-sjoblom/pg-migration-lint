@@ -6,21 +6,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 0xx — Unsafe DDL
 
-### PGM1018 — `ADD EXCLUDE` constraint on existing table
-
-- **Range**: 0xx (Constraint — no safe path)
-- **Severity**: CRITICAL
-- **Status**: Promoted to **PGM019**.
-- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Adding an `EXCLUDE` constraint acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. Unlike `CHECK` and `FOREIGN KEY` constraints, PostgreSQL does not support `NOT VALID` for `EXCLUDE` constraints — attempting it produces a syntax error. There is also no equivalent to `ADD CONSTRAINT ... USING INDEX` for exclusion constraints, so the safe pre-build-then-attach pattern used for `UNIQUE` does not apply. There is currently no online path to add an exclusion constraint to a large existing table without an `ACCESS EXCLUSIVE` lock for the duration of the scan.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `Adding EXCLUDE constraint '{constraint}' on existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window.`
-- **IR impact**: Requires a new `TableConstraint::Exclude { name: Option<String> }` variant. `pg_query` emits `Constraint(CONSTR_EXCLUSION)`.
-
----
-
 ### PGM1019 — `DISABLE TRIGGER` on existing table
 
 - **Range**: 0xx (Other locking)
@@ -90,6 +75,6 @@ These rules extend the current rule set. Proposed rules use the `PGM1XXX` prefix
 Changes to existing spec sections required:
 
 - **§4.2**: Add promoted rules to the rule table.
-- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude`.
+- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`.
 - **§11 Project structure**: Add rule files to `src/rules/` as rules are promoted.
 - **PGM901 scope**: Update to cover all promoted rules.
