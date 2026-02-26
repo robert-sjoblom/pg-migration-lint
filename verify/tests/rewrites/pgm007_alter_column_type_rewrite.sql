@@ -64,7 +64,7 @@ SELECT assert_true(
 );
 
 -- Test 6: bit(n) widening ERRORS (fixed-width mismatch) — NOT safe
--- NOTE: This disproves PGM007's claim that bit(N)->bit(M) is safe.
+-- NOTE: Confirms that bit(N)->bit(M) is correctly treated as unsafe by PGM007.
 -- bit(n) is fixed-width, so existing 8-bit values can't fit in 16-bit slots.
 DO $$
 BEGIN
