@@ -1,6 +1,6 @@
 //! Shared helper for rules that inspect ALTER TABLE actions on existing tables.
 //!
-//! Used by PGM009-PGM015 and PGM017, which all follow the same pattern: iterate statements,
+//! Used by PGM009-PGM015, PGM017, and PGM019, which all follow the same pattern: iterate statements,
 //! filter to `AlterTable` on pre-existing tables, then check each action.
 
 use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located};

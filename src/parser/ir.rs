@@ -375,6 +375,11 @@ pub enum TableConstraint {
         expression: String,
         not_valid: bool,
     },
+    /// EXCLUDE constraint. Only captures the constraint name — the element list
+    /// (columns and operators, e.g. `room WITH =, period WITH &&`) is not tracked.
+    /// This is sufficient for PGM019 (which only needs to know an EXCLUDE was added)
+    /// but limits future rules that might need column-level information.
+    Exclude { name: Option<String> },
 }
 
 /// An element in an index's column list.

@@ -514,6 +514,9 @@ fn apply_rename_column(
             ConstraintState::Check { expression, .. } => {
                 *expression = replace_column_in_expression(expression, old_name, new_name);
             }
+            // TODO: EXCLUDE constraints reference columns (e.g. `room WITH =`),
+            // but the IR does not capture them — no column list to rename.
+            ConstraintState::Exclude { .. } => {}
         }
     }
 }
@@ -671,6 +674,11 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 expression: expression.clone(),
                 not_valid: *not_valid,
             });
+        }
+        TableConstraint::Exclude { name } => {
+            table
+                .constraints
+                .push(ConstraintState::Exclude { name: name.clone() });
         }
     }
 }
@@ -1372,6 +1380,9 @@ mod tests {
                         expression: "email <> ''".to_string(),
                         not_valid: false,
                     }),
+                    AlterTableAction::AddConstraint(TableConstraint::Exclude {
+                        name: Some("excl_email".to_string()),
+                    }),
                 ],
             }
             .into(),
@@ -1383,8 +1394,14 @@ mod tests {
         assert!(table.has_primary_key, "PK should be set via ALTER TABLE");
         assert_eq!(
             table.constraints.len(),
-            3,
-            "Should have PK, Unique, and Check constraints"
+            4,
+            "Should have PK, Unique, Check, and Exclude constraints"
+        );
+        assert!(
+            table.constraints.iter().any(
+                |c| matches!(c, ConstraintState::Exclude { name: Some(n) } if n == "excl_email")
+            ),
+            "Exclude constraint should be present with correct name"
         );
         assert_eq!(
             catalog.table_for_index("t_pkey"),

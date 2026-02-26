@@ -449,6 +449,17 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Table doesn't exist in `catalog_before`
 - **Message**: `CLUSTER on table '{table}' [USING '{index}'] rewrites the entire table under ACCESS EXCLUSIVE lock for the full duration. All reads and writes are blocked. This is rarely appropriate in an online migration.`
 
+#### PGM019 — `ADD EXCLUDE` constraint on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` where the table exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Adding an `EXCLUDE` constraint acquires an `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. Unlike `CHECK` and `FOREIGN KEY` constraints, PostgreSQL does not support `NOT VALID` for `EXCLUDE` constraints — attempting it produces a syntax error. There is also no equivalent to `ADD CONSTRAINT ... USING INDEX` for exclusion constraints. There is currently no online path to add an exclusion constraint to a large existing table without an `ACCESS EXCLUSIVE` lock for the duration of the scan.
+- **Does not fire when**:
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - The `EXCLUDE` constraint is part of a `CREATE TABLE` statement (only `ALTER TABLE` triggers)
+- **Message**: `Adding EXCLUDE constraint on existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window.`
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
