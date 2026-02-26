@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM019
+  severity: Critical
+  message: "Adding EXCLUDE constraint on existing table 'customers' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window."
+  file: repos/all-rules/migrations/V014__exclude_constraint.sql
+  start_line: 1
+  end_line: 2

@@ -1,0 +1,35 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM019
+Severity: CRITICAL
+Description: ADD EXCLUDE constraint on existing table
+
+PGM019 — ADD EXCLUDE constraint on existing table
+
+What it detects:
+ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...) where the table
+already exists.
+
+Why it's dangerous:
+Adding an EXCLUDE constraint acquires an ACCESS EXCLUSIVE lock
+(blocking all reads and writes) and scans all existing rows to
+verify the exclusion condition. Unlike CHECK and FOREIGN KEY
+constraints, PostgreSQL does not support NOT VALID for EXCLUDE
+constraints. There is also no equivalent to ADD CONSTRAINT ...
+USING INDEX for exclusion constraints. There is currently no
+online path to add an exclusion constraint to a large existing
+table without an ACCESS EXCLUSIVE lock for the duration of the scan.
+
+Safe alternative:
+Schedule the migration during a maintenance window when
+downtime is acceptable.
+
+Example (bad):
+ALTER TABLE reservations
+ADD CONSTRAINT excl_overlap
+EXCLUDE USING gist (room WITH =, period WITH &&);
+
+Fix:
+There is no online alternative. Plan for a maintenance window.

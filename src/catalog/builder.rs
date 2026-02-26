@@ -319,6 +319,14 @@ impl TableBuilder {
         self
     }
 
+    /// Add an EXCLUDE constraint
+    pub fn exclude_constraint(&mut self, name: Option<&str>) -> &mut Self {
+        self.state.constraints.push(ConstraintState::Exclude {
+            name: name.map(|s| s.to_string()),
+        });
+        self
+    }
+
     /// Mark this table as incomplete (affected by unparseable SQL)
     pub fn incomplete(&mut self) -> &mut Self {
         self.state.incomplete = true;

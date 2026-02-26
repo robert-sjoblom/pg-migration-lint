@@ -748,6 +748,7 @@ fn convert_table_constraint(
                 not_valid: con.skip_validation,
             })
         }
+        pg_query::protobuf::ConstrType::ConstrExclusion => Some(TableConstraint::Exclude { name }),
         _ => None,
     }
 }

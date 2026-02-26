@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm019.rs
+expression: findings
+---
+- rule_id: PGM019
+  severity: Critical
+  message: "Adding EXCLUDE constraint on existing table 'orders' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

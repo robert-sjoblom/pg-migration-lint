@@ -197,6 +197,11 @@ impl TableState {
             ConstraintState::Check { expression, .. } => {
                 !expression_mentions_column(expression, name)
             }
+            // TODO: EXCLUDE constraints do reference columns (e.g. `room WITH =`),
+            // but the IR does not capture them. PostgreSQL drops EXCLUDE constraints
+            // on column drop, so this `true` makes the catalog diverge. Fix when
+            // the IR is expanded to track EXCLUDE element columns.
+            ConstraintState::Exclude { .. } => true,
         });
 
         // Recalculate has_primary_key in case the PK was removed.
@@ -414,6 +419,9 @@ pub enum ConstraintState {
         expression: String,
         not_valid: bool,
     },
+    Exclude {
+        name: Option<String>,
+    },
 }
 
 impl ConstraintState {
@@ -426,6 +434,7 @@ impl ConstraintState {
             ConstraintState::Check { expression, .. } => {
                 expression_mentions_column(expression, col)
             }
+            ConstraintState::Exclude { .. } => false,
         }
     }
 }

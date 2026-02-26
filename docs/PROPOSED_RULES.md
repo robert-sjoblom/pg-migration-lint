@@ -6,63 +6,11 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 0xx — Unsafe DDL
 
-### PGM1004 — `DETACH PARTITION` without `CONCURRENTLY`
-
-- **Range**: 0xx (Partitions)
-- **Severity**: CRITICAL
-- **Status**: Promoted to PGM004.
-- **Triggers**: `ALTER TABLE parent DETACH PARTITION child` without the `CONCURRENTLY` option, where `parent` exists in `catalog_before`.
-- **Why**: Plain `DETACH PARTITION` acquires `ACCESS EXCLUSIVE` on both the parent partitioned table and the child partition for the full duration of the operation. This blocks all reads and writes on the parent (and therefore all its partitions) until detach completes. PostgreSQL 14+ introduced `DETACH PARTITION ... CONCURRENTLY`, which uses a weaker lock and allows concurrent reads and writes. There is no reason to use the blocking form in an online migration against an existing partitioned table.
-- **Does not fire when**:
-  - `CONCURRENTLY` is present.
-  - The parent table is created in the same set of changed files.
-  - The parent table does not exist in `catalog_before`.
-- **Minimum PostgreSQL version**: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+. The rule fires unconditionally but the message notes the version requirement.
-- **Message**: `DETACH PARTITION on existing partitioned table '{parent}' without CONCURRENTLY acquires ACCESS EXCLUSIVE on the entire table, blocking all reads and writes. Use DETACH PARTITION ... CONCURRENTLY (PostgreSQL 14+).`
-- **IR impact**: Requires a new top-level `IrNode` variant `DetachPartition { parent: String, child: String, concurrent: bool }`. `pg_query` emits `AlterTableCmd(AT_DetachPartition)` with a `concurrent` flag on the node.
-
----
-
-### PGM1005 — `ATTACH PARTITION` without pre-existing validated `CHECK` constraint
-
-- **Range**: 0xx (Partitions)
-- **Severity**: MAJOR
-- **Status**: Promoted to PGM005.
-- **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where:
-  - `parent` exists in `catalog_before`.
-  - `child` exists in `catalog_before`.
-  - `child` has **no `CHECK` constraints** in `catalog_before`.
-- **Why**: When attaching a partition, PostgreSQL must verify that every existing row in `child` satisfies the partition bound. If the child table already has a validated `CHECK` constraint whose expression implies the partition bound, PostgreSQL skips the full-table scan and trusts the constraint instead. Without such a constraint, PostgreSQL performs the scan under `ACCESS EXCLUSIVE` lock on the child table. For large child tables this causes extended unavailability.
-- **Safe alternative**:
-  ```sql
-  -- Migration 1: add a CHECK constraint that mirrors the partition bound
-  ALTER TABLE orders_2024 ADD CONSTRAINT orders_2024_partition_check
-      CHECK (created_at >= '2024-01-01' AND created_at < '2025-01-01') NOT VALID;
-
-  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
-  ALTER TABLE orders_2024 VALIDATE CONSTRAINT orders_2024_partition_check;
-
-  -- Migration 3: attach (scan skipped because constraint is already validated)
-  ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
-      FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
-  ```
-- **Does not fire when**:
-  - `parent` is created in the same set of changed files.
-  - `child` is created in the same set of changed files (no existing rows; no scan occurs).
-  - `parent` does not exist in `catalog_before`.
-  - `child` does not exist in `catalog_before`.
-  - `child` has at least one `CHECK` constraint in `catalog_before`.
-- **Note**: v1 does not attempt to verify whether the existing `CHECK` expression semantically implies the partition bound — detecting an expression match requires evaluating predicate implication, which is out of scope. The rule fires on the absence of any `CHECK` constraint, which is the high-signal case. A false negative occurs when a `CHECK` constraint exists but does not imply the bound; this is acceptable for v1.
-- **Message**: `ATTACH PARTITION of existing table '{child}' to '{parent}' will scan the entire child table under ACCESS EXCLUSIVE lock to verify the partition bound. Add a CHECK constraint mirroring the partition bound, validate it separately, then attach.`
-- **IR impact**: Requires a new top-level `IrNode` variant `AttachPartition { parent: String, child: String }`. `pg_query` emits `AlterTableCmd(AT_AttachPartition)`.
-
----
-
 ### PGM1018 — `ADD EXCLUDE` constraint on existing table
 
 - **Range**: 0xx (Constraint — no safe path)
 - **Severity**: CRITICAL
-- **Status**: Not yet implemented.
+- **Status**: Promoted to **PGM019**.
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` on a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Why**: Adding an `EXCLUDE` constraint acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. Unlike `CHECK` and `FOREIGN KEY` constraints, PostgreSQL does not support `NOT VALID` for `EXCLUDE` constraints — attempting it produces a syntax error. There is also no equivalent to `ADD CONSTRAINT ... USING INDEX` for exclusion constraints, so the safe pre-build-then-attach pattern used for `UNIQUE` does not apply. There is currently no online path to add an exclusion constraint to a large existing table without an `ACCESS EXCLUSIVE` lock for the duration of the scan.
 - **Does not fire when**:
@@ -76,7 +24,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 ### PGM1019 — `DISABLE TRIGGER` on existing table
 
 - **Range**: 0xx (Other locking)
-- **Severity**: MINOR
+- **Severity**: WARNING
 - **Status**: Not yet implemented.
 - **Triggers**: `ALTER TABLE ... DISABLE TRIGGER` (any trigger, including `ALL`) on a table that exists in `catalog_before`.
 - **Why**: Disabling triggers in a migration bypasses business logic and — critically — foreign key enforcement triggers. `DISABLE TRIGGER ALL` suppresses FK checks for the duration between the disable and the corresponding re-enable. If the re-enable is missing, omitted due to a migration failure, or placed in a separate migration that is never run, the integrity guarantee is permanently lost. Even intentional disables for bulk load performance are high-risk in migration files.
@@ -142,6 +90,6 @@ These rules extend the current rule set. Proposed rules use the `PGM1XXX` prefix
 Changes to existing spec sections required:
 
 - **§4.2**: Add promoted rules to the rule table.
-- **§3.2 IR node table**: Add `DropSchema`, `Cluster`, `DetachPartition`, `AttachPartition`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude`.
+- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`; add `TableConstraint::Exclude`.
 - **§11 Project structure**: Add rule files to `src/rules/` as rules are promoted.
 - **PGM901 scope**: Update to cover all promoted rules.

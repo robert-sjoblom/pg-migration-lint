@@ -43,7 +43,7 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
         // Safety-critical: causes lock contention, table rewrites, or data issues
         RuleId::UnsafeDdl(
             Pgm001 | Pgm002 | Pgm003 | Pgm004 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm016
-            | Pgm017 | Pgm018,
+            | Pgm017 | Pgm018 | Pgm019,
         ) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
@@ -226,7 +226,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::UnsafeDdl(Pgm016 | Pgm017) | RuleId::SchemaDesign(Pgm501) => 15,
         // Table rewrites / schema changes need more thought
         RuleId::UnsafeDdl(
-            Pgm005 | Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm018,
+            Pgm005 | Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm018 | Pgm019,
         ) => 30,
         // Schema quality / side-effect warnings
         RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012) => 10,
