@@ -16,6 +16,14 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.11.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.10.0...v2.11.0) (2026-02-26)
+
+
+### Features
+
+* **rules:** add ALTER INDEX ATTACH PARTITION support ([a22d29b](https://github.com/robert-sjoblom/pg-migration-lint/commit/a22d29b0a87c97a0360a42c76a053d3c197f893e))
+* **rules:** make PGM005 CHECK matching partition-column-aware ([39c208e](https://github.com/robert-sjoblom/pg-migration-lint/commit/39c208e20eaa807d84734951f06ceefa70df44f6))
+
 ## [2.10.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.9.0...v2.10.0) (2026-02-25)
 
 
