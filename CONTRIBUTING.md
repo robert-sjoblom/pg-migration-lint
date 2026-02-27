@@ -48,7 +48,7 @@ The `EXPLAIN` text must reference the rule's own ID (e.g., `"PGMXXX"`) — this 
 
 ### 2. Add the enum variant
 
-In `src/rules/mod.rs`, add a variant to the flat `RuleId` enum in the appropriate family section:
+In `src/rules/rule_id.rs`, add a variant to the flat `RuleId` enum in the appropriate family section:
 
 ```rust
 /// Short doc comment describing the rule.
@@ -56,7 +56,7 @@ In `src/rules/mod.rs`, add a variant to the flat `RuleId` enum in the appropriat
 PgmXXX,
 ```
 
-Then wire up the four dispatch match arms in `impl Rule for RuleId`:
+Then wire up the four dispatch match arms in `impl Rule for RuleId` (also in `src/rules/rule_id.rs`):
 
 ```rust
 // In default_severity()

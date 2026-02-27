@@ -245,7 +245,7 @@ The bridge jar (`bridge/`) is a separate Java subproject (~100 LOC) built with M
    - `description()` - short summary
    - `explain()` - detailed explanation with examples and fixes
    - `check()` - main rule logic
-3. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/mod.rs` (`default_severity`, `description`, `explain`, `check`)
+3. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/rule_id.rs` (`default_severity`, `description`, `explain`, `check`)
 4. Add component test fixtures in `tests/fixtures/` with positive and negative cases
 5. Add unit tests for helper functions in the rule file
 6. Add integration test in fixture repo `tests/fixtures/repos/all-rules/`
