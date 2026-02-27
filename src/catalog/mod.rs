@@ -1,6 +1,6 @@
 //! Table catalog and replay engine
 
-pub mod replay;
+pub(crate) mod replay;
 pub mod types;
 
 pub mod builder;
