@@ -56,6 +56,7 @@ mod pgm201;
 mod pgm202;
 mod pgm203;
 mod pgm204;
+mod pgm205;
 
 // 3xx — DML in migrations
 mod pgm301;
@@ -141,6 +142,7 @@ impl RuleId {
                 DestructiveRule::Pgm202 => "PGM202",
                 DestructiveRule::Pgm203 => "PGM203",
                 DestructiveRule::Pgm204 => "PGM204",
+                DestructiveRule::Pgm205 => "PGM205",
             },
             RuleId::Dml(r) => match r {
                 DmlRule::Pgm301 => "PGM301",
@@ -247,6 +249,7 @@ impl FromStr for RuleId {
             "PGM202" => Ok(RuleId::Destructive(DestructiveRule::Pgm202)),
             "PGM203" => Ok(RuleId::Destructive(DestructiveRule::Pgm203)),
             "PGM204" => Ok(RuleId::Destructive(DestructiveRule::Pgm204)),
+            "PGM205" => Ok(RuleId::Destructive(DestructiveRule::Pgm205)),
             "PGM301" => Ok(RuleId::Dml(DmlRule::Pgm301)),
             "PGM302" => Ok(RuleId::Dml(DmlRule::Pgm302)),
             "PGM303" => Ok(RuleId::Dml(DmlRule::Pgm303)),
@@ -568,6 +571,8 @@ pub enum DestructiveRule {
     Pgm203,
     /// `TRUNCATE TABLE CASCADE` on existing table.
     Pgm204,
+    /// `DROP SCHEMA CASCADE`.
+    Pgm205,
 }
 
 impl DestructiveRule {
@@ -577,6 +582,7 @@ impl DestructiveRule {
             Self::Pgm202 => pgm202::DESCRIPTION,
             Self::Pgm203 => pgm203::DESCRIPTION,
             Self::Pgm204 => pgm204::DESCRIPTION,
+            Self::Pgm205 => pgm205::DESCRIPTION,
         }
     }
 
@@ -586,6 +592,7 @@ impl DestructiveRule {
             Self::Pgm202 => pgm202::EXPLAIN,
             Self::Pgm203 => pgm203::EXPLAIN,
             Self::Pgm204 => pgm204::EXPLAIN,
+            Self::Pgm205 => pgm205::EXPLAIN,
         }
     }
 
@@ -600,6 +607,7 @@ impl DestructiveRule {
             Self::Pgm202 => pgm202::check(rule, statements, ctx),
             Self::Pgm203 => pgm203::check(rule, statements, ctx),
             Self::Pgm204 => pgm204::check(rule, statements, ctx),
+            Self::Pgm205 => pgm205::check(rule, statements, ctx),
         }
     }
 }
@@ -609,6 +617,7 @@ impl From<DestructiveRule> for Severity {
         match value {
             DestructiveRule::Pgm201 | DestructiveRule::Pgm203 => Self::Minor,
             DestructiveRule::Pgm202 | DestructiveRule::Pgm204 => Self::Major,
+            DestructiveRule::Pgm205 => Self::Critical,
         }
     }
 }

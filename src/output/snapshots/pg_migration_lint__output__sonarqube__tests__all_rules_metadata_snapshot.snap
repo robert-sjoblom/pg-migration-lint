@@ -365,13 +365,25 @@ expression: parsed
       "ruleId": "PGM204"
     },
     {
+      "effortMinutes": 30,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM205: DROP SCHEMA CASCADE",
+        "textRange": {
+          "endLine": 31,
+          "startLine": 31
+        }
+      },
+      "ruleId": "PGM205"
+    },
+    {
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM301: INSERT INTO existing table in migration",
         "textRange": {
-          "endLine": 31,
-          "startLine": 31
+          "endLine": 32,
+          "startLine": 32
         }
       },
       "ruleId": "PGM301"
@@ -382,8 +394,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM302: UPDATE on existing table in migration",
         "textRange": {
-          "endLine": 32,
-          "startLine": 32
+          "endLine": 33,
+          "startLine": 33
         }
       },
       "ruleId": "PGM302"
@@ -394,8 +406,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM303: DELETE FROM existing table in migration",
         "textRange": {
-          "endLine": 33,
-          "startLine": 33
+          "endLine": 34,
+          "startLine": 34
         }
       },
       "ruleId": "PGM303"
@@ -406,8 +418,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
         "textRange": {
-          "endLine": 34,
-          "startLine": 34
+          "endLine": 35,
+          "startLine": 35
         }
       },
       "ruleId": "PGM401"
@@ -418,8 +430,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 35,
-          "startLine": 35
+          "endLine": 36,
+          "startLine": 36
         }
       },
       "ruleId": "PGM402"
@@ -430,8 +442,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
         "textRange": {
-          "endLine": 36,
-          "startLine": 36
+          "endLine": 37,
+          "startLine": 37
         }
       },
       "ruleId": "PGM403"
@@ -442,8 +454,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 37,
-          "startLine": 37
+          "endLine": 38,
+          "startLine": 38
         }
       },
       "ruleId": "PGM501"
@@ -454,8 +466,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 38,
-          "startLine": 38
+          "endLine": 39,
+          "startLine": 39
         }
       },
       "ruleId": "PGM502"
@@ -466,8 +478,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 39,
-          "startLine": 39
+          "endLine": 40,
+          "startLine": 40
         }
       },
       "ruleId": "PGM503"
@@ -478,8 +490,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 40,
-          "startLine": 40
+          "endLine": 41,
+          "startLine": 41
         }
       },
       "ruleId": "PGM504"
@@ -490,8 +502,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 41,
-          "startLine": 41
+          "endLine": 42,
+          "startLine": 42
         }
       },
       "ruleId": "PGM505"
@@ -502,8 +514,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM506: CREATE UNLOGGED TABLE",
         "textRange": {
-          "endLine": 42,
-          "startLine": 42
+          "endLine": 43,
+          "startLine": 43
         }
       },
       "ruleId": "PGM506"
@@ -958,6 +970,21 @@ expression: parsed
       ],
       "name": "TRUNCATE TABLE CASCADE on existing table",
       "severity": "MAJOR",
+      "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "DROP SCHEMA CASCADE. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm205",
+      "engineId": "pg-migration-lint",
+      "id": "PGM205",
+      "impacts": [
+        {
+          "severity": "HIGH",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "DROP SCHEMA CASCADE",
+      "severity": "CRITICAL",
       "type": "BUG"
     },
     {

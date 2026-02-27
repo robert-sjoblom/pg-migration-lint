@@ -518,3 +518,123 @@ fn spike_alter_index_attach_partition() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// DROP SCHEMA AST structure spike
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spike_drop_schema_ast() {
+    let sql = "DROP SCHEMA myschema CASCADE";
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    // Verify it's a DropStmt with ObjectSchema type
+    if let pg_query::NodeEnum::DropStmt(drop) = stmt {
+        assert_eq!(
+            drop.remove_type(),
+            pg_query::protobuf::ObjectType::ObjectSchema,
+            "Expected ObjectSchema"
+        );
+        assert!(!drop.missing_ok, "Should not have IF EXISTS");
+        assert_eq!(
+            drop.behavior(),
+            pg_query::protobuf::DropBehavior::DropCascade,
+            "Expected CASCADE"
+        );
+
+        // Schema names are String nodes directly in objects[] (NOT wrapped in List)
+        assert!(!drop.objects.is_empty(), "Should have at least one object");
+        let first_obj = drop.objects[0].node.as_ref().unwrap();
+        if let pg_query::NodeEnum::String(s) = first_obj {
+            assert_eq!(s.sval, "myschema");
+        } else {
+            panic!("Expected String node for schema name, got: {:?}", first_obj);
+        }
+    } else {
+        panic!("Expected DropStmt, got: {:?}", stmt);
+    }
+}
+
+#[test]
+fn spike_drop_schema_if_exists_no_cascade() {
+    let sql = "DROP SCHEMA IF EXISTS myschema";
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    if let pg_query::NodeEnum::DropStmt(drop) = stmt {
+        assert_eq!(
+            drop.remove_type(),
+            pg_query::protobuf::ObjectType::ObjectSchema
+        );
+        assert!(drop.missing_ok, "Should have IF EXISTS");
+        assert_eq!(
+            drop.behavior(),
+            pg_query::protobuf::DropBehavior::DropRestrict,
+            "Expected RESTRICT (no CASCADE)"
+        );
+
+        let first_obj = drop.objects[0].node.as_ref().unwrap();
+        if let pg_query::NodeEnum::String(s) = first_obj {
+            assert_eq!(s.sval, "myschema");
+        } else {
+            panic!("Expected String node");
+        }
+    } else {
+        panic!("Expected DropStmt");
+    }
+}
+
+#[test]
+fn spike_drop_schema_multiple_schemas() {
+    let sql = "DROP SCHEMA foo, bar CASCADE";
+    let result = pg_query::parse(sql).expect("parse failed");
+
+    // Multiple schemas in one DROP produce a single DropStmt with multiple objects
+    assert_eq!(
+        result.protobuf.stmts.len(),
+        1,
+        "Should be a single statement"
+    );
+
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    if let pg_query::NodeEnum::DropStmt(drop) = stmt {
+        assert_eq!(
+            drop.remove_type(),
+            pg_query::protobuf::ObjectType::ObjectSchema
+        );
+        assert_eq!(drop.objects.len(), 2, "Should have two schema objects");
+
+        // Both are bare String nodes
+        let names: Vec<&str> = drop
+            .objects
+            .iter()
+            .filter_map(|obj| match obj.node.as_ref() {
+                Some(pg_query::NodeEnum::String(s)) => Some(s.sval.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, vec!["foo", "bar"]);
+    } else {
+        panic!("Expected DropStmt, got: {:?}", stmt);
+    }
+}

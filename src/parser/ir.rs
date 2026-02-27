@@ -15,6 +15,7 @@ pub enum IrNode {
     CreateIndex(CreateIndex),
     DropIndex(DropIndex),
     DropTable(DropTable),
+    DropSchema(DropSchema),
     TruncateTable(TruncateTable),
     /// DML: INSERT INTO a table.
     InsertInto(InsertInto),
@@ -174,6 +175,13 @@ pub struct DropIndex {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropTable {
     pub name: QualifiedName,
+    pub if_exists: bool,
+    pub cascade: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropSchema {
+    pub schema_name: String,
     pub if_exists: bool,
     pub cascade: bool,
 }
@@ -616,6 +624,28 @@ impl DropIndex {
 }
 
 #[cfg(test)]
+impl DropSchema {
+    /// Minimal DROP SCHEMA: if_exists defaults to false, cascade false.
+    pub fn test(schema_name: impl Into<String>) -> Self {
+        Self {
+            schema_name: schema_name.into(),
+            if_exists: false,
+            cascade: false,
+        }
+    }
+
+    pub fn with_if_exists(mut self, if_exists: bool) -> Self {
+        self.if_exists = if_exists;
+        self
+    }
+
+    pub fn with_cascade(mut self, cascade: bool) -> Self {
+        self.cascade = cascade;
+        self
+    }
+}
+
+#[cfg(test)]
 impl TruncateTable {
     /// Minimal TRUNCATE TABLE: cascade false.
     pub fn test(name: QualifiedName) -> Self {
@@ -701,6 +731,13 @@ impl From<DropTable> for IrNode {
 impl From<DropIndex> for IrNode {
     fn from(value: DropIndex) -> Self {
         IrNode::DropIndex(value)
+    }
+}
+
+#[cfg(test)]
+impl From<DropSchema> for IrNode {
+    fn from(value: DropSchema) -> Self {
+        IrNode::DropSchema(value)
     }
 }
 

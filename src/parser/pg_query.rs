@@ -6,8 +6,8 @@
 
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
-    DeleteFrom, DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, PartitionBy,
-    PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence,
+    DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode, Located,
+    PartitionBy, PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence,
     TriggerDisableScope, TruncateTable, TypeName, UpdateTable,
 };
 use pg_query::NodeEnum;
@@ -884,6 +884,24 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<
                 })
                 .collect()
         }
+        pg_query::protobuf::ObjectType::ObjectSchema => {
+            let names = extract_schema_names_from_drop_objects(&drop.objects);
+            if names.is_empty() {
+                return vec![IrNode::Ignored {
+                    raw_sql: raw_sql.to_string(),
+                }];
+            }
+            names
+                .into_iter()
+                .map(|schema_name| {
+                    IrNode::DropSchema(DropSchema {
+                        schema_name,
+                        if_exists: drop.missing_ok,
+                        cascade: drop.behavior() == pg_query::protobuf::DropBehavior::DropCascade,
+                    })
+                })
+                .collect()
+        }
         _ => vec![IrNode::Ignored {
             raw_sql: raw_sql.to_string(),
         }],
@@ -972,6 +990,23 @@ fn extract_all_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) -> 
                         None
                     }
                 })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Extract schema names from `DropStmt.objects[]` for `DROP SCHEMA`.
+///
+/// Unlike tables/indexes (where objects are wrapped in `List` nodes), schema
+/// names are stored as bare `String` nodes directly in the objects array.
+fn extract_schema_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) -> Vec<String> {
+    objects
+        .iter()
+        .filter_map(|obj| {
+            if let Some(NodeEnum::String(s)) = obj.node.as_ref() {
+                Some(s.sval.clone())
             } else {
                 None
             }
@@ -1824,6 +1859,106 @@ mod tests {
                 assert!(dt.if_exists);
             }
             other => panic!("Expected DropTable, got: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DROP SCHEMA
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_drop_schema_cascade() {
+        let sql = "DROP SCHEMA myschema CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "myschema");
+                assert!(ds.cascade);
+                assert!(!ds.if_exists);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_schema_if_exists_no_cascade() {
+        let sql = "DROP SCHEMA IF EXISTS myschema;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "myschema");
+                assert!(!ds.cascade);
+                assert!(ds.if_exists);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_schema_if_exists_cascade() {
+        let sql = "DROP SCHEMA IF EXISTS myschema CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "myschema");
+                assert!(ds.cascade);
+                assert!(ds.if_exists);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_schema_plain() {
+        let sql = "DROP SCHEMA myschema;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "myschema");
+                assert!(!ds.cascade);
+                assert!(!ds.if_exists);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_schema_multiple_schemas() {
+        let sql = "DROP SCHEMA foo, bar CASCADE;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 2);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "foo");
+                assert!(ds.cascade);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+        match &nodes[1].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "bar");
+                assert!(ds.cascade);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_schema_restrict() {
+        let sql = "DROP SCHEMA myschema RESTRICT;";
+        let nodes = parse_sql(sql);
+        assert_eq!(nodes.len(), 1);
+        match &nodes[0].node {
+            IrNode::DropSchema(ds) => {
+                assert_eq!(ds.schema_name, "myschema");
+                assert!(!ds.cascade, "RESTRICT should map to cascade=false");
+                assert!(!ds.if_exists);
+            }
+            other => panic!("Expected DropSchema, got: {:?}", other),
         }
     }
 

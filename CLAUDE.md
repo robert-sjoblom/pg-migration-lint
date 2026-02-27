@@ -48,7 +48,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM020, PGM101-PGM106, PGM201-PGM204, PGM301-PGM303, PGM401-PGM403, PGM501-PGM506)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM020, PGM101-PGM106, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM506)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -162,6 +162,8 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM001**: Missing `CONCURRENTLY` on `CREATE INDEX`
 - **PGM002**: Missing `CONCURRENTLY` on `DROP INDEX`
 - **PGM003**: `CONCURRENTLY` inside transaction
+- **PGM004**: `DETACH PARTITION` without `CONCURRENTLY`
+- **PGM005**: `ATTACH PARTITION` without pre-validated `CHECK`
 - **PGM006**: Volatile default on column (forces table rewrite)
 - **PGM007**: `ALTER COLUMN TYPE` causing table rewrite
 - **PGM008**: `ADD COLUMN NOT NULL` without default
@@ -187,6 +189,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM202**: `DROP TABLE CASCADE` on existing table
 - **PGM203**: `TRUNCATE TABLE` on existing table
 - **PGM204**: `TRUNCATE TABLE CASCADE` on existing table
+- **PGM205**: `DROP SCHEMA CASCADE`
 
 **3xx — DML in Migrations:**
 - **PGM301**: `INSERT INTO` existing table in migration

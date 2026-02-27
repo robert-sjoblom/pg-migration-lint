@@ -1,0 +1,37 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM205
+Severity: CRITICAL
+Description: DROP SCHEMA CASCADE
+
+PGM205 — DROP SCHEMA CASCADE
+
+What it detects:
+A DROP SCHEMA ... CASCADE statement.
+
+Why it matters:
+DROP SCHEMA CASCADE drops every object in the schema — tables, views,
+sequences, functions, types, and indexes — in a single statement. It is
+the most destructive single DDL statement in PostgreSQL and cannot be
+selectively undone.
+
+Unlike DROP TABLE CASCADE (which only removes objects that depend on one
+table), DROP SCHEMA CASCADE destroys the entire namespace and everything
+in it.
+
+Example:
+DROP SCHEMA myschema CASCADE;
+
+This silently drops every table, view, function, sequence, and type
+defined in 'myschema'.
+
+Recommended approach:
+1. Enumerate all objects in the schema before dropping.
+2. Explicitly drop or migrate each object in separate migration steps.
+3. Use plain DROP SCHEMA (without CASCADE) so PostgreSQL will error
+if the schema is non-empty.
+
+This rule is CRITICAL severity because CASCADE silently destroys
+every object in the schema.

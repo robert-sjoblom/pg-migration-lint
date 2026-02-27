@@ -117,6 +117,7 @@ IR node types (non-exhaustive):
 | `CreateIndex { table, columns, unique, concurrent, only }` | `IndexStmt` |
 | `DropIndex { name, concurrent }` | `DropStmt(OBJECT_INDEX)` |
 | `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
+| `DropSchema { schema_name, cascade, if_exists }` | `DropStmt(OBJECT_SCHEMA)` |
 | `AlterIndexAttachPartition { parent_index_name, child_index_name }` | `AlterTableStmt` (objtype = ObjectIndex, AT_AttachPartition) |
 | `RenameTable { name, new_name }` | `RenameStmt` (ObjectTable) |
 | `RenameColumn { table, old_name, new_name }` | `RenameStmt` (ObjectColumn) |
@@ -512,6 +513,16 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - `TRUNCATE` without `CASCADE` (handled by PGM203)
 - **Message (no known FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
 - **Message (with FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Known FK dependencies from: {dep_tables}.`
+
+#### PGM205 — `DROP SCHEMA ... CASCADE`
+
+- **Severity**: CRITICAL
+- **Triggers**: `DROP SCHEMA ... CASCADE` regardless of catalog state.
+- **Why**: `DROP SCHEMA CASCADE` is the most destructive single DDL statement in PostgreSQL — it silently drops every object in the schema (tables, views, sequences, functions, types). The catalog only tracks tables from parsed migrations, so there may be objects the tool doesn't know about. The rule always fires when CASCADE is present.
+- **Does not fire when**:
+  - `DROP SCHEMA` without `CASCADE` (PostgreSQL errors at runtime if the schema is non-empty)
+- **Message (no known tables)**: `DROP SCHEMA '{schema}' CASCADE drops every object in the schema — tables, views, sequences, functions, and types. This is irreversible.`
+- **Message (with known tables)**: `DROP SCHEMA '{schema}' CASCADE drops every object in the schema — tables, views, sequences, functions, and types. This is irreversible. Known affected tables: {table_list}.`
 
 #### PGM301 — `INSERT INTO` existing table in migration
 
@@ -971,4 +982,5 @@ pg-migration-lint/
 | 1.12    | 2026-02-17 | Renumbered PGM024 (missing IF EXISTS) → PGM008 (slot freed by PGM008 → PGM901 rename). Updated PGM901 scope to PGM001–PGM023. |
 | 1.13    | 2026-02-18 | Promoted PGM1403 → PGM403 (CREATE TABLE IF NOT EXISTS for already-existing table, MINOR). No IR or catalog changes required. |
 | 1.14    | 2026-02-18 | Added PGM3xx DML-in-migrations category: PGM301 (INSERT INTO, INFO), PGM302 (UPDATE, MINOR), PGM303 (DELETE FROM, MINOR). Added PGM506 (CREATE UNLOGGED TABLE, INFO). IR changes: replaced `temporary: bool` on `CreateTable` with `TablePersistence` enum (Permanent/Unlogged/Temporary); added `InsertInto`, `UpdateTable`, `DeleteFrom` IR nodes. |
-| 1.15    | 2026-02-25 | Spec sync with implementation. Added PGM004 (DETACH PARTITION without CONCURRENTLY, CRITICAL) and PGM005 (ATTACH PARTITION without CHECK, CRITICAL). Added partition support: `AlterIndexAttachPartition` IR node, `only` field on `IndexState`, partition-aware behavior for PGM002 and PGM501. Updated IR table with all implemented nodes (Cluster, RenameTable, RenameColumn, AlterIndexAttachPartition) and fields (partition_by, partition_of on CreateTable; only on CreateIndex). Updated `TableConstraint` to reflect `not_valid`, `using_index`, `name` fields. Updated `ColumnDef` to reflect `is_inline_pk`, `is_serial` fields. Updated Catalog/TableState/IndexState structs with partition fields. Removed all stale "Status: Implemented/Not yet implemented" markers and "IR impact" notes — all described rules and IR changes are now implemented. |
+| 1.15    | 2026-02-25 | Spec sync with implementation. Added PGM004 (DETACH PARTITION without CONCURRENTLY, CRITICAL) and PGM005 (ATTACH PARTITION without CHECK, CRITICAL). Added partition support: `AlterIndexAttachPartition` IR node, `only` field on `IndexState`, partition-aware behavior for PGM002 and PGM501. Renumbered old PGM016–PGM020 (v1.5) to their current IDs: PGM013 (SET NOT NULL), PGM014 (ADD FK NOT VALID), PGM015 (ADD CHECK NOT VALID), PGM504 (RENAME TABLE), PGM505 (RENAME COLUMN). Added PGM018 (CLUSTER on existing table, CRITICAL) and PGM019 (ADD EXCLUDE constraint, CRITICAL) in freed 0xx slots. Updated IR table with all implemented nodes (Cluster, RenameTable, RenameColumn, AlterIndexAttachPartition) and fields (partition_by, partition_of on CreateTable; only on CreateIndex). Updated `TableConstraint` to reflect `not_valid`, `using_index`, `name` fields. Updated `ColumnDef` to reflect `is_inline_pk`, `is_serial` fields. Updated Catalog/TableState/IndexState structs with partition fields. Removed all stale "Status: Implemented/Not yet implemented" markers and "IR impact" notes — all described rules and IR changes are now implemented. |
+| 1.16    | 2026-02-27 | Added PGM020 (DISABLE TRIGGER on table, MINOR/INFO). Added PGM205 (DROP SCHEMA CASCADE, CRITICAL). New `DropSchema` IR node mapped from `DropStmt(OBJECT_SCHEMA)`. Catalog replay removes all tables with matching schema prefix on CASCADE. Rule always fires on CASCADE regardless of catalog state — lists known affected tables for context. |
