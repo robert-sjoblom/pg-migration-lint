@@ -190,8 +190,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -224,7 +224,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "now() is STABLE, should not trigger PGM006"
@@ -255,7 +255,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "current_timestamp is STABLE, should not trigger PGM006"
@@ -286,7 +286,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1, "clock_timestamp is volatile");
         assert_eq!(findings[0].severity, Severity::Minor);
     }
@@ -311,7 +311,7 @@ mod tests {
             ]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "CREATE TABLE should not trigger PGM006"
@@ -337,7 +337,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "ADD COLUMN on table created in same changeset should not trigger PGM006"
@@ -360,7 +360,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -383,7 +383,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -406,7 +406,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -423,7 +423,7 @@ mod tests {
             actions: vec![AlterTableAction::AddColumn(ColumnDef::test("note", "text"))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

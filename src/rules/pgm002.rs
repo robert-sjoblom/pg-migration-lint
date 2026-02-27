@@ -119,8 +119,8 @@ mod tests {
     use super::*;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -144,7 +144,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -167,7 +167,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         insta::assert_yaml_snapshot!(findings);
     }
@@ -191,7 +191,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "ON ONLY index on partitioned table should be safe to drop"
@@ -218,7 +218,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].message.contains("CONCURRENTLY"),
@@ -247,7 +247,7 @@ mod tests {
             DropIndex::test("idx_orders_status").with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].message.contains("partitioned table"),
@@ -283,7 +283,7 @@ mod tests {
                 .with_if_exists(false),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002).check(&stmts, &ctx);
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

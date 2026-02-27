@@ -66,13 +66,13 @@ mod tests {
     use super::*;
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     fn rule_id() -> RuleId {
-        RuleId::SchemaDesign(SchemaDesignRule::Pgm506)
+        RuleId::Pgm506
     }
 
     #[test]

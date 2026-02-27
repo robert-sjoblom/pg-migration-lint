@@ -81,8 +81,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -117,7 +117,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        let findings = RuleId::Pgm014.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -136,7 +136,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", true)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        let findings = RuleId::Pgm014.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -156,7 +156,7 @@ mod tests {
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        let findings = RuleId::Pgm014.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -191,7 +191,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm014).check(&stmts, &ctx);
+        let findings = RuleId::Pgm014.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

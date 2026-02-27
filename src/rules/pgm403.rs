@@ -79,8 +79,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{IdempotencyRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -101,7 +101,7 @@ mod tests {
                 .with_if_not_exists(true),
         ))];
 
-        let findings = RuleId::Idempotency(IdempotencyRule::Pgm403).check(&stmts, &ctx);
+        let findings = RuleId::Pgm403.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         insta::assert_yaml_snapshot!(findings);
     }
@@ -118,7 +118,7 @@ mod tests {
             CreateTable::test(QualifiedName::unqualified("orders")).with_if_not_exists(true),
         ))];
 
-        let findings = RuleId::Idempotency(IdempotencyRule::Pgm403).check(&stmts, &ctx);
+        let findings = RuleId::Pgm403.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -140,7 +140,7 @@ mod tests {
             QualifiedName::qualified("public", "customers"),
         )))];
 
-        let findings = RuleId::Idempotency(IdempotencyRule::Pgm403).check(&stmts, &ctx);
+        let findings = RuleId::Pgm403.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

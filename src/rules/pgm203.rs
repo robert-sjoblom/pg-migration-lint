@@ -66,13 +66,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{DestructiveRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     fn rule_id() -> RuleId {
-        RuleId::Destructive(DestructiveRule::Pgm203)
+        RuleId::Pgm203
     }
 
     #[test]

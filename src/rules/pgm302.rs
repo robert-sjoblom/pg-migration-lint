@@ -71,13 +71,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{DmlRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
     fn rule_id() -> RuleId {
-        RuleId::Dml(DmlRule::Pgm302)
+        RuleId::Pgm302
     }
 
     #[test]

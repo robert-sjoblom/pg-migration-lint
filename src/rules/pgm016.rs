@@ -125,8 +125,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -168,7 +168,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -189,7 +189,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
     }
 
@@ -210,7 +210,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
     }
 
@@ -229,7 +229,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -243,7 +243,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("nonexistent", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -262,7 +262,7 @@ mod tests {
 
         let stmts = vec![add_pk_stmt("orders", &["id"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -281,7 +281,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -300,7 +300,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -318,7 +318,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("orders", "idx_nonexistent")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -337,7 +337,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -361,7 +361,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -382,7 +382,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("order_items", "idx_order_items_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -403,7 +403,7 @@ mod tests {
 
         let stmts = vec![add_pk_using_index_stmt("order_items", "idx_order_items_pk")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm016).check(&stmts, &ctx);
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message.contains("nullable"));
     }

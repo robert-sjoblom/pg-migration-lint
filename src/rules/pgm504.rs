@@ -102,8 +102,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -126,7 +126,7 @@ mod tests {
             new_name: "orders_archive".to_string(),
         })];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm504).check(&stmts, &ctx);
+        let findings = RuleId::Pgm504.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -144,7 +144,7 @@ mod tests {
             new_name: "real_table".to_string(),
         })];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm504).check(&stmts, &ctx);
+        let findings = RuleId::Pgm504.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -176,7 +176,7 @@ mod tests {
             )),
         ];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm504).check(&stmts, &ctx);
+        let findings = RuleId::Pgm504.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Expected no findings for replacement pattern, got: {:?}",

@@ -3,7 +3,7 @@
 //! These tests exercise the full pipeline including CLI argument parsing, config loading,
 //! output file generation, and exit codes.
 
-use pg_migration_lint::rules::{RuleId, RuleRegistry};
+use pg_migration_lint::rules::RuleRegistry;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -713,7 +713,7 @@ fn test_full_pipeline_with_findings() {
     registry.register_defaults();
     for rule in registry.iter() {
         let id = rule.id();
-        if matches!(id, RuleId::Meta(_)) {
+        if id.is_meta() {
             continue;
         }
         assert!(

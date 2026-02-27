@@ -209,7 +209,7 @@ fn test_all_rules_trigger() {
     registry.register_defaults();
     for rule in registry.iter() {
         let id = rule.id();
-        if matches!(id, pg_migration_lint::rules::RuleId::Meta(_)) {
+        if id.is_meta() {
             continue;
         }
         assert!(
@@ -238,7 +238,7 @@ fn test_suppressed_repo_no_findings() {
     registry.register_defaults();
     for rule in registry.iter() {
         let id = rule.id();
-        if matches!(id, pg_migration_lint::rules::RuleId::Meta(_)) {
+        if id.is_meta() {
             continue;
         }
         assert!(

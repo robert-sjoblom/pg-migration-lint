@@ -99,8 +99,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -141,7 +141,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -163,7 +163,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
     }
 
@@ -183,7 +183,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -197,7 +197,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("nonexistent", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -217,7 +217,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -239,7 +239,7 @@ mod tests {
 
         let stmts = vec![add_unique_stmt("orders", &["email"])];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
     }
 
@@ -259,7 +259,7 @@ mod tests {
 
         let stmts = vec![add_unique_using_index_stmt("orders", "idx_orders_email")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -279,7 +279,7 @@ mod tests {
 
         let stmts = vec![add_unique_using_index_stmt("orders", "idx_orders_email")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -298,7 +298,7 @@ mod tests {
 
         let stmts = vec![add_unique_using_index_stmt("orders", "idx_nonexistent")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -324,7 +324,7 @@ mod tests {
 
         let stmts = vec![add_unique_using_index_stmt("orders", "idx_orders_email")];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -349,7 +349,7 @@ mod tests {
             "idx_orders_email_domain",
         )];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017).check(&stmts, &ctx);
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

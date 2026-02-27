@@ -462,7 +462,7 @@ fn test_matrix_set_not_null_on_existing() {
 fn test_matrix_down_migration_caps_severity() {
     let mut findings = vec![
         Finding {
-            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+            rule_id: RuleId::Pgm001,
             severity: Severity::Critical,
             message: "Missing CONCURRENTLY on CREATE INDEX".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -470,7 +470,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 1,
         },
         Finding {
-            rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+            rule_id: RuleId::Pgm501,
             severity: Severity::Major,
             message: "FK without covering index".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),
@@ -478,7 +478,7 @@ fn test_matrix_down_migration_caps_severity() {
             end_line: 3,
         },
         Finding {
-            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006),
+            rule_id: RuleId::Pgm006,
             severity: Severity::Minor,
             message: "Volatile default on column".to_string(),
             file: PathBuf::from("migrations/002.down.sql"),

@@ -82,8 +82,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -107,7 +107,7 @@ mod tests {
             new_name: "order_status".to_string(),
         })];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm505).check(&stmts, &ctx);
+        let findings = RuleId::Pgm505.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -132,7 +132,7 @@ mod tests {
             new_name: "order_status".to_string(),
         })];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm505).check(&stmts, &ctx);
+        let findings = RuleId::Pgm505.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }
