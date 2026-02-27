@@ -421,6 +421,27 @@ pub enum IndexColumn {
     },
 }
 
+impl IndexColumn {
+    /// Returns the column name if this is a plain column, or `None` for expressions.
+    pub fn column_name(&self) -> Option<&str> {
+        match self {
+            Self::Column(n) => Some(n),
+            Self::Expression { .. } => None,
+        }
+    }
+
+    /// Returns true if this entry references the given column — either as a
+    /// plain column or inside an expression's `referenced_columns`.
+    pub fn references_column(&self, col: &str) -> bool {
+        match self {
+            Self::Column(name) => name == col,
+            Self::Expression {
+                referenced_columns, ..
+            } => referenced_columns.iter().any(|c| c == col),
+        }
+    }
+}
+
 /// A parsed statement with its source location.
 #[derive(Debug, Clone)]
 pub struct Located<T> {

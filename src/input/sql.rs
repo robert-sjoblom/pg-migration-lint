@@ -4,7 +4,7 @@
 //! pg_query parser, and returns `MigrationUnit`s ready for catalog replay
 //! and linting.
 
-use crate::input::{LoadError, MigrationHistory, MigrationLoader, MigrationUnit};
+use crate::input::{LoadError, MigrationHistory, MigrationUnit};
 use crate::parser::pg_query::parse_sql;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +23,53 @@ impl SqlLoader {
     /// Create a new `SqlLoader` with the given default `run_in_transaction` value.
     pub fn new(run_in_transaction: bool) -> Self {
         Self { run_in_transaction }
+    }
+
+    /// Load migrations from the given paths.
+    ///
+    /// Each path can be either a directory (in which case all `.sql` files
+    /// within it are loaded, sorted lexicographically) or a direct path to
+    /// a `.sql` file.
+    ///
+    /// Files that fail to read or parse are reported as errors. The loader
+    /// collects all SQL files across all paths, sorts them, and returns the
+    /// complete migration history.
+    pub fn load(&self, paths: &[PathBuf]) -> Result<MigrationHistory, LoadError> {
+        let mut sql_files: Vec<PathBuf> = Vec::new();
+
+        for path in paths {
+            if path.is_dir() {
+                let entries = collect_sql_files(path)?;
+                sql_files.extend(entries);
+            } else if path.is_file() {
+                if is_sql_file(path) {
+                    sql_files.push(path.clone());
+                }
+            } else {
+                return Err(LoadError::Io {
+                    path: path.clone(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Path does not exist: {}", path.display()),
+                    ),
+                });
+            }
+        }
+
+        // Sort lexicographically by filename to ensure deterministic ordering
+        sql_files.sort_by(|a, b| {
+            let a_name = a.file_name().unwrap_or_default();
+            let b_name = b.file_name().unwrap_or_default();
+            a_name.cmp(b_name)
+        });
+
+        let mut units = Vec::new();
+        for file in &sql_files {
+            let unit = self.load_file(file)?;
+            units.push(unit);
+        }
+
+        Ok(MigrationHistory { units })
     }
 
     /// Load a single SQL file and parse it into a `MigrationUnit`.
@@ -60,55 +107,6 @@ impl Default for SqlLoader {
         Self {
             run_in_transaction: true,
         }
-    }
-}
-
-impl MigrationLoader for SqlLoader {
-    /// Load migrations from the given paths.
-    ///
-    /// Each path can be either a directory (in which case all `.sql` files
-    /// within it are loaded, sorted lexicographically) or a direct path to
-    /// a `.sql` file.
-    ///
-    /// Files that fail to read or parse are reported as errors. The loader
-    /// collects all SQL files across all paths, sorts them, and returns the
-    /// complete migration history.
-    fn load(&self, paths: &[PathBuf]) -> Result<MigrationHistory, LoadError> {
-        let mut sql_files: Vec<PathBuf> = Vec::new();
-
-        for path in paths {
-            if path.is_dir() {
-                let entries = collect_sql_files(path)?;
-                sql_files.extend(entries);
-            } else if path.is_file() {
-                if is_sql_file(path) {
-                    sql_files.push(path.clone());
-                }
-            } else {
-                return Err(LoadError::Io {
-                    path: path.clone(),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        format!("Path does not exist: {}", path.display()),
-                    ),
-                });
-            }
-        }
-
-        // Sort lexicographically by filename to ensure deterministic ordering
-        sql_files.sort_by(|a, b| {
-            let a_name = a.file_name().unwrap_or_default();
-            let b_name = b.file_name().unwrap_or_default();
-            a_name.cmp(b_name)
-        });
-
-        let mut units = Vec::new();
-        for file in &sql_files {
-            let unit = self.load_file(file)?;
-            units.push(unit);
-        }
-
-        Ok(MigrationHistory { units })
     }
 }
 

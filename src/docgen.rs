@@ -1,7 +1,7 @@
 //! Documentation generator for `docs/rules.md`.
 //!
-//! Feature-gated behind `--features docgen`. Reads rule metadata from the
-//! [`RuleRegistry`] and per-rule content from `docs/examples/`, renders
+//! Feature-gated behind `--features docgen`. Reads rule metadata from
+//! [`RuleId`] and per-rule content from `docs/examples/`, renders
 //! them through a minijinja template, and exposes an insta snapshot test
 //! that fails when the generated output drifts.
 
@@ -9,8 +9,9 @@ use std::path::Path;
 
 use minijinja::Environment;
 use serde::Serialize;
+use strum::IntoEnumIterator;
 
-use crate::rules::{RuleRegistry, Severity};
+use crate::rules::{Rule, RuleId};
 
 /// Error type for documentation generation.
 #[derive(Debug, thiserror::Error)]
@@ -108,17 +109,13 @@ const FAMILIES: &[FamilyMeta] = &[
     },
 ];
 
-/// Build the template context from the rule registry and example files on disk.
+/// Build the template context from all rule IDs and example files on disk.
 ///
 /// `examples_dir` should point to `docs/examples/` relative to the project root.
-pub fn build_context(
-    registry: &RuleRegistry,
-    examples_dir: &Path,
-) -> Result<DocsContext, DocgenError> {
+pub fn build_context(examples_dir: &Path) -> Result<DocsContext, DocgenError> {
     let mut all_rules = Vec::new();
 
-    for rule in registry.iter() {
-        let id = rule.id();
+    for id in RuleId::iter() {
         let id_str = id.to_string();
         let anchor = id_str.to_lowercase();
 
@@ -138,32 +135,8 @@ pub fn build_context(
         all_rules.push(RuleEntry {
             id: id_str,
             anchor,
-            description: rule.description().to_string(),
-            severity: rule.default_severity().title_case().to_string(),
-            body: body.trim_end().to_string(),
-        });
-    }
-
-    // Also add PGM901 which is not in the registry (meta rule)
-    let pgm901_id = "PGM901";
-    if !all_rules.iter().any(|r| r.id == pgm901_id) {
-        let body_path = examples_dir.join("pgm901_body.md");
-        let body = std::fs::read_to_string(&body_path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "missing body file for PGM901 — create {path}\n\
-                     (original error: {e})",
-                    path = body_path.display(),
-                ),
-            )
-        })?;
-
-        all_rules.push(RuleEntry {
-            id: pgm901_id.to_string(),
-            anchor: "pgm901".to_string(),
-            description: "Down migration severity cap (meta-behavior)".to_string(),
-            severity: Severity::Info.title_case().to_string(),
+            description: id.description().to_string(),
+            severity: id.default_severity().title_case().to_string(),
             body: body.trim_end().to_string(),
         });
     }
@@ -231,13 +204,10 @@ mod tests {
 
     #[test]
     fn docs_rules_md() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
         let examples_dir = project_root().join("docs/examples");
         let template_path = project_root().join("docs/rules.md.j2");
 
-        let ctx = build_context(&registry, &examples_dir).expect("build_context should succeed");
+        let ctx = build_context(&examples_dir).expect("build_context should succeed");
         let rendered = render(&ctx, &template_path).expect("render should succeed");
 
         insta::assert_snapshot!("rules_md", rendered);

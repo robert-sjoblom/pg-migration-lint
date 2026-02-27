@@ -228,7 +228,7 @@ impl TableState {
                     .entries
                     .iter()
                     .zip(fk_columns)
-                    .all(|(entry, fc)| matches!(entry, IndexEntry::Column(name) if name == fc))
+                    .all(|(entry, fc)| matches!(entry, IndexColumn::Column(name) if name == fc))
         })
     }
 
@@ -316,49 +316,11 @@ pub struct ColumnState {
     pub default_expr: Option<DefaultExpr>, // Reuses the IR type
 }
 
-/// An element in an index, mirroring [`crate::parser::ir::IndexColumn`]
-/// at the catalog level.
-#[derive(Debug, Clone, PartialEq)]
-pub enum IndexEntry {
-    /// Plain column reference.
-    Column(String),
-    /// Expression index element (deparsed SQL text) with extracted column references.
-    Expression {
-        text: String,
-        referenced_columns: Vec<String>,
-    },
-}
-
-impl IndexEntry {
-    /// Returns the column name if this is a plain column, or `None` for expressions.
-    pub fn column_name(&self) -> Option<&str> {
-        match self {
-            Self::Column(n) => Some(n),
-            Self::Expression { .. } => None,
-        }
-    }
-}
-
-impl From<&IndexColumn> for IndexEntry {
-    fn from(ic: &IndexColumn) -> Self {
-        match ic {
-            IndexColumn::Column(name) => Self::Column(name.clone()),
-            IndexColumn::Expression {
-                text,
-                referenced_columns,
-            } => Self::Expression {
-                text: text.clone(),
-                referenced_columns: referenced_columns.clone(),
-            },
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct IndexState {
     pub name: String,
     /// Index entries in definition order. Order matters for prefix matching.
-    pub entries: Vec<IndexEntry>,
+    pub entries: Vec<IndexColumn>,
     pub unique: bool,
     /// Deparsed WHERE clause for partial indexes (e.g. `"active = true"`).
     pub where_clause: Option<String>,
@@ -377,17 +339,12 @@ impl IndexState {
     pub fn has_expressions(&self) -> bool {
         self.entries
             .iter()
-            .any(|e| matches!(e, IndexEntry::Expression { .. }))
+            .any(|e| matches!(e, IndexColumn::Expression { .. }))
     }
 
     /// True if any entry (plain column or expression) references the given column.
     pub fn references_column(&self, col: &str) -> bool {
-        self.entries.iter().any(|e| match e {
-            IndexEntry::Column(name) => name == col,
-            IndexEntry::Expression {
-                referenced_columns, ..
-            } => referenced_columns.iter().any(|c| c == col),
-        })
+        self.entries.iter().any(|e| e.references_column(col))
     }
 
     /// True if this is a partial index (has a WHERE clause).

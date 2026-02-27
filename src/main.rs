@@ -12,16 +12,16 @@ use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use pg_migration_lint::input::MigrationHistory;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
-use pg_migration_lint::input::{MigrationHistory, MigrationLoader};
 use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
-use pg_migration_lint::rules::{self, RuleId};
+use pg_migration_lint::rules::{Rule, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
-use pg_migration_lint::{Config, Finding, LintPipeline, RuleRegistry, Severity};
+use pg_migration_lint::{Config, Finding, LintPipeline, Severity};
 
 /// Default config file name used when --config is not explicitly provided.
 const DEFAULT_CONFIG_FILE: &str = "pg-migration-lint.toml";
@@ -126,14 +126,11 @@ fn run(args: Args) -> Result<bool> {
 
     // --- Step 3: Single-pass replay and lint ---
     let mut pipeline = LintPipeline::new();
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
 
     // Build active rules list, filtering out any disabled via config.
     let disabled: HashSet<RuleId> = config.rules.disabled.iter().copied().collect();
-    let active_rules: Vec<&dyn rules::Rule> = registry
-        .iter()
-        .filter(|r| !disabled.contains(&r.id()))
+    let active_rules: Vec<RuleId> = RuleId::lint_rules()
+        .filter(|r| !disabled.contains(r))
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
@@ -180,9 +177,9 @@ fn run(args: Args) -> Result<bool> {
             let suppressions = parse_suppressions(&source);
 
             for id in suppressions.rule_ids() {
-                if registry.get(&id).is_none() {
+                if id.is_meta() {
                     eprintln!(
-                        "WARNING: unknown rule '{}' in suppression comment in {}",
+                        "WARNING: meta rule '{}' in suppression comment in {} (meta rules cannot be suppressed)",
                         id,
                         unit.source_file.display()
                     );
@@ -235,7 +232,7 @@ fn run(args: Args) -> Result<bool> {
         let reporter: Box<dyn Reporter> = match format.as_str() {
             "text" => Box::new(TextReporter::new(true)),
             "sarif" => Box::new(SarifReporter::new()),
-            "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::from_registry(&registry))),
+            "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::all())),
             other => {
                 eprintln!("Warning: Unknown output format '{other}', skipping",);
                 continue;
@@ -302,22 +299,15 @@ fn load_config(config_path: &Option<PathBuf>) -> Result<pg_migration_lint::Confi
 }
 
 fn explain_rule(rule_id: &str) -> Result<()> {
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-
     let parsed: RuleId = rule_id
         .parse()
         .map_err(|_| anyhow::anyhow!("Unknown rule: {}", rule_id))?;
 
-    if let Some(rule) = registry.get(&parsed) {
-        println!("Rule: {}", rule.id());
-        println!("Severity: {}", rule.default_severity());
-        println!("Description: {}", rule.description());
-        println!();
-        println!("{}", rule.explain());
-    } else {
-        anyhow::bail!("Unknown rule: {}", rule_id);
-    }
+    println!("Rule: {}", parsed);
+    println!("Severity: {}", parsed.default_severity());
+    println!("Description: {}", parsed.description());
+    println!();
+    println!("{}", parsed.explain());
 
     Ok(())
 }

@@ -249,6 +249,11 @@ impl RuleId {
     pub fn is_meta(&self) -> bool {
         matches!(self, Self::Pgm901)
     }
+
+    /// Iterator over all non-meta rule IDs (rules that produce findings).
+    pub fn lint_rules() -> impl Iterator<Item = Self> {
+        Self::iter().filter(|r| !r.is_meta())
+    }
 }
 
 impl fmt::Display for RuleId {
@@ -272,12 +277,6 @@ impl<'de> serde::Deserialize<'de> for RuleId {
 
 // `FromStr` is derived via `EnumString` — strum generates a match from
 // `#[strum(serialize = "…")]` attributes. `Err` type is `strum::ParseError`.
-
-impl From<RuleId> for Box<dyn Rule> {
-    fn from(value: RuleId) -> Self {
-        Box::new(value)
-    }
-}
 
 impl Rule for RuleId {
     fn id(&self) -> Self {
@@ -715,51 +714,6 @@ pub fn cap_for_down_migration(findings: &mut [Finding]) {
     }
 }
 
-/// Registry of all rules.
-pub struct RuleRegistry {
-    rules: Vec<Box<dyn Rule>>,
-}
-
-impl RuleRegistry {
-    /// Create a new empty rule registry.
-    pub fn new() -> Self {
-        Self { rules: vec![] }
-    }
-
-    /// Register all built-in rules.
-    pub fn register_defaults(&mut self) {
-        RuleId::iter()
-            .filter(|r| !r.is_meta())
-            .for_each(|r| self.register(r.into()));
-    }
-
-    /// Register a single rule.
-    pub fn register(&mut self, rule: Box<dyn Rule>) {
-        self.rules.push(rule);
-    }
-
-    /// Get a rule by string ID (for --explain and config validation).
-    pub fn get(&self, id: &RuleId) -> Option<&dyn Rule> {
-        self.get_by_id(*id)
-    }
-
-    /// Get a rule by typed ID.
-    pub fn get_by_id(&self, id: RuleId) -> Option<&dyn Rule> {
-        self.rules.iter().find(|r| r.id() == id).map(|b| &**b)
-    }
-
-    /// Iterate all rules.
-    pub fn iter(&self) -> impl Iterator<Item = &dyn Rule> {
-        self.rules.iter().map(|b| &**b)
-    }
-}
-
-impl Default for RuleRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,24 +755,16 @@ mod tests {
 
     #[test]
     fn test_all_rules_have_valid_description() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        for rule in registry.iter() {
-            let id = rule.id();
-            let desc = rule.description();
+        for id in RuleId::lint_rules() {
+            let desc = id.description();
             assert!(desc.len() > 10, "{id} description too short: {desc:?}");
         }
     }
 
     #[test]
     fn test_all_rules_have_valid_explain() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        for rule in registry.iter() {
-            let id = rule.id();
-            let explain = rule.explain();
+        for id in RuleId::lint_rules() {
+            let explain = id.explain();
             assert!(
                 explain.len() > 20,
                 "{id} explain text too short: {explain:?}"
@@ -828,18 +774,15 @@ mod tests {
 
     #[test]
     fn test_explain_output_snapshots() {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        for rule in registry.iter() {
+        for id in RuleId::lint_rules() {
             let output = format!(
                 "Rule: {}\nSeverity: {}\nDescription: {}\n\n{}",
-                rule.id(),
-                rule.default_severity(),
-                rule.description(),
-                rule.explain()
+                id,
+                id.default_severity(),
+                id.description(),
+                id.explain()
             );
-            insta::assert_snapshot!(format!("explain_{}", rule.id()), output);
+            insta::assert_snapshot!(format!("explain_{}", id), output);
         }
     }
 

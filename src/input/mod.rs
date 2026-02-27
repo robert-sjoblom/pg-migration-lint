@@ -230,12 +230,6 @@ mod tests {
     }
 }
 
-/// Trait for migration loaders. Each input format implements this.
-pub trait MigrationLoader {
-    /// Load migrations from the given paths, in the configured order.
-    fn load(&self, paths: &[PathBuf]) -> Result<MigrationHistory, LoadError>;
-}
-
 #[derive(Debug, Error)]
 pub enum LoadError {
     #[error("IO error reading {path}: {source}")]

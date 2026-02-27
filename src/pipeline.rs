@@ -10,7 +10,7 @@ use crate::Catalog;
 use crate::catalog::replay;
 use crate::input::MigrationUnit;
 use crate::parser::ir::IrNode;
-use crate::rules::{self, Finding, LintContext, Rule};
+use crate::rules::{self, Finding, LintContext, Rule, RuleId};
 
 /// Encapsulates the single-pass replay + lint pipeline.
 ///
@@ -45,7 +45,7 @@ impl LintPipeline {
     /// Handles: catalog clone, replay, track created tables (with IF NOT EXISTS
     /// guard), build [`LintContext`], run rules, and cap severity for down
     /// migrations.
-    pub fn lint(&mut self, unit: &MigrationUnit, rules: &[&dyn Rule]) -> Vec<Finding> {
+    pub fn lint(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
         // Clone catalog BEFORE applying this unit
         let catalog_before = self.catalog.clone();
 

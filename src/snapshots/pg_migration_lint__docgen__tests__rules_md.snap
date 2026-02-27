@@ -1022,7 +1022,7 @@ CREATE UNLOGGED TABLE scratch_data (id int, payload text);
 
 ## 9xx — Meta-behavior Rules
 
-### PGM901 — Down migration severity cap (meta-behavior)
+### PGM901 — Meta rules alter the behavior of other rules, they are not rules themselves
 {: #pgm901}
 
 **Severity**: Info
@@ -1087,4 +1087,4 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM504](#pgm504) | Info | RENAME TABLE on existing table |
 | [PGM505](#pgm505) | Info | RENAME COLUMN on existing table |
 | [PGM506](#pgm506) | Info | CREATE UNLOGGED TABLE |
-| [PGM901](#pgm901) | Info | Down migration severity cap (meta-behavior) |
+| [PGM901](#pgm901) | Info | Meta rules alter the behavior of other rules, they are not rules themselves |

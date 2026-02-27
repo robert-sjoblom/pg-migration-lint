@@ -164,7 +164,7 @@ TableState {
 
 IndexState {
     name: String,
-    entries: Vec<IndexEntry>,        // Column(name) or Expression { text, referenced_columns }
+    entries: Vec<IndexColumn>,       // Column(name) or Expression { text, referenced_columns }
     unique: bool,
     where_clause: Option<String>,    // partial index WHERE clause
     only: bool,                      // CREATE INDEX ON ONLY (parent stub, not recursive)

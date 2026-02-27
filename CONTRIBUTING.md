@@ -82,7 +82,7 @@ In `src/rules/mod.rs`, add:
 mod pgmXXX;
 ```
 
-The rule is automatically registered — `RuleRegistry::register_defaults()` iterates all enum variants via `strum::EnumIter`.
+The rule is automatically included — `RuleId::lint_rules()` iterates all non-meta enum variants via `strum::EnumIter`.
 
 ### 4. Add fixture SQL
 
