@@ -1875,6 +1875,56 @@ fn test_schema_qualified_custom_default_schema() {
 }
 
 // ===========================================================================
+// Multi-schema repo: catalog tracking across multiple schemas
+// ===========================================================================
+
+#[test]
+fn test_multi_schema_all_findings() {
+    let changed = changed_files_for("multi-schema");
+    let findings = lint_fixture("multi-schema", &changed);
+    let findings = normalize_findings(findings, "multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_multi_schema_cross_schema_fks() {
+    let findings = lint_fixture("multi-schema", &["V002__cross_schema_fks.sql"]);
+    let findings = normalize_findings(findings, "multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_multi_schema_same_name_isolation() {
+    let findings = lint_fixture("multi-schema", &["V003__same_name_isolation.sql"]);
+    let findings = normalize_findings(findings, "multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_multi_schema_drop_isolation() {
+    let findings = lint_fixture("multi-schema", &["V004__drop_schema_isolation.sql"]);
+    let findings = normalize_findings(findings, "multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_multi_schema_custom_default_schema() {
+    // With default_schema="inventory", unqualified `orders` normalizes to
+    // inventory.orders and V004's `CREATE TABLE users` becomes inventory.users.
+    let changed = changed_files_for("multi-schema");
+    let findings = lint_fixture_inner(
+        "multi-schema",
+        &changed,
+        "inventory",
+        &[],
+        &[],
+        APPLY_SUPPRESSIONS,
+    );
+    let findings = normalize_findings(findings, "multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+// ===========================================================================
 // Config-level rule suppression
 // ===========================================================================
 
@@ -2441,5 +2491,61 @@ fn test_updatesql_lint_010_only() {
 fn test_pgm205_finding_details() {
     let findings = lint_fixture_rules("all-rules", &["V016__drop_schema_cascade.sql"], &["PGM205"]);
     let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+// ===========================================================================
+// Bridge: Multi-schema Liquibase tests (feature-gated)
+// ===========================================================================
+
+#[cfg(feature = "bridge-tests")]
+fn lint_bridge_multi_schema(changed_ids: &[&str]) -> Vec<Finding> {
+    let master_xml = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/liquibase-multi-schema/changelog/master.xml");
+    let base_dir = master_xml.parent().unwrap();
+
+    let loader = BridgeLoader::new(bridge_jar_path());
+    let mut raw_units = loader
+        .load(&master_xml)
+        .expect("Failed to load multi-schema via bridge");
+    resolve_source_paths(&mut raw_units, base_dir);
+
+    lint_loaded_units(raw_units, changed_ids)
+}
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_bridge_multi_schema_all_findings() {
+    let mut findings = lint_bridge_multi_schema(&[]);
+    sort_findings(&mut findings);
+    let findings = normalize_findings(findings, "liquibase-multi-schema");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+// ===========================================================================
+// Update-sql: Multi-schema Liquibase tests (feature-gated)
+// ===========================================================================
+
+#[cfg(feature = "bridge-tests")]
+fn lint_updatesql_multi_schema(changed_ids: &[&str]) -> Vec<Finding> {
+    let master_xml = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/repos/liquibase-multi-schema/changelog/master.xml");
+    let base_dir = master_xml.parent().unwrap();
+
+    let loader = UpdateSqlLoader::new(liquibase_binary_path());
+    let mut raw_units = loader
+        .load(&master_xml)
+        .expect("Failed to load multi-schema via update-sql");
+    resolve_source_paths(&mut raw_units, base_dir);
+
+    lint_loaded_units(raw_units, changed_ids)
+}
+
+#[cfg(feature = "bridge-tests")]
+#[test]
+fn test_updatesql_multi_schema_all_findings() {
+    let mut findings = lint_updatesql_multi_schema(&[]);
+    sort_findings(&mut findings);
+    let findings = normalize_findings(findings, "liquibase-multi-schema");
     insta::assert_yaml_snapshot!(findings);
 }

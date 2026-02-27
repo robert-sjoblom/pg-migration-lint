@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        Cross-schema foreign key references using raw SQL.
+        The FK cross-schema syntax is clearest in plain ALTER TABLE statements.
+    -->
+
+    <!-- FK: billing.invoices.user_id -> auth.users.id -->
+    <changeSet id="002-fk-invoices-to-auth-users" author="bob">
+        <sql>
+            ALTER TABLE billing.invoices
+            ADD CONSTRAINT fk_invoices_user
+            FOREIGN KEY (user_id) REFERENCES auth.users (id);
+        </sql>
+    </changeSet>
+
+    <!-- FK: orders.product_id -> inventory.products.id -->
+    <changeSet id="002-fk-orders-to-inventory-products" author="bob">
+        <sql>
+            ALTER TABLE orders
+            ADD CONSTRAINT fk_orders_product
+            FOREIGN KEY (product_id) REFERENCES inventory.products (id);
+        </sql>
+    </changeSet>
+
+    <!-- Covering index on orders(product_id) — no schemaName (unqualified) -->
+    <changeSet id="002-idx-orders-product-id" author="bob">
+        <createIndex indexName="idx_orders_product_id" tableName="orders">
+            <column name="product_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

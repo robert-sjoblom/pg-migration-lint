@@ -1,0 +1,22 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM201
+  severity: Minor
+  message: "DROP TABLE 'billing.users' removes an existing table. This is irreversible and all data will be lost."
+  file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
+  start_line: 1
+  end_line: 2
+- rule_id: PGM401
+  severity: Minor
+  message: "DROP TABLE 'billing.users': add IF EXISTS for idempotent migrations."
+  file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
+  start_line: 1
+  end_line: 2
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
+  file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
+  start_line: 7
+  end_line: 11

@@ -1,0 +1,70 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'last_login' on 'auth.users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'auth.users': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'billing.users': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'billing.invoices': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'inventory.products': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_orders_product_id': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_auth_users_email': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_billing_users_acct': add IF NOT EXISTS for idempotent migrations."
+  file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM501
+  severity: Major
+  message: "Foreign key on 'billing.invoices(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
+  start_line: 1
+  end_line: 3
+- rule_id: PGM501
+  severity: Major
+  message: "Foreign key on 'orders(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
+  start_line: 1
+  end_line: 3

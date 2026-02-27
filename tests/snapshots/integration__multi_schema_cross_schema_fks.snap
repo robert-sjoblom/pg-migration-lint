@@ -1,0 +1,46 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM001
+  severity: Critical
+  message: "CREATE INDEX on existing table 'inventory.stock' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 16
+  end_line: 17
+- rule_id: PGM014
+  severity: Critical
+  message: "Adding FOREIGN KEY constraint on existing table 'billing.invoices' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 1
+  end_line: 4
+- rule_id: PGM014
+  severity: Critical
+  message: "Adding FOREIGN KEY constraint on existing table 'inventory.stock' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 6
+  end_line: 9
+- rule_id: PGM014
+  severity: Critical
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 11
+  end_line: 14
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_stock_product': add IF NOT EXISTS for idempotent migrations."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 16
+  end_line: 17
+- rule_id: PGM501
+  severity: Major
+  message: "Foreign key on 'billing.invoices(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 1
+  end_line: 4
+- rule_id: PGM501
+  severity: Major
+  message: "Foreign key on 'orders(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
+  start_line: 11
+  end_line: 14
