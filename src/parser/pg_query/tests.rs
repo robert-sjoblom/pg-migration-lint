@@ -1898,14 +1898,70 @@ fn test_parse_alter_table_drop_not_null() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::Other { description } => {
-                    assert!(
-                        description.contains("DROP NOT NULL"),
-                        "got: {}",
-                        description
-                    );
+                AlterTableAction::DropNotNull { column_name } => {
+                    assert_eq!(column_name, "bar");
                 }
-                other => panic!("Expected Other action, got: {:?}", other),
+                other => panic!("Expected DropNotNull action, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_table_drop_constraint() {
+    let sql = "ALTER TABLE orders DROP CONSTRAINT fk_customer;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.name.name, "orders");
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::DropConstraint { constraint_name } => {
+                    assert_eq!(constraint_name, "fk_customer");
+                }
+                other => panic!("Expected DropConstraint action, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_table_validate_constraint() {
+    let sql = "ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.name.name, "orders");
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::ValidateConstraint { constraint_name } => {
+                    assert_eq!(constraint_name, "fk_customer");
+                }
+                other => panic!("Expected ValidateConstraint action, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_table_drop_constraint_if_exists() {
+    let sql = "ALTER TABLE orders DROP CONSTRAINT IF EXISTS fk_customer;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.name.name, "orders");
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::DropConstraint { constraint_name } => {
+                    assert_eq!(constraint_name, "fk_customer");
+                }
+                other => panic!("Expected DropConstraint action, got: {:?}", other),
             }
         }
         other => panic!("Expected AlterTable, got: {:?}", other),

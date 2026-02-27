@@ -2542,3 +2542,741 @@ fn test_rename_column_updates_partition_by_columns() {
         "partition_by columns should be updated after rename"
     );
 }
+
+// -----------------------------------------------------------------------
+// DROP NOT NULL
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_drop_not_null() {
+    let mut catalog = Catalog::new();
+
+    // Create table with a NOT NULL column.
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("status", "text", false),
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(!table.get_column("status").unwrap().nullable);
+
+    // DROP NOT NULL on status.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropNotNull {
+            column_name: "status".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        table.get_column("status").unwrap().nullable,
+        "column should be nullable after DROP NOT NULL"
+    );
+}
+
+#[test]
+fn test_drop_not_null_nonexistent_column() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![col("id", "integer", false)])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // DROP NOT NULL on a column that doesn't exist — should be a no-op.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropNotNull {
+            column_name: "ghost".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    // Table still has its original column, no panic.
+    let table = catalog.get_table("orders").unwrap();
+    assert_eq!(table.columns.len(), 1);
+}
+
+// -----------------------------------------------------------------------
+// DROP CONSTRAINT
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_drop_fk_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("customers"))
+            .with_columns(vec![col_pk("id", "integer")])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let unit2 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("customer_id", "integer", false),
+            ])
+            .with_constraints(vec![TableConstraint::ForeignKey {
+                name: Some("fk_customer".to_string()),
+                columns: vec!["customer_id".to_string()],
+                ref_table: qname("customers"),
+                ref_columns: vec!["id".to_string()],
+                not_valid: false,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::ForeignKey { .. })),
+        "FK should exist before drop"
+    );
+
+    // Drop the FK constraint.
+    let unit3 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "fk_customer".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit3);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::ForeignKey { .. })),
+        "FK should be removed after DROP CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_drop_pk_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![col("id", "integer", false)])
+            .with_constraints(vec![TableConstraint::PrimaryKey {
+                columns: vec!["id".to_string()],
+                using_index: None,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(table.has_primary_key);
+    assert!(table.indexes.iter().any(|i| i.name == "orders_pkey"));
+
+    // Drop the PK constraint (default name: orders_pkey).
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "orders_pkey".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        !table.has_primary_key,
+        "has_primary_key should be false after dropping PK"
+    );
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::PrimaryKey { .. })),
+        "PK constraint should be removed"
+    );
+    assert!(
+        !table.indexes.iter().any(|i| i.name == "orders_pkey"),
+        "synthetic pkey index should be removed"
+    );
+}
+
+/// Documents a known limitation: ConstraintState::PrimaryKey has no `name`
+/// field, so DROP CONSTRAINT with a custom PK name (e.g. `pk_orders`) fails
+/// to match. The heuristic only works for PostgreSQL's default `{table}_pkey`.
+/// See TODO.md for the fix plan.
+#[test]
+fn test_drop_custom_named_pk_constraint_is_not_supported() {
+    let mut catalog = Catalog::new();
+
+    // Create table with a PK (catalog doesn't store the custom name).
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![col("id", "integer", false)])
+            .with_constraints(vec![TableConstraint::PrimaryKey {
+                columns: vec!["id".to_string()],
+                using_index: None,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    assert!(catalog.get_table("orders").unwrap().has_primary_key);
+
+    // DROP CONSTRAINT with a custom name — doesn't match the heuristic.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "pk_orders".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    // PK survives because "pk_orders" != "orders_pkey".
+    assert!(
+        table.has_primary_key,
+        "known limitation: custom-named PK cannot be dropped (see TODO.md)"
+    );
+}
+
+#[test]
+fn test_drop_unique_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("users"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("email", "text", false),
+            ])
+            .with_constraints(vec![TableConstraint::Unique {
+                name: Some("uq_email".to_string()),
+                columns: vec!["email".to_string()],
+                using_index: None,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("users").unwrap();
+    assert!(
+        table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { name: Some(n), .. } if n == "uq_email")),
+        "UNIQUE constraint should exist before drop"
+    );
+
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("users"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "uq_email".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("users").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { .. })),
+        "UNIQUE constraint should be removed after DROP CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_drop_check_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("amount", "integer", false),
+            ])
+            .with_constraints(vec![TableConstraint::Check {
+                name: Some("chk_positive".to_string()),
+                expression: "(amount > 0)".to_string(),
+                not_valid: false,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        table.constraints.iter().any(
+            |c| matches!(c, ConstraintState::Check { name: Some(n), .. } if n == "chk_positive")
+        ),
+        "CHECK constraint should exist before drop"
+    );
+
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "chk_positive".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Check { .. })),
+        "CHECK constraint should be removed after DROP CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_drop_nonexistent_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![col("id", "integer", false)])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // Drop a constraint that doesn't exist — should be a no-op, no panic.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "ghost_constraint".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert_eq!(table.columns.len(), 1);
+    assert!(table.constraints.is_empty());
+}
+
+#[test]
+fn test_drop_constraint_preserves_others() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("amount", "integer", false),
+                col("email", "text", false),
+            ])
+            .with_constraints(vec![
+                TableConstraint::Check {
+                    name: Some("chk_positive".to_string()),
+                    expression: "(amount > 0)".to_string(),
+                    not_valid: false,
+                },
+                TableConstraint::Unique {
+                    name: Some("uq_email".to_string()),
+                    columns: vec!["email".to_string()],
+                    using_index: None,
+                },
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert_eq!(
+        table.constraints.len(),
+        2,
+        "should start with 2 constraints"
+    );
+
+    // Drop only the CHECK constraint.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "chk_positive".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    assert_eq!(
+        table.constraints.len(),
+        1,
+        "should have 1 constraint remaining"
+    );
+    assert!(
+        table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { name: Some(n), .. } if n == "uq_email")),
+        "UNIQUE constraint should be preserved"
+    );
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Check { .. })),
+        "CHECK constraint should be removed"
+    );
+}
+
+// -----------------------------------------------------------------------
+// VALIDATE CONSTRAINT
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_validate_fk_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("customers"))
+            .with_columns(vec![col_pk("id", "integer")])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let unit2 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("customer_id", "integer", false),
+            ])
+            .with_constraints(vec![TableConstraint::ForeignKey {
+                name: Some("fk_customer".to_string()),
+                columns: vec!["customer_id".to_string()],
+                ref_table: qname("customers"),
+                ref_columns: vec!["id".to_string()],
+                not_valid: true,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    let fk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::ForeignKey { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            fk,
+            ConstraintState::ForeignKey {
+                not_valid: true,
+                ..
+            }
+        ),
+        "FK should be NOT VALID before validation"
+    );
+
+    // Validate the FK constraint.
+    let unit3 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::ValidateConstraint {
+            constraint_name: "fk_customer".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit3);
+
+    let table = catalog.get_table("orders").unwrap();
+    let fk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::ForeignKey { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            fk,
+            ConstraintState::ForeignKey {
+                not_valid: false,
+                ..
+            }
+        ),
+        "FK should be valid after VALIDATE CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_validate_check_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("amount", "integer", false),
+            ])
+            .with_constraints(vec![TableConstraint::Check {
+                name: Some("chk_positive".to_string()),
+                expression: "(amount > 0)".to_string(),
+                not_valid: true,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("orders").unwrap();
+    let chk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::Check { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            chk,
+            ConstraintState::Check {
+                not_valid: true,
+                ..
+            }
+        ),
+        "CHECK should be NOT VALID before validation"
+    );
+
+    // Validate the CHECK constraint.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::ValidateConstraint {
+            constraint_name: "chk_positive".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    let chk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::Check { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            chk,
+            ConstraintState::Check {
+                not_valid: false,
+                ..
+            }
+        ),
+        "CHECK should be valid after VALIDATE CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_validate_nonexistent_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![col("id", "integer", false)])
+            .with_constraints(vec![TableConstraint::Check {
+                name: Some("chk_real".to_string()),
+                expression: "(id > 0)".to_string(),
+                not_valid: true,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // Validate a constraint that doesn't exist — should be a no-op.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::ValidateConstraint {
+            constraint_name: "ghost_constraint".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    // Original constraint should remain NOT VALID.
+    let table = catalog.get_table("orders").unwrap();
+    let chk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::Check { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            chk,
+            ConstraintState::Check {
+                not_valid: true,
+                ..
+            }
+        ),
+        "original constraint should remain NOT VALID when a different name is validated"
+    );
+}
+
+#[test]
+fn test_validate_already_valid_constraint_is_noop() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("amount", "integer", false),
+            ])
+            .with_constraints(vec![TableConstraint::Check {
+                name: Some("chk_positive".to_string()),
+                expression: "(amount > 0)".to_string(),
+                not_valid: false, // already valid
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // VALIDATE on an already-valid constraint — should be a safe no-op.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::ValidateConstraint {
+            constraint_name: "chk_positive".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("orders").unwrap();
+    let chk = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::Check { .. }))
+        .unwrap();
+    assert!(
+        matches!(
+            chk,
+            ConstraintState::Check {
+                not_valid: false,
+                ..
+            }
+        ),
+        "already-valid constraint should remain valid"
+    );
+}
+
+#[test]
+fn test_drop_exclude_constraint() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("bookings"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("room", "text", false),
+                col("during", "tsrange", false),
+            ])
+            .with_constraints(vec![TableConstraint::Exclude {
+                name: Some("excl_room_overlap".to_string()),
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let table = catalog.get_table("bookings").unwrap();
+    assert!(
+        table.constraints.iter().any(|c| matches!(c, ConstraintState::Exclude { name: Some(n), .. } if n == "excl_room_overlap")),
+        "EXCLUDE constraint should exist before drop"
+    );
+
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("bookings"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "excl_room_overlap".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("bookings").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Exclude { .. })),
+        "EXCLUDE constraint should be removed after DROP CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_drop_unique_constraint_removes_backing_index() {
+    let mut catalog = Catalog::new();
+
+    // Create table, then add a unique index and a UNIQUE constraint via USING INDEX.
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("users"))
+            .with_columns(vec![
+                col("id", "integer", false),
+                col("email", "text", false),
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    let unit2 = make_unit(vec![IrNode::CreateIndex(CreateIndex {
+        index_name: Some("uq_email".to_string()),
+        table_name: qname("users"),
+        columns: vec![IndexColumn::Column("email".to_string())],
+        unique: true,
+        concurrent: true,
+        if_not_exists: false,
+        where_clause: None,
+        only: false,
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let unit3 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("users"),
+        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            name: Some("uq_email".to_string()),
+            columns: vec![],
+            using_index: Some("uq_email".to_string()),
+        })],
+    })]);
+    apply(&mut catalog, &unit3);
+
+    let table = catalog.get_table("users").unwrap();
+    assert!(
+        table.indexes.iter().any(|i| i.name == "uq_email"),
+        "backing index should exist before drop"
+    );
+    assert!(
+        table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { name: Some(n), .. } if n == "uq_email")),
+        "UNIQUE constraint should exist before drop"
+    );
+
+    // DROP CONSTRAINT should remove both the constraint and backing index.
+    let unit4 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("users"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "uq_email".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit4);
+
+    let table = catalog.get_table("users").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { .. })),
+        "UNIQUE constraint should be removed"
+    );
+    assert!(
+        !table.indexes.iter().any(|i| i.name == "uq_email"),
+        "backing index should be removed when constraint is dropped"
+    );
+    // Verify the reverse map is also cleaned up.
+    assert!(
+        catalog.get_index("uq_email").is_none(),
+        "index should be unregistered from reverse map"
+    );
+}

@@ -131,6 +131,18 @@ pub enum AlterTableAction {
     SetNotNull {
         column_name: String,
     },
+    /// DROP NOT NULL on an existing column — allows NULLs.
+    DropNotNull {
+        column_name: String,
+    },
+    /// DROP CONSTRAINT by name.
+    DropConstraint {
+        constraint_name: String,
+    },
+    /// VALIDATE CONSTRAINT by name — clears the `not_valid` flag on FK/CHECK.
+    ValidateConstraint {
+        constraint_name: String,
+    },
     /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`
     AttachPartition {
         child: QualifiedName,

@@ -452,6 +452,44 @@ mod tests {
     }
 
     #[test]
+    fn test_pk_removed_by_drop_constraint_fires() {
+        // CREATE TABLE defines a PK in IR, but a subsequent DROP CONSTRAINT
+        // in the same file removed it. catalog_after reflects no PK.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("status", "text", true);
+                // No PK — it was dropped by ALTER TABLE DROP CONSTRAINT
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("orders"))
+                .with_columns(vec![
+                    ColumnDef::test("id", "bigint")
+                        .with_nullable(false)
+                        .with_inline_pk(),
+                    ColumnDef::test("status", "text"),
+                ])
+                .with_constraints(vec![TableConstraint::PrimaryKey {
+                    columns: vec!["id".to_string()],
+                    using_index: None,
+                }]),
+        ))];
+
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "PGM502 should fire when PK was removed by DROP CONSTRAINT"
+        );
+    }
+
+    #[test]
     fn test_partial_unique_index_does_not_suppress_pgm502() {
         let before = Catalog::new();
         // Table has a partial unique index on NOT NULL column — should NOT suppress PGM502

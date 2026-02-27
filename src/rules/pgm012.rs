@@ -226,6 +226,38 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_column_after_fk_already_dropped_no_finding() {
+        // FK was explicitly removed via DROP CONSTRAINT in an earlier migration.
+        // catalog_before reflects no FK, so DROP COLUMN should NOT warn about
+        // silently removing it.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"]);
+                // No FK — it was dropped by a prior migration
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/003.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "customer_id".to_string(),
+            }],
+        }))];
+
+        let findings = RuleId::Pgm012.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Should not fire when FK was already explicitly dropped"
+        );
+    }
+
+    #[test]
     fn test_unnamed_fk_shows_column_arrow_description() {
         let before = CatalogBuilder::new()
             .table("orders", |t| {

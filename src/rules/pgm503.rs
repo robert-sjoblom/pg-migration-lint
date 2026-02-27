@@ -371,6 +371,43 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_not_null_disqualifies_unique_not_null() {
+        // CREATE TABLE has UNIQUE NOT NULL in IR, but a subsequent DROP NOT NULL
+        // made the column nullable. catalog_after reflects nullable column,
+        // so has_unique_not_null() returns false and PGM503 should NOT fire.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("settings", |t| {
+                t.column("key", "text", true) // nullable after DROP NOT NULL
+                    .column("value", "text", true)
+                    .unique("uq_key", &["key"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("settings"))
+                .with_columns(vec![
+                    ColumnDef::test("key", "text").with_nullable(false),
+                    ColumnDef::test("value", "text"),
+                ])
+                .with_constraints(vec![TableConstraint::Unique {
+                    name: Some("uq_key".to_string()),
+                    columns: vec!["key".to_string()],
+                    using_index: None,
+                }]),
+        ))];
+
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "PGM503 should NOT fire after DROP NOT NULL made the UNIQUE column nullable"
+        );
+    }
+
+    #[test]
     fn test_partial_unique_not_null_does_not_trigger_pgm503() {
         let before = Catalog::new();
         // Table has partial unique index on NOT NULL column — should NOT trigger PGM503

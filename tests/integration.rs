@@ -2518,3 +2518,55 @@ fn test_updatesql_multi_schema_all_findings() {
     let findings = normalize_findings(findings, "liquibase-multi-schema");
     insta::assert_yaml_snapshot!(findings);
 }
+
+// ===========================================================================
+// Catalog operations (DROP CONSTRAINT, VALIDATE CONSTRAINT, DROP NOT NULL)
+// ===========================================================================
+
+#[test]
+fn test_catalog_ops_pgm503_not_triggered_after_drop_not_null() {
+    // V001 creates `settings` with UNIQUE NOT NULL on `key` but no PK.
+    // V002 does ALTER TABLE settings ALTER COLUMN key DROP NOT NULL.
+    // After replay, `key` is nullable → has_unique_not_null() = false → PGM503 silent.
+    //
+    // Without proper DROP NOT NULL handling in the catalog, `key` would stay
+    // NOT NULL and PGM503 would incorrectly fire.
+    let findings = lint_fixture_rules("catalog-ops", &["V002__catalog_ops.sql"], &["PGM503"]);
+    assert!(
+        findings.is_empty(),
+        "PGM503 should NOT fire for settings: key is now nullable after DROP NOT NULL. \
+         Got {} finding(s): {:?}",
+        findings.len(),
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_catalog_ops_drop_constraint_removes_fk() {
+    // V001 adds fk_customer (FK without covering index) on orders.
+    // V002 drops it with DROP CONSTRAINT fk_customer.
+    // PGM501 collects FKs from IR in the changed file. Since V002 has no
+    // ADD CONSTRAINT FK, PGM501 has nothing to flag.
+    let findings = lint_fixture_rules("catalog-ops", &["V002__catalog_ops.sql"], &["PGM501"]);
+    assert!(
+        findings.is_empty(),
+        "PGM501 should NOT fire: V002 adds no FK, and the baseline FK was dropped. \
+         Got {} finding(s): {:?}",
+        findings.len(),
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_catalog_ops_pipeline_runs_cleanly() {
+    // Verify the full pipeline doesn't panic on DROP CONSTRAINT,
+    // VALIDATE CONSTRAINT, and DROP NOT NULL.
+    let findings = lint_fixture("catalog-ops", &["V002__catalog_ops.sql"]);
+    // We don't assert exact findings — just that the pipeline completes.
+    // No PGM503 for settings (key is now nullable), no PGM501 (no FK added in V002).
+    let rule_ids: Vec<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert!(
+        !rule_ids.contains(&"PGM503"),
+        "PGM503 should not fire for settings after DROP NOT NULL"
+    );
+}
