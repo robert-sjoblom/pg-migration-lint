@@ -1,0 +1,34 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM001
+  severity: Critical
+  message: "CREATE INDEX on existing table 'auth.users' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
+  file: repos/multi-schema/migrations/V003__same_name_isolation.sql
+  start_line: 7
+  end_line: 8
+- rule_id: PGM001
+  severity: Critical
+  message: "CREATE INDEX on existing table 'billing.users' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
+  file: repos/multi-schema/migrations/V003__same_name_isolation.sql
+  start_line: 10
+  end_line: 11
+- rule_id: PGM101
+  severity: Minor
+  message: "Column 'last_login' on 'auth.users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
+  file: repos/multi-schema/migrations/V003__same_name_isolation.sql
+  start_line: 1
+  end_line: 2
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_auth_users_email': add IF NOT EXISTS for idempotent migrations."
+  file: repos/multi-schema/migrations/V003__same_name_isolation.sql
+  start_line: 7
+  end_line: 8
+- rule_id: PGM402
+  severity: Minor
+  message: "CREATE INDEX 'idx_billing_users_acct': add IF NOT EXISTS for idempotent migrations."
+  file: repos/multi-schema/migrations/V003__same_name_isolation.sql
+  start_line: 10
+  end_line: 11

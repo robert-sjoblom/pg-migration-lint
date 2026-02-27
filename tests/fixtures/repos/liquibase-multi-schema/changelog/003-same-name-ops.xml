@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!--
+        Prove schema isolation works: operate on two tables with the same name
+        ("users") in different schemas (auth vs billing) within the same changelog.
+    -->
+
+    <!-- Add column last_login to auth.users -->
+    <changeSet id="003-add-auth-users-last-login" author="charlie">
+        <addColumn tableName="users" schemaName="auth">
+            <column name="last_login" type="TIMESTAMP"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Add column billing_address to billing.users -->
+    <changeSet id="003-add-billing-users-address" author="charlie">
+        <addColumn tableName="users" schemaName="billing">
+            <column name="billing_address" type="VARCHAR(500)"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Index on auth.users(email) -->
+    <changeSet id="003-idx-auth-users-email" author="charlie">
+        <createIndex indexName="idx_auth_users_email" tableName="users" schemaName="auth">
+            <column name="email"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Index on billing.users(account_number) -->
+    <changeSet id="003-idx-billing-users-acct" author="charlie">
+        <createIndex indexName="idx_billing_users_acct" tableName="users" schemaName="billing">
+            <column name="account_number"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
