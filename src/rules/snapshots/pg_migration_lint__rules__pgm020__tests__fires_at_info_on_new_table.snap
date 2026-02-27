@@ -3,8 +3,8 @@ source: src/rules/pgm020.rs
 expression: findings
 ---
 - rule_id: PGM020
-  severity: Minor
+  severity: Info
   message: "DISABLE TRIGGER ALL on table 'orders' suppresses all triggers including foreign key enforcement. If this is not re-enabled in the same migration, referential integrity guarantees are lost."
-  file: migrations/002.sql
+  file: migrations/001.sql
   start_line: 1
   end_line: 1

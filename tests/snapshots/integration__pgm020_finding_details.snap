@@ -4,7 +4,7 @@ expression: findings
 ---
 - rule_id: PGM020
   severity: Minor
-  message: "DISABLE TRIGGER ALL on existing table 'customers' suppresses all triggers including foreign key enforcement. If this is not re-enabled in the same migration, referential integrity guarantees are lost."
+  message: "DISABLE TRIGGER ALL on table 'customers' suppresses all triggers including foreign key enforcement. If this is not re-enabled in the same migration, referential integrity guarantees are lost."
   file: repos/all-rules/migrations/V015__disable_trigger.sql
   start_line: 1
   end_line: 1

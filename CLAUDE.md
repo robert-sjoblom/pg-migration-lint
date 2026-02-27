@@ -176,7 +176,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM017**: `ADD UNIQUE` without `USING INDEX`
 - **PGM018**: `CLUSTER` on existing table
 - **PGM019**: `ADD EXCLUDE` constraint on existing table
-- **PGM020**: `DISABLE TRIGGER` on existing table
+- **PGM020**: `DISABLE TRIGGER` on table
 
 **1xx — Type Anti-patterns:**
 - **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)

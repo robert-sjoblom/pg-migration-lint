@@ -4,13 +4,14 @@ expression: output
 ---
 Rule: PGM020
 Severity: MINOR
-Description: DISABLE TRIGGER on existing table suppresses FK enforcement
+Description: DISABLE TRIGGER on table suppresses FK enforcement
 
-PGM020 — DISABLE TRIGGER on existing table
+PGM020 — DISABLE TRIGGER on table
 
 What it detects:
-ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on a
-table that already exists in the database.
+ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on
+any table. Fires at MINOR on existing tables and at INFO on all
+other tables (new or unknown).
 
 Why it’s dangerous:
 Disabling triggers in a migration bypasses business logic and —
@@ -21,6 +22,9 @@ to a migration failure, or placed in a separate migration that is
 never run, the integrity guarantee is permanently lost. Even
 intentional disables for bulk load performance are high-risk in
 migration files.
+
+Since re-enables are not tracked, the rule fires at INFO on all
+non-existing tables to flag cases where triggers may be left disabled.
 
 Safe alternative:
 Avoid disabling triggers in migrations. If you must disable

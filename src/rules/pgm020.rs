@@ -1,20 +1,21 @@
-//! PGM020 — `DISABLE TRIGGER` on existing table
+//! PGM020 — `DISABLE TRIGGER` on table
 //!
-//! Detects `ALTER TABLE ... DISABLE TRIGGER` on tables that already exist.
-//! Disabling triggers bypasses FK enforcement and business logic. If the
-//! re-enable is missing or the migration fails partway, referential integrity
-//! is silently lost.
+//! Detects `ALTER TABLE ... DISABLE TRIGGER` on any table.
+//! Fires at Minor on existing tables (high risk) and at Info on all other
+//! tables (lower risk but still worth flagging since we don't track
+//! re-enables).
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TriggerDisableScope};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
-pub(super) const DESCRIPTION: &str = "DISABLE TRIGGER on existing table suppresses FK enforcement";
+pub(super) const DESCRIPTION: &str = "DISABLE TRIGGER on table suppresses FK enforcement";
 
-pub(super) const EXPLAIN: &str = "PGM020 \u{2014} DISABLE TRIGGER on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM020 \u{2014} DISABLE TRIGGER on table\n\
          \n\
          What it detects:\n\
-         ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on a\n\
-         table that already exists in the database.\n\
+         ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on\n\
+         any table. Fires at MINOR on existing tables and at INFO on all\n\
+         other tables (new or unknown).\n\
          \n\
          Why it\u{2019}s dangerous:\n\
          Disabling triggers in a migration bypasses business logic and \u{2014}\n\
@@ -25,6 +26,9 @@ pub(super) const EXPLAIN: &str = "PGM020 \u{2014} DISABLE TRIGGER on existing ta
          never run, the integrity guarantee is permanently lost. Even\n\
          intentional disables for bulk load performance are high-risk in\n\
          migration files.\n\
+         \n\
+         Since re-enables are not tracked, the rule fires at INFO on all\n\
+         non-existing tables to flag cases where triggers may be left disabled.\n\
          \n\
          Safe alternative:\n\
          Avoid disabling triggers in migrations. If you must disable\n\
@@ -45,42 +49,59 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    alter_table_check::check_alter_actions(
-        statements,
-        ctx,
-        TableScope::ExcludeCreatedInChange,
-        |at, action, stmt, ctx| {
-            if let AlterTableAction::DisableTrigger { scope } = action {
-                let (label, detail) = match scope {
-                    TriggerDisableScope::Named(name) => (
-                        format!("'{name}'"),
-                        "suppresses the named trigger. If this trigger enforces \
-                         business logic and is not re-enabled in the same migration, \
-                         those guarantees are lost.",
-                    ),
-                    TriggerDisableScope::All => (
-                        "ALL".to_string(),
-                        "suppresses all triggers including foreign key enforcement. \
-                         If this is not re-enabled in the same migration, \
-                         referential integrity guarantees are lost.",
-                    ),
-                    TriggerDisableScope::User => (
-                        "USER".to_string(),
-                        "suppresses user-defined triggers (FK enforcement triggers \
-                         are not affected). If this is not re-enabled in the same \
-                         migration, business logic guarantees are lost.",
-                    ),
-                };
-                let message = format!(
-                    "DISABLE TRIGGER {label} on existing table '{table}' {detail}",
-                    table = at.name.display_name(),
-                );
-                vec![rule.make_finding(message, ctx.file, &stmt.span)]
-            } else {
-                vec![]
-            }
-        },
-    )
+    let mut findings = Vec::new();
+    for stmt in statements {
+        let IrNode::AlterTable(ref at) = stmt.node else {
+            continue;
+        };
+        let table_key = at.name.catalog_key();
+
+        // Existing table → default severity (Minor).
+        // New table or unknown table → Info.
+        let severity = if ctx.is_existing_table(table_key) {
+            rule.default_severity()
+        } else {
+            Severity::Info
+        };
+
+        for action in &at.actions {
+            let AlterTableAction::DisableTrigger { scope } = action else {
+                continue;
+            };
+            let (label, detail) = match scope {
+                TriggerDisableScope::Named(name) => (
+                    format!("'{name}'"),
+                    "suppresses the named trigger. If this trigger enforces \
+                     business logic and is not re-enabled in the same migration, \
+                     those guarantees are lost.",
+                ),
+                TriggerDisableScope::All => (
+                    "ALL".to_string(),
+                    "suppresses all triggers including foreign key enforcement. \
+                     If this is not re-enabled in the same migration, \
+                     referential integrity guarantees are lost.",
+                ),
+                TriggerDisableScope::User => (
+                    "USER".to_string(),
+                    "suppresses user-defined triggers (FK enforcement triggers \
+                     are not affected). If this is not re-enabled in the same \
+                     migration, business logic guarantees are lost.",
+                ),
+            };
+            let message = format!(
+                "DISABLE TRIGGER {label} on table '{table}' {detail}",
+                table = at.name.display_name(),
+            );
+            findings.push(Finding::new(
+                rule.id(),
+                severity,
+                message,
+                ctx.file,
+                &stmt.span,
+            ));
+        }
+    }
+    findings
 }
 
 #[cfg(test)]
@@ -160,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_finding_on_new_table() {
+    fn test_fires_at_info_on_new_table() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()
             .table("orders", |t| {
@@ -176,11 +197,11 @@ mod tests {
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
-        assert!(findings.is_empty());
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]
-    fn test_no_finding_when_table_not_in_catalog() {
+    fn test_fires_at_info_on_unknown_table() {
         let before = Catalog::new();
         let after = Catalog::new();
         let file = PathBuf::from("migrations/002.sql");
@@ -190,6 +211,6 @@ mod tests {
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
-        assert!(findings.is_empty());
+        insta::assert_yaml_snapshot!(findings);
     }
 }

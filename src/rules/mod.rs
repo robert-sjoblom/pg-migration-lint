@@ -372,7 +372,7 @@ pub enum UnsafeDdlRule {
     Pgm018,
     /// `ADD EXCLUDE` constraint on an existing table (ACCESS EXCLUSIVE lock, no online path).
     Pgm019,
-    /// `DISABLE TRIGGER` on an existing table (suppresses FK enforcement).
+    /// `DISABLE TRIGGER` on a table (suppresses FK enforcement).
     Pgm020,
 }
 

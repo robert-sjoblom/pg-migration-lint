@@ -1,4 +1,4 @@
-Detects `ALTER TABLE ... DISABLE TRIGGER` (specific name, ALL, or USER) on a table that already exists. Disabling triggers in a migration bypasses business logic and foreign key enforcement. If the re-enable is missing or the migration fails partway, referential integrity is silently lost.
+Detects `ALTER TABLE ... DISABLE TRIGGER` (specific name, ALL, or USER) on any table. Fires at MINOR on existing tables and at INFO on all other tables (new or unknown). Since re-enables are not tracked, all tables are flagged to catch cases where triggers may be left disabled.
 
 **Example** (bad):
 ```sql
@@ -16,4 +16,4 @@ ALTER TABLE orders ENABLE TRIGGER ALL;
 **Recommended approach**:
 1. Avoid disabling triggers in migrations entirely.
 2. If you must disable triggers for bulk data loading, ensure the DISABLE and ENABLE are in the same migration and wrapped in a transaction.
-3. This rule does not fire on tables created in the same changeset.
+3. On tables that are not pre-existing (new or unknown), this rule fires at INFO severity.

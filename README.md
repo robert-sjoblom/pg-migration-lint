@@ -60,7 +60,7 @@ pg-migration-lint ships with 42 rules across six categories: unsafe DDL rules (P
 | PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
 | PGM018 | Critical | `CLUSTER` on existing table | `CLUSTER orders USING idx_orders_id;` |
 | PGM019 | Critical | `ADD EXCLUDE` constraint on existing table | `ALTER TABLE reservations ADD CONSTRAINT excl_overlap EXCLUDE USING gist (room WITH =, period WITH &&);` |
-| PGM020 | Minor | `DISABLE TRIGGER` on existing table | `ALTER TABLE orders DISABLE TRIGGER ALL;` |
+| PGM020 | Minor/Info | `DISABLE TRIGGER` on table | `ALTER TABLE orders DISABLE TRIGGER ALL;` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless. Both rules are partition-aware: PGM001 emits a partition-specific message for partitioned tables (where `CONCURRENTLY` is not supported); PGM002 suppresses findings for ON ONLY parent index stubs and warns that `CONCURRENTLY` is not supported on partitioned parent indexes. Use `--explain PGM001` or `--explain PGM002` for details.
 

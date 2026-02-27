@@ -236,7 +236,7 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM020: DISABLE TRIGGER on existing table suppresses FK enforcement",
+        "message": "PGM020: DISABLE TRIGGER on table suppresses FK enforcement",
         "textRange": {
           "endLine": 20,
           "startLine": 20
@@ -797,7 +797,7 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "DISABLE TRIGGER on existing table suppresses FK enforcement. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm020",
+      "description": "DISABLE TRIGGER on table suppresses FK enforcement. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm020",
       "engineId": "pg-migration-lint",
       "id": "PGM020",
       "impacts": [
@@ -806,7 +806,7 @@ expression: parsed
           "softwareQuality": "RELIABILITY"
         }
       ],
-      "name": "DISABLE TRIGGER on existing table suppresses FK enforcement",
+      "name": "DISABLE TRIGGER on table suppresses FK enforcement",
       "severity": "MINOR",
       "type": "BUG"
     },
