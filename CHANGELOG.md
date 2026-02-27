@@ -16,6 +16,20 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.12.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.11.0...v2.12.0) (2026-02-27)
+
+
+### Features
+
+* **rules:** add PGM019 — ADD EXCLUDE constraint on existing table ([97932e2](https://github.com/robert-sjoblom/pg-migration-lint/commit/97932e23a0dd54e2260bc4845dbdaa5ebf25bab1))
+* **rules:** add PGM020 — DISABLE TRIGGER on tables ([1af3cd7](https://github.com/robert-sjoblom/pg-migration-lint/commit/1af3cd78601894e5b00d1b747cc16c8d4ffe20b9))
+
+
+### Bug Fixes
+
+* **ci:** add explicit permissions block to workflows ([#129](https://github.com/robert-sjoblom/pg-migration-lint/issues/129)) ([8fd0f19](https://github.com/robert-sjoblom/pg-migration-lint/commit/8fd0f19dcf884248675d996191fa6ca950940ca2))
+* **rules:** remove bit(N)-&gt;bit(M) from PGM007 safe-widening list ([ed0cdba](https://github.com/robert-sjoblom/pg-migration-lint/commit/ed0cdba62a31d1277f51bcbb9cb8471724eed81a))
+
 ## [2.11.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.10.0...v2.11.0) (2026-02-26)
 
 
