@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.13.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.12.0...v2.13.0) (2026-02-27)
+
+
+### Features
+
+* **rules:** add PGM205 — DROP SCHEMA CASCADE ([6d553a1](https://github.com/robert-sjoblom/pg-migration-lint/commit/6d553a1baa6bf536c7a7dcbeee53ab5078796c43))
+
 ## [2.12.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.11.0...v2.12.0) (2026-02-27)
 
 
