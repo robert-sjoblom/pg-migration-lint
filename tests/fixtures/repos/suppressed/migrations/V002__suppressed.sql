@@ -10,7 +10,7 @@ CREATE TABLE audit_log (
     payload text
 );
 
-ALTER TABLE customers ADD COLUMN created_at timestamptz DEFAULT now();
+ALTER TABLE customers ADD COLUMN token uuid DEFAULT gen_random_uuid();
 ALTER TABLE customers ALTER COLUMN email TYPE varchar(255);
 ALTER TABLE products ADD COLUMN sku text NOT NULL;
 ALTER TABLE products DROP COLUMN name;

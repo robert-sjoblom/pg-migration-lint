@@ -11,8 +11,8 @@ CREATE TABLE audit_log (
     payload text
 );
 
--- PGM006: Volatile default on existing table
-ALTER TABLE customers ADD COLUMN created_at timestamptz DEFAULT now();
+-- PGM006: Volatile default on existing table (clock_timestamp is truly volatile)
+ALTER TABLE customers ADD COLUMN token uuid DEFAULT gen_random_uuid();
 
 -- PGM007: unsafe ALTER COLUMN TYPE on existing table
 ALTER TABLE customers ALTER COLUMN email TYPE varchar(255);

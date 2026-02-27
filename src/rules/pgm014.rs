@@ -17,9 +17,10 @@ pub(super) const EXPLAIN: &str = "PGM014 — ADD FOREIGN KEY on existing table w
          Why it's dangerous:\n\
          Adding a foreign key constraint without NOT VALID causes PostgreSQL\n\
          to immediately validate all existing rows. This acquires a SHARE\n\
-         ROW EXCLUSIVE lock on the table and performs a full table scan, blocking\n\
-         concurrent data modifications for the duration. On large tables this can\n\
-         cause significant downtime.\n\
+         ROW EXCLUSIVE lock on both the referencing and the referenced table\n\
+         and performs a full table scan, blocking concurrent data modifications\n\
+         on both tables for the duration. On large tables this can cause\n\
+         significant downtime.\n\
          \n\
          Safe alternative:\n\
          Add the constraint with NOT VALID first, then validate it in a\n\
@@ -58,7 +59,8 @@ pub(super) fn check(
                     format!(
                         "Adding FOREIGN KEY constraint on existing table '{}' \
                          without NOT VALID will scan the entire table while \
-                         holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT \
+                         holding a SHARE ROW EXCLUSIVE lock on both the \
+                         referencing and referenced tables. Use ADD CONSTRAINT \
                          ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
                          statement.",
                         at.name.display_name(),

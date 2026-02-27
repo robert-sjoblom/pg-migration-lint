@@ -6,7 +6,7 @@ Detects `ALTER TABLE ... ALTER COLUMN ... TYPE ...` on pre-existing tables. Most
 - `numeric(P,S)` → `numeric(P2,S)` where P2 > P and same scale
 - `varbit(N)` → `varbit(M)` where M > N
 
-**Info cast**: `timestamp` → `timestamptz` (safe in PG 15+ with UTC timezone; verify your timezone config)
+**Info cast**: `timestamp` → `timestamptz` (safe in PG 9.2+ when timezone=UTC; verify your timezone config)
 
 **Example** (bad):
 ```sql

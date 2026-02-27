@@ -76,14 +76,15 @@ fn test_matrix_add_column_not_null_with_volatile_default() {
     let created = HashSet::new();
     let ctx = make_ctx(&before, &after, &file, &created);
 
+    // Use gen_random_uuid() which is truly volatile (not now() which is STABLE)
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders"),
         actions: vec![AlterTableAction::AddColumn(ColumnDef {
-            name: "created_at".to_string(),
-            type_name: TypeName::simple("timestamptz"),
+            name: "token".to_string(),
+            type_name: TypeName::simple("uuid"),
             nullable: false,
             default_expr: Some(DefaultExpr::FunctionCall {
-                name: "now".to_string(),
+                name: "gen_random_uuid".to_string(),
                 args: vec![],
             }),
             is_inline_pk: false,

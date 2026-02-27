@@ -13,9 +13,11 @@ ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) on a table that already
 exists, without the NOT VALID modifier.
 
 Why it's dangerous:
-Adding a CHECK constraint without NOT VALID acquires an ACCESS EXCLUSIVE
-lock and scans the entire table to verify all existing rows satisfy the
-constraint. On large tables this can cause significant downtime.
+Adding a CHECK constraint without NOT VALID acquires a SHARE ROW
+EXCLUSIVE lock and scans the entire table to verify all existing rows
+satisfy the constraint. This blocks concurrent data modifications
+(INSERT, UPDATE, DELETE) for the duration. On large tables this can
+cause significant disruption.
 
 Example (bad):
 ALTER TABLE orders ADD CONSTRAINT orders_status_check

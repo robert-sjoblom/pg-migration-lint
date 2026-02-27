@@ -24,7 +24,7 @@ Safe casts (no finding):
 - varbit(N) -> varbit(M) where M > N
 
 INFO cast:
-- timestamp -> timestamptz (safe in PG 15+ with UTC timezone;
+- timestamp -> timestamptz (safe in PG 9.2+ when timezone=UTC;
 verify your timezone config)
 
 All other type changes fire as CRITICAL.
