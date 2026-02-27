@@ -8,7 +8,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 38 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 42 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 39 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 42 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
 ### Unsafe DDL Rules (0xx)
 
@@ -59,6 +59,8 @@ pg-migration-lint ships with 39 rules across six categories: unsafe DDL rules (P
 | PGM016 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
 | PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
 | PGM018 | Critical | `CLUSTER` on existing table | `CLUSTER orders USING idx_orders_id;` |
+| PGM019 | Critical | `ADD EXCLUDE` constraint on existing table | `ALTER TABLE reservations ADD CONSTRAINT excl_overlap EXCLUDE USING gist (room WITH =, period WITH &&);` |
+| PGM020 | Minor/Info | `DISABLE TRIGGER` on table | `ALTER TABLE orders DISABLE TRIGGER ALL;` |
 
 PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless. Both rules are partition-aware: PGM001 emits a partition-specific message for partitioned tables (where `CONCURRENTLY` is not supported); PGM002 suppresses findings for ON ONLY parent index stubs and warns that `CONCURRENTLY` is not supported on partitioned parent indexes. Use `--explain PGM001` or `--explain PGM002` for details.
 

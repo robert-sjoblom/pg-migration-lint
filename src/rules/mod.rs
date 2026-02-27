@@ -41,6 +41,7 @@ mod pgm016;
 mod pgm017;
 mod pgm018;
 mod pgm019;
+mod pgm020;
 
 // 1xx — Type anti-patterns
 mod pgm101;
@@ -125,6 +126,7 @@ impl RuleId {
                 UnsafeDdlRule::Pgm017 => "PGM017",
                 UnsafeDdlRule::Pgm018 => "PGM018",
                 UnsafeDdlRule::Pgm019 => "PGM019",
+                UnsafeDdlRule::Pgm020 => "PGM020",
             },
             RuleId::TypeAntiPattern(r) => match r {
                 TypeAntiPatternRule::Pgm101 => "PGM101",
@@ -234,6 +236,7 @@ impl FromStr for RuleId {
             "PGM017" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm017)),
             "PGM018" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm018)),
             "PGM019" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm019)),
+            "PGM020" => Ok(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020)),
             "PGM101" => Ok(RuleId::TypeAntiPattern(TypeAntiPatternRule::Pgm101)),
             "PGM102" => Ok(RuleId::TypeAntiPattern(TypeAntiPatternRule::Pgm102)),
             "PGM103" => Ok(RuleId::TypeAntiPattern(TypeAntiPatternRule::Pgm103)),
@@ -369,6 +372,8 @@ pub enum UnsafeDdlRule {
     Pgm018,
     /// `ADD EXCLUDE` constraint on an existing table (ACCESS EXCLUSIVE lock, no online path).
     Pgm019,
+    /// `DISABLE TRIGGER` on a table (suppresses FK enforcement).
+    Pgm020,
 }
 
 impl UnsafeDdlRule {
@@ -393,6 +398,7 @@ impl UnsafeDdlRule {
             Self::Pgm017 => pgm017::DESCRIPTION,
             Self::Pgm018 => pgm018::DESCRIPTION,
             Self::Pgm019 => pgm019::DESCRIPTION,
+            Self::Pgm020 => pgm020::DESCRIPTION,
         }
     }
 
@@ -417,6 +423,7 @@ impl UnsafeDdlRule {
             Self::Pgm017 => pgm017::EXPLAIN,
             Self::Pgm018 => pgm018::EXPLAIN,
             Self::Pgm019 => pgm019::EXPLAIN,
+            Self::Pgm020 => pgm020::EXPLAIN,
         }
     }
 
@@ -446,6 +453,7 @@ impl UnsafeDdlRule {
             Self::Pgm017 => pgm017::check(rule, statements, ctx),
             Self::Pgm018 => pgm018::check(rule, statements, ctx),
             Self::Pgm019 => pgm019::check(rule, statements, ctx),
+            Self::Pgm020 => pgm020::check(rule, statements, ctx),
         }
     }
 }
@@ -466,7 +474,10 @@ impl From<UnsafeDdlRule> for Severity {
             | UnsafeDdlRule::Pgm018
             | UnsafeDdlRule::Pgm019 => Self::Critical,
             UnsafeDdlRule::Pgm005 | UnsafeDdlRule::Pgm011 | UnsafeDdlRule::Pgm016 => Self::Major,
-            UnsafeDdlRule::Pgm006 | UnsafeDdlRule::Pgm010 | UnsafeDdlRule::Pgm012 => Self::Minor,
+            UnsafeDdlRule::Pgm006
+            | UnsafeDdlRule::Pgm010
+            | UnsafeDdlRule::Pgm012
+            | UnsafeDdlRule::Pgm020 => Self::Minor,
             UnsafeDdlRule::Pgm009 => Self::Info,
         }
     }

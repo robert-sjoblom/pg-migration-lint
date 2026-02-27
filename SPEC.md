@@ -126,7 +126,7 @@ IR node types (non-exhaustive):
 | `DeleteFrom { table_name }` | `DeleteStmt` |
 | `TruncateTable { table_name, cascade }` | `TruncateStmt` |
 
-`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `AttachPartition`, `DetachPartition`, `Other`.
+`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
 
 **Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
 
@@ -459,6 +459,15 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Table doesn't exist in `catalog_before`
   - The `EXCLUDE` constraint is part of a `CREATE TABLE` statement (only `ALTER TABLE` triggers)
 - **Message**: `Adding EXCLUDE constraint on existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window.`
+
+#### PGM020 — `DISABLE TRIGGER` on table
+
+- **Severity**: MINOR on existing tables, INFO on all other tables (new or unknown).
+- **Triggers**: `ALTER TABLE ... DISABLE TRIGGER` (named trigger, `ALL`, or `USER`) on any table.
+- **Why**: Disabling triggers bypasses foreign-key enforcement and business logic. If the corresponding `ENABLE TRIGGER` is missing or the migration fails partway, referential integrity is silently lost. `DISABLE TRIGGER ALL` suppresses all triggers including system FK-enforcement triggers. `DISABLE TRIGGER USER` only suppresses user-defined triggers (FK triggers are unaffected). Since re-enables are not tracked, the rule fires at INFO on non-existing tables to flag cases where triggers may be left disabled.
+- **IR**: `AlterTableAction::DisableTrigger { scope: TriggerDisableScope }` where `TriggerDisableScope` is `Named(String)`, `All`, or `User`.
+- **pg_query**: `AT_DisableTrig`, `AT_DisableTrigAll`, `AT_DisableTrigUser`.
+- **Message**: Varies by trigger scope — includes scope label (ALL, USER, or trigger name) and scope-specific detail about what guarantees are lost.
 
 #### PGM201 — `DROP TABLE` on existing table
 

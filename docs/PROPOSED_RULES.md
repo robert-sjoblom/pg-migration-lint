@@ -4,23 +4,6 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-## 0xx — Unsafe DDL
-
-### PGM1019 — `DISABLE TRIGGER` on existing table
-
-- **Range**: 0xx (Other locking)
-- **Severity**: WARNING
-- **Status**: Not yet implemented.
-- **Triggers**: `ALTER TABLE ... DISABLE TRIGGER` (any trigger, including `ALL`) on a table that exists in `catalog_before`.
-- **Why**: Disabling triggers in a migration bypasses business logic and — critically — foreign key enforcement triggers. `DISABLE TRIGGER ALL` suppresses FK checks for the duration between the disable and the corresponding re-enable. If the re-enable is missing, omitted due to a migration failure, or placed in a separate migration that is never run, the integrity guarantee is permanently lost. Even intentional disables for bulk load performance are high-risk in migration files.
-- **Does not fire when**:
-  - The table is created in the same set of changed files.
-  - The table does not exist in `catalog_before`.
-- **Message**: `DISABLE TRIGGER on table '{table}' suppresses triggers including foreign key enforcement. If this is not re-enabled in the same migration, referential integrity guarantees are lost until manually restored.`
-- **IR impact**: Requires a new `AlterTableAction::DisableTrigger { trigger_name: Option<String>, all: bool }` variant. `pg_query` emits `AlterTableCmd(AT_DisableTrigger)` / `AT_DisableAlwaysTrigger`.
-
----
-
 ## 2xx — Destructive operations
 
 ### PGM1205 — `DROP SCHEMA ... CASCADE`
@@ -75,6 +58,6 @@ These rules extend the current rule set. Proposed rules use the `PGM1XXX` prefix
 Changes to existing spec sections required:
 
 - **§4.2**: Add promoted rules to the rule table.
-- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`; add `AlterTableAction::DisableTrigger`.
+- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`.
 - **§11 Project structure**: Add rule files to `src/rules/` as rules are promoted.
 - **PGM901 scope**: Update to cover all promoted rules.

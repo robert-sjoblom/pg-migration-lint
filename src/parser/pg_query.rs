@@ -7,8 +7,8 @@
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
     DeleteFrom, DropIndex, DropTable, IndexColumn, InsertInto, IrNode, Located, PartitionBy,
-    PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence, TruncateTable,
-    TypeName, UpdateTable,
+    PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence,
+    TriggerDisableScope, TruncateTable, TypeName, UpdateTable,
 };
 use pg_query::NodeEnum;
 
@@ -588,6 +588,34 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                     description: "DETACH PARTITION (unparseable)".to_string(),
                 }],
             }
+        }
+        pg_query::protobuf::AlterTableType::AtDisableTrig => {
+            let scope = if cmd.name.is_empty() {
+                TriggerDisableScope::All
+            } else {
+                TriggerDisableScope::Named(cmd.name.clone())
+            };
+            vec![AlterTableAction::DisableTrigger { scope }]
+        }
+        pg_query::protobuf::AlterTableType::AtDisableTrigAll => {
+            vec![AlterTableAction::DisableTrigger {
+                scope: TriggerDisableScope::All,
+            }]
+        }
+        pg_query::protobuf::AlterTableType::AtDisableTrigUser => {
+            vec![AlterTableAction::DisableTrigger {
+                scope: TriggerDisableScope::User,
+            }]
+        }
+        // ENABLE TRIGGER variants — not flagged, no schema state change.
+        pg_query::protobuf::AlterTableType::AtEnableTrig
+        | pg_query::protobuf::AlterTableType::AtEnableTrigAll
+        | pg_query::protobuf::AlterTableType::AtEnableTrigUser
+        | pg_query::protobuf::AlterTableType::AtEnableAlwaysTrig
+        | pg_query::protobuf::AlterTableType::AtEnableReplicaTrig => {
+            vec![AlterTableAction::Other {
+                description: format!("{:?}", cmd.subtype()),
+            }]
         }
         other => vec![AlterTableAction::Other {
             description: format!("{:?}", other),

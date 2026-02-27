@@ -64,8 +64,8 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "RELIABILITY",
             impact_severity: "MEDIUM",
         },
-        // Silent constraint drops: risk data integrity (duplicates, orphaned rows)
-        RuleId::UnsafeDdl(Pgm010 | Pgm011 | Pgm012) => SonarQubeRuleMeta {
+        // Silent constraint drops / trigger disables: risk data integrity
+        RuleId::UnsafeDdl(Pgm010 | Pgm011 | Pgm012 | Pgm020) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
@@ -229,7 +229,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
             Pgm005 | Pgm006 | Pgm007 | Pgm008 | Pgm013 | Pgm014 | Pgm015 | Pgm018 | Pgm019,
         ) => 30,
         // Schema quality / side-effect warnings
-        RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012) => 10,
+        RuleId::UnsafeDdl(Pgm009 | Pgm010 | Pgm011 | Pgm012 | Pgm020) => 10,
         RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505 | Pgm506) => 10,
         RuleId::Destructive(Pgm201 | Pgm203) => 10,
         RuleId::Destructive(Pgm202 | Pgm204) => 15,

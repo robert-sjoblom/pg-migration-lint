@@ -9,7 +9,7 @@ Static analysis for PostgreSQL migration files. Catches unsafe DDL, type anti-pa
 
 ## Quick links
 
-- [Rule Reference](rules) — all 38 lint rules with examples and fixes
+- [Rule Reference](rules) — all 42 lint rules with examples and fixes
 - [GitHub Repository](https://github.com/robert-sjoblom/pg-migration-lint)
 
 ## Installation

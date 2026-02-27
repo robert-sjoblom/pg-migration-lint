@@ -6,9 +6,9 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 40 lint rules across seven categories:
+`pg-migration-lint` ships with 42 lint rules across seven categories:
 
-- **Unsafe DDL** (PGM001–PGM018) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
 - **Destructive Operations** (PGM201–PGM204) — flag data-loss operations.
 - **DML in Migrations** (PGM301–PGM303) — flag data manipulation statements on existing tables.
@@ -130,8 +130,6 @@ ALTER TABLE measurements DETACH PARTITION measurements_2023;
 ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
 ```
 
-Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.
-
 ---
 
 ### PGM005 — ATTACH PARTITION of existing table without pre-validated CHECK
@@ -139,7 +137,7 @@ Note: `DETACH PARTITION CONCURRENTLY` requires PostgreSQL 14+.
 
 **Severity**: Major
 
-Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
+Detects `ALTER TABLE ... ATTACH PARTITION` where the child table already exists and has no CHECK constraint that references the partition key columns. Without a pre-validated CHECK constraint that implies the partition bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock to verify every row.
 
 **Example**:
 ```sql
@@ -467,6 +465,53 @@ CLUSTER orders USING idx_orders_created_at;
 1. Schedule `CLUSTER` during a maintenance window when downtime is acceptable.
 2. Consider `pg_repack` or `pg_squeeze` for online table rewrites.
 3. For new tables, `CLUSTER` is fine — this rule only fires on existing tables.
+
+---
+
+### PGM019 — ADD EXCLUDE constraint on existing table
+{: #pgm019}
+
+**Severity**: Critical
+
+Detects `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` on a table that already exists. Adding an EXCLUDE constraint acquires an ACCESS EXCLUSIVE lock and scans all existing rows to verify the exclusion condition. Unlike CHECK and FOREIGN KEY constraints, PostgreSQL does not support `NOT VALID` for EXCLUDE constraints — there is no safe online path.
+
+**Example** (bad):
+```sql
+ALTER TABLE reservations
+  ADD CONSTRAINT excl_overlap
+  EXCLUDE USING gist (room WITH =, period WITH &&);
+```
+
+**Recommended approach**:
+1. Schedule the migration during a maintenance window when downtime is acceptable.
+2. For new tables, adding EXCLUDE constraints in `CREATE TABLE` is fine — this rule only fires on existing tables.
+
+---
+
+### PGM020 — DISABLE TRIGGER on table suppresses FK enforcement
+{: #pgm020}
+
+**Severity**: Minor
+
+Detects `ALTER TABLE ... DISABLE TRIGGER` (specific name, ALL, or USER) on any table. Fires at MINOR on existing tables and at INFO on all other tables (new or unknown). Since re-enables are not tracked, all tables are flagged to catch cases where triggers may be left disabled.
+
+**Example** (bad):
+```sql
+ALTER TABLE orders DISABLE TRIGGER ALL;
+INSERT INTO orders SELECT * FROM staging;
+```
+
+**Fix** (re-enable in the same migration):
+```sql
+ALTER TABLE orders DISABLE TRIGGER ALL;
+INSERT INTO orders SELECT * FROM staging;
+ALTER TABLE orders ENABLE TRIGGER ALL;
+```
+
+**Recommended approach**:
+1. Avoid disabling triggers in migrations entirely.
+2. If you must disable triggers for bulk data loading, ensure the DISABLE and ENABLE are in the same migration and wrapped in a transaction.
+3. On tables that are not pre-existing (new or unknown), this rule fires at INFO severity.
 
 ---
 
@@ -988,6 +1033,8 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM016](#pgm016) | Major | ADD PRIMARY KEY on existing table without USING INDEX |
 | [PGM017](#pgm017) | Critical | ADD UNIQUE on existing table without USING INDEX |
 | [PGM018](#pgm018) | Critical | CLUSTER on existing table |
+| [PGM019](#pgm019) | Critical | ADD EXCLUDE constraint on existing table |
+| [PGM020](#pgm020) | Minor | DISABLE TRIGGER on table suppresses FK enforcement |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

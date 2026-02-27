@@ -216,6 +216,7 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                 | AlterTableAction::DetachPartition { .. } => {
                     // Handled below, outside the table mutable borrow.
                 }
+                AlterTableAction::DisableTrigger { .. } => { /* triggers not tracked */ }
                 AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
             }
         }

@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm020.rs
+expression: findings
+---
+- rule_id: PGM020
+  severity: Minor
+  message: "DISABLE TRIGGER 'my_trigger' on table 'orders' suppresses the named trigger. If this trigger enforces business logic and is not re-enabled in the same migration, those guarantees are lost."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

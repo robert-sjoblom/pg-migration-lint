@@ -236,10 +236,22 @@ expression: parsed
       "effortMinutes": 10,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM101: Column uses timestamp without time zone",
+        "message": "PGM020: DISABLE TRIGGER on table suppresses FK enforcement",
         "textRange": {
           "endLine": 20,
           "startLine": 20
+        }
+      },
+      "ruleId": "PGM020"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM101: Column uses timestamp without time zone",
+        "textRange": {
+          "endLine": 21,
+          "startLine": 21
         }
       },
       "ruleId": "PGM101"
@@ -250,8 +262,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM102: Column uses timestamp or timestamptz with precision 0",
         "textRange": {
-          "endLine": 21,
-          "startLine": 21
+          "endLine": 22,
+          "startLine": 22
         }
       },
       "ruleId": "PGM102"
@@ -262,8 +274,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM103: Column uses char(n) type",
         "textRange": {
-          "endLine": 22,
-          "startLine": 22
+          "endLine": 23,
+          "startLine": 23
         }
       },
       "ruleId": "PGM103"
@@ -274,8 +286,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM104: Column uses the money type",
         "textRange": {
-          "endLine": 23,
-          "startLine": 23
+          "endLine": 24,
+          "startLine": 24
         }
       },
       "ruleId": "PGM104"
@@ -286,8 +298,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM105: Column uses serial/bigserial instead of identity column",
         "textRange": {
-          "endLine": 24,
-          "startLine": 24
+          "endLine": 25,
+          "startLine": 25
         }
       },
       "ruleId": "PGM105"
@@ -298,8 +310,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM106: Column uses json type instead of jsonb",
         "textRange": {
-          "endLine": 25,
-          "startLine": 25
+          "endLine": 26,
+          "startLine": 26
         }
       },
       "ruleId": "PGM106"
@@ -310,8 +322,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM201: DROP TABLE on existing table",
         "textRange": {
-          "endLine": 26,
-          "startLine": 26
+          "endLine": 27,
+          "startLine": 27
         }
       },
       "ruleId": "PGM201"
@@ -322,8 +334,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM202: DROP TABLE CASCADE on existing table",
         "textRange": {
-          "endLine": 27,
-          "startLine": 27
+          "endLine": 28,
+          "startLine": 28
         }
       },
       "ruleId": "PGM202"
@@ -334,8 +346,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM203: TRUNCATE TABLE on existing table",
         "textRange": {
-          "endLine": 28,
-          "startLine": 28
+          "endLine": 29,
+          "startLine": 29
         }
       },
       "ruleId": "PGM203"
@@ -346,8 +358,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM204: TRUNCATE TABLE CASCADE on existing table",
         "textRange": {
-          "endLine": 29,
-          "startLine": 29
+          "endLine": 30,
+          "startLine": 30
         }
       },
       "ruleId": "PGM204"
@@ -358,8 +370,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM301: INSERT INTO existing table in migration",
         "textRange": {
-          "endLine": 30,
-          "startLine": 30
+          "endLine": 31,
+          "startLine": 31
         }
       },
       "ruleId": "PGM301"
@@ -370,8 +382,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM302: UPDATE on existing table in migration",
         "textRange": {
-          "endLine": 31,
-          "startLine": 31
+          "endLine": 32,
+          "startLine": 32
         }
       },
       "ruleId": "PGM302"
@@ -382,8 +394,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM303: DELETE FROM existing table in migration",
         "textRange": {
-          "endLine": 32,
-          "startLine": 32
+          "endLine": 33,
+          "startLine": 33
         }
       },
       "ruleId": "PGM303"
@@ -394,8 +406,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM401: Missing IF EXISTS on DROP TABLE / DROP INDEX",
         "textRange": {
-          "endLine": 33,
-          "startLine": 33
+          "endLine": 34,
+          "startLine": 34
         }
       },
       "ruleId": "PGM401"
@@ -406,8 +418,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM402: Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX",
         "textRange": {
-          "endLine": 34,
-          "startLine": 34
+          "endLine": 35,
+          "startLine": 35
         }
       },
       "ruleId": "PGM402"
@@ -418,8 +430,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM403: CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op",
         "textRange": {
-          "endLine": 35,
-          "startLine": 35
+          "endLine": 36,
+          "startLine": 36
         }
       },
       "ruleId": "PGM403"
@@ -430,8 +442,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM501: Foreign key without covering index on referencing columns",
         "textRange": {
-          "endLine": 36,
-          "startLine": 36
+          "endLine": 37,
+          "startLine": 37
         }
       },
       "ruleId": "PGM501"
@@ -442,8 +454,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM502: Table without primary key",
         "textRange": {
-          "endLine": 37,
-          "startLine": 37
+          "endLine": 38,
+          "startLine": 38
         }
       },
       "ruleId": "PGM502"
@@ -454,8 +466,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM503: UNIQUE NOT NULL used instead of PRIMARY KEY",
         "textRange": {
-          "endLine": 38,
-          "startLine": 38
+          "endLine": 39,
+          "startLine": 39
         }
       },
       "ruleId": "PGM503"
@@ -466,8 +478,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM504: RENAME TABLE on existing table",
         "textRange": {
-          "endLine": 39,
-          "startLine": 39
+          "endLine": 40,
+          "startLine": 40
         }
       },
       "ruleId": "PGM504"
@@ -478,8 +490,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM505: RENAME COLUMN on existing table",
         "textRange": {
-          "endLine": 40,
-          "startLine": 40
+          "endLine": 41,
+          "startLine": 41
         }
       },
       "ruleId": "PGM505"
@@ -490,8 +502,8 @@ expression: parsed
         "filePath": "test.sql",
         "message": "PGM506: CREATE UNLOGGED TABLE",
         "textRange": {
-          "endLine": 41,
-          "startLine": 41
+          "endLine": 42,
+          "startLine": 42
         }
       },
       "ruleId": "PGM506"
@@ -781,6 +793,21 @@ expression: parsed
       ],
       "name": "ADD EXCLUDE constraint on existing table",
       "severity": "CRITICAL",
+      "type": "BUG"
+    },
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "DISABLE TRIGGER on table suppresses FK enforcement. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm020",
+      "engineId": "pg-migration-lint",
+      "id": "PGM020",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "RELIABILITY"
+        }
+      ],
+      "name": "DISABLE TRIGGER on table suppresses FK enforcement",
+      "severity": "MINOR",
       "type": "BUG"
     },
     {
