@@ -9,30 +9,35 @@ Description: Volatile default on column
 PGM006 — Volatile default on column
 
 What it detects:
-A column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)
-that uses a function call as the DEFAULT expression.
+A column definition (in ALTER TABLE ... ADD COLUMN) that uses a
+volatile function call as the DEFAULT expression on an existing table.
 
 Why it's dangerous:
 On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite
-the table — they are applied lazily. Volatile defaults (now(), random(),
-gen_random_uuid(), etc.) must be evaluated per-row at write time,
-forcing a full table rewrite under an ACCESS EXCLUSIVE lock.
+the table — they are applied lazily. Volatile defaults (random(),
+gen_random_uuid(), clock_timestamp(), etc.) must be evaluated per-row
+at write time, forcing a full table rewrite under an ACCESS EXCLUSIVE
+lock.
+
+Note: now() and current_timestamp are STABLE in PostgreSQL, not
+volatile. They return the transaction start time and are evaluated
+once at ALTER TABLE time. The resulting value is stored in the
+catalog and applied lazily — no table rewrite occurs.
 
 Severity levels:
-- MINOR (WARNING): Known volatile functions (now, current_timestamp,
-random, gen_random_uuid, uuid_generate_v4, clock_timestamp,
-timeofday, txid_current)
+- MINOR (WARNING): Known volatile functions (random, gen_random_uuid,
+uuid_generate_v4, clock_timestamp, timeofday, txid_current)
 - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile
 - INFO: Unknown function calls — developer should verify volatility
-- No finding: Literal defaults (0, 'active', TRUE)
+- No finding: Literal defaults, stable functions (now, current_timestamp)
 
 Example (flagged):
-ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();
+ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();
 
 Fix:
-ALTER TABLE orders ADD COLUMN created_at timestamptz;
+ALTER TABLE orders ADD COLUMN token uuid;
 -- Then backfill:
-UPDATE orders SET created_at = now() WHERE created_at IS NULL;
+UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;
 
 Note: For CREATE TABLE, volatile defaults are harmless (no existing
 rows) and are not flagged.

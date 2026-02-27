@@ -15,9 +15,10 @@ already exists and the constraint does not include NOT VALID.
 Why it's dangerous:
 Adding a foreign key constraint without NOT VALID causes PostgreSQL
 to immediately validate all existing rows. This acquires a SHARE
-ROW EXCLUSIVE lock on the table and performs a full table scan, blocking
-concurrent data modifications for the duration. On large tables this can
-cause significant downtime.
+ROW EXCLUSIVE lock on both the referencing and the referenced table
+and performs a full table scan, blocking concurrent data modifications
+on both tables for the duration. On large tables this can cause
+significant downtime.
 
 Safe alternative:
 Add the constraint with NOT VALID first, then validate it in a

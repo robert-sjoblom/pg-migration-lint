@@ -1050,7 +1050,7 @@ fn test_gomigrate_pgm006_fires() {
     assert_eq!(
         findings.len(),
         2,
-        "Expected 2 PGM006 findings for now() and gen_random_uuid(). Got:\n  {}",
+        "Expected 2 PGM006 findings for clock_timestamp() and gen_random_uuid(). Got:\n  {}",
         format_findings(&findings)
     );
 }

@@ -2,8 +2,9 @@
 //!
 //! Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK ... ` without `NOT VALID`
 //! on tables that already exist. Adding a CHECK constraint without NOT VALID
-//! requires scanning the entire table while holding an ACCESS EXCLUSIVE lock,
-//! which blocks all concurrent reads and writes.
+//! requires scanning the entire table while holding a SHARE ROW EXCLUSIVE lock,
+//! which blocks concurrent data modifications (INSERT, UPDATE, DELETE) but
+//! allows reads.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
@@ -17,9 +18,11 @@ pub(super) const EXPLAIN: &str = "PGM015 — ADD CHECK on existing table without
          exists, without the NOT VALID modifier.\n\
          \n\
          Why it's dangerous:\n\
-         Adding a CHECK constraint without NOT VALID acquires an ACCESS EXCLUSIVE\n\
-         lock and scans the entire table to verify all existing rows satisfy the\n\
-         constraint. On large tables this can cause significant downtime.\n\
+         Adding a CHECK constraint without NOT VALID acquires a SHARE ROW\n\
+         EXCLUSIVE lock and scans the entire table to verify all existing rows\n\
+         satisfy the constraint. This blocks concurrent data modifications\n\
+         (INSERT, UPDATE, DELETE) for the duration. On large tables this can\n\
+         cause significant disruption.\n\
          \n\
          Example (bad):\n\
            ALTER TABLE orders ADD CONSTRAINT orders_status_check\n\
@@ -50,9 +53,10 @@ pub(super) fn check(
                 vec![rule.make_finding(
                     format!(
                         "Adding CHECK constraint on existing table '{table}' without \
-                         NOT VALID will scan the entire table while holding an ACCESS \
-                         EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then \
-                         VALIDATE CONSTRAINT in a separate statement.",
+                         NOT VALID will scan the entire table while holding a SHARE \
+                         ROW EXCLUSIVE lock, blocking concurrent writes. Use ADD \
+                         CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a \
+                         separate statement.",
                         table = at.name.display_name(),
                     ),
                     ctx.file,

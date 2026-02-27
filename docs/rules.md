@@ -6,7 +6,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 42 lint rules across seven categories:
+`pg-migration-lint` ships with 43 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -165,22 +165,25 @@ ALTER TABLE measurements ATTACH PARTITION measurements_2024
 
 **Severity**: Minor
 
-Detects `ALTER TABLE ... ADD COLUMN` with a function call as the DEFAULT expression on an existing table. On PostgreSQL 11+, non-volatile defaults are applied lazily without rewriting the table. Volatile defaults (`now()`, `random()`, `gen_random_uuid()`, etc.) force a full table rewrite under an ACCESS EXCLUSIVE lock.
+Detects `ALTER TABLE ... ADD COLUMN` with a volatile function call as the DEFAULT expression on an existing table. On PostgreSQL 11+, non-volatile defaults are applied lazily without rewriting the table. Volatile defaults (`random()`, `gen_random_uuid()`, `clock_timestamp()`, etc.) force a full table rewrite under an ACCESS EXCLUSIVE lock.
+
+Note: `now()` and `current_timestamp` are **STABLE** in PostgreSQL, not volatile. They are evaluated once at ALTER TABLE time and the single value is stored in the catalog — no table rewrite occurs.
 
 **Severity levels per finding**:
-- **Minor**: Known volatile functions (`now`, `current_timestamp`, `random`, `gen_random_uuid`, `uuid_generate_v4`, `clock_timestamp`, `timeofday`, `txid_current`, `nextval`)
+- **Minor**: Known volatile functions (`random`, `gen_random_uuid`, `uuid_generate_v4`, `clock_timestamp`, `timeofday`, `txid_current`, `nextval`)
 - **Info**: Unknown function calls — developer should verify volatility
+- **No finding**: Stable functions (`now`, `current_timestamp`, `statement_timestamp`, etc.) and literal defaults
 
 **Example** (flagged):
 ```sql
-ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();
+ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();
 ```
 
 **Fix**:
 ```sql
-ALTER TABLE orders ADD COLUMN created_at timestamptz;
+ALTER TABLE orders ADD COLUMN token uuid;
 -- Then backfill:
-UPDATE orders SET created_at = now() WHERE created_at IS NULL;
+UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;
 ```
 
 Does not fire on `CREATE TABLE` (no existing rows to rewrite).
@@ -200,7 +203,7 @@ Detects `ALTER TABLE ... ALTER COLUMN ... TYPE ...` on pre-existing tables. Most
 - `numeric(P,S)` → `numeric(P2,S)` where P2 > P and same scale
 - `varbit(N)` → `varbit(M)` where M > N
 
-**Info cast**: `timestamp` → `timestamptz` (safe in PG 15+ with UTC timezone; verify your timezone config)
+**Info cast**: `timestamp` → `timestamptz` (safe in PG 9.2+ when timezone=UTC; verify your timezone config)
 
 **Example** (bad):
 ```sql
@@ -357,7 +360,7 @@ See also [PGM015](#pgm015).
 
 **Severity**: Critical
 
-Detects `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` on a pre-existing table without the `NOT VALID` modifier. Without `NOT VALID`, PostgreSQL immediately validates all existing rows under a SHARE ROW EXCLUSIVE lock.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` on a pre-existing table without the `NOT VALID` modifier. Without `NOT VALID`, PostgreSQL immediately validates all existing rows under a SHARE ROW EXCLUSIVE lock on both the referencing and the referenced table.
 
 **Example** (bad):
 ```sql
@@ -384,7 +387,7 @@ See also [PGM015](#pgm015).
 
 **Severity**: Critical
 
-Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires an ACCESS EXCLUSIVE lock and scans the entire table to verify all existing rows.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires a SHARE ROW EXCLUSIVE lock and scans the entire table to verify all existing rows, blocking concurrent writes for the duration.
 
 **Example** (bad):
 ```sql
@@ -720,6 +723,28 @@ TRUNCATE TABLE customers CASCADE;
 
 ---
 
+### PGM205 — DROP SCHEMA CASCADE
+{: #pgm205}
+
+**Severity**: Critical
+
+Detects `DROP SCHEMA ... CASCADE`. This is the most destructive single DDL statement in PostgreSQL — it silently drops every object in the schema: tables, views, sequences, functions, types, and indexes.
+
+Unlike `DROP TABLE CASCADE` (which only removes objects that depend on one table), `DROP SCHEMA CASCADE` destroys the entire namespace and everything in it.
+
+**Example**:
+```sql
+DROP SCHEMA myschema CASCADE;
+-- Silently drops every table, view, function, sequence, and type in 'myschema'.
+```
+
+**Recommended approach**:
+1. Enumerate all objects in the schema before dropping.
+2. Explicitly drop or migrate each object in separate migration steps.
+3. Use plain `DROP SCHEMA` (without `CASCADE`) so PostgreSQL will error if the schema is non-empty.
+
+---
+
 ## 3xx — DML in Migration Rules
 
 ### PGM301 — INSERT INTO existing table in migration
@@ -1045,6 +1070,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM202](#pgm202) | Major | DROP TABLE CASCADE on existing table |
 | [PGM203](#pgm203) | Minor | TRUNCATE TABLE on existing table |
 | [PGM204](#pgm204) | Major | TRUNCATE TABLE CASCADE on existing table |
+| [PGM205](#pgm205) | Critical | DROP SCHEMA CASCADE |
 | [PGM301](#pgm301) | Info | INSERT INTO existing table in migration |
 | [PGM302](#pgm302) | Minor | UPDATE on existing table in migration |
 | [PGM303](#pgm303) | Minor | DELETE FROM existing table in migration |

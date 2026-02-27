@@ -17,8 +17,6 @@ use std::path::Path;
 /// Known volatile functions that always force a table rewrite when used as
 /// a column default on `ADD COLUMN` to an existing table.
 const KNOWN_VOLATILE: &[&str] = &[
-    "now",
-    "current_timestamp",
     "random",
     "gen_random_uuid",
     "uuid_generate_v4",
@@ -27,35 +25,55 @@ const KNOWN_VOLATILE: &[&str] = &[
     "txid_current",
 ];
 
+/// Known stable functions that do NOT force a table rewrite on `ADD COLUMN`
+/// (PostgreSQL 11+). These are evaluated once at ALTER TABLE time and the
+/// single resulting value is stored in the catalog, applied lazily to existing
+/// rows. No finding is emitted for these.
+const KNOWN_STABLE: &[&str] = &[
+    "now",
+    "current_timestamp",
+    "statement_timestamp",
+    "transaction_timestamp",
+    "current_date",
+    "current_time",
+    "localtime",
+    "localtimestamp",
+];
+
 pub(super) const DESCRIPTION: &str = "Volatile default on column";
 
 pub(super) const EXPLAIN: &str = "PGM006 — Volatile default on column\n\
          \n\
          What it detects:\n\
-         A column definition (in CREATE TABLE or ALTER TABLE ... ADD COLUMN)\n\
-         that uses a function call as the DEFAULT expression.\n\
+         A column definition (in ALTER TABLE ... ADD COLUMN) that uses a\n\
+         volatile function call as the DEFAULT expression on an existing table.\n\
          \n\
          Why it's dangerous:\n\
          On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\n\
-         the table — they are applied lazily. Volatile defaults (now(), random(),\n\
-         gen_random_uuid(), etc.) must be evaluated per-row at write time,\n\
-         forcing a full table rewrite under an ACCESS EXCLUSIVE lock.\n\
+         the table — they are applied lazily. Volatile defaults (random(),\n\
+         gen_random_uuid(), clock_timestamp(), etc.) must be evaluated per-row\n\
+         at write time, forcing a full table rewrite under an ACCESS EXCLUSIVE\n\
+         lock.\n\
+         \n\
+         Note: now() and current_timestamp are STABLE in PostgreSQL, not\n\
+         volatile. They return the transaction start time and are evaluated\n\
+         once at ALTER TABLE time. The resulting value is stored in the\n\
+         catalog and applied lazily — no table rewrite occurs.\n\
          \n\
          Severity levels:\n\
-         - MINOR (WARNING): Known volatile functions (now, current_timestamp,\n\
-           random, gen_random_uuid, uuid_generate_v4, clock_timestamp,\n\
-           timeofday, txid_current)\n\
+         - MINOR (WARNING): Known volatile functions (random, gen_random_uuid,\n\
+           uuid_generate_v4, clock_timestamp, timeofday, txid_current)\n\
          - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n\
          - INFO: Unknown function calls — developer should verify volatility\n\
-         - No finding: Literal defaults (0, 'active', TRUE)\n\
+         - No finding: Literal defaults, stable functions (now, current_timestamp)\n\
          \n\
          Example (flagged):\n\
-           ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();\n\
+           ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();\n\
          \n\
          Fix:\n\
-           ALTER TABLE orders ADD COLUMN created_at timestamptz;\n\
+           ALTER TABLE orders ADD COLUMN token uuid;\n\
            -- Then backfill:\n\
-           UPDATE orders SET created_at = now() WHERE created_at IS NULL;\n\
+           UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;\n\
          \n\
          Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
          rows) and are not flagged.";
@@ -121,6 +139,13 @@ fn check_column(
         ));
     }
 
+    // Stable functions (e.g., now(), current_timestamp) are evaluated once
+    // at ALTER TABLE time and the single value is stored in the catalog.
+    // No table rewrite occurs on PostgreSQL 11+.
+    if KNOWN_STABLE.contains(&lower.as_str()) {
+        return None;
+    }
+
     if KNOWN_VOLATILE.contains(&lower.as_str()) {
         return Some(Finding::new(
             rule.id(),
@@ -175,9 +200,9 @@ mod tests {
     }
 
     #[test]
-    fn test_now_default_fires_warning() {
-        // Table exists in catalog_before and is NOT in tables_created_in_change,
-        // so PGM007 should fire for the volatile default.
+    fn test_now_default_no_finding() {
+        // now() is STABLE in PostgreSQL — evaluated once at ALTER TABLE time.
+        // No table rewrite occurs on PG 11+, so no finding should be emitted.
         let before = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "int", false);
@@ -200,7 +225,70 @@ mod tests {
         }))];
 
         let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        assert!(
+            findings.is_empty(),
+            "now() is STABLE, should not trigger PGM006"
+        );
+    }
+
+    #[test]
+    fn test_current_timestamp_default_no_finding() {
+        // current_timestamp is STABLE — same behavior as now().
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "created_at",
+                DefaultExpr::FunctionCall {
+                    name: "current_timestamp".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "current_timestamp is STABLE, should not trigger PGM006"
+        );
+    }
+
+    #[test]
+    fn test_clock_timestamp_fires_warning() {
+        // clock_timestamp() is truly volatile — changes between calls.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "created_at",
+                DefaultExpr::FunctionCall {
+                    name: "clock_timestamp".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm006).check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "clock_timestamp is volatile");
+        assert_eq!(findings[0].severity, Severity::Minor);
     }
 
     #[test]

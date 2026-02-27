@@ -4,19 +4,19 @@ expression: findings
 ---
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: 005-add-fk.xml
   start_line: 13
   end_line: 13
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'subscriptions' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'subscriptions' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: 005-add-fk.xml
   start_line: 22
   end_line: 22
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: 005-add-fk.xml
   start_line: 31
   end_line: 31

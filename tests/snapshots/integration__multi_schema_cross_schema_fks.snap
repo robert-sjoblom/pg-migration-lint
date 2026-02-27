@@ -10,19 +10,19 @@ expression: findings
   end_line: 17
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'billing.invoices' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'billing.invoices' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
   start_line: 1
   end_line: 4
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'inventory.stock' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'inventory.stock' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
   start_line: 6
   end_line: 9
 - rule_id: PGM014
   severity: Critical
-  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
+  message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
   start_line: 11
   end_line: 14

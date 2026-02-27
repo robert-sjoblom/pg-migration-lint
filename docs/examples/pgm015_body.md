@@ -1,4 +1,4 @@
-Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires an ACCESS EXCLUSIVE lock and scans the entire table to verify all existing rows.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires a SHARE ROW EXCLUSIVE lock and scans the entire table to verify all existing rows, blocking concurrent writes for the duration.
 
 **Example** (bad):
 ```sql

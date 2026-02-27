@@ -169,22 +169,25 @@ ALTER TABLE measurements ATTACH PARTITION measurements_2024
 
 **Severity**: Minor
 
-Detects `ALTER TABLE ... ADD COLUMN` with a function call as the DEFAULT expression on an existing table. On PostgreSQL 11+, non-volatile defaults are applied lazily without rewriting the table. Volatile defaults (`now()`, `random()`, `gen_random_uuid()`, etc.) force a full table rewrite under an ACCESS EXCLUSIVE lock.
+Detects `ALTER TABLE ... ADD COLUMN` with a volatile function call as the DEFAULT expression on an existing table. On PostgreSQL 11+, non-volatile defaults are applied lazily without rewriting the table. Volatile defaults (`random()`, `gen_random_uuid()`, `clock_timestamp()`, etc.) force a full table rewrite under an ACCESS EXCLUSIVE lock.
+
+Note: `now()` and `current_timestamp` are **STABLE** in PostgreSQL, not volatile. They are evaluated once at ALTER TABLE time and the single value is stored in the catalog — no table rewrite occurs.
 
 **Severity levels per finding**:
-- **Minor**: Known volatile functions (`now`, `current_timestamp`, `random`, `gen_random_uuid`, `uuid_generate_v4`, `clock_timestamp`, `timeofday`, `txid_current`, `nextval`)
+- **Minor**: Known volatile functions (`random`, `gen_random_uuid`, `uuid_generate_v4`, `clock_timestamp`, `timeofday`, `txid_current`, `nextval`)
 - **Info**: Unknown function calls — developer should verify volatility
+- **No finding**: Stable functions (`now`, `current_timestamp`, `statement_timestamp`, etc.) and literal defaults
 
 **Example** (flagged):
 ```sql
-ALTER TABLE orders ADD COLUMN created_at timestamptz DEFAULT now();
+ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();
 ```
 
 **Fix**:
 ```sql
-ALTER TABLE orders ADD COLUMN created_at timestamptz;
+ALTER TABLE orders ADD COLUMN token uuid;
 -- Then backfill:
-UPDATE orders SET created_at = now() WHERE created_at IS NULL;
+UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;
 ```
 
 Does not fire on `CREATE TABLE` (no existing rows to rewrite).
@@ -204,7 +207,7 @@ Detects `ALTER TABLE ... ALTER COLUMN ... TYPE ...` on pre-existing tables. Most
 - `numeric(P,S)` → `numeric(P2,S)` where P2 > P and same scale
 - `varbit(N)` → `varbit(M)` where M > N
 
-**Info cast**: `timestamp` → `timestamptz` (safe in PG 15+ with UTC timezone; verify your timezone config)
+**Info cast**: `timestamp` → `timestamptz` (safe in PG 9.2+ when timezone=UTC; verify your timezone config)
 
 **Example** (bad):
 ```sql
@@ -361,7 +364,7 @@ See also [PGM015](#pgm015).
 
 **Severity**: Critical
 
-Detects `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` on a pre-existing table without the `NOT VALID` modifier. Without `NOT VALID`, PostgreSQL immediately validates all existing rows under a SHARE ROW EXCLUSIVE lock.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` on a pre-existing table without the `NOT VALID` modifier. Without `NOT VALID`, PostgreSQL immediately validates all existing rows under a SHARE ROW EXCLUSIVE lock on both the referencing and the referenced table.
 
 **Example** (bad):
 ```sql
@@ -388,7 +391,7 @@ See also [PGM015](#pgm015).
 
 **Severity**: Critical
 
-Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires an ACCESS EXCLUSIVE lock and scans the entire table to verify all existing rows.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires a SHARE ROW EXCLUSIVE lock and scans the entire table to verify all existing rows, blocking concurrent writes for the duration.
 
 **Example** (bad):
 ```sql
