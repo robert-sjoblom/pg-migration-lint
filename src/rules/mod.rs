@@ -18,6 +18,8 @@ pub mod test_helpers;
 
 pub mod alter_table_check;
 pub mod column_type_check;
+pub mod drop_column_check;
+pub mod existing_table_check;
 
 // 0xx — Unsafe DDL
 mod pgm001;

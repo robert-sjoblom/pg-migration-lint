@@ -5,7 +5,7 @@
 //! ON DELETE triggers. Unlike DELETE, there is no WHERE clause — every row is gone.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "TRUNCATE TABLE on existing table";
 
@@ -37,27 +37,20 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for stmt in statements {
-        if let IrNode::TruncateTable(ref tt) = stmt.node {
-            let table_key = tt.name.catalog_key();
-
-            if ctx.is_existing_table(table_key) {
-                findings.push(rule.make_finding(
-                    format!(
-                        "TRUNCATE TABLE '{}' removes all rows from an existing table. \
-                         This is irreversible and does not fire ON DELETE triggers.",
-                        tt.name.display_name()
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
-            }
+    existing_table_check::check_existing_table(statements, ctx, rule, |node| {
+        if let IrNode::TruncateTable(tt) = node {
+            Some((
+                &tt.name,
+                format!(
+                    "TRUNCATE TABLE '{}' removes all rows from an existing table. \
+                     This is irreversible and does not fire ON DELETE triggers.",
+                    tt.name.display_name()
+                ),
+            ))
+        } else {
+            None
         }
-    }
-
-    findings
+    })
 }
 
 #[cfg(test)]

@@ -6,8 +6,8 @@
 //! the FK constraint. The referential integrity guarantee is lost.
 
 use crate::catalog::types::ConstraintState;
-use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::{Finding, LintContext, Rule, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes foreign key";
 
@@ -37,20 +37,10 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    alter_table_check::check_alter_actions(
+    drop_column_check::check_drop_column_constraints(
         statements,
         ctx,
-        TableScope::AnyPreExisting,
-        |at, action, stmt, ctx| {
-            let AlterTableAction::DropColumn { name } = action else {
-                return vec![];
-            };
-
-            let table_key = at.name.catalog_key();
-            let Some(table) = ctx.catalog_before.get_table(table_key) else {
-                return vec![];
-            };
-
+        |name, at, table, stmt, ctx| {
             let mut findings = Vec::new();
 
             // Check ForeignKey constraints that include this column.

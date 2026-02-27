@@ -5,7 +5,7 @@
 //! that references the old column name.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "RENAME COLUMN on existing table";
 
@@ -43,37 +43,27 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for stmt in statements {
+    existing_table_check::check_existing_table(statements, ctx, rule, |node| {
         if let IrNode::RenameColumn {
-            ref table,
-            ref old_name,
-            ref new_name,
-        } = stmt.node
+            table,
+            old_name,
+            new_name,
+        } = node
         {
-            let table_key = table.catalog_key();
-
-            // Only flag if table exists in catalog_before and is not newly created.
-            if !ctx.is_existing_table(table_key) {
-                continue;
-            }
-
-            findings.push(rule.make_finding(
+            Some((
+                table,
                 format!(
                     "Renaming column '{old_name}' to '{new_name}' on existing table \
-                         '{table}' will break queries referencing the old column name.",
+                     '{table}' will break queries referencing the old column name.",
                     old_name = old_name,
                     new_name = new_name,
                     table = table.display_name(),
                 ),
-                ctx.file,
-                &stmt.span,
-            ));
+            ))
+        } else {
+            None
         }
-    }
-
-    findings
+    })
 }
 
 #[cfg(test)]
