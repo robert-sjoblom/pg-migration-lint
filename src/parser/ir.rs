@@ -82,6 +82,17 @@ pub enum TablePersistence {
     Temporary,
 }
 
+/// Scope of a `DISABLE TRIGGER` command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TriggerDisableScope {
+    /// `DISABLE TRIGGER name` — disables a specific trigger.
+    Named(String),
+    /// `DISABLE TRIGGER ALL` — disables all triggers including system/FK triggers.
+    All,
+    /// `DISABLE TRIGGER USER` — disables only user-defined triggers, not FK triggers.
+    User,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTable {
     pub name: QualifiedName,
@@ -127,6 +138,10 @@ pub enum AlterTableAction {
     DetachPartition {
         child: QualifiedName,
         concurrent: bool,
+    },
+    /// `ALTER TABLE ... DISABLE TRIGGER [name | ALL | USER]`
+    DisableTrigger {
+        scope: TriggerDisableScope,
     },
     /// Catch-all for ALTER TABLE actions we parse but don't model.
     Other {

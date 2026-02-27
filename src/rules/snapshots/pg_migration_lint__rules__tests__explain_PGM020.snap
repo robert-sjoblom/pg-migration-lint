@@ -1,0 +1,37 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM020
+Severity: MINOR
+Description: DISABLE TRIGGER on existing table suppresses FK enforcement
+
+PGM020 — DISABLE TRIGGER on existing table
+
+What it detects:
+ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on a
+table that already exists in the database.
+
+Why it’s dangerous:
+Disabling triggers in a migration bypasses business logic and —
+critically — foreign key enforcement triggers. DISABLE TRIGGER ALL
+suppresses FK checks for the duration between the disable and the
+corresponding re-enable. If the re-enable is missing, omitted due
+to a migration failure, or placed in a separate migration that is
+never run, the integrity guarantee is permanently lost. Even
+intentional disables for bulk load performance are high-risk in
+migration files.
+
+Safe alternative:
+Avoid disabling triggers in migrations. If you must disable
+triggers for bulk data loading, ensure the DISABLE and ENABLE
+are in the same migration and wrapped in a transaction.
+
+Example (bad):
+ALTER TABLE orders DISABLE TRIGGER ALL;
+INSERT INTO orders SELECT * FROM staging;
+
+Fix:
+ALTER TABLE orders DISABLE TRIGGER ALL;
+INSERT INTO orders SELECT * FROM staging;
+ALTER TABLE orders ENABLE TRIGGER ALL;

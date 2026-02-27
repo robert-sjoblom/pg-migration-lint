@@ -6,9 +6,9 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 40 lint rules across seven categories:
+`pg-migration-lint` ships with 42 lint rules across seven categories:
 
-- **Unsafe DDL** (PGM001–PGM018) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
 - **Destructive Operations** (PGM201–PGM204) — flag data-loss operations.
 - **DML in Migrations** (PGM301–PGM303) — flag data manipulation statements on existing tables.
@@ -467,6 +467,44 @@ CLUSTER orders USING idx_orders_created_at;
 1. Schedule `CLUSTER` during a maintenance window when downtime is acceptable.
 2. Consider `pg_repack` or `pg_squeeze` for online table rewrites.
 3. For new tables, `CLUSTER` is fine — this rule only fires on existing tables.
+
+---
+
+### PGM019 — ADD EXCLUDE constraint on existing table
+{: #pgm019}
+
+**Severity**: Critical
+
+Detects `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE` on a pre-existing table. `EXCLUDE` constraints require building a GiST or SP-GiST index under ACCESS EXCLUSIVE lock. Unlike UNIQUE constraints, there is no `USING INDEX` workaround — the index is always built inline.
+
+**Example** (bad):
+```sql
+ALTER TABLE reservations
+  ADD CONSTRAINT no_overlap
+  EXCLUDE USING gist (room WITH =, during WITH &&);
+```
+
+**Recommended approach**:
+1. Add the EXCLUDE constraint only on newly created tables.
+2. For existing tables, consider application-level enforcement or a trigger-based approach.
+
+---
+
+### PGM020 — DISABLE TRIGGER on existing table suppresses FK enforcement
+{: #pgm020}
+
+**Severity**: Minor
+
+Detects `ALTER TABLE ... DISABLE TRIGGER` on a pre-existing table. Disabling triggers suppresses foreign key enforcement (FK constraints are implemented via internal triggers in PostgreSQL), allowing orphaned rows and data integrity violations.
+
+**Example** (bad):
+```sql
+ALTER TABLE orders DISABLE TRIGGER ALL;
+```
+
+**Recommended approach**:
+1. Avoid disabling triggers in migrations — it opens a window for constraint violations.
+2. If bulk loading requires it, re-enable triggers in the same migration and validate data integrity.
 
 ---
 
@@ -988,6 +1026,8 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM016](#pgm016) | Major | ADD PRIMARY KEY on existing table without USING INDEX |
 | [PGM017](#pgm017) | Critical | ADD UNIQUE on existing table without USING INDEX |
 | [PGM018](#pgm018) | Critical | CLUSTER on existing table |
+| [PGM019](#pgm019) | Critical | ADD EXCLUDE constraint on existing table |
+| [PGM020](#pgm020) | Minor | DISABLE TRIGGER on existing table suppresses FK enforcement |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |
