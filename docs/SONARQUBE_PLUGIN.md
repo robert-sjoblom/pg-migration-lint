@@ -30,7 +30,7 @@ Add a new clap arg `--dump-rules-json` (bool flag). When set, print a JSON array
 Implementation:
 - Add field to `Args` struct
 - Handle early exit in `run()` (like `--explain`)
-- Create a serializable struct that combines data from `RuleRegistry`, `RuleInfo::from_registry()`, `sonarqube_meta()`, and `effort_minutes()`
+- Create a serializable struct that combines data from `RuleInfo::all()`, `sonarqube_meta()`, and `effort_minutes()`
 - Reuse the existing `DOCS_BASE_URL` constant from `src/output/sonarqube.rs`
 - Tags derived from rule family (0xx→`["postgresql","migration","ddl","locking"]`, 1xx→`["postgresql","migration","type"]`, etc.)
 

@@ -2,7 +2,7 @@
 //!
 //! Supports SARIF 2.1.0, SonarQube Generic Issue Import JSON, and text output.
 
-use crate::rules::{Finding, RuleId, RuleRegistry, Severity};
+use crate::rules::{Finding, Rule, RuleId, Severity};
 use std::path::Path;
 use thiserror::Error;
 
@@ -92,12 +92,11 @@ pub struct RuleInfo {
 }
 
 impl RuleInfo {
-    /// Extract rule metadata from all rules in a registry.
-    pub fn from_registry(registry: &RuleRegistry) -> Vec<Self> {
-        registry
-            .iter()
+    /// Build rule metadata for all non-meta rules.
+    pub fn all() -> Vec<Self> {
+        RuleId::lint_rules()
             .map(|r| RuleInfo {
-                id: r.id(),
+                id: r,
                 name: r.description().to_string(),
                 description: r.explain().to_string(),
                 default_severity: r.default_severity(),
@@ -209,9 +208,7 @@ mod tests {
 
     #[test]
     fn sonarqube_filename() {
-        let mut registry = crate::rules::RuleRegistry::new();
-        registry.register_defaults();
-        let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
+        let reporter = SonarQubeReporter::new(RuleInfo::all());
         assert_eq!(reporter.filename(), "findings.json");
     }
 

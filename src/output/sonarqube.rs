@@ -329,14 +329,12 @@ mod tests {
     use super::*;
     use crate::output::RuleInfo;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, RuleId, RuleRegistry, Severity};
+    use crate::rules::{Finding, Rule, RuleId, Severity};
     use std::path::PathBuf;
 
     /// Helper: render findings via the reporter and return the parsed JSON.
     fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-        let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
+        let reporter = SonarQubeReporter::new(RuleInfo::all());
         let json = reporter.render(findings).expect("render");
         serde_json::from_str(&json).expect("parse json")
     }
@@ -560,16 +558,12 @@ mod tests {
     fn all_rules_metadata_snapshot() {
         // One finding per registered rule so the snapshot covers every rule's
         // SonarQube metadata (cleanCodeAttribute, type, impacts, severity).
-        let mut registry = RuleRegistry::new();
-        registry.register_defaults();
-
-        let findings: Vec<Finding> = registry
-            .iter()
+        let findings: Vec<Finding> = RuleId::lint_rules()
             .enumerate()
-            .map(|(i, rule)| Finding {
-                rule_id: rule.id(),
-                severity: rule.default_severity(),
-                message: format!("{}: {}", rule.id(), rule.description()),
+            .map(|(i, id)| Finding {
+                rule_id: id,
+                severity: id.default_severity(),
+                message: format!("{}: {}", id, id.description()),
                 file: PathBuf::from("test.sql"),
                 start_line: i + 1,
                 end_line: i + 1,

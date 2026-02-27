@@ -22,4 +22,4 @@ pub use config::Config;
 pub use output::RuleInfo;
 pub use parser::ir::{IrNode, Located};
 pub use pipeline::LintPipeline;
-pub use rules::{Finding, Rule, RuleRegistry, Severity};
+pub use rules::{Finding, Rule, RuleId, Severity};

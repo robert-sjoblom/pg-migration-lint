@@ -3,7 +3,7 @@
 //! These tests exercise the full pipeline including CLI argument parsing, config loading,
 //! output file generation, and exit codes.
 
-use pg_migration_lint::rules::RuleRegistry;
+use pg_migration_lint::rules::RuleId;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -708,14 +708,8 @@ fn test_full_pipeline_with_findings() {
         .map(|r| r["ruleId"].as_str().expect("ruleId"))
         .collect();
 
-    // Build expected set from registry, excluding meta rules.
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    for rule in registry.iter() {
-        let id = rule.id();
-        if id.is_meta() {
-            continue;
-        }
+    // Build expected set from all lint rules, excluding meta rules.
+    for id in RuleId::lint_rules() {
         assert!(
             sarif_rule_ids.contains(id.as_str()),
             "Rule {} is registered but not found in SARIF results. \

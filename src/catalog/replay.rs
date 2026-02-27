@@ -286,7 +286,7 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
         return;
     };
 
-    let entries: Vec<IndexEntry> = ci.columns.iter().map(IndexEntry::from).collect();
+    let entries: Vec<IndexColumn> = ci.columns.to_vec();
 
     table.indexes.push(IndexState {
         name: index_name.clone(),
@@ -486,12 +486,12 @@ fn apply_rename_column(
     for idx in &mut table.indexes {
         for entry in &mut idx.entries {
             match entry {
-                IndexEntry::Column(col) => {
+                IndexColumn::Column(col) => {
                     if *col == old_name {
                         *col = new_name.to_string();
                     }
                 }
-                IndexEntry::Expression {
+                IndexColumn::Expression {
                     referenced_columns, ..
                 } => {
                     for col in referenced_columns {
@@ -638,7 +638,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                     name: format!("{}_pkey", table.name),
                     entries: columns
                         .iter()
-                        .map(|c| IndexEntry::Column(c.clone()))
+                        .map(|c| IndexColumn::Column(c.clone()))
                         .collect(),
                     unique: true,
                     where_clause: None,
@@ -2402,8 +2402,8 @@ mod tests {
         assert_eq!(
             idx.entries,
             vec![
-                IndexEntry::Column("order_status".to_string()),
-                IndexEntry::Expression {
+                IndexColumn::Column("order_status".to_string()),
+                IndexColumn::Expression {
                     text: "lower(active::text)".to_string(),
                     referenced_columns: vec!["active".to_string()],
                 },
@@ -2479,7 +2479,7 @@ mod tests {
         let idx = &table.indexes[0];
         assert_eq!(
             idx.entries,
-            vec![IndexEntry::Expression {
+            vec![IndexColumn::Expression {
                 text: "lower(email)".to_string(),
                 referenced_columns: vec!["mail".to_string()],
             }],

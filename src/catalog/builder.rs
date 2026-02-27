@@ -22,8 +22,9 @@
 //! ```
 
 use crate::catalog::types::{
-    Catalog, ColumnState, ConstraintState, IndexEntry, IndexState, PartitionByInfo, TableState,
+    Catalog, ColumnState, ConstraintState, IndexState, PartitionByInfo, TableState,
 };
+use crate::parser::ir::IndexColumn;
 use crate::parser::ir::{DefaultExpr, PartitionStrategy, TypeName};
 
 /// Heuristic: extract bare identifiers from expression text as column references.
@@ -186,7 +187,7 @@ impl TableBuilder {
             name: name.to_string(),
             entries: columns
                 .iter()
-                .map(|s| IndexEntry::Column(s.to_string()))
+                .map(|s| IndexColumn::Column(s.to_string()))
                 .collect(),
             unique,
             where_clause: None,
@@ -201,7 +202,7 @@ impl TableBuilder {
             name: name.to_string(),
             entries: columns
                 .iter()
-                .map(|s| IndexEntry::Column(s.to_string()))
+                .map(|s| IndexColumn::Column(s.to_string()))
                 .collect(),
             unique,
             where_clause: None,
@@ -222,7 +223,7 @@ impl TableBuilder {
             name: name.to_string(),
             entries: columns
                 .iter()
-                .map(|s| IndexEntry::Column(s.to_string()))
+                .map(|s| IndexColumn::Column(s.to_string()))
                 .collect(),
             unique,
             where_clause: Some(where_clause.to_string()),
@@ -251,12 +252,12 @@ impl TableBuilder {
                 .iter()
                 .map(|s| {
                     if let Some(expr) = s.strip_prefix("expr:") {
-                        IndexEntry::Expression {
+                        IndexColumn::Expression {
                             text: expr.to_string(),
                             referenced_columns: extract_column_refs_from_expr_text(expr),
                         }
                     } else {
-                        IndexEntry::Column(s.to_string())
+                        IndexColumn::Column(s.to_string())
                     }
                 })
                 .collect(),

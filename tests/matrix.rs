@@ -49,12 +49,10 @@ fn run_selected_rules(
     ctx: &LintContext<'_>,
     rule_ids: &[&str],
 ) -> Vec<Finding> {
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
     let mut findings = Vec::new();
-    for rule in registry.iter() {
-        if rule_ids.contains(&rule.id().as_str()) {
-            findings.extend(rule.check(stmts, ctx));
+    for id in RuleId::lint_rules() {
+        if rule_ids.contains(&id.as_str()) {
+            findings.extend(id.check(stmts, ctx));
         }
     }
     findings.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));

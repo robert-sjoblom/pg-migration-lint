@@ -1,13 +1,12 @@
 //! Integration tests for the full lint pipeline.
 
 use pg_migration_lint::LintPipeline;
-use pg_migration_lint::input::MigrationLoader;
 #[cfg(feature = "bridge-tests")]
 use pg_migration_lint::input::RawMigrationUnit;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::normalize;
 use pg_migration_lint::output::{Reporter, RuleInfo, SarifReporter, SonarQubeReporter};
-use pg_migration_lint::rules::{Finding, Rule, RuleRegistry};
+use pg_migration_lint::rules::{Finding, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -109,15 +108,11 @@ fn lint_fixture_inner<S: AsRef<str>>(
         .map(|f| base.join(f.as_ref()))
         .collect();
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-
     let disabled: HashSet<&str> = disabled_rules.iter().copied().collect();
-    let active_rules: Vec<&dyn Rule> = registry
-        .iter()
+    let active_rules: Vec<RuleId> = RuleId::lint_rules()
         .filter(|r| {
-            (only_rules.is_empty() || only_rules.contains(&r.id().as_str()))
-                && !disabled.contains(r.id().as_str())
+            (only_rules.is_empty() || only_rules.contains(&r.as_str()))
+                && !disabled.contains(r.as_str())
         })
         .collect();
 
@@ -203,15 +198,8 @@ fn test_all_rules_trigger() {
     let findings = lint_fixture("all-rules", &changed);
     let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
 
-    // Build the expected set from the registry, excluding meta rules
-    // (PGM9xx) which never produce findings on their own.
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    for rule in registry.iter() {
-        let id = rule.id();
-        if id.is_meta() {
-            continue;
-        }
+    // Every registered non-meta rule must fire at least once.
+    for id in RuleId::lint_rules() {
         assert!(
             rule_ids.contains(id.as_str()),
             "Rule {} is registered but did not fire. Add a violation to the all-rules fixture. Got:\n  {}",
@@ -234,13 +222,7 @@ fn test_suppressed_repo_no_findings() {
     let raw_findings = lint_fixture_no_suppress("suppressed", &changed);
     let raw_rule_ids: HashSet<&str> = raw_findings.iter().map(|f| f.rule_id.as_str()).collect();
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    for rule in registry.iter() {
-        let id = rule.id();
-        if id.is_meta() {
-            continue;
-        }
+    for id in RuleId::lint_rules() {
         assert!(
             raw_rule_ids.contains(id.as_str()),
             "Rule {} is registered but did not fire in the suppressed fixture (pre-suppression). \
@@ -756,10 +738,7 @@ fn test_enterprise_sliding_window() {
 
     normalize::normalize_schemas(&mut history.units, "public");
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-
-    let all_rules: Vec<&dyn Rule> = registry.iter().collect();
+    let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
 
     // Collect (filename, findings) for each step
     let mut steps: Vec<(String, Vec<Finding>)> = Vec::new();
@@ -1243,9 +1222,7 @@ fn test_sarif_output_valid_structure() {
     );
 
     // Verify all results have correct ruleIds from our rule set
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    let known_rules: HashSet<&str> = registry.iter().map(|r| r.id().as_str()).collect();
+    let known_rules: HashSet<&str> = RuleId::lint_rules().map(|r| r.as_str()).collect();
     for result in results {
         let rule_id = result["ruleId"]
             .as_str()
@@ -1389,10 +1366,8 @@ fn test_sonarqube_output_valid_structure() {
         "All-rules fixture should produce findings"
     );
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
     let dir = tempfile::tempdir().expect("tempdir");
-    let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
+    let reporter = SonarQubeReporter::new(RuleInfo::all());
     reporter
         .emit(&findings, dir.path())
         .expect("emit SonarQube JSON");
@@ -1433,7 +1408,7 @@ fn test_sonarqube_output_valid_structure() {
     }
 
     // Verify each issue has the required fields
-    let known_rules: HashSet<&str> = registry.iter().map(|r| r.id().as_str()).collect();
+    let known_rules: HashSet<&str> = RuleId::lint_rules().map(|r| r.as_str()).collect();
 
     for issue in issues {
         // ruleId
@@ -1494,10 +1469,8 @@ fn test_sonarqube_output_round_trip_from_fixture() {
     let findings = lint_fixture("all-rules", &["V002__violations.sql"]);
     assert!(!findings.is_empty(), "V002 should produce findings");
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
     let dir = tempfile::tempdir().expect("tempdir");
-    let reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
+    let reporter = SonarQubeReporter::new(RuleInfo::all());
     reporter
         .emit(&findings, dir.path())
         .expect("emit SonarQube JSON");
@@ -1564,9 +1537,7 @@ fn test_sarif_and_sonarqube_finding_counts_match() {
         .emit(&findings, dir_sarif.path())
         .expect("emit SARIF");
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    let sonar_reporter = SonarQubeReporter::new(RuleInfo::from_registry(&registry));
+    let sonar_reporter = SonarQubeReporter::new(RuleInfo::all());
     sonar_reporter
         .emit(&findings, dir_sonar.path())
         .expect("emit SonarQube");
@@ -2014,9 +1985,7 @@ fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> 
 
     let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
 
-    let mut registry = RuleRegistry::new();
-    registry.register_defaults();
-    let all_rules: Vec<&dyn Rule> = registry.iter().collect();
+    let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
 
     let mut pipeline = LintPipeline::new();
     let mut all_findings: Vec<Finding> = Vec::new();
