@@ -18,7 +18,7 @@ mod tests;
 /// unit is applied sequentially. Statements that reference tables not
 /// present in the catalog are silently skipped (the table may belong
 /// to a different schema or be managed outside the tracked migrations).
-pub fn apply(catalog: &mut Catalog, unit: &MigrationUnit) {
+pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit) {
     for located in &unit.statements {
         apply_node(catalog, &located.node);
     }

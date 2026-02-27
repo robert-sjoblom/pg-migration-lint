@@ -24,7 +24,7 @@ impl Catalog {
         self.tables.get(name)
     }
 
-    pub fn get_table_mut(&mut self, name: &str) -> Option<&mut TableState> {
+    pub(crate) fn get_table_mut(&mut self, name: &str) -> Option<&mut TableState> {
         self.tables.get_mut(name)
     }
 
@@ -32,7 +32,7 @@ impl Catalog {
         self.tables.contains_key(name)
     }
 
-    pub fn insert_table(&mut self, table: TableState) {
+    pub(crate) fn insert_table(&mut self, table: TableState) {
         // Register all indexes in the reverse lookup.
         for idx in &table.indexes {
             if !idx.name.is_empty() {
@@ -43,7 +43,7 @@ impl Catalog {
         self.tables.insert(table.name.clone(), table);
     }
 
-    pub fn remove_table(&mut self, name: &str) -> Option<TableState> {
+    pub(crate) fn remove_table(&mut self, name: &str) -> Option<TableState> {
         if let Some(table) = self.tables.remove(name) {
             for idx in &table.indexes {
                 self.index_to_table.remove(&idx.name);
@@ -66,7 +66,7 @@ impl Catalog {
     }
 
     /// Register an index in the reverse lookup.
-    pub fn register_index(&mut self, index_name: &str, table_key: &str) {
+    pub(crate) fn register_index(&mut self, index_name: &str, table_key: &str) {
         if !index_name.is_empty() {
             self.index_to_table
                 .insert(index_name.to_string(), table_key.to_string());
@@ -74,17 +74,17 @@ impl Catalog {
     }
 
     /// Remove an index from the reverse lookup.
-    pub fn unregister_index(&mut self, index_name: &str) {
+    pub(crate) fn unregister_index(&mut self, index_name: &str) {
         self.index_to_table.remove(index_name);
     }
 
     /// Look up which table owns a given index. O(1).
-    pub fn table_for_index(&self, index_name: &str) -> Option<&str> {
+    pub(crate) fn table_for_index(&self, index_name: &str) -> Option<&str> {
         self.index_to_table.get(index_name).map(|s| s.as_str())
     }
 
     /// Look up an index by name across all tables. Returns the `IndexState` if found.
-    pub fn get_index(&self, index_name: &str) -> Option<&IndexState> {
+    pub(crate) fn get_index(&self, index_name: &str) -> Option<&IndexState> {
         let table_key = self.index_to_table.get(index_name)?;
         let table = self.tables.get(table_key)?;
         table.indexes.iter().find(|idx| idx.name == index_name)
@@ -95,7 +95,7 @@ impl Catalog {
     }
 
     /// Returns the catalog keys of all partition children of the given parent.
-    pub fn get_partition_children(&self, key: &str) -> &[String] {
+    pub(crate) fn get_partition_children(&self, key: &str) -> &[String] {
         self.partition_children
             .get(key)
             .map(|v| v.as_slice())
@@ -103,7 +103,8 @@ impl Catalog {
     }
 
     /// Returns `true` if the given table is a partition child (has a `parent_table`).
-    pub fn is_partition_child(&self, key: &str) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_partition_child(&self, key: &str) -> bool {
         self.tables
             .get(key)
             .and_then(|t| t.parent_table.as_ref())
@@ -111,7 +112,7 @@ impl Catalog {
     }
 
     /// Register a child partition under a parent in the partition_children map.
-    pub fn attach_partition(&mut self, parent_key: &str, child_key: &str) {
+    pub(crate) fn attach_partition(&mut self, parent_key: &str, child_key: &str) {
         let children = self
             .partition_children
             .entry(parent_key.to_string())
@@ -122,7 +123,7 @@ impl Catalog {
     }
 
     /// Remove a child from a parent's partition_children list.
-    pub fn detach_partition(&mut self, parent_key: &str, child_key: &str) {
+    pub(crate) fn detach_partition(&mut self, parent_key: &str, child_key: &str) {
         if let Some(children) = self.partition_children.get_mut(parent_key) {
             children.retain(|c| c != child_key);
             if children.is_empty() {
@@ -132,12 +133,12 @@ impl Catalog {
     }
 
     /// Remove and return the partition_children entry for a given parent key.
-    pub fn remove_partition_children(&mut self, key: &str) -> Option<Vec<String>> {
+    pub(crate) fn remove_partition_children(&mut self, key: &str) -> Option<Vec<String>> {
         self.partition_children.remove(key)
     }
 
     /// Set the partition_children entry for a given parent key.
-    pub fn set_partition_children(&mut self, key: &str, children: Vec<String>) {
+    pub(crate) fn set_partition_children(&mut self, key: &str, children: Vec<String>) {
         if children.is_empty() {
             self.partition_children.remove(key);
         } else {
@@ -178,11 +179,11 @@ impl TableState {
         self.columns.iter().find(|c| c.name == name)
     }
 
-    pub fn get_column_mut(&mut self, name: &str) -> Option<&mut ColumnState> {
+    pub(crate) fn get_column_mut(&mut self, name: &str) -> Option<&mut ColumnState> {
         self.columns.iter_mut().find(|c| c.name == name)
     }
 
-    pub fn remove_column(&mut self, name: &str) {
+    pub(crate) fn remove_column(&mut self, name: &str) {
         self.columns.retain(|c| c.name != name);
         // Remove indexes that reference this column — either as a plain column entry
         // or inside an expression (e.g. `lower(email)` references `email`).

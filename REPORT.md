@@ -108,16 +108,52 @@ Dropping a NOT NULL constraint silently allows NULLs where application code assu
 ### High (Architecture / New Rules)
 2. **Implement integer PK rule** (already designed, highest-value gap)
 3. **Implement `ALTER TYPE ADD VALUE` in transaction** rule
-4. **Add `pub(crate)` discipline** across the crate
-
-### Medium (DRY / Missing Rules)
-5. **Extract `existing_table_check` helper** for 6 rules (~150 lines)
-6. **Extract `Catalog::fk_dependents()`** for PGM202/PGM204
-7. **Extract `drop_column_constraint_check` helper** for PGM010/011/012
 8. **Implement `DROP NOT NULL` rule**
 11. **Add `DROP CONSTRAINT` to catalog replay**
+15. Implement `VACUUM FULL` / `REINDEX CONCURRENTLY` rules
+
+4. **Add `pub(crate)` discipline** across the crate
+### Medium (DRY / Missing Rules)
 
 ### Low (Polish)
 12. Replace glob re-exports with explicit re-exports
-15. Implement `VACUUM FULL` / `REINDEX CONCURRENTLY` rules
-16. Remove `MigrationLoader` trait (single impl)
+
+---
+
+## 7. Catalog Improvement: DROP CONSTRAINT Replay
+
+### Problem
+
+`ALTER TABLE ... DROP CONSTRAINT` currently falls through to `AlterTableAction::Other` in the parser. The catalog replay ignores `Other` actions, so dropped constraints persist in catalog state indefinitely. This produces stale state that affects downstream rules:
+
+- **PGM501** (FK without covering index): may report findings for foreign keys that no longer exist.
+- **PGM502** (table without PK): may miss findings when a primary key has been dropped.
+- **PGM503** (UNIQUE NOT NULL instead of PK): may report on unique constraints that have been removed.
+
+### Solution
+
+1. **New IR variant**: `AlterTableAction::DropConstraint { name: String }`.
+2. **Parser**: Map `AlterTableSubType::AtDropConstraint` to the new variant instead of `Other`.
+3. **Catalog replay**: On `DropConstraint { name }`:
+   - Remove the constraint by name from `TableState.constraints`.
+   - If the removed constraint was a `PrimaryKey`, set `has_primary_key = false` and remove the synthetic `pkey` index.
+   - No-op if no constraint with that name exists (idempotent).
+
+### Files affected
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Add `DropConstraint { name: String }` to `AlterTableAction` |
+| `src/parser/pg_query.rs` | Map `AtDropConstraint` → `AlterTableAction::DropConstraint` |
+| `src/catalog/replay.rs` | Handle `DropConstraint` in `apply()`: remove constraint, update `has_primary_key` |
+
+### Tests needed
+
+| Test case | Assertion |
+|-----------|-----------|
+| Drop FK constraint | FK removed from `TableState.constraints` |
+| Drop PK constraint | PK removed, `has_primary_key` set to `false`, synthetic index removed |
+| Drop UNIQUE constraint | UNIQUE removed from `TableState.constraints` |
+| Drop CHECK constraint | CHECK removed from `TableState.constraints` |
+| Drop nonexistent constraint | No panic, no-op |
+| `has_primary_key` flag after PK drop | Flag is `false`, PGM502 now fires |

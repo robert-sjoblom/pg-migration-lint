@@ -18,7 +18,7 @@ mod lint_context;
 mod rule_id;
 mod severity;
 #[cfg(test)]
-pub mod test_helpers;
+mod test_helpers;
 
 // 0xx — Unsafe DDL
 mod pgm001;
