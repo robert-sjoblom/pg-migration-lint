@@ -549,9 +549,11 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                 column_name: cmd.name.clone(),
             }]
         }
-        pg_query::protobuf::AlterTableType::AtDropNotNull => vec![AlterTableAction::Other {
-            description: format!("DROP NOT NULL on {}", cmd.name),
-        }],
+        pg_query::protobuf::AlterTableType::AtDropNotNull => {
+            vec![AlterTableAction::DropNotNull {
+                column_name: cmd.name.clone(),
+            }]
+        }
         pg_query::protobuf::AlterTableType::AtAttachPartition => {
             let child = cmd
                 .def
@@ -608,6 +610,16 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
         pg_query::protobuf::AlterTableType::AtDisableTrigUser => {
             vec![AlterTableAction::DisableTrigger {
                 scope: TriggerDisableScope::User,
+            }]
+        }
+        pg_query::protobuf::AlterTableType::AtDropConstraint => {
+            vec![AlterTableAction::DropConstraint {
+                constraint_name: cmd.name.clone(),
+            }]
+        }
+        pg_query::protobuf::AlterTableType::AtValidateConstraint => {
+            vec![AlterTableAction::ValidateConstraint {
+                constraint_name: cmd.name.clone(),
             }]
         }
         // ENABLE TRIGGER variants — not flagged, no schema state change.

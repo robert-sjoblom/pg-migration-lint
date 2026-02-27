@@ -380,6 +380,38 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_column_after_unique_already_dropped_no_finding() {
+        // UNIQUE constraint was explicitly removed via DROP CONSTRAINT in an
+        // earlier migration. catalog_before reflects no UNIQUE, so DROP COLUMN
+        // should NOT warn about silently removing it.
+        let before = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("id", "integer", false)
+                    .column("email", "text", false)
+                    .pk(&["id"]);
+                // No UNIQUE constraint — it was dropped by a prior migration
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/003.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("users"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "email".to_string(),
+            }],
+        }))];
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Should not fire when UNIQUE was already explicitly dropped"
+        );
+    }
+
+    #[test]
     fn test_drop_pkey_index_column_not_pgm010() {
         // Primary key indexes (named *_pkey) should NOT fire PGM010
         // They should be handled by PGM011 or not at all

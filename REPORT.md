@@ -49,29 +49,24 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 
 ### 5.1 Must-Have — High Value, Low Effort
 
-#### Integer Primary Key Detection (already designed, unimplemented)
-PK columns using `int4`/`int2` instead of `int8`/`bigint`. Max ~2.1B is routinely exhausted in high-write tables. Both squawk (`prefer-bigint-over-int`) and strong_migrations flag this. **Already fully designed in SPEC.md** — just needs implementation.
+> Full specs for these rules are in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md).
 
-**Severity:** MAJOR | **Family:** 1xx (TypeAntiPattern) | **Effort:** Tier 1 (existing IR sufficient)
-
-#### `ALTER TYPE ... ADD VALUE` in Transaction
-Adding an enum value cannot be rolled back inside a transaction. If the migration fails partway, the enum value persists after rollback. Strong_migrations flags this.
-
-**Severity:** CRITICAL | **Family:** 0xx (UnsafeDDL) | **Effort:** Tier 2 (new `IrNode::AlterEnum` variant)
-
-#### `DROP NOT NULL` on Existing Table
-Dropping a NOT NULL constraint silently allows NULLs where application code assumes non-NULL. Squawk has `ban-drop-not-null`.
-
-**Severity:** WARNING | **Family:** 0xx | **Effort:** Tier 1 (match on existing `AlterTableAction::Other` or promote to new variant)
+| Rule | Proposed ID | Severity | Effort |
+|------|-------------|----------|--------|
+| Integer Primary Key Detection | PGM1107 | MAJOR | Tier 1 (existing IR sufficient) |
+| `ALTER TYPE ... ADD VALUE` in Transaction | PGM1021 | CRITICAL | Tier 2 (new `IrNode::AlterEnum`) |
+| `DROP NOT NULL` on Existing Table | PGM1022 | MINOR | Tier 1 (new `AlterTableAction` variant) |
 
 ### 5.2 Should-Have — Medium Value, Medium Effort
 
-| Rule | What It Detects | Severity | Effort |
-|------|----------------|----------|--------|
-| `VACUUM FULL` on existing table | ACCESS EXCLUSIVE lock, full table rewrite | CRITICAL | Tier 2 (new IR variant) |
-| `REINDEX` without `CONCURRENTLY` | ACCESS EXCLUSIVE lock (PG 12+ has CONCURRENTLY) | CRITICAL | Tier 2 (new IR variant) |
-| Duplicate/redundant indexes | Index whose columns are a prefix of another | WARNING | Tier 1 (catalog-only) |
-| Transaction nesting (`BEGIN`/`COMMIT` in migration) | Nested transaction errors in transactional migrations | WARNING | Tier 2 (new IR variant) |
+> Full specs for VACUUM FULL and REINDEX are in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) (PGM1023, PGM1024).
+
+| Rule | Proposed ID | Severity | Effort |
+|------|-------------|----------|--------|
+| `VACUUM FULL` on existing table | PGM1023 | CRITICAL | Tier 2 (new IR variant) |
+| `REINDEX` without `CONCURRENTLY` | PGM1024 | CRITICAL | Tier 2 (new IR variant) |
+| Duplicate/redundant indexes | — | WARNING | Tier 1 (catalog-only) |
+| Transaction nesting (`BEGIN`/`COMMIT` in migration) | — | WARNING | Tier 2 (new IR variant) |
 
 ### 5.3 Nice-to-Have — Low Value or Deferred
 
@@ -89,15 +84,15 @@ Dropping a NOT NULL constraint silently allows NULLs where application code assu
 ### 5.4 Comparison with Competitors
 
 **Rules squawk has that pg-migration-lint does NOT:**
-- `prefer-bigint-over-int` / `prefer-bigint-over-smallint` — **Gap: planned but not implemented**
-- `ban-drop-not-null` — **Gap: proposed above**
-- `ban-drop-database` — **Gap: low priority**
-- `transaction-nesting` — **Gap: proposed above**
+- `prefer-bigint-over-int` / `prefer-bigint-over-smallint` — **Proposed: PGM1107**
+- `ban-drop-not-null` — **Proposed: PGM1022**
+- `ban-drop-database` — Gap: low priority
+- `transaction-nesting` — Gap: proposed in §5.2 (no ID yet)
 - `prefer-text-field` — Gap: deferred
 - `ban-create-domain-with-constraint` — Gap: niche
 
 **Rules strong_migrations has that pg-migration-lint does NOT:**
-- Enum `ADD VALUE` in transaction — **Gap: proposed above**
+- Enum `ADD VALUE` in transaction — **Proposed: PGM1021**
 
 **All other squawk and strong_migrations rules are covered** by existing pg-migration-lint rules.
 
@@ -105,18 +100,10 @@ Dropping a NOT NULL constraint silently allows NULLs where application code assu
 
 ## 6. Prioritized Action Items
 
-### High (Architecture / New Rules)
-2. **Implement integer PK rule** (already designed, highest-value gap)
-3. **Implement `ALTER TYPE ADD VALUE` in transaction** rule
-8. **Implement `DROP NOT NULL` rule**
-11. **Add `DROP CONSTRAINT` to catalog replay**
-15. Implement `VACUUM FULL` / `REINDEX CONCURRENTLY` rules
-
-4. **Add `pub(crate)` discipline** across the crate
-### Medium (DRY / Missing Rules)
+> Rule specs are in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md). Catalog plan is in §7 below.
 
 ### Low (Polish)
-12. Replace glob re-exports with explicit re-exports
+7. Replace glob re-exports with explicit re-exports
 
 ---
 
@@ -157,3 +144,149 @@ Dropping a NOT NULL constraint silently allows NULLs where application code assu
 | Drop CHECK constraint | CHECK removed from `TableState.constraints` |
 | Drop nonexistent constraint | No panic, no-op |
 | `has_primary_key` flag after PK drop | Flag is `false`, PGM502 now fires |
+
+---
+
+## 8. Catalog Model Gaps — Implementation Analysis
+
+Detailed implementation plan for each gap listed in §1.3. All changes are purely additive (new enum variants, optional fields) — no breaking changes.
+
+### 8.1 VALIDATE CONSTRAINT
+
+**Problem:** `ConstraintState` already has a `not_valid: bool` field, but `ALTER TABLE ... VALIDATE CONSTRAINT` falls through to `AlterTableAction::Other`. Once a constraint is added with `NOT VALID`, it stays `not_valid = true` forever. PGM013 cannot detect the safe 3-step pattern (add NOT VALID → validate → set NOT NULL).
+
+**Current code path:** `AtValidateConstraint` → catch-all → `AlterTableAction::Other` → replay ignores it.
+
+**Solution:**
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Add `AlterTableAction::ValidateConstraint { name: String }` |
+| `src/parser/pg_query.rs` | Map `AtValidateConstraint` → new variant |
+| `src/catalog/replay.rs` | Find constraint by name, set `not_valid = false` (FK and CHECK only) |
+
+**Tests:** Validate FK, validate CHECK, validate nonexistent (no-op), PGM014/015 after validate.
+
+**Complexity:** Small | **Rules:** PGM013, PGM014, PGM015
+
+---
+
+### 8.2 DROP CONSTRAINT
+
+See §7 above. Identical structure to this section.
+
+**Complexity:** Small | **Rules:** PGM501, PGM502, PGM503
+
+---
+
+### 8.3 DROP NOT NULL
+
+**Problem:** `AtDropNotNull` maps to `AlterTableAction::Other`. Column stays `nullable = false` in catalog after `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL`. Stale nullability affects PGM016 (ADD PK checks nullable columns) and PGM503 (UNIQUE NOT NULL detection).
+
+**Current code path:** `AtDropNotNull` (pg_query.rs:552–554) → `Other` → replay ignores it.
+
+**Note:** This gap overlaps with proposed rule PGM1022. The catalog fix is a prerequisite — PGM1022 needs `DropNotNull` as a distinct `AlterTableAction` variant to match on.
+
+**Solution:**
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Add `AlterTableAction::DropNotNull { column_name: String }` |
+| `src/parser/pg_query.rs` | Map `AtDropNotNull` → new variant (replace line 552–554) |
+| `src/catalog/replay.rs` | Find column by name, set `nullable = true` |
+
+**Tests:** DROP NOT NULL on not-null column → `nullable = true`, on already-nullable (no-op), nonexistent column (no-op).
+
+**Complexity:** Small | **Rules:** PGM016, PGM503 (catalog accuracy); enables PGM1022
+
+---
+
+### 8.4 SET DEFAULT / DROP DEFAULT
+
+**Problem:** `ColumnState` has `has_default: bool` and `default_expr: Option<DefaultExpr>`, but `AtSetDefault` and `AtDropDefault` both fall through to `Other`. Default expressions are frozen at CREATE TABLE time.
+
+**Current code path:** `AtSetDefault` / `AtDropDefault` → catch-all → `Other` → replay ignores.
+
+**Impact:** No active rules depend on default state after CREATE TABLE. This is future-proofing — it would matter if PGM006 (volatile default) were extended to cover `ALTER TABLE ... SET DEFAULT`.
+
+**Solution:**
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Add `SetDefault { column_name: String, expr: DefaultExpr }` and `DropDefault { column_name: String }` |
+| `src/parser/pg_query.rs` | Map `AtSetDefault` → new variant (extract expr via existing `convert_default_expr`), `AtDropDefault` → new variant |
+| `src/catalog/replay.rs` | SetDefault: update `has_default = true`, `default_expr = Some(expr)`. DropDefault: set both to `false` / `None` |
+
+**Tests:** SET DEFAULT literal, SET DEFAULT function, DROP DEFAULT clears both fields, nonexistent column (no-op).
+
+**Complexity:** Small-to-medium (default expression extraction already proven in parser) | **Rules:** None active; future PGM006 extension
+
+---
+
+### 8.5 Index Access Method
+
+**Problem:** `IndexState` and `CreateIndex` have no `access_method` field. `has_covering_index` treats all indexes equally — a GIN or BRIN index on FK columns is falsely counted as covering. Only B-tree indexes can serve FK lookups.
+
+**Current state:** pg_query's `IndexStmt.access_method` is available but not extracted. `has_covering_index` (catalog/types.rs) does prefix matching on column names without filtering by index type.
+
+**Solution:**
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Add `access_method: Option<String>` to `CreateIndex` |
+| `src/catalog/types.rs` | Add `access_method: Option<String>` to `IndexState` |
+| `src/parser/pg_query.rs` | Extract `idx.access_method` (empty string = btree default) |
+| `src/catalog/replay.rs` | Pass `access_method` when constructing `IndexState` |
+| `src/catalog/types.rs` | In `has_covering_index`: skip indexes where `access_method` is not B-tree (or None/empty, which defaults to B-tree) |
+
+**Tests:** CREATE INDEX USING gin → stored as `"gin"`, CREATE INDEX (no USING) → `None` (B-tree default), PGM501 with GIN on FK columns → still fires, PGM501 with B-tree → does not fire.
+
+**Complexity:** Small-to-medium | **Rules:** PGM501 (accuracy)
+
+---
+
+### 8.6 EXCLUDE Constraint Columns
+
+**Problem:** `TableConstraint::Exclude` and `ConstraintState::Exclude` store only `name: Option<String>` — the element list (columns + operators) is discarded. When a column referenced by an EXCLUDE constraint is dropped, `involves_column()` can't detect the relationship, so the constraint isn't removed. There is an existing TODO in replay.rs acknowledging this.
+
+**Current state:** Parser maps `ConstrExclusion` → `Exclude { name }` (stops there). `ConstraintState::involves_column` returns `false` for EXCLUDE, so DROP COLUMN never removes it.
+
+**Solution:**
+
+| File | Change |
+|------|--------|
+| `src/parser/ir.rs` | Extend `TableConstraint::Exclude` with `columns: Vec<String>` (element column names) |
+| `src/parser/pg_query.rs` | Extract column names from `Constraint.exclusions` (each is an `IndexElem`) |
+| `src/catalog/types.rs` | Mirror `columns` to `ConstraintState::Exclude`, implement `involves_column` for it |
+| `src/catalog/replay.rs` | DROP COLUMN: remove EXCLUDE if column is in element list. RENAME COLUMN: update column names |
+
+**Tests:** CREATE TABLE with EXCLUDE → columns captured, DROP COLUMN in EXCLUDE → constraint removed, DROP unrelated column → constraint kept, RENAME COLUMN → element updated.
+
+**Complexity:** Medium (most complex AST navigation of the 6 gaps) | **Rules:** None directly; fixes DROP COLUMN correctness for EXCLUDE
+
+---
+
+### Summary
+
+| Gap | Complexity | Rules Affected | Priority |
+|-----|-----------|----------------|----------|
+| 8.1 VALIDATE CONSTRAINT | Small | PGM013, PGM014, PGM015 | Medium |
+| 8.2 DROP CONSTRAINT (§7) | Small | PGM501, PGM502, PGM503 | Medium |
+| 8.3 DROP NOT NULL | Small | PGM016, PGM503; enables PGM1022 | Medium |
+| 8.4 SET/DROP DEFAULT | Small-Med | None active | Low |
+| 8.5 Index access method | Small-Med | PGM501 | Low |
+| 8.6 EXCLUDE columns | Medium | None; correctness fix | Low |
+
+### Recommended Order
+
+**Batch 1** — all three touch the same files (`ir.rs`, `pg_query.rs`, `replay.rs`) with the same pattern (new `AlterTableAction` variant → parser mapping → replay handler). Implement together to minimize churn:
+1. DROP CONSTRAINT (§7)
+2. VALIDATE CONSTRAINT
+3. DROP NOT NULL
+
+**Batch 2** — independent, lower priority:
+4. Index access method
+5. SET/DROP DEFAULT
+
+**Deferred:**
+6. EXCLUDE columns

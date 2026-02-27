@@ -216,6 +216,60 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                         col.nullable = false;
                     }
                 }
+                AlterTableAction::DropNotNull { column_name } => {
+                    if let Some(col) = table.get_column_mut(column_name) {
+                        col.nullable = true;
+                    }
+                }
+                AlterTableAction::DropConstraint { constraint_name } => {
+                    // Check if we're dropping a PK constraint.
+                    // ConstraintState::PrimaryKey has no name field; PostgreSQL
+                    // names it `{table}_pkey` by default.
+                    let pkey_name = format!("{}_pkey", table.name);
+                    let dropping_pk = table.has_primary_key && *constraint_name == pkey_name;
+
+                    // Remove named constraints (FK, Unique, Check, Exclude).
+                    table.constraints.retain(|c| match c {
+                        ConstraintState::ForeignKey { name, .. }
+                        | ConstraintState::Unique { name, .. }
+                        | ConstraintState::Check { name, .. }
+                        | ConstraintState::Exclude { name, .. } => {
+                            name.as_deref() != Some(constraint_name)
+                        }
+                        ConstraintState::PrimaryKey { .. } => !dropping_pk,
+                    });
+
+                    if dropping_pk {
+                        table.has_primary_key = false;
+                        indexes_to_unregister.push(pkey_name.clone());
+                        table.indexes.retain(|idx| idx.name != pkey_name);
+                    }
+
+                    // PostgreSQL drops the backing index when a constraint is
+                    // dropped (UNIQUE, EXCLUDE, and PK all have backing indexes).
+                    // Remove any index whose name matches the constraint name.
+                    if table.indexes.iter().any(|idx| idx.name == *constraint_name) {
+                        table.indexes.retain(|idx| idx.name != *constraint_name);
+                        indexes_to_unregister.push(constraint_name.clone());
+                    }
+                }
+                AlterTableAction::ValidateConstraint { constraint_name } => {
+                    for c in &mut table.constraints {
+                        match c {
+                            ConstraintState::ForeignKey {
+                                name, not_valid, ..
+                            } if name.as_deref() == Some(constraint_name) => {
+                                *not_valid = false;
+                            }
+                            ConstraintState::Check {
+                                name, not_valid, ..
+                            } if name.as_deref() == Some(constraint_name) => {
+                                *not_valid = false;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 AlterTableAction::AttachPartition { .. }
                 | AlterTableAction::DetachPartition { .. } => {
                     // Handled below, outside the table mutable borrow.

@@ -387,6 +387,33 @@ mod tests {
     }
 
     #[test]
+    fn test_add_pk_using_index_column_made_nullable_by_drop_not_null_fires() {
+        // Column was NOT NULL originally but became nullable via DROP NOT NULL
+        // in an earlier migration. catalog_before reflects nullable column,
+        // so ADD PK USING INDEX should warn about implicit SET NOT NULL.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", true) // nullable after DROP NOT NULL
+                    .index("idx_orders_pk", &["id"], true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/003.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_pk_using_index_stmt("orders", "idx_orders_pk")];
+
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Should fire when column became nullable via DROP NOT NULL"
+        );
+        assert!(findings[0].message.contains("nullable"));
+    }
+
+    #[test]
     fn test_add_pk_using_index_one_nullable_one_not_fires() {
         // Multi-column index where one column is nullable
         let before = CatalogBuilder::new()
