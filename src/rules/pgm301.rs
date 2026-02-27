@@ -5,7 +5,7 @@
 //! in volume and clearly intentional.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "INSERT INTO existing table in migration";
 
@@ -38,27 +38,20 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for stmt in statements {
-        if let IrNode::InsertInto(ref ii) = stmt.node {
-            let table_key = ii.table_name.catalog_key();
-
-            if ctx.is_existing_table(table_key) {
-                findings.push(rule.make_finding(
-                    format!(
-                        "INSERT INTO existing table '{}' in a migration. \
-                         Ensure this is intentional seed data and that row volume is bounded.",
-                        ii.table_name.display_name()
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
-            }
+    existing_table_check::check_existing_table(statements, ctx, rule, |node| {
+        if let IrNode::InsertInto(ii) = node {
+            Some((
+                &ii.table_name,
+                format!(
+                    "INSERT INTO existing table '{}' in a migration. \
+                     Ensure this is intentional seed data and that row volume is bounded.",
+                    ii.table_name.display_name()
+                ),
+            ))
+        } else {
+            None
         }
-    }
-
-    findings
+    })
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@
 //! WAL volume, which can spike replication lag.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "DELETE FROM existing table in migration";
 
@@ -42,28 +42,21 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for stmt in statements {
-        if let IrNode::DeleteFrom(ref df) = stmt.node {
-            let table_key = df.table_name.catalog_key();
-
-            if ctx.is_existing_table(table_key) {
-                findings.push(rule.make_finding(
-                    format!(
-                        "DELETE FROM existing table '{}' in a migration. Unbatched deletes \
-                         hold row locks and generate significant WAL. Verify row volume \
-                         and consider batched execution.",
-                        df.table_name.display_name()
-                    ),
-                    ctx.file,
-                    &stmt.span,
-                ));
-            }
+    existing_table_check::check_existing_table(statements, ctx, rule, |node| {
+        if let IrNode::DeleteFrom(df) = node {
+            Some((
+                &df.table_name,
+                format!(
+                    "DELETE FROM existing table '{}' in a migration. Unbatched deletes \
+                     hold row locks and generate significant WAL. Verify row volume \
+                     and consider batched execution.",
+                    df.table_name.display_name()
+                ),
+            ))
+        } else {
+            None
         }
-    }
-
-    findings
+    })
 }
 
 #[cfg(test)]
