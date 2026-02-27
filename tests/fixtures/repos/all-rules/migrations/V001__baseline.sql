@@ -50,3 +50,7 @@ CREATE TABLE measurements_2024 (
     ts timestamptz NOT NULL,
     value double precision
 );
+
+-- Schema setup for PGM205 test
+CREATE SCHEMA myschema;
+CREATE TABLE myschema.orders (id bigint PRIMARY KEY, total numeric);

@@ -6,18 +6,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 2xx — Destructive operations
 
-### PGM1205 — `DROP SCHEMA ... CASCADE`
-
-- **Range**: 2xx (DROP SCHEMA)
-- **Severity**: CRITICAL
-- **Status**: Not yet implemented.
-- **Triggers**: `DROP SCHEMA ... CASCADE` where the schema contains at least one table in `catalog_before`.
-- **Why**: `DROP SCHEMA CASCADE` drops every object in the schema — tables, views, sequences, functions, types, and indexes — in a single statement. It is the most destructive single DDL statement in PostgreSQL and cannot be selectively undone. There is no analog to `DROP TABLE CASCADE` that limits the scope; the entire schema is destroyed.
-- **Does not fire when**:
-  - The schema contains no tables in `catalog_before` (empty schema, no data at risk).
-  - `CASCADE` is absent (`DROP SCHEMA` without `CASCADE` fails if the schema is non-empty, which is a safe default).
-- **Message**: `DROP SCHEMA '{schema}' CASCADE drops every object in the schema. This is irreversible and destroys all tables, views, sequences, functions, and types within it.`
-- **IR impact**: Requires a new top-level `IrNode` variant `DropSchema { name: String, cascade: bool, if_exists: bool }`. `pg_query` emits `DropStmt(OBJECT_SCHEMA)`.
+### ~~PGM1205~~ — Promoted to **PGM205**
 
 ---
 

@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm205.rs
+expression: findings
+---
+- rule_id: PGM205
+  severity: Critical
+  message: "DROP SCHEMA 'myschema' CASCADE drops every object in the schema — tables, views, sequences, functions, and types. This is irreversible."
+  file: migrations/016.sql
+  start_line: 1
+  end_line: 1

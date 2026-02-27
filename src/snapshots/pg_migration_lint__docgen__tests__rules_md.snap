@@ -10,7 +10,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 42 lint rules across seven categories:
+`pg-migration-lint` ships with 43 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -724,6 +724,28 @@ TRUNCATE TABLE customers CASCADE;
 
 ---
 
+### PGM205 — DROP SCHEMA CASCADE
+{: #pgm205}
+
+**Severity**: Critical
+
+Detects `DROP SCHEMA ... CASCADE`. This is the most destructive single DDL statement in PostgreSQL — it silently drops every object in the schema: tables, views, sequences, functions, types, and indexes.
+
+Unlike `DROP TABLE CASCADE` (which only removes objects that depend on one table), `DROP SCHEMA CASCADE` destroys the entire namespace and everything in it.
+
+**Example**:
+```sql
+DROP SCHEMA myschema CASCADE;
+-- Silently drops every table, view, function, sequence, and type in 'myschema'.
+```
+
+**Recommended approach**:
+1. Enumerate all objects in the schema before dropping.
+2. Explicitly drop or migrate each object in separate migration steps.
+3. Use plain `DROP SCHEMA` (without `CASCADE`) so PostgreSQL will error if the schema is non-empty.
+
+---
+
 ## 3xx — DML in Migration Rules
 
 ### PGM301 — INSERT INTO existing table in migration
@@ -1049,6 +1071,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM202](#pgm202) | Major | DROP TABLE CASCADE on existing table |
 | [PGM203](#pgm203) | Minor | TRUNCATE TABLE on existing table |
 | [PGM204](#pgm204) | Major | TRUNCATE TABLE CASCADE on existing table |
+| [PGM205](#pgm205) | Critical | DROP SCHEMA CASCADE |
 | [PGM301](#pgm301) | Info | INSERT INTO existing table in migration |
 | [PGM302](#pgm302) | Minor | UPDATE on existing table in migration |
 | [PGM303](#pgm303) | Minor | DELETE FROM existing table in migration |

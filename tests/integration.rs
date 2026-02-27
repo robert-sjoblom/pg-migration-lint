@@ -2432,3 +2432,14 @@ fn test_updatesql_lint_010_only() {
         })
     });
 }
+
+// ---------------------------------------------------------------------------
+// PGM205 — DROP SCHEMA CASCADE
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pgm205_finding_details() {
+    let findings = lint_fixture_rules("all-rules", &["V016__drop_schema_cascade.sql"], &["PGM205"]);
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}

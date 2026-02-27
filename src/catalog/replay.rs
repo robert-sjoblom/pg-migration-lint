@@ -38,6 +38,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
         } => apply_alter_index_attach(catalog, parent_index_name),
+        IrNode::DropSchema(ds) => apply_drop_schema(catalog, ds),
         IrNode::TruncateTable(_) | IrNode::Cluster(_) => { /* no schema state change */ }
         IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
             /* DML: no schema change */
@@ -352,6 +353,28 @@ fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
     }
 
     catalog.remove_table(&table_key);
+}
+
+/// Handle DROP SCHEMA: remove all tables in the schema from the catalog.
+///
+/// With CASCADE, all tables whose catalog key starts with `"{schema_name}."`
+/// are removed. Without CASCADE, PostgreSQL would error at runtime if the
+/// schema is non-empty, so we treat it as a no-op.
+fn apply_drop_schema(catalog: &mut Catalog, ds: &DropSchema) {
+    if !ds.cascade {
+        return;
+    }
+
+    let prefix = format!("{}.", ds.schema_name);
+    let keys_to_remove: Vec<String> = catalog
+        .tables()
+        .filter(|t| t.name.starts_with(&prefix))
+        .map(|t| t.name.clone())
+        .collect();
+
+    for key in keys_to_remove {
+        catalog.remove_table(&key);
+    }
 }
 
 /// Collect all partition children recursively (depth-first) for cascade removal.
@@ -2883,6 +2906,98 @@ mod tests {
         assert!(!catalog.has_table("child_b"));
         assert!(!catalog.has_table("child_c"));
         assert!(catalog.get_partition_children("parent").is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // DROP SCHEMA CASCADE catalog replay
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_drop_schema_cascade_removes_matching_tables() {
+        let mut catalog = CatalogBuilder::new()
+            .table("myschema.orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("myschema.customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("other.products", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![DropSchema::test("myschema").with_cascade(true).into()]);
+        apply(&mut catalog, &unit);
+
+        assert!(
+            !catalog.has_table("myschema.orders"),
+            "myschema.orders should be removed"
+        );
+        assert!(
+            !catalog.has_table("myschema.customers"),
+            "myschema.customers should be removed"
+        );
+        assert!(
+            catalog.has_table("other.products"),
+            "Tables in other schemas should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_drop_schema_no_cascade_is_noop() {
+        let mut catalog = CatalogBuilder::new()
+            .table("myschema.orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![DropSchema::test("myschema").into()]);
+        apply(&mut catalog, &unit);
+
+        assert!(
+            catalog.has_table("myschema.orders"),
+            "Table should remain when DROP SCHEMA has no CASCADE"
+        );
+    }
+
+    #[test]
+    fn test_drop_schema_cascade_prefix_no_false_match() {
+        let mut catalog = CatalogBuilder::new()
+            .table("foo.t1", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("foobar.t2", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![DropSchema::test("foo").with_cascade(true).into()]);
+        apply(&mut catalog, &unit);
+
+        assert!(!catalog.has_table("foo.t1"), "foo.t1 should be removed");
+        assert!(
+            catalog.has_table("foobar.t2"),
+            "foobar.t2 should NOT be removed by DROP SCHEMA foo CASCADE"
+        );
+    }
+
+    #[test]
+    fn test_drop_schema_cascade_empty_schema_noop() {
+        let mut catalog = CatalogBuilder::new()
+            .table("other.orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+
+        let unit = make_unit(vec![
+            DropSchema::test("empty_schema").with_cascade(true).into(),
+        ]);
+        apply(&mut catalog, &unit);
+
+        assert!(
+            catalog.has_table("other.orders"),
+            "Unrelated tables should be unaffected"
+        );
     }
 
     #[test]

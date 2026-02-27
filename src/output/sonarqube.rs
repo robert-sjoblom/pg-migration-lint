@@ -120,6 +120,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
         },
+        // Destructive: DROP SCHEMA CASCADE — most destructive single DDL statement
+        RuleId::Destructive(Pgm205) => SonarQubeRuleMeta {
+            clean_code_attribute: "COMPLETE",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "HIGH",
+        },
         // DML in migrations: INSERT, UPDATE, DELETE on existing tables
         RuleId::Dml(Pgm301 | Pgm302 | Pgm303) => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
@@ -233,6 +240,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::SchemaDesign(Pgm502 | Pgm503 | Pgm504 | Pgm505 | Pgm506) => 10,
         RuleId::Destructive(Pgm201 | Pgm203) => 10,
         RuleId::Destructive(Pgm202 | Pgm204) => 15,
+        RuleId::Destructive(Pgm205) => 30,
         RuleId::Dml(Pgm301 | Pgm302 | Pgm303) => 10,
         RuleId::Idempotency(Pgm401 | Pgm402 | Pgm403) => 10,
         // Type anti-pattern rules

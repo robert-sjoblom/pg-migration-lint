@@ -8,7 +8,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 42 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 43 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -37,7 +37,7 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 42 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 43 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
 
 ### Unsafe DDL Rules (0xx)
 
@@ -89,8 +89,9 @@ These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.
 | PGM202 | Major | `DROP TABLE CASCADE` on existing table | `DROP TABLE legacy_orders CASCADE;` |
 | PGM203 | Minor | `TRUNCATE TABLE` on existing table | `TRUNCATE TABLE audit_trail;` |
 | PGM204 | Major | `TRUNCATE TABLE CASCADE` on existing table | `TRUNCATE TABLE audit_trail CASCADE;` |
+| PGM205 | Critical | `DROP SCHEMA CASCADE` | `DROP SCHEMA myschema CASCADE;` |
 
-These rules only fire on tables that existed before the current set of changed files. Dropping or truncating a table created in the same changeset is harmless. The CASCADE variants (PGM202, PGM204) are Major because they silently affect dependent tables the developer may not be aware of.
+PGM201–PGM204 only fire on tables that existed before the current set of changed files. Dropping or truncating a table created in the same changeset is harmless. The CASCADE variants (PGM202, PGM204) are Major because they silently affect dependent tables the developer may not be aware of. PGM205 always fires on `DROP SCHEMA ... CASCADE` regardless of catalog state — it is the most destructive single DDL statement in PostgreSQL.
 
 ### DML in Migrations Rules (3xx)
 
