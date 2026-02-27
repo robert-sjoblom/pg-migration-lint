@@ -9,6 +9,9 @@ on:
     # Weekly audit on Mondays at 06:00 UTC
     - cron: "0 6 * * 1"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   # The ubuntu-latest runner has clang-18 + libclang pre-installed;
