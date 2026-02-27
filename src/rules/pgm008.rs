@@ -75,8 +75,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -99,7 +99,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::Pgm008.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -124,7 +124,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::Pgm008.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -147,7 +147,7 @@ mod tests {
             ))],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::Pgm008.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -171,7 +171,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm008).check(&stmts, &ctx);
+        let findings = RuleId::Pgm008.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

@@ -171,7 +171,7 @@ pub fn parse_suppressions(source: &str) -> Suppressions {
 
 #[cfg(test)]
 mod tests {
-    use crate::rules::{RuleId, SchemaDesignRule, UnsafeDdlRule};
+    use crate::rules::RuleId;
 
     use super::*;
 
@@ -185,9 +185,9 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 5));
-        assert!(suppressions.is_suppressed(RuleId::SchemaDesign(SchemaDesignRule::Pgm501), 5));
-        assert!(!suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 5));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 5));
+        assert!(suppressions.is_suppressed(RuleId::Pgm501, 5));
+        assert!(!suppressions.is_suppressed(RuleId::Pgm002, 5));
     }
 
     #[test]
@@ -200,8 +200,8 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 5));
-        assert!(!suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 5));
+        assert!(!suppressions.is_suppressed(RuleId::Pgm001, 2));
     }
 
     #[test]
@@ -212,8 +212,8 @@ CREATE INDEX idx_foo ON foo(id);
 "#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 3));
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 3));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 3));
+        assert!(suppressions.is_suppressed(RuleId::Pgm002, 3));
     }
 
     // -----------------------------------------------------------------------
@@ -235,11 +235,11 @@ CREATE INDEX idx_foo ON foo(id);
         let suppressions = parse_suppressions(source);
         // The next non-comment, non-empty line after line 3 is line 4 (<changeSet>)
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 4),
+            suppressions.is_suppressed(RuleId::Pgm001, 4),
             "PGM001 should be suppressed on line 4"
         );
         assert!(
-            !suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 4),
+            !suppressions.is_suppressed(RuleId::Pgm002, 4),
             "PGM002 should NOT be suppressed"
         );
     }
@@ -255,9 +255,9 @@ CREATE INDEX idx_foo ON foo(id);
 </databaseChangeLog>"#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 4));
-        assert!(suppressions.is_suppressed(RuleId::SchemaDesign(SchemaDesignRule::Pgm501), 4));
-        assert!(!suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 4));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 4));
+        assert!(suppressions.is_suppressed(RuleId::Pgm501, 4));
+        assert!(!suppressions.is_suppressed(RuleId::Pgm002, 4));
     }
 
     #[test]
@@ -271,10 +271,10 @@ CREATE INDEX idx_foo ON foo(id);
 </databaseChangeLog>"#;
 
         let suppressions = parse_suppressions(source);
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 5));
-        assert!(suppressions.is_suppressed(RuleId::SchemaDesign(SchemaDesignRule::Pgm501), 5));
-        assert!(suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 99));
-        assert!(!suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 5));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 5));
+        assert!(suppressions.is_suppressed(RuleId::Pgm501, 5));
+        assert!(suppressions.is_suppressed(RuleId::Pgm001, 99));
+        assert!(!suppressions.is_suppressed(RuleId::Pgm002, 5));
     }
 
     #[test]
@@ -283,7 +283,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source1 = "<!--pgm-lint:suppress PGM001-->\n<changeSet id=\"1\" author=\"dev\">";
         let s1 = parse_suppressions(source1);
         assert!(
-            s1.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            s1.is_suppressed(RuleId::Pgm001, 2),
             "No-space variant should parse"
         );
 
@@ -291,7 +291,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source2 = "<!--  pgm-lint:suppress PGM001  -->\n<changeSet id=\"1\" author=\"dev\">";
         let s2 = parse_suppressions(source2);
         assert!(
-            s2.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            s2.is_suppressed(RuleId::Pgm001, 2),
             "Extra-space variant should parse"
         );
 
@@ -300,7 +300,7 @@ CREATE INDEX idx_foo ON foo(id);
             "    <!-- pgm-lint:suppress PGM001 -->\n    <changeSet id=\"1\" author=\"dev\">";
         let s3 = parse_suppressions(source3);
         assert!(
-            s3.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            s3.is_suppressed(RuleId::Pgm001, 2),
             "Indented variant should parse"
         );
 
@@ -308,7 +308,7 @@ CREATE INDEX idx_foo ON foo(id);
         let source4 = "<!--pgm-lint:suppress-file PGM001-->\n<something>";
         let s4 = parse_suppressions(source4);
         assert!(
-            s4.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            s4.is_suppressed(RuleId::Pgm001, 2),
             "File-level no-space variant should parse"
         );
     }
@@ -326,25 +326,25 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
         // File-level from SQL comment
         assert!(
-            suppressions.is_suppressed(RuleId::SchemaDesign(SchemaDesignRule::Pgm501), 3),
+            suppressions.is_suppressed(RuleId::Pgm501, 3),
             "PGM501 file-level from SQL comment"
         );
         assert!(
-            suppressions.is_suppressed(RuleId::SchemaDesign(SchemaDesignRule::Pgm501), 5),
+            suppressions.is_suppressed(RuleId::Pgm501, 5),
             "PGM501 file-level applies everywhere"
         );
         // Line-level from XML comment on line 2 -> targets line 3
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 3),
+            suppressions.is_suppressed(RuleId::Pgm001, 3),
             "PGM001 from XML comment targets line 3"
         );
         assert!(
-            !suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 5),
+            !suppressions.is_suppressed(RuleId::Pgm001, 5),
             "PGM001 should NOT apply to line 5"
         );
         // Line-level from XML comment on line 4 -> targets line 5
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002), 5),
+            suppressions.is_suppressed(RuleId::Pgm002, 5),
             "PGM002 from XML comment targets line 5"
         );
     }
@@ -359,11 +359,11 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
         // Should skip the regular XML comment (line 2) and target line 3
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 3),
+            suppressions.is_suppressed(RuleId::Pgm001, 3),
             "Should skip XML comment lines to find the next statement"
         );
         assert!(
-            !suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            !suppressions.is_suppressed(RuleId::Pgm001, 2),
             "Should not target the intermediate comment line"
         );
     }
@@ -376,7 +376,7 @@ ALTER TABLE foo ADD COLUMN baz int;
 
         let suppressions = parse_suppressions(source);
         assert!(
-            !suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 4),
+            !suppressions.is_suppressed(RuleId::Pgm001, 4),
             "Multi-line XML comment should NOT match"
         );
     }
@@ -390,10 +390,7 @@ ALTER TABLE foo ADD COLUMN baz int;
         let ids = suppressions.rule_ids();
 
         assert_eq!(ids.len(), 1, "should contain exactly 1 rule ID");
-        assert!(
-            ids.contains(&RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002)),
-            "should contain PGM002"
-        );
+        assert!(ids.contains(&RuleId::Pgm002), "should contain PGM002");
     }
 
     #[test]
@@ -406,11 +403,11 @@ ALTER TABLE foo ADD COLUMN baz int;
 
         assert_eq!(ids.len(), 2, "should contain 2 distinct rule IDs");
         assert!(
-            ids.contains(&RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001)),
+            ids.contains(&RuleId::Pgm001),
             "should contain file-level PGM001"
         );
         assert!(
-            ids.contains(&RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002)),
+            ids.contains(&RuleId::Pgm002),
             "should contain line-level PGM002"
         );
     }
@@ -428,7 +425,7 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
 
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            suppressions.is_suppressed(RuleId::Pgm001, 2),
             "Line starting with <!-- but not ending with --> is NOT a comment; \
              it should be the target of the suppress directive"
         );
@@ -443,7 +440,7 @@ ALTER TABLE foo ADD COLUMN baz int;
         let source = "-- pgm-lint:suppress PGM001\nsome content -->";
         let suppressions = parse_suppressions(source);
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            suppressions.is_suppressed(RuleId::Pgm001, 2),
             "Line ending with --> but not starting with <!-- is NOT a comment; \
              it should be the target of the suppress directive"
         );
@@ -462,11 +459,11 @@ ALTER TABLE foo ADD COLUMN baz int;
         let suppressions = parse_suppressions(source);
 
         assert!(
-            suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2),
+            suppressions.is_suppressed(RuleId::Pgm001, 2),
             "Unclosed XML tag (line 2) is not a comment; directive should target it"
         );
         assert!(
-            !suppressions.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 3),
+            !suppressions.is_suppressed(RuleId::Pgm001, 3),
             "Directive should NOT skip past unclosed XML to target line 3"
         );
     }
@@ -486,15 +483,15 @@ ALTER TABLE foo ADD COLUMN baz int;
         // Directive on first line (idx=0):
         // skip(0+1)=skip(1) vs skip(0*1)=skip(0): both find line 2
         let s1 = parse_suppressions("-- pgm-lint:suppress PGM001\nCREATE TABLE t(id int);");
-        assert!(s1.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 2));
-        assert!(!s1.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 1));
+        assert!(s1.is_suppressed(RuleId::Pgm001, 2));
+        assert!(!s1.is_suppressed(RuleId::Pgm001, 1));
 
         // Directive on third line (idx=2):
         // skip(2+1)=skip(3) vs skip(2*1)=skip(2): both find line 4
         let s2 = parse_suppressions(
             "CREATE TABLE t(id int);\n\n-- pgm-lint:suppress PGM001\nCREATE INDEX i ON t(id);",
         );
-        assert!(s2.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 4));
-        assert!(!s2.is_suppressed(RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001), 3));
+        assert!(s2.is_suppressed(RuleId::Pgm001, 4));
+        assert!(!s2.is_suppressed(RuleId::Pgm001, 3));
     }
 }

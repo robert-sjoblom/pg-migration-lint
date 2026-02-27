@@ -203,7 +203,7 @@ impl Reporter for SarifReporter {
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
-    use crate::rules::{Finding, SchemaDesignRule, Severity, UnsafeDdlRule};
+    use crate::rules::{Finding, Severity};
     use std::path::PathBuf;
 
     /// Helper: render findings via SarifReporter and parse the resulting JSON.
@@ -242,7 +242,7 @@ mod tests {
     fn severity_mapping_produces_correct_levels() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Blocker,
                 message: "blocker finding".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -250,7 +250,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm002),
+                rule_id: RuleId::Pgm002,
                 severity: Severity::Critical,
                 message: "critical finding".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -258,7 +258,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "major finding".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -266,7 +266,7 @@ mod tests {
                 end_line: 3,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm502),
+                rule_id: RuleId::Pgm502,
                 severity: Severity::Minor,
                 message: "minor finding".to_string(),
                 file: PathBuf::from("d.sql"),
@@ -274,7 +274,7 @@ mod tests {
                 end_line: 4,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm503),
+                rule_id: RuleId::Pgm503,
                 severity: Severity::Info,
                 message: "info finding".to_string(),
                 file: PathBuf::from("e.sql"),
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn file_paths_use_forward_slashes() {
         let findings = vec![Finding {
-            rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+            rule_id: RuleId::Pgm001,
             severity: Severity::Critical,
             message: "test".to_string(),
             file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -316,7 +316,7 @@ mod tests {
     fn unique_rules_appear_in_driver_rules() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "first".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -324,7 +324,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "second".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -332,7 +332,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "third".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -352,7 +352,7 @@ mod tests {
     fn multi_file_findings_reference_correct_paths() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "index issue in file A".to_string(),
                 file: PathBuf::from("db/migrations/V001__create_tables.sql"),
@@ -360,7 +360,7 @@ mod tests {
                 end_line: 5,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "missing FK index in file B".to_string(),
                 file: PathBuf::from("db/migrations/V002__add_fk.sql"),
@@ -368,7 +368,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm502),
+                rule_id: RuleId::Pgm502,
                 severity: Severity::Major,
                 message: "no primary key in file C".to_string(),
                 file: PathBuf::from("db/changelog/003_audit.sql"),
@@ -388,7 +388,7 @@ mod tests {
     fn rule_metadata_has_correct_fields() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "critical finding".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -396,7 +396,7 @@ mod tests {
                 end_line: 1,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "major finding".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -404,7 +404,7 @@ mod tests {
                 end_line: 2,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm503),
+                rule_id: RuleId::Pgm503,
                 severity: Severity::Info,
                 message: "info finding".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -424,7 +424,7 @@ mod tests {
     fn line_numbers_are_correct() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "single line".to_string(),
                 file: PathBuf::from("a.sql"),
@@ -432,7 +432,7 @@ mod tests {
                 end_line: 7,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "multi line".to_string(),
                 file: PathBuf::from("b.sql"),
@@ -440,7 +440,7 @@ mod tests {
                 end_line: 20,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm502),
+                rule_id: RuleId::Pgm502,
                 severity: Severity::Major,
                 message: "line 1".to_string(),
                 file: PathBuf::from("c.sql"),
@@ -460,7 +460,7 @@ mod tests {
     fn round_trip_sarif_all_fields_verified() {
         let findings = vec![
             Finding {
-                rule_id: RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001),
+                rule_id: RuleId::Pgm001,
                 severity: Severity::Critical,
                 message: "CREATE INDEX on 'orders' should use CONCURRENTLY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),
@@ -468,7 +468,7 @@ mod tests {
                 end_line: 3,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm501),
+                rule_id: RuleId::Pgm501,
                 severity: Severity::Major,
                 message: "FK on 'orders.customer_id' has no covering index.".to_string(),
                 file: PathBuf::from("db/migrations/V043__add_fk.sql"),
@@ -476,7 +476,7 @@ mod tests {
                 end_line: 12,
             },
             Finding {
-                rule_id: RuleId::SchemaDesign(SchemaDesignRule::Pgm503),
+                rule_id: RuleId::Pgm503,
                 severity: Severity::Info,
                 message: "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.".to_string(),
                 file: PathBuf::from("db/migrations/V042__add_index.sql"),

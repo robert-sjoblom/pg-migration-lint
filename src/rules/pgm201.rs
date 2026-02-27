@@ -69,8 +69,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{DestructiveRule, RuleId};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -90,7 +90,7 @@ mod tests {
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
         ))];
 
-        let findings = RuleId::Destructive(DestructiveRule::Pgm201).check(&stmts, &ctx);
+        let findings = RuleId::Pgm201.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -107,7 +107,7 @@ mod tests {
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
         ))];
 
-        let findings = RuleId::Destructive(DestructiveRule::Pgm201).check(&stmts, &ctx);
+        let findings = RuleId::Pgm201.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -123,7 +123,7 @@ mod tests {
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
         ))];
 
-        let findings = RuleId::Destructive(DestructiveRule::Pgm201).check(&stmts, &ctx);
+        let findings = RuleId::Pgm201.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

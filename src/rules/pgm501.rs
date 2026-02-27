@@ -156,8 +156,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -202,7 +202,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -248,7 +248,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -283,7 +283,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -317,7 +317,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -352,7 +352,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -391,7 +391,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -433,7 +433,7 @@ mod tests {
                 ),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -470,7 +470,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -506,7 +506,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -550,7 +550,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Recursive index on partitioned table should satisfy FK coverage"
@@ -589,7 +589,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -630,7 +630,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "After ATTACH, index should satisfy FK coverage"
@@ -669,7 +669,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(findings.is_empty(), "Child with own index should not fire");
     }
 
@@ -710,7 +710,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Child should delegate to parent's recursive index"
@@ -754,7 +754,7 @@ mod tests {
             )],
         }))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm501).check(&stmts, &ctx);
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,

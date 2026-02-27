@@ -110,8 +110,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -135,7 +135,7 @@ mod tests {
             .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -160,7 +160,7 @@ mod tests {
             .with_concurrent(true),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -186,7 +186,7 @@ mod tests {
             .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -213,7 +213,7 @@ mod tests {
             .with_only(true),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -240,7 +240,7 @@ mod tests {
             .with_concurrent(true),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -267,7 +267,7 @@ mod tests {
             .with_only(true),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -301,7 +301,7 @@ mod tests {
             .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -350,7 +350,7 @@ mod tests {
             .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -383,7 +383,7 @@ mod tests {
             .with_columns(vec![IndexColumn::Column("status".to_string())]),
         ))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm001).check(&stmts, &ctx);
+        let findings = RuleId::Pgm001.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 }

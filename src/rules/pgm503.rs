@@ -98,8 +98,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -130,7 +130,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -155,7 +155,7 @@ mod tests {
             ]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -195,7 +195,7 @@ mod tests {
                 ]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -229,7 +229,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -262,7 +262,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1, "Should fire when parent lacks PK");
     }
 
@@ -291,7 +291,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("unknown_parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -326,7 +326,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "ATTACH PARTITION child with parent PK should be suppressed"
@@ -362,7 +362,7 @@ mod tests {
                 ),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -393,7 +393,7 @@ mod tests {
             ]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm503).check(&stmts, &ctx);
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Partial unique index should NOT trigger PGM503"

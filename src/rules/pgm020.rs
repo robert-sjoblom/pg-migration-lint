@@ -110,8 +110,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -151,7 +151,7 @@ mod tests {
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
+        let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -165,7 +165,7 @@ mod tests {
             TriggerDisableScope::Named("my_trigger".to_string()),
         )];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
+        let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -176,7 +176,7 @@ mod tests {
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::User)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
+        let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -196,7 +196,7 @@ mod tests {
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
+        let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -210,7 +210,7 @@ mod tests {
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm020).check(&stmts, &ctx);
+        let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 }

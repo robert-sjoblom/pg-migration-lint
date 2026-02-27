@@ -111,8 +111,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -138,7 +138,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -164,7 +164,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -191,7 +191,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -210,7 +210,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -235,7 +235,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         // PK constraints are ConstraintState::PrimaryKey, not Unique, so PGM013 ignores them.
         assert!(findings.is_empty());
     }
@@ -263,12 +263,9 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
-        assert_eq!(
-            findings[0].rule_id,
-            RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010)
-        );
+        assert_eq!(findings[0].rule_id, RuleId::Pgm010);
     }
 
     #[test]
@@ -294,7 +291,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -354,7 +351,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         // Fires twice: once for the UNIQUE constraint (resolved columns), once for
         // the backing unique index — both involve the dropped column.
         assert_eq!(
@@ -388,7 +385,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
     }
 
@@ -416,7 +413,7 @@ mod tests {
             }],
         }))];
 
-        let findings = RuleId::UnsafeDdl(UnsafeDdlRule::Pgm010).check(&stmts, &ctx);
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
         // PGM010 should NOT fire for _pkey indexes (those are PK, not UNIQUE constraints)
         // This test ensures the `!idx.name.ends_with("_pkey")` filter works
         assert!(

@@ -120,8 +120,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
-    use crate::rules::{RuleId, UnsafeDdlRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -136,7 +136,7 @@ mod tests {
     }
 
     fn rule_id() -> RuleId {
-        RuleId::UnsafeDdl(UnsafeDdlRule::Pgm005)
+        RuleId::Pgm005
     }
 
     #[test]

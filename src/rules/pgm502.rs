@@ -95,8 +95,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use crate::rules::{RuleId, SchemaDesignRule};
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -120,7 +120,7 @@ mod tests {
             ]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -152,7 +152,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -178,7 +178,7 @@ mod tests {
             ]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -196,7 +196,7 @@ mod tests {
                 .with_persistence(TablePersistence::Temporary),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -219,7 +219,7 @@ mod tests {
                 .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -247,7 +247,7 @@ mod tests {
                 }]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -274,7 +274,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -300,7 +300,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1, "Should fire when parent lacks PK");
     }
 
@@ -324,7 +324,7 @@ mod tests {
                 .with_partition_of(QualifiedName::unqualified("unknown_parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -350,7 +350,7 @@ mod tests {
                 ),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -383,7 +383,7 @@ mod tests {
                 .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "ATTACH PARTITION child with parent PK should be suppressed"
@@ -412,7 +412,7 @@ mod tests {
                 .with_columns(vec![ColumnDef::test("id", "integer").with_nullable(false)]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
@@ -444,7 +444,7 @@ mod tests {
                 .with_partition_of(QualifiedName::qualified("myschema", "parent")),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
             "Schema-qualified partition child with parent PK should be suppressed"
@@ -475,7 +475,7 @@ mod tests {
                 .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
         ))];
 
-        let findings = RuleId::SchemaDesign(SchemaDesignRule::Pgm502).check(&stmts, &ctx);
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,

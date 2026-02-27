@@ -48,32 +48,31 @@ The `EXPLAIN` text must reference the rule's own ID (e.g., `"PGMXXX"`) — this 
 
 ### 2. Add the enum variant
 
-In `src/rules/mod.rs`, add the variant to the appropriate enum:
-
-- `UnsafeDdlRule` for PGM0xx rules (unsafe DDL — locking, rewrites, silent side effects)
-- `TypeAntiPatternRule` for PGM1xx rules (column type anti-patterns)
-- `DestructiveRule` for PGM2xx rules (data loss operations)
-- `IdempotencyRule` for PGM4xx rules (missing IF EXISTS / IF NOT EXISTS)
-- `SchemaDesignRule` for PGM5xx rules (schema quality & informational)
-- `MetaRule` for PGM9xx rules (meta-behaviors that modify other rules)
-
-Then wire up the four dispatch match arms:
+In `src/rules/mod.rs`, add a variant to the flat `RuleId` enum in the appropriate family section:
 
 ```rust
-// In UnsafeDdlRule::description()
-Self::PgmXXX => pgmXXX::DESCRIPTION,
-
-// In UnsafeDdlRule::explain()
-Self::PgmXXX => pgmXXX::EXPLAIN,
-
-// In UnsafeDdlRule::check()
-Self::PgmXXX => pgmXXX::check(rule, statements, ctx),
-
-// In From<UnsafeDdlRule> for Severity
-UnsafeDdlRule::PgmXXX => Self::Critical, // or Major, Minor, Info
+/// Short doc comment describing the rule.
+#[strum(serialize = "PGMXXX")]
+PgmXXX,
 ```
 
-Also add the variant to `RuleId::as_str()` and `RuleId::from_str()`.
+Then wire up the four dispatch match arms in `impl Rule for RuleId`:
+
+```rust
+// In default_severity()
+Self::PgmXXX => Severity::Critical, // or Major, Warning, Info
+
+// In description()
+Self::PgmXXX => pgmXXX::DESCRIPTION,
+
+// In explain()
+Self::PgmXXX => pgmXXX::EXPLAIN,
+
+// In check()
+Self::PgmXXX => pgmXXX::check(self, statements, ctx),
+```
+
+The `#[strum(serialize)]` attribute handles `as_str()`, `FromStr`, and `Display` automatically via strum derives.
 
 ### 3. Add the module declaration
 
@@ -111,7 +110,7 @@ fn test_violation_fires() {
         actions: vec![/* ... */],
     }))];
 
-    let findings = RuleId::UnsafeDdl(UnsafeDdlRule::PgmXXX).check(&stmts, &ctx);
+    let findings = RuleId::PgmXXX.check(&stmts, &ctx);
     insta::assert_yaml_snapshot!(findings);
 }
 ```
@@ -260,16 +259,17 @@ Most rule tests use `insta::assert_yaml_snapshot!()` for findings. Snapshots liv
 
 Rule IDs follow the pattern `PGM<family><number>`:
 
-| Range | Family enum | Purpose |
-|-------|-------------|---------|
-| 0xx | `UnsafeDdlRule` | Locking, table rewrites, silent side effects |
-| 1xx | `TypeAntiPatternRule` | PostgreSQL "Don't Do This" column types |
-| 2xx | `DestructiveRule` | Data loss operations (DROP TABLE, etc.) |
-| 4xx | `IdempotencyRule` | Missing IF EXISTS / IF NOT EXISTS |
-| 5xx | `SchemaDesignRule` | Schema quality & informational |
-| 9xx | `MetaRule` | Meta-behaviors modifying other rules |
+| Range | Family | Purpose |
+|-------|--------|---------|
+| 0xx | Unsafe DDL | Locking, table rewrites, silent side effects |
+| 1xx | Type anti-patterns | PostgreSQL "Don't Do This" column types |
+| 2xx | Destructive | Data loss operations (DROP TABLE, etc.) |
+| 3xx | DML in migrations | INSERT/UPDATE/DELETE in migration files |
+| 4xx | Idempotency | Missing IF EXISTS / IF NOT EXISTS |
+| 5xx | Schema design | Schema quality & informational |
+| 9xx | Meta | Meta-behaviors modifying other rules |
 
-Gaps within a family are intentional (e.g., PGM004–005 are unoccupied in 0xx). Do not reuse retired IDs.
+All variants live in a single flat `RuleId` enum (no per-family sub-enums). Gaps within a family are intentional. Do not reuse retired IDs.
 
 **Proposed rules** use 4-digit IDs (e.g., PGM1202). When promoted to stable, they become 3-digit, typically keeping the same last three digits (e.g., PGM1202 → PGM202).
 
