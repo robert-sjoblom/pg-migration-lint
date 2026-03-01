@@ -64,15 +64,15 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 |------|-------------|----------|--------|
 | ~~`VACUUM FULL` on existing table~~ | ~~PGM1023~~ | ~~CRITICAL~~ | Promoted to **PGM023** |
 | `REINDEX` without `CONCURRENTLY` | PGM1024 | CRITICAL | Tier 2 (new IR variant) |
-| Duplicate/redundant indexes | — | WARNING | Tier 1 (catalog-only) |
+| ~~Duplicate/redundant indexes~~ | PGM1509 | WARNING | Spec in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) |
 | Transaction nesting (`BEGIN`/`COMMIT` in migration) | — | WARNING | Tier 2 (new IR variant) |
 
 ### 5.3 Nice-to-Have — Low Value or Deferred
 
 | Rule | Notes |
 |------|-------|
-| `varchar(n)` type rule | Already designed, deferred pending per-rule disable config |
-| `float`/`real`/`double precision` type rule | Already designed, deferred |
+| ~~`varchar(n)` type rule~~ | Spec'd as PGM1108 in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) |
+| ~~`float`/`real`/`double precision` type rule~~ | Spec'd as PGM1109 in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) |
 | `REFRESH MATERIALIZED VIEW` without `CONCURRENTLY` | Uncommon in migration files |
 | `INHERITS`-based partitioning | Already designed, awaiting IR extension |
 | `DROP DATABASE` in migration | Extremely rare |
@@ -87,7 +87,7 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 - `ban-drop-not-null` — **Proposed: PGM1022**
 - `ban-drop-database` — Gap: low priority
 - `transaction-nesting` — Gap: proposed in §5.2 (no ID yet)
-- `prefer-text-field` — Gap: deferred
+- `prefer-text-field` — Spec'd as PGM1108 in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md)
 - `ban-create-domain-with-constraint` — Gap: niche
 
 **Rules strong_migrations has that pg-migration-lint does NOT:**

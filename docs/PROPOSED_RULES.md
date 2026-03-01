@@ -6,17 +6,9 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 0xx — Unsafe DDL
 
-### PGM1021 — `ALTER TYPE ... ADD VALUE` in Transaction
+### ~~PGM1021~~ — Removed
 
-- **Range**: 0xx (UnsafeDDL)
-- **Severity**: CRITICAL
-- **Status**: Not yet implemented.
-- **Triggers**: `ALTER TYPE ... ADD VALUE` when `run_in_transaction` is true.
-- **Why**: Adding an enum value cannot be rolled back inside a transaction. If the migration fails partway, the enum value persists after rollback. There is no way to remove it without `DROP TYPE` and recreating.
-- **Does not fire when**:
-  - `run_in_transaction` is false.
-- **Message**: `ALTER TYPE '{type_name}' ADD VALUE '{value}' inside a transaction cannot be rolled back. If the migration fails, the enum value will persist. Run this migration outside a transaction.`
-- **IR impact**: New top-level `IrNode::AlterEnum { type_name: String, value: String, if_not_exists: bool }`. Parser: handle `NodeEnum::AlterEnumStmt`. Catalog/normalize: no-op.
+`ALTER TYPE ... ADD VALUE` is rollback-safe on PostgreSQL 12+. No longer relevant.
 
 ---
 
@@ -24,51 +16,49 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### PGM1023 — `VACUUM FULL` on Existing Table
-
-- **Range**: 0xx (UnsafeDDL)
-- **Severity**: CRITICAL
-- **Status**: Not yet implemented.
-- **Triggers**: `VACUUM FULL` targeting a table that exists in `catalog_before`.
-- **Why**: `VACUUM FULL` rewrites the entire table under an ACCESS EXCLUSIVE lock, blocking all reads and writes for the duration. On large tables this can mean minutes to hours of downtime. Use `pg_repack` or `pg_squeeze` for online compaction.
-- **Does not fire when**:
-  - Plain `VACUUM` (without `FULL`).
-  - Table is new (not in `catalog_before`).
-  - Table not in catalog.
-- **Message**: `VACUUM FULL on table '{table}' rewrites the entire table under ACCESS EXCLUSIVE lock, blocking all reads and writes. Use pg_repack or pg_squeeze for online compaction.`
-- **IR impact**: New `IrNode::VacuumFull(VacuumFull)` with `table: QualifiedName`. Parser: handle `NodeEnum::VacuumStmt`, only emit `VacuumFull` when FULL option present; plain VACUUM → `Ignored`.
+### ~~PGM1023~~ — Promoted to **PGM023**
 
 ---
 
-### PGM1024 — `REINDEX` without `CONCURRENTLY`
-
-- **Range**: 0xx (UnsafeDDL)
-- **Severity**: CRITICAL
-- **Status**: Not yet implemented.
-- **Triggers**: `REINDEX TABLE|INDEX|DATABASE|SCHEMA` without `CONCURRENTLY` (PostgreSQL 12+).
-- **Why**: `REINDEX` without `CONCURRENTLY` acquires an ACCESS EXCLUSIVE lock on the table (or for `REINDEX INDEX`, on the parent table), blocking all reads and writes.
-- **Does not fire when**:
-  - `CONCURRENTLY` option is present.
-- **Note**: Fires unconditionally (no catalog check needed) since even `REINDEX INDEX` locks the parent table.
-- **Message**: `REINDEX {kind} '{name}' without CONCURRENTLY acquires ACCESS EXCLUSIVE lock, blocking all reads and writes. Use REINDEX {kind} CONCURRENTLY '{name}' (PostgreSQL 12+).`
-- **IR impact**: New `IrNode::Reindex(Reindex)` with `kind: ReindexKind` (Table/Index/Schema/Database/System), `name: String`, `concurrent: bool`. Parser: handle `NodeEnum::ReindexStmt`.
+### ~~PGM1024~~ — Promoted to **PGM024**
 
 ---
 
 ## 1xx — Type anti-patterns
 
-### PGM1107 — Integer Primary Key
+### ~~PGM1107~~ — Promoted to **PGM107**
+
+---
+
+### PGM1108 — Prefer `text` over `varchar(n)`
 
 - **Range**: 1xx (TypeAntiPattern)
-- **Severity**: MAJOR
+- **Severity**: INFO
 - **Status**: Not yet implemented.
-- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")`. Detected in `CREATE TABLE` (inline PK via `ColumnDef.is_inline_pk` or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
-- **Why**: `integer` max is ~2.1 billion, `smallint` max is ~32,000. High-write tables routinely exhaust these ranges. Migration to `bigint` requires an ACCESS EXCLUSIVE lock and full table rewrite — a painful, high-risk operation on production tables.
+- **Triggers**: Column with `TypeName.name` of `varchar` and non-empty `modifiers` (i.e., `varchar(100)`, not bare `varchar`). Detected in `CREATE TABLE` column definitions and `ALTER TABLE ... ADD COLUMN`.
+- **Why**: In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — internally they are the same `varlena` storage. The length check adds overhead, and when the limit inevitably needs to increase, `ALTER COLUMN TYPE varchar(200)` requires an ACCESS EXCLUSIVE lock and full table rewrite (on PostgreSQL < 14, or when *decreasing* the limit on 14+). Use `text` with a CHECK constraint if validation is needed — CHECK constraints can be added `NOT VALID` and validated without a rewrite.
 - **Does not fire when**:
-  - PK column type is `int8` / `bigint`.
-  - Column is not part of a primary key.
-- **Message**: `Primary key column '{col}' on '{table}' uses '{type}'. Consider using bigint to avoid exhausting the integer range on high-write tables.`
-- **IR impact**: None — existing IR is sufficient (`ColumnDef.is_inline_pk`, `TableConstraint::PrimaryKey`, `TypeName.name`).
+  - Bare `varchar` (no length modifier — equivalent to `text`).
+  - `text` columns.
+  - Existing table columns (only fires on new column definitions).
+- **Message**: `Column '{col}' uses varchar({n}). Prefer text — varchar(n) has no performance benefit in PostgreSQL, and changing the limit requires a table rewrite.`
+- **IR impact**: None — `TypeName` already has `name` and `modifiers`.
+
+---
+
+### PGM1109 — Floating-point column type
+
+- **Range**: 1xx (TypeAntiPattern)
+- **Severity**: WARNING
+- **Status**: Not yet implemented.
+- **Triggers**: Column with `TypeName.name` in `("float4", "float8", "real", "double precision", "float")`. Detected in `CREATE TABLE` column definitions and `ALTER TABLE ... ADD COLUMN`.
+- **Why**: IEEE 754 floating-point types suffer from precision issues (`0.1 + 0.2 ≠ 0.3`). For money, quantities, measurements, or any domain where exact decimal values matter, `numeric`/`decimal` is correct. Floating-point errors compound in aggregations and can cause silent data corruption.
+- **Does not fire when**:
+  - `numeric` / `decimal` columns.
+  - Existing table columns (only fires on new column definitions).
+- **Message**: `Column '{col}' uses '{type}'. Floating-point types have precision issues (0.1 + 0.2 ≠ 0.3). Use numeric for exact values.`
+- **IR impact**: None — same pattern as other type rules, matching on `TypeName.name`.
+- **Spike tests needed**: Add spike tests to `tests/pg_query_spike.rs` to verify how pg_query normalizes `float` with precision specifiers — `float(1)` through `float(24)` should map to `float4`/`real`, `float(25)` through `float(53)` to `float8`/`double precision`. Confirm the normalized `TypeName.name` values before implementing.
 
 ---
 
@@ -79,6 +69,28 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 ---
 
 ## 5xx — Schema design & informational
+
+### PGM1509 — Duplicate/redundant indexes
+
+- **Range**: 5xx (SchemaDesign)
+- **Severity**: WARNING
+- **Status**: Not yet implemented.
+- **Triggers**: `CREATE INDEX` in the changed file where, after applying the migration (`catalog_after`), a non-unique index on a table is a column prefix of another index on the same table. Fires in two directions:
+  1. The new index is redundant (its columns are a prefix of an existing index).
+  2. The new index makes an existing non-unique index redundant (existing index's columns are a prefix of the new one).
+  Also fires for exact duplicates (same columns, same access method) with a sharper message.
+- **Why**: Redundant indexes waste disk space, slow down writes (every INSERT/UPDATE/DELETE must maintain all indexes), and add vacuum overhead. A btree index on `(a, b)` already serves lookups on `(a)` alone — a separate index on `(a)` provides no additional query capability.
+- **Does not fire when**:
+  - The shorter (redundant) index is a UNIQUE index — it enforces a constraint that the longer index does not.
+  - Either index is a partial index (has a WHERE clause) — partial indexes serve different query patterns. Documenting this as a known limitation; comparing WHERE clauses for equivalence is complex and deferred.
+  - Either index is an expression index (columns contain expressions rather than simple column names) — expression indexes are not directly comparable by column name.
+  - The indexes use different access methods (e.g., btree vs GIN) — different access methods serve fundamentally different query types.
+- **Message (prefix redundancy)**: `Index '{shorter_idx}' on '{table}' ({shorter_cols}) is redundant — index '{longer_idx}' ({longer_cols}) covers the same prefix.`
+- **Message (exact duplicate)**: `Index '{new_idx}' on '{table}' ({cols}) is an exact duplicate of index '{existing_idx}'.`
+- **IR impact**: None — `IndexState` already tracks column names and ordering. Requires `access_method: Option<String>` on `IndexState` and `CreateIndex` (currently missing). The parser should extract `IndexStmt.access_method` from pg_query — empty string means btree (the PostgreSQL default). `has_covering_index` should also be updated to skip non-btree indexes.
+- **Catalog prerequisite**: Without `access_method` tracking, the rule cannot distinguish btree from non-btree indexes. Safe fallback: assume btree when `access_method` is `None` (matches PostgreSQL's default), which is correct for the vast majority of indexes.
+
+---
 
 ### PGM1507 — `CREATE OR REPLACE FUNCTION` / `PROCEDURE` (maybe not?)
 
@@ -115,6 +127,6 @@ These rules extend the current rule set. Proposed rules use the `PGM1XXX` prefix
 Changes to existing spec sections required:
 
 - **§4.2**: Add promoted rules to the rule table.
-- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`, `AlterEnum`, `VacuumFull`, `Reindex`.
+- **§3.2 IR node table**: Add `DropSchema`, `CreateOrReplaceFunction`, `CreateOrReplaceView`, `VacuumFull`, `Reindex`, `RefreshMatView` (if promoted).
 - **§11 Project structure**: Add rule files to `src/rules/` as rules are promoted.
 - **PGM901 scope**: Update to cover all promoted rules.

@@ -6,7 +6,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 46 lint rules across seven categories:
+`pg-migration-lint` ships with 47 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -536,6 +536,31 @@ pg_repack --table orders --no-superuser-check -d mydb
 ```
 
 Or schedule during a maintenance window when downtime is acceptable.
+
+---
+
+### PGM024 — Missing CONCURRENTLY on REINDEX
+{: #pgm024}
+
+**Severity**: Critical
+
+Detects `REINDEX TABLE`, `REINDEX INDEX`, `REINDEX SCHEMA`, `REINDEX DATABASE`, or `REINDEX SYSTEM` without the `CONCURRENTLY` option. Without `CONCURRENTLY`, `REINDEX` acquires an ACCESS EXCLUSIVE lock on the target table (or parent table for `REINDEX INDEX`), blocking all reads and writes for the duration of the rebuild.
+
+**Example** (bad):
+```sql
+REINDEX TABLE orders;
+REINDEX INDEX idx_orders_status;
+```
+
+**Fix**:
+```sql
+REINDEX TABLE CONCURRENTLY orders;
+REINDEX INDEX CONCURRENTLY idx_orders_status;
+```
+
+The `CONCURRENTLY` option (PostgreSQL 12+) rebuilds the index without holding an exclusive lock for the entire operation. It takes longer but allows normal reads and writes to continue.
+
+See also [PGM003](#pgm003).
 
 ---
 
@@ -1127,6 +1152,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM019](#pgm019) | Critical | ADD EXCLUDE constraint on existing table |
 | [PGM020](#pgm020) | Minor | DISABLE TRIGGER on table suppresses FK enforcement |
 | [PGM023](#pgm023) | Critical | VACUUM FULL on existing table |
+| [PGM024](#pgm024) | Critical | Missing CONCURRENTLY on REINDEX |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

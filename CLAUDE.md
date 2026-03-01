@@ -188,6 +188,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM019**: `ADD EXCLUDE` constraint on existing table
 - **PGM020**: `DISABLE TRIGGER` on table
 - **PGM023**: `VACUUM FULL` on existing table
+- **PGM024**: `REINDEX` without `CONCURRENTLY`
 
 **1xx — Type Anti-patterns:**
 - **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)

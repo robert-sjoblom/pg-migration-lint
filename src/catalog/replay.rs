@@ -42,9 +42,10 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             parent_index_name, ..
         } => apply_alter_index_attach(catalog, parent_index_name),
         IrNode::DropSchema(ds) => apply_drop_schema(catalog, ds),
-        IrNode::TruncateTable(_) | IrNode::Cluster(_) | IrNode::VacuumFull(_) => {
-            /* no schema state change */
-        }
+        IrNode::TruncateTable(_)
+        | IrNode::Cluster(_)
+        | IrNode::VacuumFull(_)
+        | IrNode::Reindex(_) => { /* no schema state change */ }
         IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
             /* DML: no schema change */
         }

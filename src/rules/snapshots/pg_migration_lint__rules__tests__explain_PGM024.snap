@@ -1,0 +1,35 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM024
+Severity: CRITICAL
+Description: Missing CONCURRENTLY on REINDEX
+
+PGM024 — Missing CONCURRENTLY on REINDEX
+
+What it detects:
+A REINDEX statement (TABLE, INDEX, SCHEMA, DATABASE, or SYSTEM) that
+does not use the CONCURRENTLY option.
+
+Why it's dangerous:
+REINDEX without CONCURRENTLY acquires an ACCESS EXCLUSIVE lock on the
+table being reindexed (or the parent table for REINDEX INDEX), blocking
+all reads and writes for the duration of the rebuild. On large tables
+this causes complete unavailability for minutes to hours.
+
+Example (bad):
+REINDEX TABLE orders;
+REINDEX INDEX idx_orders_status;
+
+Fix:
+REINDEX TABLE CONCURRENTLY orders;
+REINDEX INDEX CONCURRENTLY idx_orders_status;
+
+The CONCURRENTLY option (PostgreSQL 12+) rebuilds the index without
+holding an exclusive lock for the entire operation. It takes longer
+but allows normal reads and writes to continue.
+
+Note: CONCURRENTLY cannot run inside a transaction. If your migration
+framework wraps each file in a transaction (e.g., Liquibase default),
+you must also disable that. See PGM003.

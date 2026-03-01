@@ -952,3 +952,37 @@ fn spike_sql_value_function_vs_func_call() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// REINDEX statement AST structure spike
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spike_reindex_stmt() {
+    let sqls = [
+        "REINDEX TABLE orders;",
+        "REINDEX TABLE CONCURRENTLY orders;",
+        "REINDEX INDEX idx_orders_status;",
+        "REINDEX INDEX CONCURRENTLY idx_orders_status;",
+        "REINDEX SCHEMA public;",
+        "REINDEX SCHEMA CONCURRENTLY public;",
+        "REINDEX DATABASE mydb;",
+        "REINDEX DATABASE CONCURRENTLY mydb;",
+        "REINDEX TABLE myschema.orders;",
+        "REINDEX SYSTEM mydb;",
+        "REINDEX SYSTEM CONCURRENTLY mydb;",
+    ];
+
+    for sql in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        println!("\n=== {} ===", sql);
+        println!("{:#?}", stmt);
+    }
+}

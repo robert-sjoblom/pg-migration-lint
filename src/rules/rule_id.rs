@@ -80,6 +80,9 @@ pub enum RuleId {
     /// `VACUUM FULL` on an existing table (ACCESS EXCLUSIVE lock for full rewrite).
     #[strum(serialize = "PGM023")]
     Pgm023,
+    /// `REINDEX` without `CONCURRENTLY` (ACCESS EXCLUSIVE lock).
+    #[strum(serialize = "PGM024")]
+    Pgm024,
 
     // 1xx — Type anti-patterns
     /// `timestamp` without time zone.
@@ -234,7 +237,8 @@ impl Rule for RuleId {
             | Self::Pgm017
             | Self::Pgm018
             | Self::Pgm019
-            | Self::Pgm023 => Severity::Critical,
+            | Self::Pgm023
+            | Self::Pgm024 => Severity::Critical,
             Self::Pgm005 | Self::Pgm011 | Self::Pgm016 => Severity::Major,
             Self::Pgm006 | Self::Pgm010 | Self::Pgm012 | Self::Pgm020 => Severity::Minor,
             Self::Pgm009 => Severity::Info,
@@ -292,6 +296,7 @@ impl Rule for RuleId {
             Self::Pgm019 => super::pgm019::DESCRIPTION,
             Self::Pgm020 => super::pgm020::DESCRIPTION,
             Self::Pgm023 => super::pgm023::DESCRIPTION,
+            Self::Pgm024 => super::pgm024::DESCRIPTION,
             Self::Pgm507 => super::pgm507::DESCRIPTION,
             Self::Pgm101 => super::pgm101::DESCRIPTION,
             Self::Pgm102 => super::pgm102::DESCRIPTION,
@@ -346,6 +351,7 @@ impl Rule for RuleId {
             Self::Pgm019 => super::pgm019::EXPLAIN,
             Self::Pgm020 => super::pgm020::EXPLAIN,
             Self::Pgm023 => super::pgm023::EXPLAIN,
+            Self::Pgm024 => super::pgm024::EXPLAIN,
             Self::Pgm507 => super::pgm507::EXPLAIN,
             Self::Pgm101 => super::pgm101::EXPLAIN,
             Self::Pgm102 => super::pgm102::EXPLAIN,
@@ -398,6 +404,7 @@ impl Rule for RuleId {
             Self::Pgm019 => super::pgm019::check(*self, statements, ctx),
             Self::Pgm020 => super::pgm020::check(*self, statements, ctx),
             Self::Pgm023 => super::pgm023::check(*self, statements, ctx),
+            Self::Pgm024 => super::pgm024::check(*self, statements, ctx),
             Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
             Self::Pgm101 => super::pgm101::check(*self, statements, ctx),
             Self::Pgm102 => super::pgm102::check(*self, statements, ctx),
