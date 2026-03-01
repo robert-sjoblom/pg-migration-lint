@@ -1,0 +1,10 @@
+---
+source: tests/integration.rs
+expression: findings
+---
+- rule_id: PGM023
+  severity: Critical
+  message: "VACUUM FULL on table 'customers' rewrites the entire table under ACCESS EXCLUSIVE lock, blocking all reads and writes. Use pg_repack or pg_squeeze for online compaction."
+  file: repos/all-rules/migrations/V017__vacuum_full.sql
+  start_line: 1
+  end_line: 2

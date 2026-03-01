@@ -2255,6 +2255,109 @@ fn test_parse_cluster_schema_qualified() {
 }
 
 // -----------------------------------------------------------------------
+// VACUUM FULL statement
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_parse_vacuum_full() {
+    let sql = "VACUUM FULL orders;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::VacuumFull(v) => {
+            assert_eq!(
+                v.table.as_ref().unwrap(),
+                &QualifiedName::unqualified("orders")
+            );
+        }
+        other => panic!("Expected VacuumFull, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_vacuum_full_schema_qualified() {
+    let sql = "VACUUM FULL myschema.orders;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::VacuumFull(v) => {
+            let table = v.table.as_ref().unwrap();
+            assert_eq!(table.schema.as_deref(), Some("myschema"));
+            assert_eq!(table.name, "orders");
+        }
+        other => panic!("Expected VacuumFull, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_vacuum_full_analyze() {
+    let sql = "VACUUM (FULL, ANALYZE) orders;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::VacuumFull(v) => {
+            assert_eq!(
+                v.table.as_ref().unwrap(),
+                &QualifiedName::unqualified("orders")
+            );
+        }
+        other => panic!("Expected VacuumFull, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_vacuum_plain_is_ignored() {
+    let sql = "VACUUM orders;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    assert!(
+        matches!(&nodes[0].node, IrNode::Ignored { .. }),
+        "Plain VACUUM should map to Ignored, got: {:?}",
+        nodes[0].node
+    );
+}
+
+#[test]
+fn test_parse_vacuum_full_multiple_tables() {
+    let sql = "VACUUM FULL orders, customers;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 2);
+    match &nodes[0].node {
+        IrNode::VacuumFull(v) => {
+            assert_eq!(
+                v.table.as_ref().unwrap(),
+                &QualifiedName::unqualified("orders")
+            );
+        }
+        other => panic!("Expected VacuumFull for first table, got: {:?}", other),
+    }
+    match &nodes[1].node {
+        IrNode::VacuumFull(v) => {
+            assert_eq!(
+                v.table.as_ref().unwrap(),
+                &QualifiedName::unqualified("customers")
+            );
+        }
+        other => panic!("Expected VacuumFull for second table, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_vacuum_full_no_table() {
+    let nodes = parse_sql("VACUUM FULL;");
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::VacuumFull(v) => {
+            assert!(
+                v.table.is_none(),
+                "VACUUM FULL with no table should have table=None"
+            );
+        }
+        other => panic!("Expected VacuumFull, got: {other:?}"),
+    }
+}
+
+// -----------------------------------------------------------------------
 // Tests: Partial and expression indexes
 // -----------------------------------------------------------------------
 

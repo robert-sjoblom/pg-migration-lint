@@ -49,7 +49,8 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
         | RuleId::Pgm016
         | RuleId::Pgm017
         | RuleId::Pgm018
-        | RuleId::Pgm019 => SonarQubeRuleMeta {
+        | RuleId::Pgm019
+        | RuleId::Pgm023 => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
@@ -251,7 +252,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm014
         | RuleId::Pgm015
         | RuleId::Pgm018
-        | RuleId::Pgm019 => 30,
+        | RuleId::Pgm019
+        | RuleId::Pgm023 => 30,
         // Schema quality / side-effect warnings
         RuleId::Pgm009 | RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 => 10,
         RuleId::Pgm502

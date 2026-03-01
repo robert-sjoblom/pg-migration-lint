@@ -85,6 +85,11 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
         IrNode::Cluster(c) => {
             c.table.set_default_schema(default_schema);
         }
+        IrNode::VacuumFull(v) => {
+            if let Some(ref mut table) = v.table {
+                table.set_default_schema(default_schema);
+            }
+        }
         IrNode::AlterIndexAttachPartition {
             child_index_name, ..
         } => {

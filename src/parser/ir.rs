@@ -25,6 +25,8 @@ pub enum IrNode {
     DeleteFrom(DeleteFrom),
     /// CLUSTER rewrites the table under ACCESS EXCLUSIVE lock.
     Cluster(Cluster),
+    /// `VACUUM FULL` rewrites the table under ACCESS EXCLUSIVE lock.
+    VacuumFull(VacuumFull),
     /// `ALTER INDEX parent ATTACH PARTITION child` — attaches a child index
     /// to a parent ON ONLY index, making it valid (recursive).
     AlterIndexAttachPartition {
@@ -223,6 +225,12 @@ pub struct DeleteFrom {
 pub struct Cluster {
     pub table: QualifiedName,
     pub index: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VacuumFull {
+    /// Target table, or `None` for `VACUUM FULL;` (all tables in the database).
+    pub table: Option<QualifiedName>,
 }
 
 // --- Supporting types ---
@@ -731,6 +739,19 @@ impl Cluster {
     }
 }
 
+#[cfg(test)]
+impl VacuumFull {
+    /// VACUUM FULL targeting a specific table.
+    pub fn test(table: QualifiedName) -> Self {
+        Self { table: Some(table) }
+    }
+
+    /// VACUUM FULL targeting all tables (no table specified).
+    pub fn test_all() -> Self {
+        Self { table: None }
+    }
+}
+
 // Convenience conversions for test construction: builder.into() -> IrNode variant
 #[cfg(test)]
 impl From<CreateTable> for IrNode {
@@ -806,6 +827,13 @@ impl From<DeleteFrom> for IrNode {
 impl From<Cluster> for IrNode {
     fn from(value: Cluster) -> Self {
         IrNode::Cluster(value)
+    }
+}
+
+#[cfg(test)]
+impl From<VacuumFull> for IrNode {
+    fn from(value: VacuumFull) -> Self {
+        IrNode::VacuumFull(value)
     }
 }
 

@@ -638,3 +638,91 @@ fn spike_drop_schema_multiple_schemas() {
         panic!("Expected DropStmt, got: {:?}", stmt);
     }
 }
+
+// ---------------------------------------------------------------------------
+// VACUUM statements
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spike_vacuum_full() {
+    let result = pg_query::parse("VACUUM FULL orders;").expect("should parse");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    if let pg_query::NodeEnum::VacuumStmt(vacuum) = stmt {
+        // FULL is indicated by a DefElem with defname "full" in options
+        assert!(vacuum.is_vacuumcmd, "is_vacuumcmd is true even for FULL");
+        assert_eq!(vacuum.options.len(), 1);
+        let opt = match vacuum.options[0].node.as_ref().unwrap() {
+            pg_query::NodeEnum::DefElem(d) => d,
+            other => panic!("Expected DefElem, got: {other:?}"),
+        };
+        assert_eq!(opt.defname, "full");
+
+        // Relation is wrapped in VacuumRelation
+        assert_eq!(vacuum.rels.len(), 1);
+        let rel = match vacuum.rels[0].node.as_ref().unwrap() {
+            pg_query::NodeEnum::VacuumRelation(vr) => vr.relation.as_ref().unwrap(),
+            other => panic!("Expected VacuumRelation, got: {other:?}"),
+        };
+        assert_eq!(rel.relname, "orders");
+        assert_eq!(rel.schemaname, "");
+    } else {
+        panic!("Expected VacuumStmt, got: {stmt:?}");
+    }
+}
+
+#[test]
+fn spike_vacuum_plain() {
+    let result = pg_query::parse("VACUUM orders;").expect("should parse");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    if let pg_query::NodeEnum::VacuumStmt(vacuum) = stmt {
+        // Plain VACUUM has no options
+        assert!(vacuum.is_vacuumcmd);
+        assert!(vacuum.options.is_empty(), "Plain VACUUM has no options");
+        assert_eq!(vacuum.rels.len(), 1);
+    } else {
+        panic!("Expected VacuumStmt, got: {stmt:?}");
+    }
+}
+
+#[test]
+fn spike_vacuum_full_analyze() {
+    let result = pg_query::parse("VACUUM (FULL, ANALYZE) orders;").expect("should parse");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+
+    if let pg_query::NodeEnum::VacuumStmt(vacuum) = stmt {
+        // Parenthesized form with FULL and ANALYZE
+        assert_eq!(vacuum.options.len(), 2);
+        let option_names: Vec<&str> = vacuum
+            .options
+            .iter()
+            .filter_map(|n| match n.node.as_ref() {
+                Some(pg_query::NodeEnum::DefElem(d)) => Some(d.defname.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(option_names.contains(&"full"));
+        assert!(option_names.contains(&"analyze"));
+    } else {
+        panic!("Expected VacuumStmt, got: {stmt:?}");
+    }
+}

@@ -1,0 +1,29 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM023
+Severity: CRITICAL
+Description: VACUUM FULL on existing table
+
+PGM023 — VACUUM FULL on existing table
+
+What it detects:
+A VACUUM FULL statement targeting a table that already exists in the
+database (i.e., the table was not created in the same set of changed
+files).
+
+Why it matters:
+VACUUM FULL rewrites the entire table into a new data file, holding
+an ACCESS EXCLUSIVE lock for the full duration. Unlike regular VACUUM,
+which runs concurrently with reads and writes, VACUUM FULL blocks
+everything. On large tables this causes complete unavailability
+(all reads and writes blocked) for minutes to hours.
+
+Example:
+VACUUM FULL orders;
+
+Recommended approach:
+1. Use pg_repack or pg_squeeze for online table compaction.
+2. Schedule VACUUM FULL during a maintenance window when downtime is acceptable.
+3. For new tables, VACUUM FULL is fine — this rule only fires on existing tables.
