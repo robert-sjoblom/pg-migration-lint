@@ -280,6 +280,23 @@ jobs:
           path: mutants.out/
           retention-days: 30
 
+  fn-volatility-check:
+    name: Check fn_volatility.rs is up-to-date
+    runs-on: ubuntu-latest
+    # Only run on the weekly schedule (requires Docker + PG 18)
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Verify fn_volatility.rs matches pg_proc
+        run: ./verify/gen-fn-volatility.sh --check
+
   deny:
     name: Deny (licenses, advisories, duplicates)
     runs-on: ubuntu-latest

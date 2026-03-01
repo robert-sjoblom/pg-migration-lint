@@ -223,6 +223,21 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                         col.nullable = true;
                     }
                 }
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    if let Some(col) = table.get_column_mut(column_name) {
+                        col.has_default = true;
+                        col.default_expr = Some(default_expr.clone());
+                    }
+                }
+                AlterTableAction::DropDefault { column_name } => {
+                    if let Some(col) = table.get_column_mut(column_name) {
+                        col.has_default = false;
+                        col.default_expr = None;
+                    }
+                }
                 AlterTableAction::DropConstraint { constraint_name } => {
                     // Check if we're dropping a PK constraint.
                     // ConstraintState::PrimaryKey has no name field; PostgreSQL
@@ -353,6 +368,7 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
         unique: ci.unique,
         where_clause: ci.where_clause.clone(),
         only: ci.only,
+        access_method: ci.access_method.clone(),
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
@@ -702,6 +718,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                     unique: true,
                     where_clause: None,
                     only: false,
+                    access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
                 });
             }
         }

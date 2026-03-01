@@ -4,6 +4,7 @@
 //! IR layer used by the rule engine. It handles type canonicalization, constraint
 //! normalization, and source location tracking.
 
+use crate::catalog::types::IndexState;
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
     DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode, Located,
@@ -425,7 +426,19 @@ fn extract_type_modifiers(typmods: &[pg_query::protobuf::Node]) -> Vec<i64> {
 /// - Everything else -> `DefaultExpr::Other`
 fn convert_default_expr(node: &pg_query::protobuf::Node) -> DefaultExpr {
     match node.node.as_ref() {
-        Some(NodeEnum::AConst(ac)) => {
+        Some(inner) => convert_default_expr_from_node(inner),
+        None => DefaultExpr::Other("NULL".to_string()),
+    }
+}
+
+/// Convert a `NodeEnum` directly into a `DefaultExpr`.
+///
+/// Core implementation shared by `convert_default_expr` (which unwraps the outer
+/// `Node` wrapper first) and the `AtColumnDefault` handler (which already has the
+/// inner `NodeEnum`).
+fn convert_default_expr_from_node(node: &NodeEnum) -> DefaultExpr {
+    match node {
+        NodeEnum::AConst(ac) => {
             let literal_str = match ac.val.as_ref() {
                 Some(pg_query::protobuf::a_const::Val::Ival(i)) => i.ival.to_string(),
                 Some(pg_query::protobuf::a_const::Val::Sval(s)) => s.sval.clone(),
@@ -438,7 +451,7 @@ fn convert_default_expr(node: &pg_query::protobuf::Node) -> DefaultExpr {
             };
             DefaultExpr::Literal(literal_str)
         }
-        Some(NodeEnum::FuncCall(fc)) => {
+        NodeEnum::FuncCall(fc) => {
             let name = fc
                 .funcname
                 .iter()
@@ -448,14 +461,15 @@ fn convert_default_expr(node: &pg_query::protobuf::Node) -> DefaultExpr {
                     _ => None,
                 })
                 .unwrap_or_else(|| "unknown".to_string());
-
             let args: Vec<String> = fc.args.iter().map(deparse_node).collect();
-
             DefaultExpr::FunctionCall { name, args }
         }
-        Some(NodeEnum::TypeCast(_)) => DefaultExpr::Other(deparse_node(node)),
-        Some(_) => DefaultExpr::Other(deparse_node(node)),
-        None => DefaultExpr::Other("NULL".to_string()),
+        _ => {
+            let wrapper = pg_query::protobuf::Node {
+                node: Some(node.clone()),
+            };
+            DefaultExpr::Other(deparse_node(&wrapper))
+        }
     }
 }
 
@@ -554,6 +568,22 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
             vec![AlterTableAction::DropNotNull {
                 column_name: cmd.name.clone(),
             }]
+        }
+        pg_query::protobuf::AlterTableType::AtColumnDefault => {
+            // pg_query uses a single enum value for both SET DEFAULT and DROP DEFAULT.
+            // cmd.def being Some = SET DEFAULT, None = DROP DEFAULT.
+            match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
+                Some(node) => {
+                    let default_expr = convert_default_expr_from_node(node);
+                    vec![AlterTableAction::SetDefault {
+                        column_name: cmd.name.clone(),
+                        default_expr,
+                    }]
+                }
+                None => vec![AlterTableAction::DropDefault {
+                    column_name: cmd.name.clone(),
+                }],
+            }
         }
         pg_query::protobuf::AlterTableType::AtAttachPartition => {
             let child = cmd
@@ -838,6 +868,14 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
     // `inh=false` means ONLY (index on parent only, not propagated).
     let only = idx.relation.as_ref().map(|r| !r.inh).unwrap_or(false);
 
+    // pg_query always fills access_method (defaults to "btree" when USING is omitted).
+    // Normalize empty string defensively in case a future pg_query version changes behavior.
+    let access_method = if idx.access_method.is_empty() {
+        IndexState::DEFAULT_ACCESS_METHOD.to_string()
+    } else {
+        idx.access_method.clone()
+    };
+
     IrNode::CreateIndex(CreateIndex {
         index_name,
         table_name,
@@ -847,6 +885,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         if_not_exists: idx.if_not_exists,
         where_clause,
         only,
+        access_method,
     })
 }
 

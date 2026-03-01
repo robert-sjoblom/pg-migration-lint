@@ -215,13 +215,18 @@ impl TableState {
     /// Check if any index on this table covers the given columns as a prefix.
     /// Column order matters: [a, b] is covered by [a, b, c] but not [b, a].
     ///
-    /// Partial indexes are skipped entirely — they cannot satisfy FK coverage
-    /// because they only index a subset of rows. An expression entry at
-    /// position N stops prefix matching, since expressions cannot match an
-    /// FK column name (e.g. FK `(a, b)` is NOT covered by index `(a, lower(b))`).
+    /// Skipped indexes:
+    /// - Partial indexes — they only index a subset of rows.
+    /// - ON ONLY indexes — they don't cover partition children.
+    /// - Non-B-tree indexes (GIN, GiST, BRIN, hash) — only B-tree indexes
+    ///   support the ordered lookups PostgreSQL uses for FK enforcement.
+    ///
+    /// An expression entry at position N stops prefix matching, since
+    /// expressions cannot match an FK column name (e.g. FK `(a, b)` is NOT
+    /// covered by index `(a, lower(b))`).
     pub fn has_covering_index(&self, fk_columns: &[String]) -> bool {
         self.indexes.iter().any(|idx| {
-            if idx.is_partial() || idx.only {
+            if idx.is_partial() || idx.only || !idx.is_btree() {
                 return false;
             }
             idx.entries.len() >= fk_columns.len()
@@ -255,6 +260,7 @@ impl TableState {
         }
         self.indexes.iter().any(|idx| {
             idx.unique
+                && idx.is_btree()
                 && !idx.is_partial()
                 && !idx.has_expressions()
                 && idx.column_names().all(|col_name| {
@@ -328,9 +334,14 @@ pub struct IndexState {
     /// `CREATE INDEX ON ONLY parent_table` — index exists only on the parent,
     /// not propagated to partitions. Flipped to `false` by `ALTER INDEX ATTACH PARTITION`.
     pub only: bool,
+    /// Index access method: `"btree"` (default), `"gin"`, `"gist"`, `"hash"`, `"brin"`.
+    pub access_method: String,
 }
 
 impl IndexState {
+    /// Default index access method in PostgreSQL.
+    pub const DEFAULT_ACCESS_METHOD: &str = "btree";
+
     /// Iterator over plain column names, skipping expression entries.
     pub fn column_names(&self) -> impl Iterator<Item = &str> {
         self.entries.iter().filter_map(|e| e.column_name())
@@ -351,6 +362,12 @@ impl IndexState {
     /// True if this is a partial index (has a WHERE clause).
     pub fn is_partial(&self) -> bool {
         self.where_clause.is_some()
+    }
+
+    /// True if this index uses the B-tree access method.
+    /// Only B-tree indexes can serve FK lookups in PostgreSQL.
+    pub fn is_btree(&self) -> bool {
+        self.access_method == Self::DEFAULT_ACCESS_METHOD
     }
 }
 

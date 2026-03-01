@@ -2792,3 +2792,230 @@ fn test_alter_index_set_ignored() {
         nodes[0].node
     );
 }
+
+// -----------------------------------------------------------------------
+// SET DEFAULT / DROP DEFAULT
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_parse_alter_column_set_default_literal() {
+    let sql = "ALTER TABLE t ALTER COLUMN col SET DEFAULT 42;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    assert_eq!(column_name, "col");
+                    assert!(
+                        matches!(default_expr, DefaultExpr::Literal(v) if v == "42"),
+                        "Expected Literal(\"42\"), got: {:?}",
+                        default_expr,
+                    );
+                }
+                other => panic!("Expected SetDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_column_set_default_function() {
+    let sql = "ALTER TABLE t ALTER COLUMN created_at SET DEFAULT now();";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    assert_eq!(column_name, "created_at");
+                    assert!(
+                        matches!(default_expr, DefaultExpr::FunctionCall { name, .. } if name == "now"),
+                        "Expected FunctionCall now(), got: {:?}",
+                        default_expr,
+                    );
+                }
+                other => panic!("Expected SetDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_column_drop_default() {
+    let sql = "ALTER TABLE t ALTER COLUMN col DROP DEFAULT;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::DropDefault { column_name } => {
+                    assert_eq!(column_name, "col");
+                }
+                other => panic!("Expected DropDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_column_set_default_string_literal() {
+    let sql = "ALTER TABLE t ALTER COLUMN status SET DEFAULT 'active';";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    assert_eq!(column_name, "status");
+                    assert!(
+                        matches!(default_expr, DefaultExpr::Literal(v) if v == "active"),
+                        "Expected Literal(\"active\"), got: {:?}",
+                        default_expr,
+                    );
+                }
+                other => panic!("Expected SetDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_column_set_default_typecast() {
+    let sql = "ALTER TABLE t ALTER COLUMN created_at SET DEFAULT '2024-01-01'::timestamptz;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    assert_eq!(column_name, "created_at");
+                    assert!(
+                        matches!(default_expr, DefaultExpr::Other(s) if s.contains("timestamptz")),
+                        "Expected Other with typecast, got: {:?}",
+                        default_expr,
+                    );
+                }
+                other => panic!("Expected SetDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_alter_column_set_default_null() {
+    let sql = "ALTER TABLE t ALTER COLUMN col SET DEFAULT NULL;";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::AlterTable(at) => {
+            assert_eq!(at.actions.len(), 1);
+            match &at.actions[0] {
+                AlterTableAction::SetDefault {
+                    column_name,
+                    default_expr,
+                } => {
+                    assert_eq!(column_name, "col");
+                    assert!(
+                        matches!(default_expr, DefaultExpr::Literal(v) if v == "NULL"),
+                        "Expected Literal(\"NULL\"), got: {:?}",
+                        default_expr,
+                    );
+                }
+                other => panic!("Expected SetDefault, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected AlterTable, got: {:?}", other),
+    }
+}
+
+// -----------------------------------------------------------------------
+// Index access method
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_parse_create_index_default_btree() {
+    let sql = "CREATE INDEX idx ON t (col);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => {
+            assert_eq!(ci.access_method, "btree");
+        }
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_create_index_gin() {
+    let sql = "CREATE INDEX idx ON t USING gin (col);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => {
+            assert_eq!(ci.access_method, "gin");
+        }
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_create_index_gist() {
+    let sql = "CREATE INDEX idx ON t USING gist (col);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => {
+            assert_eq!(ci.access_method, "gist");
+        }
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_create_index_hash() {
+    let sql = "CREATE INDEX idx ON t USING hash (col);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => {
+            assert_eq!(ci.access_method, "hash");
+        }
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_create_index_brin() {
+    let sql = "CREATE INDEX idx ON t USING brin (col);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => {
+            assert_eq!(ci.access_method, "brin");
+        }
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
