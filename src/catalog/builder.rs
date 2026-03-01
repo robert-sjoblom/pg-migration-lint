@@ -181,33 +181,58 @@ impl TableBuilder {
         self
     }
 
-    /// Add an index
-    pub fn index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self {
+    /// Push an `IndexState` with sensible defaults; returns a mutable reference
+    /// so callers can override `only`, `where_clause`, or `access_method`.
+    fn push_index(
+        &mut self,
+        name: &str,
+        entries: Vec<IndexColumn>,
+        unique: bool,
+    ) -> &mut IndexState {
         self.state.indexes.push(IndexState {
             name: name.to_string(),
-            entries: columns
-                .iter()
-                .map(|s| IndexColumn::Column(s.to_string()))
-                .collect(),
+            entries,
             unique,
             where_clause: None,
             only: false,
+            access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
         });
+        // SAFETY: we just pushed, so last_mut always returns Some
+        let len = self.state.indexes.len();
+        &mut self.state.indexes[len - 1]
+    }
+
+    /// Convert `&[&str]` column names to `Vec<IndexColumn>`.
+    fn column_entries(columns: &[&str]) -> Vec<IndexColumn> {
+        columns
+            .iter()
+            .map(|s| IndexColumn::Column(s.to_string()))
+            .collect()
+    }
+
+    /// Add an index
+    pub fn index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self {
+        self.push_index(name, Self::column_entries(columns), unique);
+        self
+    }
+
+    /// Add an index with a specific access method (e.g. "gin", "gist", "brin").
+    pub fn index_with_method(
+        &mut self,
+        name: &str,
+        columns: &[&str],
+        unique: bool,
+        method: &str,
+    ) -> &mut Self {
+        let idx = self.push_index(name, Self::column_entries(columns), unique);
+        idx.access_method = method.to_string();
         self
     }
 
     /// Add an ON ONLY index (not propagated to partitions).
     pub fn only_index(&mut self, name: &str, columns: &[&str], unique: bool) -> &mut Self {
-        self.state.indexes.push(IndexState {
-            name: name.to_string(),
-            entries: columns
-                .iter()
-                .map(|s| IndexColumn::Column(s.to_string()))
-                .collect(),
-            unique,
-            where_clause: None,
-            only: true,
-        });
+        let idx = self.push_index(name, Self::column_entries(columns), unique);
+        idx.only = true;
         self
     }
 
@@ -219,16 +244,8 @@ impl TableBuilder {
         unique: bool,
         where_clause: &str,
     ) -> &mut Self {
-        self.state.indexes.push(IndexState {
-            name: name.to_string(),
-            entries: columns
-                .iter()
-                .map(|s| IndexColumn::Column(s.to_string()))
-                .collect(),
-            unique,
-            where_clause: Some(where_clause.to_string()),
-            only: false,
-        });
+        let idx = self.push_index(name, Self::column_entries(columns), unique);
+        idx.where_clause = Some(where_clause.to_string());
         self
     }
 
@@ -246,25 +263,20 @@ impl TableBuilder {
         entries_spec: &[&str],
         unique: bool,
     ) -> &mut Self {
-        self.state.indexes.push(IndexState {
-            name: name.to_string(),
-            entries: entries_spec
-                .iter()
-                .map(|s| {
-                    if let Some(expr) = s.strip_prefix("expr:") {
-                        IndexColumn::Expression {
-                            text: expr.to_string(),
-                            referenced_columns: extract_column_refs_from_expr_text(expr),
-                        }
-                    } else {
-                        IndexColumn::Column(s.to_string())
+        let entries: Vec<IndexColumn> = entries_spec
+            .iter()
+            .map(|s| {
+                if let Some(expr) = s.strip_prefix("expr:") {
+                    IndexColumn::Expression {
+                        text: expr.to_string(),
+                        referenced_columns: extract_column_refs_from_expr_text(expr),
                     }
-                })
-                .collect(),
-            unique,
-            where_clause: None,
-            only: false,
-        });
+                } else {
+                    IndexColumn::Column(s.to_string())
+                }
+            })
+            .collect();
+        self.push_index(name, entries, unique);
         self
     }
 
@@ -484,6 +496,25 @@ mod tests {
     }
 
     #[test]
+    fn test_has_covering_index_skips_non_btree() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("customer_id", "integer", false).index_with_method(
+                    "idx_customer_hash",
+                    &["customer_id"],
+                    false,
+                    "hash",
+                );
+            })
+            .build();
+        let orders = catalog.get_table("orders").unwrap();
+        assert!(
+            !orders.has_covering_index(&["customer_id".to_string()]),
+            "Non-btree (hash) index should NOT satisfy FK coverage"
+        );
+    }
+
+    #[test]
     fn test_has_covering_index_skips_expression_prefix() {
         let catalog = CatalogBuilder::new()
             .table("users", |t| {
@@ -561,6 +592,25 @@ mod tests {
         assert!(
             !users.has_unique_not_null(),
             "Expression unique index should NOT count as PK substitute"
+        );
+    }
+
+    #[test]
+    fn test_has_unique_not_null_skips_non_btree_index() {
+        let catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false).index_with_method(
+                    "idx_email_hash",
+                    &["email"],
+                    true,
+                    "hash",
+                );
+            })
+            .build();
+        let users = catalog.get_table("users").unwrap();
+        assert!(
+            !users.has_unique_not_null(),
+            "Non-btree unique index should NOT count as PK substitute"
         );
     }
 

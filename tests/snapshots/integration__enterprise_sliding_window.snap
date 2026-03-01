@@ -532,7 +532,7 @@ expression: snapshot
   step: step_21_V021__subscription_periods
 - findings:
     - line: 1
-      message: "Column 'tracking_id' on 'orders' uses volatile default 'gen_random_uuid()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
+      message: "Column 'tracking_id' on 'orders' uses 'gen_random_uuid()' as default (known volatile). Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
       rule: PGM006
       severity: Minor
   step: step_22_V022__add_volatile_defaults

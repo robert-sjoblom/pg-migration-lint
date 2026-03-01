@@ -674,6 +674,104 @@ mod tests {
     }
 
     #[test]
+    fn test_fk_with_gin_index_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"]);
+            })
+            .table("customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"])
+                    .fk("fk_cust", &["customer_id"], "customers", &["id"])
+                    .index_with_method("idx_gin_cust", &["customer_id"], false, "gin");
+            })
+            .table("customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_cust".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "GIN index should NOT satisfy FK coverage — only btree indexes can"
+        );
+    }
+
+    #[test]
+    fn test_fk_with_gist_index_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"]);
+            })
+            .table("customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("customer_id", "integer", false)
+                    .pk(&["id"])
+                    .fk("fk_cust", &["customer_id"], "customers", &["id"])
+                    .index_with_method("idx_gist_cust", &["customer_id"], false, "gist");
+            })
+            .table("customers", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_cust".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: QualifiedName::unqualified("customers"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "GiST index should NOT satisfy FK coverage — only btree indexes can"
+        );
+    }
+
+    #[test]
     fn test_fk_on_partition_child_delegates_to_parent() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()

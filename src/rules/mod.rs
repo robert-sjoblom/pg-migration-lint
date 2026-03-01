@@ -14,6 +14,9 @@ mod column_type_check;
 mod drop_column_check;
 mod existing_table_check;
 mod finding;
+mod fn_volatility;
+#[cfg(test)]
+mod fn_volatility_tests;
 mod lint_context;
 mod rule_id;
 mod severity;

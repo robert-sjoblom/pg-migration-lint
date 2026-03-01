@@ -640,6 +640,67 @@ fn spike_drop_schema_multiple_schemas() {
 }
 
 // ---------------------------------------------------------------------------
+// SET/DROP DEFAULT and index access method spikes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spike_alter_column_set_drop_default() {
+    let sqls = [
+        "ALTER TABLE t ALTER COLUMN col SET DEFAULT 42;",
+        "ALTER TABLE t ALTER COLUMN col SET DEFAULT now();",
+        "ALTER TABLE t ALTER COLUMN col DROP DEFAULT;",
+    ];
+    for sql in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        println!("\n=== {} ===", sql);
+        if let pg_query::NodeEnum::AlterTableStmt(alter) = stmt {
+            for cmd_node in &alter.cmds {
+                if let Some(pg_query::NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref() {
+                    println!(
+                        "  subtype={:?}, name='{}', def={:?}",
+                        cmd.subtype(),
+                        cmd.name,
+                        cmd.def.as_ref().map(|d| d.node.as_ref())
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn spike_index_access_method() {
+    let sqls = [
+        "CREATE INDEX idx ON t (col);",
+        "CREATE INDEX idx ON t USING btree (col);",
+        "CREATE INDEX idx ON t USING gin (col);",
+        "CREATE INDEX idx ON t USING gist (col);",
+        "CREATE INDEX idx ON t USING hash (col);",
+        "CREATE INDEX idx ON t USING brin (col);",
+    ];
+    for sql in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        if let pg_query::NodeEnum::IndexStmt(idx) = stmt {
+            println!("{}: access_method={:?}", sql, idx.access_method);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // VACUUM statements
 // ---------------------------------------------------------------------------
 
@@ -724,5 +785,170 @@ fn spike_vacuum_full_analyze() {
         assert!(option_names.contains(&"analyze"));
     } else {
         panic!("Expected VacuumStmt, got: {stmt:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SQL keyword defaults vs function call defaults
+// ---------------------------------------------------------------------------
+
+/// Documents how pg_query represents SQL keyword defaults (CURRENT_TIMESTAMP,
+/// CURRENT_DATE, etc.) versus function call defaults (now(), random()).
+///
+/// Key finding: SQL-standard datetime keywords like CURRENT_TIMESTAMP are NOT
+/// placed in `raw_default` at all. Instead, pg_query puts them inside a
+/// `Constraint` node with `contype = Default`. The constraint's `raw_expr`
+/// contains an `SQLValueFunction` node. Only actual function call syntax
+/// (e.g. `now()`) produces a `FuncCall` node in `raw_default`.
+///
+/// This means our `convert_default_expr` never sees SQL keywords — they arrive
+/// via the constraint path, not the raw_default path. The practical effect is
+/// that `CURRENT_TIMESTAMP`, `CURRENT_DATE`, etc. become `DefaultExpr::Other`
+/// and never reach `classify_volatility()`.
+#[test]
+fn spike_sql_value_function_vs_func_call() {
+    // SQL keywords: pg_query puts DEFAULT in a Constraint node, not raw_default.
+    // The default value is in Constraint.raw_expr as SQLValueFunction.
+    let keyword_sql = "CREATE TABLE t (col timestamptz DEFAULT CURRENT_TIMESTAMP);";
+    let result = pg_query::parse(keyword_sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        panic!("expected CreateStmt");
+    };
+    let col_node = create.table_elts[0].node.as_ref().unwrap();
+    let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+        panic!("expected ColumnDef");
+    };
+
+    // raw_default is None for SQL keyword defaults
+    assert!(
+        col.raw_default.is_none(),
+        "CURRENT_TIMESTAMP should NOT appear in raw_default"
+    );
+
+    // Instead it's in a Constraint node with contype = Default
+    let constraint = col
+        .constraints
+        .iter()
+        .find_map(|c| match c.node.as_ref() {
+            Some(pg_query::NodeEnum::Constraint(con))
+                if con.contype() == pg_query::protobuf::ConstrType::ConstrDefault =>
+            {
+                Some(con)
+            }
+            _ => None,
+        })
+        .expect("should have a DEFAULT constraint");
+
+    let raw_expr = constraint
+        .raw_expr
+        .as_ref()
+        .expect("DEFAULT constraint should have raw_expr")
+        .node
+        .as_ref()
+        .unwrap();
+
+    assert!(
+        matches!(raw_expr, pg_query::NodeEnum::SqlvalueFunction(_)),
+        "CURRENT_TIMESTAMP should be SQLValueFunction, got: {raw_expr:?}"
+    );
+
+    // Function calls: pg_query puts these in raw_default as FuncCall.
+    let func_sql = "CREATE TABLE t (col timestamptz DEFAULT now());";
+    let result = pg_query::parse(func_sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        panic!("expected CreateStmt");
+    };
+    let col_node = create.table_elts[0].node.as_ref().unwrap();
+    let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+        panic!("expected ColumnDef");
+    };
+
+    // For function calls, the default CAN appear in either raw_default or constraints.
+    // Check both paths.
+    let func_node = if let Some(ref rd) = col.raw_default {
+        rd.node.clone().unwrap()
+    } else {
+        // Fall back to constraint path
+        let constraint = col
+            .constraints
+            .iter()
+            .find_map(|c| match c.node.as_ref() {
+                Some(pg_query::NodeEnum::Constraint(con))
+                    if con.contype() == pg_query::protobuf::ConstrType::ConstrDefault =>
+                {
+                    Some(con)
+                }
+                _ => None,
+            })
+            .expect("should have a DEFAULT constraint");
+        constraint
+            .raw_expr
+            .as_ref()
+            .expect("should have raw_expr")
+            .node
+            .clone()
+            .unwrap()
+    };
+
+    assert!(
+        matches!(func_node, pg_query::NodeEnum::FuncCall(_)),
+        "now() should be FuncCall, got: {func_node:?}"
+    );
+
+    // Verify all SQL datetime keywords go through the constraint path
+    let keyword_cases = [
+        (
+            "CURRENT_TIMESTAMP",
+            "CREATE TABLE t (c timestamptz DEFAULT CURRENT_TIMESTAMP);",
+        ),
+        (
+            "CURRENT_DATE",
+            "CREATE TABLE t (c date DEFAULT CURRENT_DATE);",
+        ),
+        (
+            "CURRENT_TIME",
+            "CREATE TABLE t (c timetz DEFAULT CURRENT_TIME);",
+        ),
+        ("LOCALTIME", "CREATE TABLE t (c time DEFAULT LOCALTIME);"),
+        (
+            "LOCALTIMESTAMP",
+            "CREATE TABLE t (c timestamp DEFAULT LOCALTIMESTAMP);",
+        ),
+    ];
+
+    for (label, sql) in keyword_cases {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+            panic!("expected CreateStmt");
+        };
+        let col_node = create.table_elts[0].node.as_ref().unwrap();
+        let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+            panic!("expected ColumnDef");
+        };
+        assert!(
+            col.raw_default.is_none(),
+            "{label} should NOT be in raw_default"
+        );
     }
 }

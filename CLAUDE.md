@@ -48,7 +48,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM020, PGM101-PGM106, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM506)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM023, PGM101-PGM107, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM507)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -63,12 +63,16 @@ pub enum IrNode {
     CreateIndex(CreateIndex),
     DropIndex(DropIndex),
     DropTable(DropTable),
+    DropSchema(DropSchema),
     TruncateTable(TruncateTable),
     InsertInto(InsertInto),
     UpdateTable(UpdateTable),
     DeleteFrom(DeleteFrom),
-    RenameTable(RenameTable),
-    RenameColumn(RenameColumn),
+    Cluster(Cluster),
+    VacuumFull(VacuumFull),
+    AlterIndexAttachPartition { parent_index_name, child_index_name },
+    RenameTable { name, new_name },
+    RenameColumn { table, old_name, new_name },
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<String> },
 }
@@ -78,11 +82,11 @@ pub enum IrNode {
 
 Supporting types:
 - `QualifiedName` - schema-qualified name with `catalog_key()` returning `"schema.name"` after normalization
-- `ColumnDef { name, type_name, nullable, default_expr, is_inline_pk }`
+- `ColumnDef { name, type_name, nullable, default_expr, is_inline_pk, is_serial }`
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
-- `TableConstraint` - enum: `PrimaryKey`, `ForeignKey`, `Unique`, `Check`
-- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `Other`
+- `TableConstraint` - enum: `PrimaryKey`, `ForeignKey`, `Unique`, `Check`, `Exclude`
+- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `Other`
 
 Each statement is wrapped in `Located<IrNode>` with `SourceSpan` for line number tracking.
 
@@ -97,18 +101,22 @@ pub struct Catalog {
 
 pub struct TableState {
     pub name: String,
+    pub display_name: String,
     pub columns: Vec<ColumnState>,
     pub indexes: Vec<IndexState>,
     pub constraints: Vec<ConstraintState>,
     pub has_primary_key: bool,
-    pub incomplete: bool,  // true if unparseable SQL touched this table
+    pub incomplete: bool,       // true if unparseable SQL touched this table
+    pub is_partitioned: bool,
+    pub partition_by: Option<PartitionByInfo>,
+    pub parent_table: Option<String>,
 }
 ```
 
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
-- `has_covering_index(&self, fk_columns: &[String]) -> bool` - prefix matching for PGM501
-- `has_unique_not_null(&self) -> bool` - for PGM503 detection
+- `has_covering_index(&self, fk_columns: &[String]) -> bool` - btree prefix matching for PGM501 (skips non-btree, partial, ONLY indexes)
+- `has_unique_not_null(&self) -> bool` - for PGM503 detection (btree-only, skips partial/expression indexes)
 
 The catalog tracks:
 - Table creation/deletion
@@ -179,10 +187,12 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM018**: `CLUSTER` on existing table
 - **PGM019**: `ADD EXCLUDE` constraint on existing table
 - **PGM020**: `DISABLE TRIGGER` on table
+- **PGM023**: `VACUUM FULL` on existing table
 
 **1xx — Type Anti-patterns:**
 - **PGM101–105**: PostgreSQL "Don't Do This" type rules (timestamp, timestamp(0), char(n), money, serial)
 - **PGM106**: Don't use `json` (use `jsonb`)
+- **PGM107**: Integer primary key (prefer `bigint`)
 
 **2xx — Destructive Operations:**
 - **PGM201**: `DROP TABLE` on existing table
@@ -208,6 +218,7 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **PGM504**: `RENAME TABLE` on existing table
 - **PGM505**: `RENAME COLUMN` on existing table
 - **PGM506**: `CREATE UNLOGGED TABLE`
+- **PGM507**: `DROP NOT NULL` on existing table
 
 **9xx — Meta-behavior:**
 - **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule
@@ -281,15 +292,26 @@ for unit in history.units {
 
 This single-pass design with selective cloning is more efficient than dual-replay and provides rules with both before/after states.
 
-The `apply` function:
+The `apply` function handles all `IrNode` variants:
 - `CreateTable` → insert into catalog with columns, constraints, indexes
-- `AlterTable(AddColumn)` → push to columns, update types as needed
+- `AlterTable(AddColumn)` → push to columns
 - `AlterTable(AddConstraint)` → push to constraints, set `has_primary_key` if PK
-- `CreateIndex` → push to indexes (preserving column order)
-- `DropTable` → remove from catalog entirely
-- `DropIndex` → remove from table's indexes
 - `AlterTable(AlterColumnType)` → update column type_name
 - `AlterTable(DropColumn)` → remove column and affected indexes/constraints
+- `AlterTable(SetNotNull)` → set column `nullable = false`
+- `AlterTable(DropNotNull)` → set column `nullable = true`
+- `AlterTable(SetDefault)` → update column `has_default` and `default_expr`
+- `AlterTable(DropDefault)` → clear column `has_default` and `default_expr`
+- `AlterTable(DropConstraint)` → remove named constraint and backing index
+- `AlterTable(ValidateConstraint)` → clear `not_valid` flag
+- `AlterTable(AttachPartition/DetachPartition)` → manage partition children
+- `CreateIndex` → push to indexes (preserving column order and access method)
+- `DropTable` → remove from catalog entirely
+- `DropIndex` → remove from table's indexes
+- `RenameTable` → re-key table in catalog
+- `RenameColumn` → update column name in table
+- `DropSchema` → remove all tables in schema
+- `AlterIndexAttachPartition` → mark ONLY index as valid
 - `Unparseable` with table_hint → mark table `incomplete = true`
 
 ### Changed File Detection
@@ -430,6 +452,7 @@ See `test_plan.md` sections 3-5 for comprehensive test case coverage per rule.
 - Error paths: config errors exit 2, parse failures on individual files warn and continue
 - Rules are `Send + Sync` to support parallel execution in the future
 - TypeName stores modifiers as `Vec<i64>` for types like `varchar(100)`, `numeric(10,2)`
+- Never write inline spike tests or temporary test files — always add spike tests to `tests/pg_query_spike.rs`
 
 ## Key Files Reference
 

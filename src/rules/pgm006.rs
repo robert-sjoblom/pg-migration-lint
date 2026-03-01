@@ -5,40 +5,19 @@
 //! gets a serial-specific message; unknown functions produce an INFO suggesting
 //! the developer verify volatility.
 //!
+//! Also detects `ALTER COLUMN SET DEFAULT` with volatile functions (INFO level).
+//! Unlike `ADD COLUMN`, `SET DEFAULT` does not cause a table rewrite — it only
+//! affects future inserts. The finding warns that existing rows are NOT backfilled.
+//!
 //! `CREATE TABLE` and `ADD COLUMN` on tables created in the same changeset are
 //! exempt — there are no existing rows, so no table rewrite occurs.
 
 use crate::parser::ir::{
     AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName, SourceSpan,
 };
+use crate::rules::fn_volatility::{self, FnVolatility};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 use std::path::Path;
-
-/// Known volatile functions that always force a table rewrite when used as
-/// a column default on `ADD COLUMN` to an existing table.
-const KNOWN_VOLATILE: &[&str] = &[
-    "random",
-    "gen_random_uuid",
-    "uuid_generate_v4",
-    "clock_timestamp",
-    "timeofday",
-    "txid_current",
-];
-
-/// Known stable functions that do NOT force a table rewrite on `ADD COLUMN`
-/// (PostgreSQL 11+). These are evaluated once at ALTER TABLE time and the
-/// single resulting value is stored in the catalog, applied lazily to existing
-/// rows. No finding is emitted for these.
-const KNOWN_STABLE: &[&str] = &[
-    "now",
-    "current_timestamp",
-    "statement_timestamp",
-    "transaction_timestamp",
-    "current_date",
-    "current_time",
-    "localtime",
-    "localtimestamp",
-];
 
 pub(super) const DESCRIPTION: &str = "Volatile default on column";
 
@@ -60,14 +39,17 @@ pub(super) const EXPLAIN: &str = "PGM006 — Volatile default on column\n\
          once at ALTER TABLE time. The resulting value is stored in the\n\
          catalog and applied lazily — no table rewrite occurs.\n\
          \n\
-         Severity levels:\n\
-         - MINOR (WARNING): Known volatile functions (random, gen_random_uuid,\n\
-           uuid_generate_v4, clock_timestamp, timeofday, txid_current)\n\
-         - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile\n\
-         - INFO: Unknown function calls — developer should verify volatility\n\
-         - No finding: Literal defaults, stable functions (now, current_timestamp)\n\
+         Volatility classification is derived from PostgreSQL's pg_proc catalog\n\
+         covering all ~2700 built-in functions.\n\
          \n\
-         Example (flagged):\n\
+         Severity levels:\n\
+         - MINOR (WARNING): Volatile built-in functions (ADD COLUMN)\n\
+         - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile (ADD COLUMN)\n\
+         - INFO: SET DEFAULT with volatile or unrecognized function\n\
+         - INFO: Unrecognized functions on ADD COLUMN — developer should verify volatility\n\
+         - No finding: Literal defaults, stable/immutable functions\n\
+         \n\
+         Example (flagged — ADD COLUMN):\n\
            ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();\n\
          \n\
          Fix:\n\
@@ -75,8 +57,19 @@ pub(super) const EXPLAIN: &str = "PGM006 — Volatile default on column\n\
            -- Then backfill:\n\
            UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;\n\
          \n\
+         Also detects SET DEFAULT with volatile functions (INFO):\n\
+           ALTER TABLE orders ALTER COLUMN token SET DEFAULT gen_random_uuid();\n\
+         Unlike ADD COLUMN, SET DEFAULT does NOT cause a table rewrite — it only\n\
+         affects future INSERTs. Existing rows are NOT backfilled.\n\
+         \n\
          Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
          rows) and are not flagged.";
+
+/// Returns true if the function name is `nextval` (case-insensitive).
+/// Used to emit a serial-specific message instead of the generic volatile warning.
+fn is_nextval(func_name: &str) -> bool {
+    func_name.eq_ignore_ascii_case("nextval")
+}
 
 pub(super) fn check(
     rule: impl Rule,
@@ -86,7 +79,7 @@ pub(super) fn check(
     let mut findings = Vec::new();
 
     for stmt in statements {
-        // Only check ALTER TABLE … ADD COLUMN.
+        // Only check ALTER TABLE … ADD COLUMN and ALTER COLUMN SET DEFAULT.
         // CREATE TABLE is intentionally skipped — no existing rows means no rewrite.
         if let IrNode::AlterTable(at) = &stmt.node {
             // Skip tables created in this changeset — no existing rows to rewrite.
@@ -96,10 +89,30 @@ pub(super) fn check(
             }
 
             for action in &at.actions {
-                if let AlterTableAction::AddColumn(col) = action
-                    && let Some(finding) = check_column(col, &at.name, &rule, ctx.file, &stmt.span)
-                {
-                    findings.push(finding);
+                match action {
+                    AlterTableAction::AddColumn(col) => {
+                        if let Some(finding) =
+                            check_column(col, &at.name, &rule, ctx.file, &stmt.span)
+                        {
+                            findings.push(finding);
+                        }
+                    }
+                    AlterTableAction::SetDefault {
+                        column_name,
+                        default_expr,
+                    } => {
+                        if let Some(finding) = check_set_default(
+                            column_name,
+                            default_expr,
+                            &at.name,
+                            &rule,
+                            ctx.file,
+                            &stmt.span,
+                        ) {
+                            findings.push(finding);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -121,12 +134,11 @@ fn check_column(
         Some(DefaultExpr::Literal(_)) | Some(DefaultExpr::Other(_)) | None => return None,
     };
 
-    let lower = func_name.to_lowercase();
-
-    if lower == "nextval" {
-        return Some(Finding::new(
+    match fn_volatility::lookup(func_name) {
+        Some(FnVolatility::Stable | FnVolatility::Immutable) => None,
+        Some(FnVolatility::Volatile) if is_nextval(func_name) => Some(Finding::new(
             rule.id(),
-            Severity::Minor, // WARNING level — standard but volatile
+            Severity::Minor,
             format!(
                 "Column '{col}' on '{table}' uses a sequence default (serial/bigserial). \
                  This is standard usage — suppress if intentional. Note: on ADD COLUMN \
@@ -136,22 +148,12 @@ fn check_column(
             ),
             file,
             span,
-        ));
-    }
-
-    // Stable functions (e.g., now(), current_timestamp) are evaluated once
-    // at ALTER TABLE time and the single value is stored in the catalog.
-    // No table rewrite occurs on PostgreSQL 11+.
-    if KNOWN_STABLE.contains(&lower.as_str()) {
-        return None;
-    }
-
-    if KNOWN_VOLATILE.contains(&lower.as_str()) {
-        return Some(Finding::new(
+        )),
+        Some(FnVolatility::Volatile) => Some(Finding::new(
             rule.id(),
-            Severity::Minor, // WARNING level — known volatile
+            Severity::Minor,
             format!(
-                "Column '{col}' on '{table}' uses volatile default '{fn_name}()'. \
+                "Column '{col}' on '{table}' uses '{fn_name}()' as default (known volatile). \
                  Unlike non-volatile defaults, this forces a full table rewrite under an \
                  ACCESS EXCLUSIVE lock \u{2014} every existing row must be physically updated \
                  with a computed value. For large tables, this causes extended downtime. \
@@ -163,25 +165,88 @@ fn check_column(
             ),
             file,
             span,
-        ));
+        )),
+        None => Some(Finding::new(
+            rule.id(),
+            Severity::Info,
+            format!(
+                "Column '{col}' on '{table}' uses function '{fn_name}()' as default. \
+                 If this function is volatile (the default for user-defined functions), \
+                 it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead \
+                 of a cheap catalog-only change. Verify the function's volatility classification.",
+                col = col.name,
+                table = table_name,
+                fn_name = func_name,
+            ),
+            file,
+            span,
+        )),
     }
+}
 
-    // Unknown function — INFO level.
-    Some(Finding::new(
-        rule.id(),
-        Severity::Info,
-        format!(
-            "Column '{col}' on '{table}' uses function '{fn_name}()' as default. \
-             If this function is volatile (the default for user-defined functions), \
-             it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead \
-             of a cheap catalog-only change. Verify the function's volatility classification.",
-            col = col.name,
-            table = table_name,
-            fn_name = func_name,
-        ),
-        file,
-        span,
-    ))
+/// Check a `SET DEFAULT` action for a volatile function default.
+///
+/// Unlike `ADD COLUMN`, `SET DEFAULT` does NOT cause a table rewrite — it only
+/// changes the catalog entry for future inserts. However, volatile defaults on
+/// `SET DEFAULT` are unusual and may indicate the developer expects existing rows
+/// to be backfilled (they won't be). Emits INFO severity.
+fn check_set_default(
+    column_name: &str,
+    default_expr: &DefaultExpr,
+    table_name: &QualifiedName,
+    rule: &impl Rule,
+    file: &Path,
+    span: &SourceSpan,
+) -> Option<Finding> {
+    let func_name = match default_expr {
+        DefaultExpr::FunctionCall { name, .. } => name,
+        DefaultExpr::Literal(_) | DefaultExpr::Other(_) => return None,
+    };
+
+    match fn_volatility::lookup(func_name) {
+        Some(FnVolatility::Stable | FnVolatility::Immutable) => None,
+        Some(FnVolatility::Volatile) if is_nextval(func_name) => Some(Finding::new(
+            rule.id(),
+            Severity::Info,
+            format!(
+                "SET DEFAULT 'nextval()' on column '{col}' of '{table}' (serial/bigserial). \
+                 This is standard usage — suppress if intentional. Note: SET DEFAULT only \
+                 affects future INSERTs — existing rows are NOT backfilled.",
+                col = column_name,
+                table = table_name.display_name(),
+            ),
+            file,
+            span,
+        )),
+        Some(FnVolatility::Volatile) => Some(Finding::new(
+            rule.id(),
+            Severity::Info,
+            format!(
+                "SET DEFAULT '{fn_name}()' on column '{col}' of '{table}' (known volatile). \
+                 Note: SET DEFAULT only affects future INSERTs — existing rows are NOT \
+                 backfilled. If you need to populate existing rows, use a batched UPDATE.",
+                fn_name = func_name,
+                col = column_name,
+                table = table_name.display_name(),
+            ),
+            file,
+            span,
+        )),
+        None => Some(Finding::new(
+            rule.id(),
+            Severity::Info,
+            format!(
+                "SET DEFAULT '{fn_name}()' on column '{col}' of '{table}' uses a function \
+                 default. If this function is volatile, note that SET DEFAULT only affects \
+                 future INSERTs — existing rows are NOT backfilled.",
+                fn_name = func_name,
+                col = column_name,
+                table = table_name.display_name(),
+            ),
+            file,
+            span,
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -228,37 +293,6 @@ mod tests {
         assert!(
             findings.is_empty(),
             "now() is STABLE, should not trigger PGM006"
-        );
-    }
-
-    #[test]
-    fn test_current_timestamp_default_no_finding() {
-        // current_timestamp is STABLE — same behavior as now().
-        let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "int", false);
-            })
-            .build();
-        let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddColumn(col_with_default(
-                "created_at",
-                DefaultExpr::FunctionCall {
-                    name: "current_timestamp".to_string(),
-                    args: vec![],
-                },
-            ))],
-        }))];
-
-        let findings = RuleId::Pgm006.check(&stmts, &ctx);
-        assert!(
-            findings.is_empty(),
-            "current_timestamp is STABLE, should not trigger PGM006"
         );
     }
 
@@ -425,5 +459,278 @@ mod tests {
 
         let findings = RuleId::Pgm006.check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_mixed_case_stable_no_finding() {
+        // Verify case-insensitive matching: "NOW" should be classified as STABLE.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "created_at",
+                DefaultExpr::FunctionCall {
+                    name: "NOW".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "NOW (uppercase) is STABLE, should not trigger PGM006"
+        );
+    }
+
+    #[test]
+    fn test_mixed_case_volatile_fires_warning() {
+        // Verify case-insensitive matching: "Gen_Random_Uuid" should be KnownVolatile.
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "token",
+                DefaultExpr::FunctionCall {
+                    name: "Gen_Random_Uuid".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Gen_Random_Uuid (mixed case) is volatile"
+        );
+        assert_eq!(findings[0].severity, Severity::Minor);
+    }
+
+    #[test]
+    fn test_txid_current_is_stable_no_finding() {
+        // txid_current() is STABLE in PostgreSQL (provolatile = 's').
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::AddColumn(col_with_default(
+                "txid",
+                DefaultExpr::FunctionCall {
+                    name: "txid_current".to_string(),
+                    args: vec![],
+                },
+            ))],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "txid_current() is STABLE, should not trigger PGM006"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // SET DEFAULT — volatile function detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_set_default_volatile_fires_info() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false).column("token", "uuid", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "token".to_string(),
+                default_expr: DefaultExpr::FunctionCall {
+                    name: "gen_random_uuid".to_string(),
+                    args: vec![],
+                },
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "volatile SET DEFAULT should fire");
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].message.contains("NOT backfilled"));
+    }
+
+    #[test]
+    fn test_set_default_stable_no_finding() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false)
+                    .column("created_at", "timestamptz", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "created_at".to_string(),
+                default_expr: DefaultExpr::FunctionCall {
+                    name: "now".to_string(),
+                    args: vec![],
+                },
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "now() is STABLE, SET DEFAULT should not trigger PGM006"
+        );
+    }
+
+    #[test]
+    fn test_set_default_literal_no_finding() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false).column("status", "text", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "status".to_string(),
+                default_expr: DefaultExpr::Literal("active".to_string()),
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "Literal SET DEFAULT should not fire");
+    }
+
+    #[test]
+    fn test_set_default_nextval_fires_info() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false).column("seq_col", "int", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "seq_col".to_string(),
+                default_expr: DefaultExpr::FunctionCall {
+                    name: "nextval".to_string(),
+                    args: vec!["orders_seq_col_seq".to_string()],
+                },
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "nextval SET DEFAULT should fire");
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].message.contains("serial/bigserial"));
+        assert!(findings[0].message.contains("NOT backfilled"));
+    }
+
+    #[test]
+    fn test_set_default_unknown_function_fires_info() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "int", false)
+                    .column("computed", "text", true);
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "computed".to_string(),
+                default_expr: DefaultExpr::FunctionCall {
+                    name: "my_custom_func".to_string(),
+                    args: vec![],
+                },
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "unknown function SET DEFAULT should fire"
+        );
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].message.contains("NOT backfilled"));
+    }
+
+    #[test]
+    fn test_set_default_on_new_table_no_finding() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from("migrations/002.sql");
+        let created: HashSet<String> = ["orders".to_string()].into_iter().collect();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![AlterTableAction::SetDefault {
+                column_name: "token".to_string(),
+                default_expr: DefaultExpr::FunctionCall {
+                    name: "gen_random_uuid".to_string(),
+                    args: vec![],
+                },
+            }],
+        }))];
+
+        let findings = RuleId::Pgm006.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "SET DEFAULT on table created in same changeset should not fire"
+        );
     }
 }

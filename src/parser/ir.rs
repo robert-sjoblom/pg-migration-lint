@@ -137,6 +137,15 @@ pub enum AlterTableAction {
     DropNotNull {
         column_name: String,
     },
+    /// SET DEFAULT on an existing column — assigns a new default value.
+    SetDefault {
+        column_name: String,
+        default_expr: DefaultExpr,
+    },
+    /// DROP DEFAULT on an existing column — removes the default value.
+    DropDefault {
+        column_name: String,
+    },
     /// DROP CONSTRAINT by name.
     DropConstraint {
         constraint_name: String,
@@ -177,6 +186,8 @@ pub struct CreateIndex {
     /// `CREATE INDEX ON ONLY parent_table` — index only on the parent,
     /// not propagated to partitions.
     pub only: bool,
+    /// Index access method: `"btree"` (default), `"gin"`, `"gist"`, `"hash"`, `"brin"`.
+    pub access_method: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -575,7 +586,7 @@ impl CreateTable {
 
 #[cfg(test)]
 impl CreateIndex {
-    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE, not ONLY.
+    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE, not ONLY, btree.
     pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
         Self {
             index_name: index_name.into(),
@@ -586,6 +597,7 @@ impl CreateIndex {
             if_not_exists: false,
             where_clause: None,
             only: false,
+            access_method: crate::catalog::types::IndexState::DEFAULT_ACCESS_METHOD.to_string(),
         }
     }
 
@@ -616,6 +628,11 @@ impl CreateIndex {
 
     pub fn with_only(mut self, only: bool) -> Self {
         self.only = only;
+        self
+    }
+
+    pub fn with_access_method(mut self, method: impl Into<String>) -> Self {
+        self.access_method = method.into();
         self
     }
 }

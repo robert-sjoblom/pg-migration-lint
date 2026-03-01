@@ -436,4 +436,35 @@ mod tests {
             "Partial unique index should NOT trigger PGM503"
         );
     }
+
+    #[test]
+    fn test_non_btree_unique_index_not_null_no_finding() {
+        // A non-btree (hash) unique index on a NOT NULL column should NOT
+        // trigger PGM503, because only btree unique indexes count as PK substitutes.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("email", "text", false).index_with_method(
+                    "idx_email_hash",
+                    &["email"],
+                    true,
+                    "hash",
+                );
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("users"))
+                .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::Pgm503.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Non-btree unique index should NOT trigger PGM503"
+        );
+    }
 }

@@ -252,6 +252,38 @@ mod tests {
     }
 
     #[test]
+    fn test_non_btree_unique_index_not_null_does_not_suppress_pgm502() {
+        // A non-btree (hash) unique index on NOT NULL column should NOT suppress PGM502.
+        // has_unique_not_null() filters non-btree, so PGM502 should fire.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("events", |t| {
+                t.column("email", "text", false).index_with_method(
+                    "idx_email_hash",
+                    &["email"],
+                    true,
+                    "hash",
+                );
+            })
+            .build();
+        let file = PathBuf::from("migrations/001.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![located(IrNode::CreateTable(
+            CreateTable::test(QualifiedName::unqualified("events"))
+                .with_columns(vec![ColumnDef::test("email", "text").with_nullable(false)]),
+        ))];
+
+        let findings = RuleId::Pgm502.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "Non-btree unique index should NOT suppress PGM502"
+        );
+    }
+
+    #[test]
     fn test_partition_child_parent_has_pk_suppressed() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()

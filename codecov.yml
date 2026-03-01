@@ -1,0 +1,2 @@
+ignore:
+  - "src/rules/fn_volatility.rs"

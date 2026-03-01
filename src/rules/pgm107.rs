@@ -121,11 +121,7 @@ pub(super) fn check(
                     let resolved_columns: Vec<String>;
                     let col_names: &[String] = if columns.is_empty() {
                         if let Some(idx_name) = using_index {
-                            let idx = ctx
-                                .catalog_before
-                                .get_index(idx_name)
-                                .or_else(|| ctx.catalog_after.get_index(idx_name));
-                            if let Some(idx) = idx {
+                            if let Some(idx) = ctx.get_index(idx_name) {
                                 resolved_columns = idx.column_names().map(String::from).collect();
                                 &resolved_columns
                             } else {

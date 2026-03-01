@@ -61,11 +61,7 @@ pub(super) fn check(
 
             let message = match using_index {
                 Some(idx_name) => {
-                    let idx = ctx
-                        .catalog_before
-                        .get_index(idx_name)
-                        .or_else(|| ctx.catalog_after.get_index(idx_name));
-                    match idx {
+                    match ctx.get_index(idx_name) {
                         None => format!(
                             "ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': \
                              referenced index does not exist.",
@@ -74,6 +70,13 @@ pub(super) fn check(
                         Some(idx) if !idx.unique => format!(
                             "ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': \
                              referenced index is not UNIQUE.",
+                            table = at.name.display_name(),
+                        ),
+                        Some(idx) if !idx.is_btree() => format!(
+                            "ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': \
+                             referenced index uses access method '{}', but only btree \
+                             indexes can back a UNIQUE constraint.",
+                            idx.access_method,
                             table = at.name.display_name(),
                         ),
                         Some(_) => return vec![], // safe
@@ -300,6 +303,28 @@ mod tests {
 
         let findings = RuleId::Pgm017.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_add_unique_using_index_non_btree_fires() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("email", "text", false)
+                    .index_with_method("idx_orders_email", &["email"], true, "hash");
+            })
+            .build();
+        let after = before.clone();
+        let file = PathBuf::from("migrations/002.sql");
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
+
+        let stmts = vec![add_unique_using_index_stmt("orders", "idx_orders_email")];
+
+        let findings = RuleId::Pgm017.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("hash"));
+        assert!(findings[0].message.contains("btree"));
     }
 
     #[test]

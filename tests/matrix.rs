@@ -150,6 +150,8 @@ fn test_matrix_create_index_concurrent_in_transaction() {
         if_not_exists: false,
         where_clause: None,
         only: false,
+        access_method: pg_migration_lint::catalog::types::IndexState::DEFAULT_ACCESS_METHOD
+            .to_string(),
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
@@ -180,6 +182,8 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
         if_not_exists: false,
         where_clause: None,
         only: false,
+        access_method: pg_migration_lint::catalog::types::IndexState::DEFAULT_ACCESS_METHOD
+            .to_string(),
     }))];
 
     let findings = run_selected_rules(&stmts, &ctx, &["PGM001", "PGM003"]);
