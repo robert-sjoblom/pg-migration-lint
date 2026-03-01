@@ -156,6 +156,9 @@ pub enum RuleId {
     /// `CREATE UNLOGGED TABLE`.
     #[strum(serialize = "PGM506")]
     Pgm506,
+    /// `DROP NOT NULL` on an existing table allows NULL values.
+    #[strum(serialize = "PGM507")]
+    Pgm507,
 
     // 9xx — Meta-behavior
     /// Down-migration severity capping (not a standalone rule).
@@ -249,7 +252,9 @@ impl Rule for RuleId {
 
             // 5xx — Schema design
             Self::Pgm501 | Self::Pgm502 => Severity::Major,
-            Self::Pgm503 | Self::Pgm504 | Self::Pgm505 | Self::Pgm506 => Severity::Info,
+            Self::Pgm503 | Self::Pgm504 | Self::Pgm505 | Self::Pgm506 | Self::Pgm507 => {
+                Severity::Info
+            }
 
             // 9xx — Meta
             Self::Pgm901 => Severity::Info,
@@ -278,6 +283,7 @@ impl Rule for RuleId {
             Self::Pgm018 => super::pgm018::DESCRIPTION,
             Self::Pgm019 => super::pgm019::DESCRIPTION,
             Self::Pgm020 => super::pgm020::DESCRIPTION,
+            Self::Pgm507 => super::pgm507::DESCRIPTION,
             Self::Pgm101 => super::pgm101::DESCRIPTION,
             Self::Pgm102 => super::pgm102::DESCRIPTION,
             Self::Pgm103 => super::pgm103::DESCRIPTION,
@@ -329,6 +335,7 @@ impl Rule for RuleId {
             Self::Pgm018 => super::pgm018::EXPLAIN,
             Self::Pgm019 => super::pgm019::EXPLAIN,
             Self::Pgm020 => super::pgm020::EXPLAIN,
+            Self::Pgm507 => super::pgm507::EXPLAIN,
             Self::Pgm101 => super::pgm101::EXPLAIN,
             Self::Pgm102 => super::pgm102::EXPLAIN,
             Self::Pgm103 => super::pgm103::EXPLAIN,
@@ -378,6 +385,7 @@ impl Rule for RuleId {
             Self::Pgm018 => super::pgm018::check(*self, statements, ctx),
             Self::Pgm019 => super::pgm019::check(*self, statements, ctx),
             Self::Pgm020 => super::pgm020::check(*self, statements, ctx),
+            Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
             Self::Pgm101 => super::pgm101::check(*self, statements, ctx),
             Self::Pgm102 => super::pgm102::check(*self, statements, ctx),
             Self::Pgm103 => super::pgm103::check(*self, statements, ctx),

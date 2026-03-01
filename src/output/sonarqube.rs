@@ -104,8 +104,8 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "LOW",
         },
-        // CREATE UNLOGGED TABLE
-        RuleId::Pgm506 => SonarQubeRuleMeta {
+        // CREATE UNLOGGED TABLE, DROP NOT NULL
+        RuleId::Pgm506 | RuleId::Pgm507 => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
@@ -247,7 +247,12 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm019 => 30,
         // Schema quality / side-effect warnings
         RuleId::Pgm009 | RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 => 10,
-        RuleId::Pgm502 | RuleId::Pgm503 | RuleId::Pgm504 | RuleId::Pgm505 | RuleId::Pgm506 => 10,
+        RuleId::Pgm502
+        | RuleId::Pgm503
+        | RuleId::Pgm504
+        | RuleId::Pgm505
+        | RuleId::Pgm506
+        | RuleId::Pgm507 => 10,
         RuleId::Pgm201 | RuleId::Pgm203 => 10,
         RuleId::Pgm202 | RuleId::Pgm204 => 15,
         RuleId::Pgm205 => 30,

@@ -1,0 +1,28 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM507
+Severity: INFO
+Description: DROP NOT NULL on existing table allows NULL values
+
+PGM507 — DROP NOT NULL on existing table
+
+What it detects:
+ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL on a table that already
+exists in the database (not created in the same set of changed files).
+
+Why it matters:
+Dropping NOT NULL silently allows NULL values in a column where the
+application may assume non-NULL. This is especially dangerous when the
+column feeds into aggregations (COUNT vs COUNT(*), SUM with NULLs),
+joins (NULL != NULL), or application logic that doesn't check for NULL.
+
+Example (risky):
+ALTER TABLE orders ALTER COLUMN status DROP NOT NULL;
+
+Recommended approach:
+1. Verify that all application code paths handle NULLs in this column.
+2. Update aggregations and joins that assume non-NULL.
+3. Consider adding a CHECK constraint or application-level validation
+if only certain rows should allow NULL.

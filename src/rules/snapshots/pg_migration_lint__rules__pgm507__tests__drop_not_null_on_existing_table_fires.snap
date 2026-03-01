@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm507.rs
+expression: findings
+---
+- rule_id: PGM507
+  severity: Info
+  message: "DROP NOT NULL on column 'status' of existing table 'orders' allows NULL values where the application may assume non-NULL. Verify that all code paths handle NULLs."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

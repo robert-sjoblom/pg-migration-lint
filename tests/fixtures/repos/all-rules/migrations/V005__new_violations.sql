@@ -1,6 +1,9 @@
 -- PGM013: SET NOT NULL on existing column
 ALTER TABLE customers ALTER COLUMN customer_id SET NOT NULL;
 
+-- PGM507: DROP NOT NULL on existing column
+ALTER TABLE customers ALTER COLUMN email DROP NOT NULL;
+
 -- PGM014: ADD FK without NOT VALID on existing table
 ALTER TABLE events ADD CONSTRAINT fk_events_customer
     FOREIGN KEY (event_type) REFERENCES customers(email);
