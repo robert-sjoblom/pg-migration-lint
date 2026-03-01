@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm107.rs
+expression: findings
+---
+- rule_id: PGM107
+  severity: Major
+  message: "Primary key column 'id' on 'orders' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

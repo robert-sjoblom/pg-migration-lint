@@ -1,0 +1,31 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM107
+Severity: MAJOR
+Description: Primary key column uses integer or smallint instead of bigint
+
+PGM107 — Integer Primary Key
+
+What it detects:
+A primary key column whose type is integer (int4) or smallint (int2).
+Detected in CREATE TABLE (inline PK or table-level PRIMARY KEY) and
+ALTER TABLE ... ADD PRIMARY KEY.
+
+Why it matters:
+integer maxes out at ~2.1 billion rows, smallint at ~32 000.
+High-write tables routinely exhaust these ranges. Migrating a
+primary key column from integer to bigint requires an ACCESS
+EXCLUSIVE lock and full table rewrite — a painful, high-risk
+operation on production tables.
+
+Example (flagged):
+CREATE TABLE orders (
+id integer PRIMARY KEY
+);
+
+Fix:
+CREATE TABLE orders (
+id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+);

@@ -21,3 +21,9 @@ CREATE TABLE legacy_ids (
     id serial PRIMARY KEY,
     label text
 );
+
+-- PGM107: integer primary key
+CREATE TABLE small_ids (
+    id integer PRIMARY KEY,
+    name text NOT NULL
+);

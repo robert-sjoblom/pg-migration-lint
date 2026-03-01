@@ -158,6 +158,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "LOW",
         },
+        // Integer PK: risks exhaustion and painful rewrite
+        RuleId::Pgm107 => SonarQubeRuleMeta {
+            clean_code_attribute: "CONVENTIONAL",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "MEDIUM",
+        },
         // Meta-behavior (PGM901) — should not appear in findings, but handle gracefully
         RuleId::Pgm901 => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
@@ -264,7 +271,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm103
         | RuleId::Pgm104
         | RuleId::Pgm105
-        | RuleId::Pgm106 => 10,
+        | RuleId::Pgm106
+        | RuleId::Pgm107 => 10,
         // Meta-behavior
         RuleId::Pgm901 => 10,
     }
