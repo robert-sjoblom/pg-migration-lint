@@ -16,6 +16,21 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.13.0...v2.14.0) (2026-03-01)
+
+
+### Features
+
+* **catalog:** add DropNotNull, DropConstraint, ValidateConstraint support ([3516094](https://github.com/robert-sjoblom/pg-migration-lint/commit/351609453dd28cb11bb19986730046b31001f8eb))
+* **rules:** add PGM023 -- VACUUM FULL on existing table ([5e75bf8](https://github.com/robert-sjoblom/pg-migration-lint/commit/5e75bf808a2717e976f9371f35750ebf2601df99))
+* **rules:** add PGM107 — integer primary key detection ([5cf0d12](https://github.com/robert-sjoblom/pg-migration-lint/commit/5cf0d1240aa1959ca09cd46a9baacf566bc10171))
+* **rules:** add PGM507 — DROP NOT NULL on existing table ([4277d1c](https://github.com/robert-sjoblom/pg-migration-lint/commit/4277d1cda633d2b6ef4d12da09bc4537916191a7))
+
+
+### Bug Fixes
+
+* **rules:** correct lock level and volatile functions ([264d9a6](https://github.com/robert-sjoblom/pg-migration-lint/commit/264d9a6df13fac02ab5d3c04892b13324dea56db))
+
 ## [2.13.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.12.0...v2.13.0) (2026-02-27)
 
 
