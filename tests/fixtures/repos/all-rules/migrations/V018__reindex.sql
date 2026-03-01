@@ -1,0 +1,2 @@
+-- Triggers PGM024: REINDEX without CONCURRENTLY
+REINDEX TABLE orders;

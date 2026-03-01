@@ -27,6 +27,8 @@ pub enum IrNode {
     Cluster(Cluster),
     /// `VACUUM FULL` rewrites the table under ACCESS EXCLUSIVE lock.
     VacuumFull(VacuumFull),
+    /// `REINDEX` without `CONCURRENTLY` acquires ACCESS EXCLUSIVE lock.
+    Reindex(Reindex),
     /// `ALTER INDEX parent ATTACH PARTITION child` — attaches a child index
     /// to a parent ON ONLY index, making it valid (recursive).
     AlterIndexAttachPartition {
@@ -242,6 +244,45 @@ pub struct Cluster {
 pub struct VacuumFull {
     /// Target table, or `None` for `VACUUM FULL;` (all tables in the database).
     pub table: Option<QualifiedName>,
+}
+
+/// The kind of object targeted by `REINDEX`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReindexObjectKind {
+    Table,
+    Index,
+    Schema,
+    Database,
+    System,
+}
+
+impl fmt::Display for ReindexObjectKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Table => write!(f, "TABLE"),
+            Self::Index => write!(f, "INDEX"),
+            Self::Schema => write!(f, "SCHEMA"),
+            Self::Database => write!(f, "DATABASE"),
+            Self::System => write!(f, "SYSTEM"),
+        }
+    }
+}
+
+/// Target of a `REINDEX` statement.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReindexTarget {
+    /// TABLE or INDEX — uses a schema-qualifiable relation reference.
+    Relation(QualifiedName),
+    /// SCHEMA or DATABASE — a plain name (not schema-qualified).
+    Named(String),
+}
+
+/// `REINDEX [TABLE|INDEX|SCHEMA|DATABASE] [CONCURRENTLY] name`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reindex {
+    pub kind: ReindexObjectKind,
+    pub target: ReindexTarget,
+    pub concurrent: bool,
 }
 
 // --- Supporting types ---
@@ -769,6 +810,51 @@ impl VacuumFull {
     }
 }
 
+#[cfg(test)]
+impl Reindex {
+    /// Build a REINDEX TABLE (non-concurrent) for testing.
+    pub fn test_table(table: QualifiedName) -> Self {
+        Self {
+            kind: ReindexObjectKind::Table,
+            target: ReindexTarget::Relation(table),
+            concurrent: false,
+        }
+    }
+
+    /// Build a REINDEX INDEX (non-concurrent) for testing.
+    pub fn test_index(index: QualifiedName) -> Self {
+        Self {
+            kind: ReindexObjectKind::Index,
+            target: ReindexTarget::Relation(index),
+            concurrent: false,
+        }
+    }
+
+    /// Build a REINDEX SCHEMA (non-concurrent) for testing.
+    pub fn test_schema(name: &str) -> Self {
+        Self {
+            kind: ReindexObjectKind::Schema,
+            target: ReindexTarget::Named(name.to_string()),
+            concurrent: false,
+        }
+    }
+
+    /// Build a REINDEX DATABASE (non-concurrent) for testing.
+    pub fn test_database(name: &str) -> Self {
+        Self {
+            kind: ReindexObjectKind::Database,
+            target: ReindexTarget::Named(name.to_string()),
+            concurrent: false,
+        }
+    }
+
+    /// Set concurrent flag for testing.
+    pub fn with_concurrent(mut self) -> Self {
+        self.concurrent = true;
+        self
+    }
+}
+
 // Convenience conversions for test construction: builder.into() -> IrNode variant
 #[cfg(test)]
 impl From<CreateTable> for IrNode {
@@ -851,6 +937,13 @@ impl From<Cluster> for IrNode {
 impl From<VacuumFull> for IrNode {
     fn from(value: VacuumFull) -> Self {
         IrNode::VacuumFull(value)
+    }
+}
+
+#[cfg(test)]
+impl From<Reindex> for IrNode {
+    fn from(value: Reindex) -> Self {
+        IrNode::Reindex(value)
     }
 }
 

@@ -90,6 +90,11 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
                 table.set_default_schema(default_schema);
             }
         }
+        IrNode::Reindex(r) => {
+            if let crate::parser::ir::ReindexTarget::Relation(ref mut name) = r.target {
+                name.set_default_schema(default_schema);
+            }
+        }
         IrNode::AlterIndexAttachPartition {
             child_index_name, ..
         } => {

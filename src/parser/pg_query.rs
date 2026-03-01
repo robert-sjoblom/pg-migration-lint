@@ -8,8 +8,9 @@ use crate::catalog::types::IndexState;
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
     DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode, Located,
-    PartitionBy, PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence,
-    TriggerDisableScope, TruncateTable, TypeName, UpdateTable, VacuumFull,
+    PartitionBy, PartitionStrategy, QualifiedName, Reindex, ReindexObjectKind, ReindexTarget,
+    SourceSpan, TableConstraint, TablePersistence, TriggerDisableScope, TruncateTable, TypeName,
+    UpdateTable, VacuumFull,
 };
 use pg_query::NodeEnum;
 
@@ -131,6 +132,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
         NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete)],
         NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster)],
         NodeEnum::VacuumStmt(vacuum) => convert_vacuum_stmt(vacuum),
+        NodeEnum::ReindexStmt(reindex) => vec![convert_reindex_stmt(reindex)],
         NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -1059,6 +1061,58 @@ fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
             _ => None,
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// REINDEX
+// ---------------------------------------------------------------------------
+
+/// Convert a `ReindexStmt` to IR.
+///
+/// `REINDEX` without `CONCURRENTLY` acquires ACCESS EXCLUSIVE lock on the
+/// target table (or parent table for INDEX). All four object kinds are mapped.
+fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
+    use pg_query::protobuf::ReindexObjectType;
+
+    let concurrent = reindex.params.iter().any(|n| {
+        matches!(
+            n.node.as_ref(),
+            Some(NodeEnum::DefElem(d)) if d.defname == "concurrently"
+        )
+    });
+
+    let (kind, target) = match reindex.kind() {
+        ReindexObjectType::ReindexObjectTable => {
+            let name = relation_to_qualified_name(reindex.relation.as_ref());
+            (ReindexObjectKind::Table, ReindexTarget::Relation(name))
+        }
+        ReindexObjectType::ReindexObjectIndex => {
+            let name = relation_to_qualified_name(reindex.relation.as_ref());
+            (ReindexObjectKind::Index, ReindexTarget::Relation(name))
+        }
+        ReindexObjectType::ReindexObjectSchema => (
+            ReindexObjectKind::Schema,
+            ReindexTarget::Named(reindex.name.clone()),
+        ),
+        ReindexObjectType::ReindexObjectDatabase => (
+            ReindexObjectKind::Database,
+            ReindexTarget::Named(reindex.name.clone()),
+        ),
+        ReindexObjectType::ReindexObjectSystem => (
+            ReindexObjectKind::System,
+            ReindexTarget::Named(reindex.name.clone()),
+        ),
+        _ => (
+            ReindexObjectKind::Database,
+            ReindexTarget::Named(reindex.name.clone()),
+        ),
+    };
+
+    IrNode::Reindex(Reindex {
+        kind,
+        target,
+        concurrent,
+    })
 }
 
 // ---------------------------------------------------------------------------

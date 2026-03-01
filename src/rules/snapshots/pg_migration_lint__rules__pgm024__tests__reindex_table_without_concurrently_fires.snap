@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm024.rs
+expression: findings
+---
+- rule_id: PGM024
+  severity: Critical
+  message: "REINDEX TABLE 'orders' should use CONCURRENTLY to avoid holding an ACCESS EXCLUSIVE lock. Use REINDEX TABLE CONCURRENTLY 'orders' (PostgreSQL 12+)."
+  file: migrations/010.sql
+  start_line: 1
+  end_line: 1
