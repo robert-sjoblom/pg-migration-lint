@@ -74,6 +74,7 @@ mod pgm503;
 mod pgm504;
 mod pgm505;
 mod pgm506;
+mod pgm507;
 
 /// Trait that every rule implements.
 pub trait Rule: Send + Sync {
@@ -234,7 +235,7 @@ mod tests {
             assert_eq!(id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        assert_eq!(RuleId::iter().count(), 44);
+        assert_eq!(RuleId::iter().count(), 45);
     }
 
     #[test]

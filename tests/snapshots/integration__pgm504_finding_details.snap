@@ -6,5 +6,5 @@ expression: findings
   severity: Info
   message: "Renaming existing table 'accounts' to 'accounts_old' will break all queries, views, and functions referencing the old name."
   file: repos/all-rules/migrations/V005__new_violations.sql
-  start_line: 12
-  end_line: 13
+  start_line: 15
+  end_line: 16

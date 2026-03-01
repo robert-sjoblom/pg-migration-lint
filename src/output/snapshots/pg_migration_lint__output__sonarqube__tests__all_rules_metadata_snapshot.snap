@@ -519,6 +519,18 @@ expression: parsed
         }
       },
       "ruleId": "PGM506"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM507: DROP NOT NULL on existing table allows NULL values",
+        "textRange": {
+          "endLine": 44,
+          "startLine": 44
+        }
+      },
+      "ruleId": "PGM507"
     }
   ],
   "rules": [
@@ -1164,6 +1176,21 @@ expression: parsed
         }
       ],
       "name": "CREATE UNLOGGED TABLE",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "CONVENTIONAL",
+      "description": "DROP NOT NULL on existing table allows NULL values. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm507",
+      "engineId": "pg-migration-lint",
+      "id": "PGM507",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "DROP NOT NULL on existing table allows NULL values",
       "severity": "INFO",
       "type": "CODE_SMELL"
     }

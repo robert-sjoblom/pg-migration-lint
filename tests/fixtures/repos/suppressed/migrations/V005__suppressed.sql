@@ -1,6 +1,8 @@
--- pgm-lint:suppress-file PGM501,PGM013,PGM014,PGM015,PGM017,PGM504,PGM505
+-- pgm-lint:suppress-file PGM501,PGM013,PGM014,PGM015,PGM017,PGM504,PGM505,PGM507
 
 ALTER TABLE customers ALTER COLUMN customer_id SET NOT NULL;
+
+ALTER TABLE customers ALTER COLUMN email DROP NOT NULL;
 
 ALTER TABLE events ADD CONSTRAINT fk_events_customer
     FOREIGN KEY (event_type) REFERENCES customers(email);

@@ -6,5 +6,5 @@ expression: findings
   severity: Critical
   message: "Adding CHECK constraint on existing table 'customers' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock, blocking concurrent writes. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
   file: repos/all-rules/migrations/V005__new_violations.sql
-  start_line: 7
-  end_line: 10
+  start_line: 10
+  end_line: 13

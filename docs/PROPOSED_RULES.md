@@ -20,18 +20,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### PGM1022 — `DROP NOT NULL` on Existing Table
-
-- **Range**: 0xx (UnsafeDDL)
-- **Severity**: MINOR
-- **Status**: Not yet implemented.
-- **Triggers**: `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL` on an existing table (not created in the same changeset).
-- **Why**: Dropping NOT NULL silently allows NULLs where application code may assume non-NULL. This is especially dangerous when the column feeds into aggregations, joins, or application logic that doesn't check for NULL.
-- **Does not fire when**:
-  - Table was created in the same changeset (`tables_created_in_change`).
-  - Table does not exist in `catalog_before`.
-- **Message**: `DROP NOT NULL on column '{col}' of existing table '{table}' allows NULL values where the application may assume non-NULL. Verify that all code paths handle NULLs.`
-- **IR impact**: New `AlterTableAction::DropNotNull { column_name: String }`. Replaces current `AtDropNotNull → Other` mapping. Catalog replay: set `column.nullable = true` (fixes catalog gap).
+### ~~PGM1022~~ — Promoted to **PGM507**
 
 ---
 
