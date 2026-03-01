@@ -24,20 +24,28 @@ volatile. They return the transaction start time and are evaluated
 once at ALTER TABLE time. The resulting value is stored in the
 catalog and applied lazily — no table rewrite occurs.
 
-Severity levels:
-- MINOR (WARNING): Known volatile functions (random, gen_random_uuid,
-uuid_generate_v4, clock_timestamp, timeofday, txid_current)
-- MINOR (WARNING): nextval (serial/bigserial) — standard but volatile
-- INFO: Unknown function calls — developer should verify volatility
-- No finding: Literal defaults, stable functions (now, current_timestamp)
+Volatility classification is derived from PostgreSQL's pg_proc catalog
+covering all ~2700 built-in functions.
 
-Example (flagged):
+Severity levels:
+- MINOR (WARNING): Volatile built-in functions (ADD COLUMN)
+- MINOR (WARNING): nextval (serial/bigserial) — standard but volatile (ADD COLUMN)
+- INFO: SET DEFAULT with volatile or unrecognized function
+- INFO: Unrecognized functions on ADD COLUMN — developer should verify volatility
+- No finding: Literal defaults, stable/immutable functions
+
+Example (flagged — ADD COLUMN):
 ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();
 
 Fix:
 ALTER TABLE orders ADD COLUMN token uuid;
 -- Then backfill:
 UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;
+
+Also detects SET DEFAULT with volatile functions (INFO):
+ALTER TABLE orders ALTER COLUMN token SET DEFAULT gen_random_uuid();
+Unlike ADD COLUMN, SET DEFAULT does NOT cause a table rewrite — it only
+affects future INSERTs. Existing rows are NOT backfilled.
 
 Note: For CREATE TABLE, volatile defaults are harmless (no existing
 rows) and are not flagged.

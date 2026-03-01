@@ -3227,6 +3227,7 @@ fn test_drop_unique_constraint_removes_backing_index() {
         if_not_exists: false,
         where_clause: None,
         only: false,
+        access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
     })]);
     apply(&mut catalog, &unit2);
 
@@ -3279,4 +3280,318 @@ fn test_drop_unique_constraint_removes_backing_index() {
         catalog.get_index("uq_email").is_none(),
         "index should be unregistered from reverse map"
     );
+}
+
+// -----------------------------------------------------------------------
+// SET DEFAULT / DROP DEFAULT
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_set_default_on_column() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![col("val", "integer", false)])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // Column should have no default initially.
+    let table = catalog.get_table("t").unwrap();
+    assert!(!table.get_column("val").unwrap().has_default);
+    assert!(table.get_column("val").unwrap().default_expr.is_none());
+
+    // SET DEFAULT 0
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::SetDefault {
+            column_name: "val".to_string(),
+            default_expr: DefaultExpr::Literal("0".to_string()),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    let col = table.get_column("val").unwrap();
+    assert!(
+        col.has_default,
+        "has_default should be true after SET DEFAULT"
+    );
+    assert_eq!(
+        col.default_expr,
+        Some(DefaultExpr::Literal("0".to_string())),
+        "default_expr should be Literal(\"0\")"
+    );
+}
+
+#[test]
+fn test_drop_default_on_column() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![
+                ColumnDef::test("val", "integer")
+                    .with_nullable(false)
+                    .with_default(DefaultExpr::Literal("0".to_string())),
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // Column should have default initially.
+    let table = catalog.get_table("t").unwrap();
+    assert!(table.get_column("val").unwrap().has_default);
+
+    // DROP DEFAULT
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::DropDefault {
+            column_name: "val".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    let col = table.get_column("val").unwrap();
+    assert!(
+        !col.has_default,
+        "has_default should be false after DROP DEFAULT"
+    );
+    assert!(
+        col.default_expr.is_none(),
+        "default_expr should be None after DROP DEFAULT"
+    );
+}
+
+#[test]
+fn test_set_default_nonexistent_column_is_noop() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![col("val", "integer", false)])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // SET DEFAULT on a column that doesn't exist — should be a no-op.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::SetDefault {
+            column_name: "nonexistent".to_string(),
+            default_expr: DefaultExpr::Literal("0".to_string()),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    assert_eq!(table.columns.len(), 1, "table should still have 1 column");
+    assert!(
+        !table.get_column("val").unwrap().has_default,
+        "existing column should be unaffected"
+    );
+}
+
+#[test]
+fn test_drop_default_nonexistent_column_is_noop() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![
+                ColumnDef::test("val", "integer")
+                    .with_nullable(false)
+                    .with_default(DefaultExpr::Literal("0".to_string())),
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // DROP DEFAULT on a column that doesn't exist — should be a no-op.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::DropDefault {
+            column_name: "nonexistent".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    assert!(
+        table.get_column("val").unwrap().has_default,
+        "existing column should still have its default"
+    );
+}
+
+#[test]
+fn test_set_default_overwrites_existing_default() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![
+                ColumnDef::test("val", "text")
+                    .with_nullable(false)
+                    .with_default(DefaultExpr::Literal("old".to_string())),
+            ])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // Column should have "old" default.
+    let table = catalog.get_table("t").unwrap();
+    assert_eq!(
+        table.get_column("val").unwrap().default_expr,
+        Some(DefaultExpr::Literal("old".to_string()))
+    );
+
+    // SET DEFAULT 'new' — overwrites existing default.
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::SetDefault {
+            column_name: "val".to_string(),
+            default_expr: DefaultExpr::Literal("new".to_string()),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    let col = table.get_column("val").unwrap();
+    assert!(col.has_default, "has_default should still be true");
+    assert_eq!(
+        col.default_expr,
+        Some(DefaultExpr::Literal("new".to_string())),
+        "default_expr should be overwritten to 'new'"
+    );
+}
+
+#[test]
+fn test_set_default_nonexistent_table_is_noop() {
+    let mut catalog = Catalog::new();
+    // No tables in catalog — applying SET DEFAULT should not panic.
+    let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("nonexistent"),
+        actions: vec![AlterTableAction::SetDefault {
+            column_name: "col".to_string(),
+            default_expr: DefaultExpr::Literal("0".to_string()),
+        }],
+    })]);
+    apply(&mut catalog, &unit);
+    assert!(catalog.get_table("nonexistent").is_none());
+}
+
+#[test]
+fn test_drop_default_nonexistent_table_is_noop() {
+    let mut catalog = Catalog::new();
+    // No tables in catalog — applying DROP DEFAULT should not panic.
+    let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("nonexistent"),
+        actions: vec![AlterTableAction::DropDefault {
+            column_name: "col".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit);
+    assert!(catalog.get_table("nonexistent").is_none());
+}
+
+#[test]
+fn test_set_default_function_call_preserved() {
+    let mut catalog = Catalog::new();
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![col("token", "uuid", true)])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    // SET DEFAULT gen_random_uuid()
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("t"),
+        actions: vec![AlterTableAction::SetDefault {
+            column_name: "token".to_string(),
+            default_expr: DefaultExpr::FunctionCall {
+                name: "gen_random_uuid".to_string(),
+                args: vec![],
+            },
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("t").unwrap();
+    let col = table.get_column("token").unwrap();
+    assert!(
+        col.has_default,
+        "has_default should be true after SET DEFAULT"
+    );
+    assert_eq!(
+        col.default_expr,
+        Some(DefaultExpr::FunctionCall {
+            name: "gen_random_uuid".to_string(),
+            args: vec![],
+        }),
+        "FunctionCall default should be preserved in catalog"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Index access method — covering index behavior
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_gin_index_does_not_cover_fk() {
+    let catalog = CatalogBuilder::new()
+        .table("orders", |t| {
+            t.column("tags", "text[]", false).index_with_method(
+                "idx_tags_gin",
+                &["tags"],
+                false,
+                "gin",
+            );
+        })
+        .build();
+
+    let orders = catalog.get_table("orders").unwrap();
+    assert!(
+        !orders.has_covering_index(&["tags".to_string()]),
+        "GIN index should NOT satisfy FK coverage"
+    );
+}
+
+#[test]
+fn test_btree_index_covers_fk() {
+    let catalog = CatalogBuilder::new()
+        .table("orders", |t| {
+            t.column("customer_id", "integer", false).index(
+                "idx_customer",
+                &["customer_id"],
+                false,
+            );
+        })
+        .build();
+
+    let orders = catalog.get_table("orders").unwrap();
+    assert!(
+        orders.has_covering_index(&["customer_id".to_string()]),
+        "btree index should satisfy FK coverage"
+    );
+}
+
+#[test]
+fn test_replay_preserves_access_method() {
+    let mut catalog = Catalog::new();
+    let unit = make_unit(vec![
+        CreateTable::test(qname("t"))
+            .with_columns(vec![col("tags", "text[]", false)])
+            .into(),
+        CreateIndex::test(Some("idx_tags".to_string()), qname("t"))
+            .with_columns(vec![IndexColumn::Column("tags".to_string())])
+            .with_access_method("gin")
+            .into(),
+    ]);
+    apply(&mut catalog, &unit);
+
+    let table = catalog.get_table("t").unwrap();
+    let idx = table.indexes.iter().find(|i| i.name == "idx_tags").unwrap();
+    assert_eq!(
+        idx.access_method, "gin",
+        "access_method should be preserved through replay"
+    );
+    assert!(!idx.is_btree(), "GIN index should not be btree");
 }

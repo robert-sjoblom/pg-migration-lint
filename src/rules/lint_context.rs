@@ -1,5 +1,6 @@
 use std::{collections::HashSet, path::Path};
 
+use crate::catalog::types::IndexState;
 use crate::{Catalog, rules::TableScope};
 
 /// Context available to rules during linting.
@@ -80,6 +81,15 @@ impl<'a> LintContext<'a> {
         }
 
         false
+    }
+
+    /// Look up an index by name, checking `catalog_before` first, then
+    /// falling back to `catalog_after`. This covers indexes created in the
+    /// same migration unit (present only in `catalog_after`).
+    pub fn get_index(&self, name: &str) -> Option<&IndexState> {
+        self.catalog_before
+            .get_index(name)
+            .or_else(|| self.catalog_after.get_index(name))
     }
 
     /// Check if a table matches the given scope filter.
