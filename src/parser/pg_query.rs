@@ -8,7 +8,7 @@ use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
     DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode, Located,
     PartitionBy, PartitionStrategy, QualifiedName, SourceSpan, TableConstraint, TablePersistence,
-    TriggerDisableScope, TruncateTable, TypeName, UpdateTable,
+    TriggerDisableScope, TruncateTable, TypeName, UpdateTable, VacuumFull,
 };
 use pg_query::NodeEnum;
 
@@ -129,6 +129,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
         NodeEnum::UpdateStmt(update) => vec![convert_update_stmt(update)],
         NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete)],
         NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster)],
+        NodeEnum::VacuumStmt(vacuum) => convert_vacuum_stmt(vacuum),
         NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -983,6 +984,42 @@ fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
         Some(cluster.indexname.clone())
     };
     IrNode::Cluster(Cluster { table, index })
+}
+
+/// Convert a `VacuumStmt` to IR.
+///
+/// Only `VACUUM FULL` is relevant — it rewrites the table under ACCESS EXCLUSIVE.
+/// Plain `VACUUM` (no `FULL` option) is mapped to `Ignored`.
+fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
+    let is_full = vacuum.options.iter().any(|n| {
+        matches!(
+            n.node.as_ref(),
+            Some(NodeEnum::DefElem(d)) if d.defname == "full"
+        )
+    });
+
+    if !is_full {
+        return vec![IrNode::Ignored {
+            raw_sql: String::new(),
+        }];
+    }
+
+    // `VACUUM FULL;` with no table list vacuums ALL tables in the database.
+    if vacuum.rels.is_empty() {
+        return vec![IrNode::VacuumFull(VacuumFull { table: None })];
+    }
+
+    vacuum
+        .rels
+        .iter()
+        .filter_map(|n| match n.node.as_ref() {
+            Some(NodeEnum::VacuumRelation(vr)) => {
+                let table = relation_to_qualified_name(vr.relation.as_ref());
+                Some(IrNode::VacuumFull(VacuumFull { table: Some(table) }))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

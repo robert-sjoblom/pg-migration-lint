@@ -494,6 +494,13 @@ fn test_pgm020_finding_details() {
     insta::assert_yaml_snapshot!(findings);
 }
 
+#[test]
+fn test_pgm023_finding_details() {
+    let findings = lint_fixture_rules("all-rules", &["V017__vacuum_full.sql"], &["PGM023"]);
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
 // ---------------------------------------------------------------------------
 // Regression: CREATE TABLE IF NOT EXISTS no-op must not mask existing-table rules
 // ---------------------------------------------------------------------------

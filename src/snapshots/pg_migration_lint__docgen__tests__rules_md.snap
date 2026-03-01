@@ -10,7 +10,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 45 lint rules across seven categories:
+`pg-migration-lint` ships with 46 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -519,6 +519,27 @@ ALTER TABLE orders ENABLE TRIGGER ALL;
 1. Avoid disabling triggers in migrations entirely.
 2. If you must disable triggers for bulk data loading, ensure the DISABLE and ENABLE are in the same migration and wrapped in a transaction.
 3. On tables that are not pre-existing (new or unknown), this rule fires at INFO severity.
+
+---
+
+### PGM023 — VACUUM FULL on existing table
+{: #pgm023}
+
+**Severity**: Critical
+
+Detects `VACUUM FULL` targeting an existing table. `VACUUM FULL` rewrites the entire table into a new data file under an ACCESS EXCLUSIVE lock, blocking all reads and writes for the duration. On large tables this means minutes to hours of downtime.
+
+**Example** (flagged):
+```sql
+VACUUM FULL orders;
+```
+
+**Fix** (use an online compaction tool):
+```
+pg_repack --table orders --no-superuser-check -d mydb
+```
+
+Or schedule during a maintenance window when downtime is acceptable.
 
 ---
 
@@ -1109,6 +1130,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM018](#pgm018) | Critical | CLUSTER on existing table |
 | [PGM019](#pgm019) | Critical | ADD EXCLUDE constraint on existing table |
 | [PGM020](#pgm020) | Minor | DISABLE TRIGGER on table suppresses FK enforcement |
+| [PGM023](#pgm023) | Critical | VACUUM FULL on existing table |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

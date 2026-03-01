@@ -54,16 +54,15 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 | Rule | Proposed ID | Severity | Effort |
 |------|-------------|----------|--------|
 | ~~Integer Primary Key Detection~~ | ~~PGM1107~~ | ~~MAJOR~~ | Promoted to **PGM107** |
-| `ALTER TYPE ... ADD VALUE` in Transaction | PGM1021 | CRITICAL | Tier 2 (new `IrNode::AlterEnum`) |
 | ~~`DROP NOT NULL` on Existing Table~~ | ~~PGM1022~~ | ~~MINOR~~ | Promoted to **PGM507** |
 
 ### 5.2 Should-Have — Medium Value, Medium Effort
 
-> Full specs for VACUUM FULL and REINDEX are in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) (PGM1023, PGM1024).
+> Full specs for REINDEX are in [`docs/PROPOSED_RULES.md`](docs/PROPOSED_RULES.md) (PGM1024).
 
 | Rule | Proposed ID | Severity | Effort |
 |------|-------------|----------|--------|
-| `VACUUM FULL` on existing table | PGM1023 | CRITICAL | Tier 2 (new IR variant) |
+| ~~`VACUUM FULL` on existing table~~ | ~~PGM1023~~ | ~~CRITICAL~~ | Promoted to **PGM023** |
 | `REINDEX` without `CONCURRENTLY` | PGM1024 | CRITICAL | Tier 2 (new IR variant) |
 | Duplicate/redundant indexes | — | WARNING | Tier 1 (catalog-only) |
 | Transaction nesting (`BEGIN`/`COMMIT` in migration) | — | WARNING | Tier 2 (new IR variant) |
@@ -92,9 +91,7 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 - `ban-create-domain-with-constraint` — Gap: niche
 
 **Rules strong_migrations has that pg-migration-lint does NOT:**
-- Enum `ADD VALUE` in transaction — **Proposed: PGM1021**
-
-**All other squawk and strong_migrations rules are covered** by existing pg-migration-lint rules.
+**All squawk and strong_migrations rules are covered** by existing pg-migration-lint rules, except enum `ADD VALUE` in transaction which was rejected — on PostgreSQL 12+ the operation is rollback-safe.
 
 ---
 

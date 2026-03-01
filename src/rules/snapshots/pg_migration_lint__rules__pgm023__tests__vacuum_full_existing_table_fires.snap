@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm023.rs
+expression: findings
+---
+- rule_id: PGM023
+  severity: Critical
+  message: "VACUUM FULL on table 'orders' rewrites the entire table under ACCESS EXCLUSIVE lock, blocking all reads and writes. Use pg_repack or pg_squeeze for online compaction."
+  file: migrations/010.sql
+  start_line: 1
+  end_line: 1
