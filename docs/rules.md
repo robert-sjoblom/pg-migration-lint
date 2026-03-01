@@ -6,7 +6,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 43 lint rules across seven categories:
+`pg-migration-lint` ships with 45 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -614,7 +614,7 @@ CREATE TABLE orders (id serial PRIMARY KEY);
 **Fix**:
 ```sql
 CREATE TABLE orders (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
 ```
 
@@ -635,6 +635,27 @@ CREATE TABLE events (payload json NOT NULL);
 **Fix**:
 ```sql
 CREATE TABLE events (payload jsonb NOT NULL);
+```
+
+---
+
+### PGM107 — Primary key column uses integer or smallint instead of bigint
+{: #pgm107}
+
+**Severity**: Major
+
+Detects primary key columns that use `integer` (`int4`) or `smallint` (`int2`) instead of `bigint` (`int8`). High-write tables routinely exhaust the ~2.1 billion (`integer`) or ~32 000 (`smallint`) limit. Migrating to `bigint` later requires an ACCESS EXCLUSIVE lock and full table rewrite.
+
+**Example** (flagged):
+```sql
+CREATE TABLE orders (id integer PRIMARY KEY);
+```
+
+**Fix**:
+```sql
+CREATE TABLE orders (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+);
 ```
 
 ---
@@ -1016,6 +1037,30 @@ CREATE UNLOGGED TABLE scratch_data (id int, payload text);
 
 ---
 
+### PGM507 — DROP NOT NULL on existing table allows NULL values
+{: #pgm507}
+
+**Severity**: Info
+
+Detects `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL` on tables that already exist. Dropping the NOT NULL constraint silently allows NULL values where application code may assume non-NULL.
+
+**Example** (flagged):
+```sql
+ALTER TABLE orders ALTER COLUMN status DROP NOT NULL;
+```
+
+**Why it matters**:
+- Aggregations behave differently with NULLs (`COUNT(col)` skips NULLs, `SUM` returns NULL if any input is NULL).
+- Joins on nullable columns use NULL-unsafe equality (`NULL != NULL`).
+- Application code that doesn't check for NULL may fail or produce incorrect results.
+
+**Recommended approach**:
+1. Verify that all application code paths handle NULLs in the column.
+2. Update aggregations and joins that assume non-NULL.
+3. Consider a CHECK constraint if only certain rows should allow NULL.
+
+---
+
 ## 9xx — Meta-behavior Rules
 
 ### PGM901 — Meta rules alter the behavior of other rules, they are not rules themselves
@@ -1066,6 +1111,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM104](#pgm104) | Minor | Column uses the money type |
 | [PGM105](#pgm105) | Info | Column uses serial/bigserial instead of identity column |
 | [PGM106](#pgm106) | Minor | Column uses json type instead of jsonb |
+| [PGM107](#pgm107) | Major | Primary key column uses integer or smallint instead of bigint |
 | [PGM201](#pgm201) | Minor | DROP TABLE on existing table |
 | [PGM202](#pgm202) | Major | DROP TABLE CASCADE on existing table |
 | [PGM203](#pgm203) | Minor | TRUNCATE TABLE on existing table |
@@ -1083,4 +1129,5 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM504](#pgm504) | Info | RENAME TABLE on existing table |
 | [PGM505](#pgm505) | Info | RENAME COLUMN on existing table |
 | [PGM506](#pgm506) | Info | CREATE UNLOGGED TABLE |
+| [PGM507](#pgm507) | Info | DROP NOT NULL on existing table allows NULL values |
 | [PGM901](#pgm901) | Info | Meta rules alter the behavior of other rules, they are not rules themselves |

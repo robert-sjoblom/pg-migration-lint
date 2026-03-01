@@ -53,9 +53,9 @@ These dump ~30 types each into parent namespaces, making it harder to trace wher
 
 | Rule | Proposed ID | Severity | Effort |
 |------|-------------|----------|--------|
-| Integer Primary Key Detection | PGM1107 | MAJOR | Tier 1 (existing IR sufficient) |
+| ~~Integer Primary Key Detection~~ | ~~PGM1107~~ | ~~MAJOR~~ | Promoted to **PGM107** |
 | `ALTER TYPE ... ADD VALUE` in Transaction | PGM1021 | CRITICAL | Tier 2 (new `IrNode::AlterEnum`) |
-| `DROP NOT NULL` on Existing Table | PGM1022 | MINOR | Tier 1 (new `AlterTableAction` variant) |
+| ~~`DROP NOT NULL` on Existing Table~~ | ~~PGM1022~~ | ~~MINOR~~ | Promoted to **PGM507** |
 
 ### 5.2 Should-Have — Medium Value, Medium Effort
 

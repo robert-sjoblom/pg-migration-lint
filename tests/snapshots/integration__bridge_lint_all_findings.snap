@@ -68,6 +68,24 @@ expression: findings
   file: 001-base-tables.xml
   start_line: 64
   end_line: 64
+- rule_id: PGM107
+  severity: Major
+  message: "Primary key column 'id' on 'products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
+  file: 001-base-tables.xml
+  start_line: 64
+  end_line: 64
+- rule_id: PGM107
+  severity: Major
+  message: "Primary key column 'id' on 'price_plans' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
+  file: 007-volatile-defaults.xml
+  start_line: 15
+  end_line: 15
+- rule_id: PGM107
+  severity: Major
+  message: "Primary key column 'id' on 'price_plan_products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
+  file: 007-volatile-defaults.xml
+  start_line: 40
+  end_line: 40
 - rule_id: PGM401
   severity: Minor
   message: "DROP INDEX 'idx_products_name_article': add IF EXISTS for idempotent migrations."

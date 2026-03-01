@@ -74,6 +74,12 @@ expression: findings
   file: repos/multi-schema/migrations/V003__same_name_isolation.sql
   start_line: 10
   end_line: 11
+- rule_id: PGM107
+  severity: Major
+  message: "Primary key column 'id' on 'users' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
+  file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
+  start_line: 7
+  end_line: 11
 - rule_id: PGM201
   severity: Minor
   message: "DROP TABLE 'billing.users' removes an existing table. This is irreversible and all data will be lost."

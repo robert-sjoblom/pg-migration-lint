@@ -31,7 +31,7 @@ pub(super) const EXPLAIN: &str = "PGM105 — Don't use `serial` / `bigserial`\n\
          \n\
          Fix:\n\
            CREATE TABLE orders (\n\
-             id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
+             id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
            );";
 
 pub(super) fn check(

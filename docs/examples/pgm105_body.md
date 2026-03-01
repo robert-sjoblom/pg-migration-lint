@@ -8,6 +8,6 @@ CREATE TABLE orders (id serial PRIMARY KEY);
 **Fix**:
 ```sql
 CREATE TABLE orders (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
 ```

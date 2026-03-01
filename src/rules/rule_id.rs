@@ -97,6 +97,9 @@ pub enum RuleId {
     /// `json` type (use `jsonb` instead).
     #[strum(serialize = "PGM106")]
     Pgm106,
+    /// Primary key column uses `integer` or `smallint` instead of `bigint`.
+    #[strum(serialize = "PGM107")]
+    Pgm107,
 
     // 2xx — Destructive operations
     /// Dropping an existing table.
@@ -237,6 +240,7 @@ impl Rule for RuleId {
                 Severity::Minor
             }
             Self::Pgm105 => Severity::Info,
+            Self::Pgm107 => Severity::Major,
 
             // 2xx — Destructive operations
             Self::Pgm201 | Self::Pgm203 => Severity::Minor,
@@ -290,6 +294,7 @@ impl Rule for RuleId {
             Self::Pgm104 => super::pgm104::DESCRIPTION,
             Self::Pgm105 => super::pgm105::DESCRIPTION,
             Self::Pgm106 => super::pgm106::DESCRIPTION,
+            Self::Pgm107 => super::pgm107::DESCRIPTION,
             Self::Pgm201 => super::pgm201::DESCRIPTION,
             Self::Pgm202 => super::pgm202::DESCRIPTION,
             Self::Pgm203 => super::pgm203::DESCRIPTION,
@@ -342,6 +347,7 @@ impl Rule for RuleId {
             Self::Pgm104 => super::pgm104::EXPLAIN,
             Self::Pgm105 => super::pgm105::EXPLAIN,
             Self::Pgm106 => super::pgm106::EXPLAIN,
+            Self::Pgm107 => super::pgm107::EXPLAIN,
             Self::Pgm201 => super::pgm201::EXPLAIN,
             Self::Pgm202 => super::pgm202::EXPLAIN,
             Self::Pgm203 => super::pgm203::EXPLAIN,
@@ -392,6 +398,7 @@ impl Rule for RuleId {
             Self::Pgm104 => super::pgm104::check(*self, statements, ctx),
             Self::Pgm105 => super::pgm105::check(*self, statements, ctx),
             Self::Pgm106 => super::pgm106::check(*self, statements, ctx),
+            Self::Pgm107 => super::pgm107::check(*self, statements, ctx),
             Self::Pgm201 => super::pgm201::check(*self, statements, ctx),
             Self::Pgm202 => super::pgm202::check(*self, statements, ctx),
             Self::Pgm203 => super::pgm203::check(*self, statements, ctx),
