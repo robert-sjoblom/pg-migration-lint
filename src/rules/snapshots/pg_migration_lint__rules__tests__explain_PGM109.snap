@@ -1,0 +1,26 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM109
+Severity: MINOR
+Description: Column uses floating-point type instead of numeric
+
+PGM109 — Floating-point column type
+
+What it detects:
+A column declared as `real`, `float4`, `double precision`, `float8`, or
+`float` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.
+
+Why it's problematic:
+IEEE 754 floating-point types suffer from precision issues — for example,
+`0.1 + 0.2 ≠ 0.3`. For money, quantities, measurements, or any domain
+where exact decimal values matter, `numeric`/`decimal` is correct.
+Floating-point errors compound in aggregations and can cause silent data
+corruption.
+
+Example (bad):
+CREATE TABLE products (price double precision NOT NULL);
+
+Fix:
+CREATE TABLE products (price numeric(10,2) NOT NULL);

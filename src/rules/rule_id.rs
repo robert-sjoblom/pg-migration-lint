@@ -109,6 +109,9 @@ pub enum RuleId {
     /// `varchar(n)` column (prefer `text`).
     #[strum(serialize = "PGM108")]
     Pgm108,
+    /// Floating-point column type (`real`/`double precision`).
+    #[strum(serialize = "PGM109")]
+    Pgm109,
 
     // 2xx — Destructive operations
     /// Dropping an existing table.
@@ -250,9 +253,12 @@ impl Rule for RuleId {
             Self::Pgm009 => Severity::Info,
 
             // 1xx — Type anti-patterns
-            Self::Pgm101 | Self::Pgm102 | Self::Pgm103 | Self::Pgm104 | Self::Pgm106 => {
-                Severity::Minor
-            }
+            Self::Pgm101
+            | Self::Pgm102
+            | Self::Pgm103
+            | Self::Pgm104
+            | Self::Pgm106
+            | Self::Pgm109 => Severity::Minor,
             Self::Pgm105 | Self::Pgm108 => Severity::Info,
             Self::Pgm107 => Severity::Major,
 
@@ -315,6 +321,7 @@ impl Rule for RuleId {
             Self::Pgm106 => super::pgm106::DESCRIPTION,
             Self::Pgm107 => super::pgm107::DESCRIPTION,
             Self::Pgm108 => super::pgm108::DESCRIPTION,
+            Self::Pgm109 => super::pgm109::DESCRIPTION,
             Self::Pgm201 => super::pgm201::DESCRIPTION,
             Self::Pgm202 => super::pgm202::DESCRIPTION,
             Self::Pgm203 => super::pgm203::DESCRIPTION,
@@ -371,6 +378,7 @@ impl Rule for RuleId {
             Self::Pgm106 => super::pgm106::EXPLAIN,
             Self::Pgm107 => super::pgm107::EXPLAIN,
             Self::Pgm108 => super::pgm108::EXPLAIN,
+            Self::Pgm109 => super::pgm109::EXPLAIN,
             Self::Pgm201 => super::pgm201::EXPLAIN,
             Self::Pgm202 => super::pgm202::EXPLAIN,
             Self::Pgm203 => super::pgm203::EXPLAIN,
@@ -426,6 +434,7 @@ impl Rule for RuleId {
             Self::Pgm106 => super::pgm106::check(*self, statements, ctx),
             Self::Pgm107 => super::pgm107::check(*self, statements, ctx),
             Self::Pgm108 => super::pgm108::check(*self, statements, ctx),
+            Self::Pgm109 => super::pgm109::check(*self, statements, ctx),
             Self::Pgm201 => super::pgm201::check(*self, statements, ctx),
             Self::Pgm202 => super::pgm202::check(*self, statements, ctx),
             Self::Pgm203 => super::pgm203::check(*self, statements, ctx),

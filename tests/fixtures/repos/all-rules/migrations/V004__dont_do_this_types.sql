@@ -30,3 +30,6 @@ CREATE TABLE small_ids (
 
 -- PGM108: varchar(n) instead of text
 ALTER TABLE audit_log_v2 ADD COLUMN description varchar(255);
+
+-- PGM109: floating-point type
+ALTER TABLE audit_log_v2 ADD COLUMN score double precision;

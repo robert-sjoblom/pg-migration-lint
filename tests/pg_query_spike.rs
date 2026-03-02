@@ -987,6 +987,117 @@ fn spike_reindex_stmt() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Floating-point type canonical names
+// ---------------------------------------------------------------------------
+
+#[test]
+fn spike_float_type_canonical_names() {
+    let cases = [
+        ("real", "CREATE TABLE t (col real);"),
+        ("float4", "CREATE TABLE t (col float4);"),
+        ("double precision", "CREATE TABLE t (col double precision);"),
+        ("float8", "CREATE TABLE t (col float8);"),
+        ("float", "CREATE TABLE t (col float);"),
+        ("float(1)", "CREATE TABLE t (col float(1));"),
+        ("float(24)", "CREATE TABLE t (col float(24));"),
+        ("float(25)", "CREATE TABLE t (col float(25));"),
+        ("float(53)", "CREATE TABLE t (col float(53));"),
+    ];
+
+    println!("\n{:<25} | CANONICAL FORM", "INPUT TYPE");
+    println!("{:-<25}-+-{:-<80}", "", "");
+
+    for (label, sql) in cases {
+        let info = extract_type_info(sql);
+        println!("{:<25} | {}", label, info);
+    }
+}
+
+#[test]
+fn spike_float_types_canonical_name_assertions() {
+    // Verify that pg_query normalizes all float variants to float4 or float8
+    let float4_sqls = [
+        "CREATE TABLE t (col real);",
+        "CREATE TABLE t (col float4);",
+        // bare `float` maps to float8 in PostgreSQL (not float4)
+        "CREATE TABLE t (col float(1));",
+        "CREATE TABLE t (col float(24));",
+    ];
+    for sql in float4_sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+            panic!("expected CreateStmt");
+        };
+        let col_node = create.table_elts[0].node.as_ref().unwrap();
+        let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+            panic!("expected ColumnDef");
+        };
+        let tn = col.type_name.as_ref().unwrap();
+        let names: Vec<String> = tn
+            .names
+            .iter()
+            .filter_map(|n| n.node.as_ref())
+            .map(|n| match n {
+                pg_query::NodeEnum::String(s) => s.sval.clone(),
+                _ => "??".to_string(),
+            })
+            .collect();
+        let canonical = names.last().unwrap();
+        assert_eq!(
+            canonical, "float4",
+            "Expected float4 for SQL: {sql}, got names={names:?}"
+        );
+    }
+
+    let float8_sqls = [
+        "CREATE TABLE t (col double precision);",
+        "CREATE TABLE t (col float8);",
+        "CREATE TABLE t (col float);", // bare float = float8 in PostgreSQL
+        "CREATE TABLE t (col float(25));",
+        "CREATE TABLE t (col float(53));",
+    ];
+    for sql in float8_sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+            panic!("expected CreateStmt");
+        };
+        let col_node = create.table_elts[0].node.as_ref().unwrap();
+        let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+            panic!("expected ColumnDef");
+        };
+        let tn = col.type_name.as_ref().unwrap();
+        let names: Vec<String> = tn
+            .names
+            .iter()
+            .filter_map(|n| n.node.as_ref())
+            .map(|n| match n {
+                pg_query::NodeEnum::String(s) => s.sval.clone(),
+                _ => "??".to_string(),
+            })
+            .collect();
+        let canonical = names.last().unwrap();
+        assert_eq!(
+            canonical, "float8",
+            "Expected float8 for SQL: {sql}, got names={names:?}"
+        );
+    }
+}
+
 #[test]
 fn test_stmt_location_with_leading_comment() {
     let sql = "-- pgm-lint:suppress PGM508\n\nCREATE INDEX CONCURRENTLY idx_foo ON foo (id);";
