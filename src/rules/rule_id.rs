@@ -168,6 +168,9 @@ pub enum RuleId {
     /// `DROP NOT NULL` on an existing table allows NULL values.
     #[strum(serialize = "PGM507")]
     Pgm507,
+    /// Duplicate or redundant index (prefix of another index on the same table).
+    #[strum(serialize = "PGM508")]
+    Pgm508,
 
     // 9xx — Meta-behavior
     /// Down-migration severity capping (not a standalone rule).
@@ -264,9 +267,12 @@ impl Rule for RuleId {
 
             // 5xx — Schema design
             Self::Pgm501 | Self::Pgm502 => Severity::Major,
-            Self::Pgm503 | Self::Pgm504 | Self::Pgm505 | Self::Pgm506 | Self::Pgm507 => {
-                Severity::Info
-            }
+            Self::Pgm503
+            | Self::Pgm504
+            | Self::Pgm505
+            | Self::Pgm506
+            | Self::Pgm507
+            | Self::Pgm508 => Severity::Info,
 
             // 9xx — Meta
             Self::Pgm901 => Severity::Info,
@@ -322,6 +328,7 @@ impl Rule for RuleId {
             Self::Pgm504 => super::pgm504::DESCRIPTION,
             Self::Pgm505 => super::pgm505::DESCRIPTION,
             Self::Pgm506 => super::pgm506::DESCRIPTION,
+            Self::Pgm508 => super::pgm508::DESCRIPTION,
             Self::Pgm901 => {
                 "Meta rules alter the behavior of other rules, they are not rules themselves"
             }
@@ -352,7 +359,6 @@ impl Rule for RuleId {
             Self::Pgm020 => super::pgm020::EXPLAIN,
             Self::Pgm023 => super::pgm023::EXPLAIN,
             Self::Pgm024 => super::pgm024::EXPLAIN,
-            Self::Pgm507 => super::pgm507::EXPLAIN,
             Self::Pgm101 => super::pgm101::EXPLAIN,
             Self::Pgm102 => super::pgm102::EXPLAIN,
             Self::Pgm103 => super::pgm103::EXPLAIN,
@@ -377,6 +383,8 @@ impl Rule for RuleId {
             Self::Pgm504 => super::pgm504::EXPLAIN,
             Self::Pgm505 => super::pgm505::EXPLAIN,
             Self::Pgm506 => super::pgm506::EXPLAIN,
+            Self::Pgm507 => super::pgm507::EXPLAIN,
+            Self::Pgm508 => super::pgm508::EXPLAIN,
             Self::Pgm901 => "This rule caps severity of triggered rules to INFO (not in SonarQube)",
         }
     }
@@ -405,7 +413,6 @@ impl Rule for RuleId {
             Self::Pgm020 => super::pgm020::check(*self, statements, ctx),
             Self::Pgm023 => super::pgm023::check(*self, statements, ctx),
             Self::Pgm024 => super::pgm024::check(*self, statements, ctx),
-            Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
             Self::Pgm101 => super::pgm101::check(*self, statements, ctx),
             Self::Pgm102 => super::pgm102::check(*self, statements, ctx),
             Self::Pgm103 => super::pgm103::check(*self, statements, ctx),
@@ -430,6 +437,8 @@ impl Rule for RuleId {
             Self::Pgm504 => super::pgm504::check(*self, statements, ctx),
             Self::Pgm505 => super::pgm505::check(*self, statements, ctx),
             Self::Pgm506 => super::pgm506::check(*self, statements, ctx),
+            Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
+            Self::Pgm508 => super::pgm508::check(*self, statements, ctx),
             Self::Pgm901 => vec![],
         }
     }

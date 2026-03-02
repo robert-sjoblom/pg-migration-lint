@@ -6,23 +6,23 @@ expression: findings
   severity: Major
   message: "Primary key column 'id' on 'users' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
-  start_line: 7
+  start_line: 8
   end_line: 11
 - rule_id: PGM201
   severity: Minor
   message: "DROP TABLE 'billing.users' removes an existing table. This is irreversible and all data will be lost."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
-  start_line: 1
+  start_line: 2
   end_line: 2
 - rule_id: PGM401
   severity: Minor
   message: "DROP TABLE 'billing.users': add IF EXISTS for idempotent migrations."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
-  start_line: 1
+  start_line: 2
   end_line: 2
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
-  start_line: 7
+  start_line: 8
   end_line: 11

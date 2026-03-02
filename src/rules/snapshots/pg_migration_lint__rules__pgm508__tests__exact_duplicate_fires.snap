@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm508.rs
+expression: findings
+---
+- rule_id: PGM508
+  severity: Info
+  message: "Index 'idx_b' on 'orders' (email) is an exact duplicate of index 'idx_a'."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

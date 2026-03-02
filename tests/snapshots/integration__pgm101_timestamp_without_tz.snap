@@ -6,5 +6,5 @@ expression: findings
   severity: Minor
   message: "Column 'created_at' on 'audit_log_v2' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
   file: repos/all-rules/migrations/V004__dont_do_this_types.sql
-  start_line: 1
+  start_line: 4
   end_line: 8

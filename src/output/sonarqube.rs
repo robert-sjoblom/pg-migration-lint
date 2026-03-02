@@ -106,6 +106,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "LOW",
         },
+        // Redundant indexes: waste space and slow writes
+        RuleId::Pgm508 => SonarQubeRuleMeta {
+            clean_code_attribute: "EFFICIENT",
+            issue_type: "CODE_SMELL",
+            software_quality: "MAINTAINABILITY",
+            impact_severity: "MEDIUM",
+        },
         // CREATE UNLOGGED TABLE, DROP NOT NULL
         RuleId::Pgm506 | RuleId::Pgm507 => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
@@ -264,6 +271,7 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm505
         | RuleId::Pgm506
         | RuleId::Pgm507 => 10,
+        RuleId::Pgm508 => 5,
         RuleId::Pgm201 | RuleId::Pgm203 => 10,
         RuleId::Pgm202 | RuleId::Pgm204 => 15,
         RuleId::Pgm205 => 30,

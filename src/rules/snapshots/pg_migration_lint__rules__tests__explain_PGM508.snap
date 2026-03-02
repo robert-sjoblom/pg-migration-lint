@@ -1,0 +1,38 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM508
+Severity: INFO
+Description: Duplicate or redundant index detected (prefix of another index)
+
+PGM508 — Duplicate/redundant indexes
+
+What it detects:
+A CREATE INDEX that produces an index whose columns are an exact
+duplicate or a leading prefix of another index on the same table.
+
+Why it matters:
+Redundant indexes waste disk space, slow writes (every INSERT/UPDATE/
+DELETE must maintain all indexes), and add vacuum overhead. A btree
+index on (a, b) already serves lookups on (a) — a separate index on
+(a) provides no additional query capability.
+
+Example (bad):
+CREATE INDEX idx_orders_customer ON orders (customer_id);
+CREATE INDEX idx_orders_customer_date ON orders (customer_id, created_at);
+-- idx_orders_customer is redundant: idx_orders_customer_date covers it.
+
+Fix:
+Drop the shorter index:
+DROP INDEX CONCURRENTLY idx_orders_customer;
+
+Does NOT fire when:
+- The shorter (potentially redundant) index is UNIQUE — it enforces a
+constraint the longer one doesn't.
+- Either index is partial (has a WHERE clause).
+- Either index has expression entries.
+- The indexes use different access methods (btree vs GIN vs ...).
+
+The check uses catalog_after so indexes created later in the same
+migration file are visible.

@@ -81,6 +81,7 @@ mod pgm504;
 mod pgm505;
 mod pgm506;
 mod pgm507;
+mod pgm508;
 
 /// Trait that every rule implements.
 pub trait Rule: Send + Sync {
@@ -241,7 +242,7 @@ mod tests {
             assert_eq!(id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        assert_eq!(RuleId::iter().count(), 48);
+        assert_eq!(RuleId::iter().count(), 49);
     }
 
     #[test]
@@ -260,7 +261,7 @@ mod tests {
         assert!(RuleId::Pgm201 < RuleId::Pgm301);
         assert!(RuleId::Pgm303 < RuleId::Pgm401);
         assert!(RuleId::Pgm402 < RuleId::Pgm501);
-        assert!(RuleId::Pgm506 < RuleId::Pgm901);
+        assert!(RuleId::Pgm508 < RuleId::Pgm901);
         // Within a family
         assert!(RuleId::Pgm001 < RuleId::Pgm017);
     }

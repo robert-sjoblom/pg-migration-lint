@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm508.rs
+expression: findings
+---
+- rule_id: PGM508
+  severity: Info
+  message: "Index 'idx_ab' on 'orders' (a, b) makes existing index 'idx_a' (a) redundant — the new index covers the same prefix."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

@@ -6,5 +6,5 @@ expression: findings
   severity: Critical
   message: "DROP SCHEMA 'myschema' CASCADE drops every object in the schema — tables, views, sequences, functions, and types. This is irreversible. Known affected tables: myschema.orders."
   file: repos/all-rules/migrations/V016__drop_schema_cascade.sql
-  start_line: 1
+  start_line: 2
   end_line: 2

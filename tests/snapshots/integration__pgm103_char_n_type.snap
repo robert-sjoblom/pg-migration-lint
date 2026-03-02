@@ -6,5 +6,5 @@ expression: findings
   severity: Minor
   message: "Column 'country_code' on 'audit_log_v2' uses 'char(2)'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead."
   file: repos/all-rules/migrations/V004__dont_do_this_types.sql
-  start_line: 13
+  start_line: 14
   end_line: 14

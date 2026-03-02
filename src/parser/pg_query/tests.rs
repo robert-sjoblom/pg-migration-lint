@@ -761,6 +761,35 @@ fn test_source_span_multi_line_statement() {
     assert_eq!(nodes[0].span.end_line, 4);
 }
 
+#[test]
+fn test_source_span_statement_after_leading_comment() {
+    // pg_query sets stmt_location=0 for the first statement even when it is
+    // preceded by a SQL line comment. The token_start logic must skip the
+    // comment so that start_line reflects the line of the actual keyword, not
+    // line 1 where the comment begins. This is required for next-statement
+    // suppression directives (e.g. `-- pgm-lint:suppress PGM508`) to work.
+    let sql = "-- pgm-lint:suppress PGM508\n\nCREATE INDEX CONCURRENTLY idx_foo ON foo (id);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    assert!(matches!(nodes[0].node, IrNode::CreateIndex(_)));
+    assert_eq!(
+        nodes[0].span.start_line, 3,
+        "CREATE INDEX on line 3 should have start_line=3 so next-statement suppression matches"
+    );
+}
+
+#[test]
+fn test_source_span_statement_after_multiple_comment_lines() {
+    // Multiple comment lines before the statement — all must be skipped.
+    let sql = "-- first comment\n-- second comment\n\nCREATE TABLE foo (id int);";
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(
+        nodes[0].span.start_line, 4,
+        "CREATE TABLE on line 4 should have start_line=4"
+    );
+}
+
 // -----------------------------------------------------------------------
 // Table hint extraction
 // -----------------------------------------------------------------------

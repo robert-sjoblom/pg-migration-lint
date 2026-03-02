@@ -567,6 +567,18 @@ expression: parsed
         }
       },
       "ruleId": "PGM507"
+    },
+    {
+      "effortMinutes": 5,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM508: Duplicate or redundant index detected (prefix of another index)",
+        "textRange": {
+          "endLine": 48,
+          "startLine": 48
+        }
+      },
+      "ruleId": "PGM508"
     }
   ],
   "rules": [
@@ -1272,6 +1284,21 @@ expression: parsed
         }
       ],
       "name": "DROP NOT NULL on existing table allows NULL values",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "EFFICIENT",
+      "description": "Duplicate or redundant index detected (prefix of another index). See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm508",
+      "engineId": "pg-migration-lint",
+      "id": "PGM508",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Duplicate or redundant index detected (prefix of another index)",
       "severity": "INFO",
       "type": "CODE_SMELL"
     }

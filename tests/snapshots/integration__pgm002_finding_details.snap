@@ -6,5 +6,5 @@ expression: findings
   severity: Critical
   message: "DROP INDEX 'idx_customers_email' on existing table 'customers' should use CONCURRENTLY to avoid holding an exclusive lock."
   file: repos/all-rules/migrations/V003__more_violations.sql
-  start_line: 1
+  start_line: 2
   end_line: 2

@@ -266,3 +266,9 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM508
+  severity: Info
+  message: "Index 'idx_subscriptions_account_id_covering' on 'subscriptions' (account_id) is an exact duplicate of index 'idx_subscriptions_account_id'."
+  file: 010-cleanup.xml
+  start_line: 1
+  end_line: 3
