@@ -1109,3 +1109,125 @@ fn test_stmt_location_with_leading_comment() {
         );
     }
 }
+
+/// Verify that pg_query lowercases unquoted identifiers and preserves case
+/// for double-quoted ones. This is the foundation of PGM509 detection.
+#[test]
+fn test_quoted_vs_unquoted_identifier_casing() {
+    // Unquoted: pg_query lowercases everything
+    let sql = "CREATE TABLE MyTable (MyColumn int);";
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        panic!("expected CreateStmt");
+    };
+    let rel = create.relation.as_ref().unwrap();
+    assert_eq!(
+        rel.relname, "mytable",
+        "unquoted table should be lowercased"
+    );
+    let col_node = create.table_elts[0].node.as_ref().unwrap();
+    let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+        panic!("expected ColumnDef");
+    };
+    assert_eq!(
+        col.colname, "mycolumn",
+        "unquoted column should be lowercased"
+    );
+
+    // Quoted: pg_query preserves original case
+    let sql = r#"CREATE TABLE "MyTable" ("MyColumn" int);"#;
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        panic!("expected CreateStmt");
+    };
+    let rel = create.relation.as_ref().unwrap();
+    assert_eq!(rel.relname, "MyTable", "quoted table should preserve case");
+    let col_node = create.table_elts[0].node.as_ref().unwrap();
+    let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+        panic!("expected ColumnDef");
+    };
+    assert_eq!(
+        col.colname, "MyColumn",
+        "quoted column should preserve case"
+    );
+}
+
+/// Verify that pg_query lowercases unquoted new names in RENAME TO and
+/// preserves case for quoted ones.
+#[test]
+fn test_rename_stmt_newname_casing() {
+    // Unquoted: pg_query lowercases the new name
+    let sql = "ALTER TABLE users RENAME TO Users;";
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::RenameStmt(rename) = stmt else {
+        panic!("expected RenameStmt, got {stmt:?}");
+    };
+    assert_eq!(
+        rename.newname, "users",
+        "unquoted RENAME TO should lowercase the new name"
+    );
+
+    // Quoted: pg_query preserves the new name case
+    let sql = r#"ALTER TABLE users RENAME TO "Users";"#;
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::RenameStmt(rename) = stmt else {
+        panic!("expected RenameStmt, got {stmt:?}");
+    };
+    assert_eq!(
+        rename.newname, "Users",
+        "quoted RENAME TO should preserve case"
+    );
+}
+
+/// Verify that pg_query successfully parses reserved words when double-quoted.
+#[test]
+fn test_reserved_word_as_quoted_identifier() {
+    // "order" is a reserved word — can only be used as identifier when quoted
+    let sql = r#"CREATE TABLE "order" ("select" text);"#;
+    let result = pg_query::parse(sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::CreateStmt(create) = stmt else {
+        panic!("expected CreateStmt");
+    };
+    let rel = create.relation.as_ref().unwrap();
+    assert_eq!(rel.relname, "order");
+    let col_node = create.table_elts[0].node.as_ref().unwrap();
+    let pg_query::NodeEnum::ColumnDef(col) = col_node else {
+        panic!("expected ColumnDef");
+    };
+    assert_eq!(col.colname, "select");
+}

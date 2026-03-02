@@ -1,0 +1,43 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM509
+Severity: INFO
+Description: Mixed-case identifier or reserved word requires double-quoting
+
+PGM509 — Mixed-case identifiers or reserved words
+
+What it detects:
+Table and column names that will require double-quoting in every
+subsequent query. This happens when a name contains uppercase
+characters (was necessarily quoted in the DDL) or is a PostgreSQL
+reserved word (was necessarily quoted to be used as an identifier).
+
+Why it matters:
+Double-quoted identifiers are a persistent source of developer friction.
+Every query must use the exact case and quotes, IDE autocompletion
+becomes unreliable, and ORMs may generate incorrect SQL. pg_dump
+output becomes harder to read and modify.
+
+Example (bad):
+CREATE TABLE "User" ("Id" bigint, "order" text);
+-- Every query must now use: SELECT "Id", "order" FROM "User";
+
+Example (good):
+CREATE TABLE users (id bigint, order_status text);
+
+Fix:
+Use a lowercase, non-reserved name:
+CREATE TABLE users (id bigint, order_status text);
+
+Does NOT fire when:
+- The identifier is all-lowercase and not a PostgreSQL reserved word.
+- The identifier is a schema name or index name (only table and
+column names are checked).
+
+Statements checked:
+- CREATE TABLE — table name and all column names
+- ALTER TABLE ... ADD COLUMN — column name
+- RENAME TABLE — new name
+- RENAME COLUMN — new name

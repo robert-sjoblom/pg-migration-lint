@@ -603,6 +603,18 @@ expression: parsed
         }
       },
       "ruleId": "PGM508"
+    },
+    {
+      "effortMinutes": 10,
+      "primaryLocation": {
+        "filePath": "test.sql",
+        "message": "PGM509: Mixed-case identifier or reserved word requires double-quoting",
+        "textRange": {
+          "endLine": 51,
+          "startLine": 51
+        }
+      },
+      "ruleId": "PGM509"
     }
   ],
   "rules": [
@@ -1353,6 +1365,21 @@ expression: parsed
         }
       ],
       "name": "Duplicate or redundant index detected (prefix of another index)",
+      "severity": "INFO",
+      "type": "CODE_SMELL"
+    },
+    {
+      "cleanCodeAttribute": "CONVENTIONAL",
+      "description": "Mixed-case identifier or reserved word requires double-quoting. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm509",
+      "engineId": "pg-migration-lint",
+      "id": "PGM509",
+      "impacts": [
+        {
+          "severity": "LOW",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Mixed-case identifier or reserved word requires double-quoting",
       "severity": "INFO",
       "type": "CODE_SMELL"
     }

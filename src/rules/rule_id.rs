@@ -177,6 +177,9 @@ pub enum RuleId {
     /// Duplicate or redundant index (prefix of another index on the same table).
     #[strum(serialize = "PGM508")]
     Pgm508,
+    /// Mixed-case identifier or reserved word requires double-quoting.
+    #[strum(serialize = "PGM509")]
+    Pgm509,
 
     // 9xx — Meta-behavior
     /// Down-migration severity capping (not a standalone rule).
@@ -281,7 +284,8 @@ impl Rule for RuleId {
             | Self::Pgm505
             | Self::Pgm506
             | Self::Pgm507
-            | Self::Pgm508 => Severity::Info,
+            | Self::Pgm508
+            | Self::Pgm509 => Severity::Info,
 
             // 9xx — Meta
             Self::Pgm901 => Severity::Info,
@@ -340,6 +344,7 @@ impl Rule for RuleId {
             Self::Pgm505 => super::pgm505::DESCRIPTION,
             Self::Pgm506 => super::pgm506::DESCRIPTION,
             Self::Pgm508 => super::pgm508::DESCRIPTION,
+            Self::Pgm509 => super::pgm509::DESCRIPTION,
             Self::Pgm901 => {
                 "Meta rules alter the behavior of other rules, they are not rules themselves"
             }
@@ -398,6 +403,7 @@ impl Rule for RuleId {
             Self::Pgm506 => super::pgm506::EXPLAIN,
             Self::Pgm507 => super::pgm507::EXPLAIN,
             Self::Pgm508 => super::pgm508::EXPLAIN,
+            Self::Pgm509 => super::pgm509::EXPLAIN,
             Self::Pgm901 => "This rule caps severity of triggered rules to INFO (not in SonarQube)",
         }
     }
@@ -454,6 +460,7 @@ impl Rule for RuleId {
             Self::Pgm506 => super::pgm506::check(*self, statements, ctx),
             Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
             Self::Pgm508 => super::pgm508::check(*self, statements, ctx),
+            Self::Pgm509 => super::pgm509::check(*self, statements, ctx),
             Self::Pgm901 => vec![],
         }
     }

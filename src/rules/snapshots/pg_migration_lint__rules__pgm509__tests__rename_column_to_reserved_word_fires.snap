@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm509.rs
+expression: findings
+---
+- rule_id: PGM509
+  severity: Info
+  message: "Column 'select' on table 'users' requires double-quoting (PostgreSQL reserved word)."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1
