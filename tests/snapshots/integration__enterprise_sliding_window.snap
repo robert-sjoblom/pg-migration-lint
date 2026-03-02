@@ -3,7 +3,7 @@ source: tests/integration.rs
 expression: snapshot
 ---
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'lock_granted' on 'billing_lock' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -11,7 +11,7 @@ expression: snapshot
       message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'billing_lock': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -19,17 +19,17 @@ expression: snapshot
       message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 1
+    - line: 3
       message: "Table 'billing_lock' has no primary key."
       rule: PGM502
       severity: Major
   step: step_01_V001__create_base_tables
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'created' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 3
       message: "Column 'updated' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -37,7 +37,7 @@ expression: snapshot
       message: "Column 'created' on 'order_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -61,7 +61,7 @@ expression: snapshot
       message: "CREATE INDEX 'idx_orders_account_id': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 1
+    - line: 3
       message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
@@ -75,7 +75,7 @@ expression: snapshot
       severity: Major
   step: step_02_V002__create_orders
 - findings:
-    - line: 1
+    - line: 4
       message: "Column 'created' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -83,7 +83,7 @@ expression: snapshot
       message: "Column 'created' on 'subscription_items' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -91,7 +91,7 @@ expression: snapshot
       message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 23
+    - line: 24
       message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -99,25 +99,25 @@ expression: snapshot
       message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 23
+    - line: 24
       message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
-    - line: 23
+    - line: 24
       message: "Foreign key on 'subscription_invoices(payer_subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
-    - line: 23
+    - line: 24
       message: "Table 'subscription_invoices' has no primary key."
       rule: PGM502
       severity: Major
   step: step_03_V003__create_subscriptions
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'created' on 'usage_events' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'usage_events': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -147,7 +147,7 @@ expression: snapshot
       severity: Major
   step: step_06_V006__add_order_status_columns
 - findings:
-    - line: 1
+    - line: 4
       message: "CREATE INDEX on existing table 'subscriptions' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
       rule: PGM001
       severity: Critical
@@ -159,7 +159,7 @@ expression: snapshot
       message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY to avoid holding a SHARE lock that blocks writes."
       rule: PGM001
       severity: Critical
-    - line: 1
+    - line: 4
       message: "CREATE INDEX 'idx_subscriptions_account': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -173,17 +173,17 @@ expression: snapshot
       severity: Minor
   step: step_07_V007__create_index_no_concurrently
 - findings:
-    - line: 1
+    - line: 4
       message: "Adding NOT NULL column 'item_type' to existing table 'subscription_items' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
       rule: PGM008
       severity: Critical
   step: step_08_V008__add_not_null_column
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'created' on 'products' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 3
       message: "Primary key column 'id' on 'products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
@@ -191,7 +191,7 @@ expression: snapshot
       message: "Primary key column 'id' on 'bundle_products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -201,7 +201,7 @@ expression: snapshot
       severity: Minor
   step: step_09_V009__create_products_tables
 - findings:
-    - line: 1
+    - line: 4
       message: "Column 'created' on 'promotions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
@@ -209,7 +209,7 @@ expression: snapshot
       message: "Primary key column 'id' on 'promotion_products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'promotions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -217,7 +217,7 @@ expression: snapshot
       message: "CREATE TABLE 'promotion_products': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 24
+    - line: 25
       message: "CREATE INDEX 'idx_promotion_products_promo': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -227,7 +227,7 @@ expression: snapshot
       severity: Major
   step: step_10_V010__create_promotion_tables
 - findings:
-    - line: 1
+    - line: 3
       message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
       rule: PGM003
       severity: Critical
@@ -237,7 +237,7 @@ expression: snapshot
       severity: Critical
   step: step_11_V011__create_index_concurrently
 - findings:
-    - line: 1
+    - line: 4
       message: "Column 'id' on 'price_plans' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -249,7 +249,7 @@ expression: snapshot
       message: "Column 'id' on 'subscription_price_plan' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
-    - line: 1
+    - line: 4
       message: "Primary key column 'id' on 'price_plans' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
@@ -261,7 +261,7 @@ expression: snapshot
       message: "Primary key column 'id' on 'subscription_price_plan' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'price_plans': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -291,153 +291,153 @@ expression: snapshot
       severity: Major
   step: step_12_V012__create_price_plans
 - findings:
-    - line: 1
+    - line: 4
       message: "Changing column type on existing table 'partner_client_orders' ('partner_account_id': int8 → text) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead."
       rule: PGM007
       severity: Critical
   step: step_13_V013__alter_column_type
 - findings:
-    - line: 1
+    - line: 4
       message: "Dropping column 'notes' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
   step: step_14_V014__drop_column
 - findings:
-    - line: 1
+    - line: 6
       message: "Column 'generated_at' on 'partner_reports' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 14
+    - line: 15
       message: "Column 'created' on 'client_invitations' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 23
+    - line: 24
       message: "Column 'granted_at' on 'external_access_rights' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 55
+    - line: 56
       message: "Column 'skipped_at' on 'order_skip_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 73
+    - line: 74
       message: "Column 'last_updated' on 'usage_event_balances' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 82
+    - line: 83
       message: "Column 'locked_at' on 'account_locks' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 90
+    - line: 91
       message: "Column 'locked_at' on 'subscription_locks' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
-    - line: 1
+    - line: 6
       message: "CREATE TABLE 'partner_reports': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 14
+    - line: 15
       message: "CREATE TABLE 'client_invitations': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 23
+    - line: 24
       message: "CREATE TABLE 'external_access_rights': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 32
+    - line: 33
       message: "CREATE TABLE 'product_groups': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 40
+    - line: 41
       message: "CREATE TABLE 'account_feature_flags': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 48
+    - line: 49
       message: "CREATE TABLE 'order_invoice_references': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 55
+    - line: 56
       message: "CREATE TABLE 'order_skip_actions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 63
+    - line: 64
       message: "CREATE TABLE 'overdue_invoices': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 73
+    - line: 74
       message: "CREATE TABLE 'usage_event_balances': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 82
+    - line: 83
       message: "CREATE TABLE 'account_locks': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 90
+    - line: 91
       message: "CREATE TABLE 'subscription_locks': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 97
+    - line: 98
       message: "CREATE TABLE 'usage_event_metadata': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 105
+    - line: 106
       message: "CREATE TABLE 'subscription_scheduled_dates': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 14
+    - line: 15
       message: "Table 'client_invitations' has no primary key."
       rule: PGM502
       severity: Major
-    - line: 48
+    - line: 49
       message: "Table 'order_invoice_references' has no primary key."
       rule: PGM502
       severity: Major
-    - line: 55
+    - line: 56
       message: "Table 'order_skip_actions' has no primary key."
       rule: PGM502
       severity: Major
-    - line: 63
+    - line: 64
       message: "Table 'overdue_invoices' has no primary key."
       rule: PGM502
       severity: Major
-    - line: 105
+    - line: 106
       message: "Table 'subscription_scheduled_dates' has no primary key."
       rule: PGM502
       severity: Major
-    - line: 1
+    - line: 6
       message: "Table 'partner_reports' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 23
+    - line: 24
       message: "Table 'external_access_rights' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 32
+    - line: 33
       message: "Table 'product_groups' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 40
+    - line: 41
       message: "Table 'account_feature_flags' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 73
+    - line: 74
       message: "Table 'usage_event_balances' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 82
+    - line: 83
       message: "Table 'account_locks' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 90
+    - line: 91
       message: "Table 'subscription_locks' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
-    - line: 97
+    - line: 98
       message: "Table 'usage_event_metadata' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit."
       rule: PGM503
       severity: Info
   step: step_15_V015__create_tables_without_pks
 - findings:
-    - line: 1
+    - line: 3
       message: "Adding CHECK constraint on existing table 'subscriptions' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock, blocking concurrent writes. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM015
       severity: Critical
@@ -447,7 +447,7 @@ expression: snapshot
       severity: Critical
   step: step_16_V016__add_subscription_constraints
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -455,7 +455,7 @@ expression: snapshot
       message: "Column 'id' on 'connector_articles' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
-    - line: 1
+    - line: 3
       message: "Primary key column 'id' on 'connector_catalog' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
@@ -463,7 +463,7 @@ expression: snapshot
       message: "Primary key column 'id' on 'connector_articles' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'connector_catalog': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -489,7 +489,7 @@ expression: snapshot
       severity: Major
   step: step_18_V018__create_connector_tables
 - findings:
-    - line: 1
+    - line: 3
       message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
       rule: PGM003
       severity: Critical
@@ -503,57 +503,57 @@ expression: snapshot
       severity: Critical
   step: step_19_V019__create_index_concurrently_batch
 - findings:
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'reseller_orders': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 1
+    - line: 4
       message: "Foreign key on 'reseller_orders(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
-    - line: 1
+    - line: 4
       message: "Table 'reseller_orders' has no primary key."
       rule: PGM502
       severity: Major
   step: step_20_V020__add_reseller_support
 - findings:
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'subscription_periods': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 1
+    - line: 4
       message: "Foreign key on 'subscription_periods(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
-    - line: 1
+    - line: 4
       message: "Table 'subscription_periods' has no primary key."
       rule: PGM502
       severity: Major
   step: step_21_V021__subscription_periods
 - findings:
-    - line: 1
+    - line: 4
       message: "Column 'tracking_id' on 'orders' uses 'gen_random_uuid()' as default (known volatile). Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs."
       rule: PGM006
       severity: Minor
   step: step_22_V022__add_volatile_defaults
 - findings:
-    - line: 1
+    - line: 4
       message: "DROP INDEX 'idx_orders_status' on existing table 'orders' should use CONCURRENTLY to avoid holding an exclusive lock."
       rule: PGM002
       severity: Critical
-    - line: 1
+    - line: 4
       message: "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
       rule: PGM401
       severity: Minor
   step: step_23_V023__drop_index_no_concurrently
 - findings:
-    - line: 1
+    - line: 3
       message: "Column 'cancelled_at' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
   step: step_25_V025__add_more_columns
 - findings:
-    - line: 1
+    - line: 4
       message: "Column 'id' on 'partner_reports' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite."
       rule: PGM006
       severity: Minor
@@ -681,7 +681,7 @@ expression: snapshot
       message: "ADD PRIMARY KEY on existing table 'subscription_periods' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM016
       severity: Major
-    - line: 1
+    - line: 4
       message: "Column 'id' on 'partner_reports' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -747,7 +747,7 @@ expression: snapshot
       severity: Info
   step: step_26_V026__bulk_add_primary_keys
 - findings:
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'cancellation_feedback': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -755,11 +755,11 @@ expression: snapshot
       message: "CREATE TABLE 'trial_conversions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
-    - line: 1
+    - line: 3
       message: "Foreign key on 'cancellation_feedback(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
-    - line: 1
+    - line: 3
       message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
       severity: Major
@@ -773,11 +773,11 @@ expression: snapshot
       message: "CONCURRENTLY cannot run inside a transaction. Set runInTransaction=\"false\" (Liquibase) or disable transactions for this migration."
       rule: PGM003
       severity: Critical
-    - line: 1
+    - line: 3
       message: "Column 'id' on 'platform_audit_log' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
-    - line: 1
+    - line: 3
       message: "CREATE TABLE 'platform_audit_log': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -787,7 +787,7 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM014
       severity: Critical
-    - line: 1
+    - line: 4
       message: "CREATE TABLE 'supplier_agreements': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -797,7 +797,7 @@ expression: snapshot
       severity: Major
   step: step_29_V029__add_supplier_agreements
 - findings:
-    - line: 1
+    - line: 4
       message: "Dropping column 'source_system' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
@@ -807,51 +807,51 @@ expression: snapshot
       severity: Info
   step: step_30_V030__drop_columns_cleanup
 - findings:
-    - line: 1
+    - line: 5
       message: "Dropping column 'kafka_offset' from existing table 'usage_events'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 7
+    - line: 8
       message: "Dropping column 'name' from existing table 'products'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 10
+    - line: 11
       message: "Dropping column 'account_id' from existing table 'account_locks'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 13
+    - line: 14
       message: "Dropping column 'user_id' from existing table 'orders'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 16
+    - line: 17
       message: "Dropping column 'connector_id' from existing table 'connector_articles'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 19
+    - line: 20
       message: "Dropping column 'subscription_id' from existing table 'subscription_periods'. The DDL is cheap but ensure no application code references this column."
       rule: PGM009
       severity: Info
-    - line: 7
+    - line: 8
       message: "Dropping column 'name' from table 'products' silently removes unique constraint UNIQUE(name). Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
-    - line: 10
+    - line: 11
       message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint UNIQUE(account_id). Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
-    - line: 1
+    - line: 5
       message: "Dropping column 'kafka_offset' from table 'usage_events' silently removes the primary key. The table will have no row identity. Add a new primary key or reconsider the column drop."
       rule: PGM011
       severity: Major
-    - line: 13
+    - line: 14
       message: "Dropping column 'user_id' from table 'orders' silently removes foreign key (user_id) → users. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
-    - line: 16
+    - line: 17
       message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key (connector_id) → connector_catalog. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
-    - line: 19
+    - line: 20
       message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key (subscription_id) → subscriptions. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor

@@ -6,5 +6,5 @@ expression: findings
   severity: Major
   message: "Table 'audit_log' has no primary key."
   file: repos/all-rules/migrations/V002__violations.sql
-  start_line: 8
+  start_line: 9
   end_line: 12

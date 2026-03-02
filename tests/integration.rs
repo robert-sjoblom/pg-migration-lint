@@ -222,13 +222,23 @@ fn test_suppressed_repo_no_findings() {
     let raw_findings = lint_fixture_no_suppress("suppressed", &changed);
     let raw_rule_ids: HashSet<&str> = raw_findings.iter().map(|f| f.rule_id.as_str()).collect();
 
-    for id in RuleId::lint_rules() {
-        assert!(
-            raw_rule_ids.contains(id.as_str()),
-            "Rule {} is registered but did not fire in the suppressed fixture (pre-suppression). \
-             Add a suppressed violation for it. Got:\n  {}",
-            id,
-            format_findings(&raw_findings)
+    let mut missing_rules: Vec<&str> = RuleId::lint_rules()
+        .filter(|id| !raw_rule_ids.contains(id.as_str()))
+        .map(|id| id.as_str())
+        .collect();
+    if !missing_rules.is_empty() {
+        missing_rules.sort_unstable();
+        let mut fired: Vec<&str> = raw_rule_ids.iter().copied().collect();
+        fired.sort_unstable();
+        panic!(
+            "Rules registered but did not fire in suppressed fixture (pre-suppression).\n\
+             Add a suppressed violation for each missing rule.\n\
+             Missing ({}):\n  {}\n\
+             Fired ({}):\n  {}",
+            missing_rules.len(),
+            missing_rules.join(", "),
+            fired.len(),
+            fired.join(", "),
         );
     }
 
@@ -497,6 +507,13 @@ fn test_pgm020_finding_details() {
 #[test]
 fn test_pgm023_finding_details() {
     let findings = lint_fixture_rules("all-rules", &["V017__vacuum_full.sql"], &["PGM023"]);
+    let findings = normalize_findings(findings, "all-rules");
+    insta::assert_yaml_snapshot!(findings);
+}
+
+#[test]
+fn test_pgm508_finding_details() {
+    let findings = lint_fixture_rules("all-rules", &["V019__duplicate_index.sql"], &["PGM508"]);
     let findings = normalize_findings(findings, "all-rules");
     insta::assert_yaml_snapshot!(findings);
 }

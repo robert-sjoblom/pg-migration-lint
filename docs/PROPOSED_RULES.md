@@ -70,7 +70,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ## 5xx — Schema design & informational
 
-### PGM1509 — Duplicate/redundant indexes
+### ~~PGM1509~~ — Promoted to **PGM508**
 
 - **Range**: 5xx (SchemaDesign)
 - **Severity**: WARNING

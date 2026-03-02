@@ -6,5 +6,5 @@ expression: findings
   severity: Minor
   message: "Column 'fee' on 'audit_log_v2' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead."
   file: repos/all-rules/migrations/V004__dont_do_this_types.sql
-  start_line: 16
+  start_line: 17
   end_line: 17

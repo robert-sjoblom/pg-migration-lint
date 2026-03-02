@@ -986,3 +986,15 @@ fn spike_reindex_stmt() {
         println!("{:#?}", stmt);
     }
 }
+
+#[test]
+fn test_stmt_location_with_leading_comment() {
+    let sql = "-- pgm-lint:suppress PGM508\n\nCREATE INDEX CONCURRENTLY idx_foo ON foo (id);";
+    let result = pg_query::parse(sql).expect("parse failed");
+    for stmt in &result.protobuf.stmts {
+        println!(
+            "stmt_location={}, stmt_len={}",
+            stmt.stmt_location, stmt.stmt_len
+        );
+    }
+}

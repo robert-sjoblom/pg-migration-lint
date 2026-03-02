@@ -58,13 +58,12 @@ pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
         } else {
             source.len()
         };
-        // pg_query may include leading whitespace (including newlines) in
-        // stmt_location. Skip it to find the actual first token for accurate
-        // line number reporting.
-        let token_start = source[start_offset..]
-            .find(|c: char| !c.is_whitespace())
-            .map(|i| start_offset + i)
-            .unwrap_or(start_offset);
+        // pg_query sets stmt_location to 0 for the first statement in a
+        // source even when it is preceded by SQL line comments. Skip both
+        // whitespace and `--` line comments so that start_line reflects the
+        // line of the actual keyword, which is what next-statement suppression
+        // directives compare against.
+        let token_start = skip_whitespace_and_line_comments(source, start_offset);
         let start_line = byte_offset_to_line(source, token_start);
         let end_line = byte_offset_to_line(source, end_offset.saturating_sub(1).max(start_offset));
 
@@ -98,6 +97,30 @@ pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
     }
 
     nodes
+}
+
+/// Advance `pos` past any run of whitespace and SQL line comments (`-- ...`).
+///
+/// Returns the byte offset of the first character that is neither whitespace
+/// nor part of a `--` comment.  Used to find the real token position when
+/// `pg_query` sets `stmt_location` to include leading comment text.
+fn skip_whitespace_and_line_comments(source: &str, mut pos: usize) -> usize {
+    loop {
+        // Skip whitespace.
+        match source[pos..].find(|c: char| !c.is_whitespace()) {
+            None => return pos,
+            Some(i) => pos += i,
+        }
+        // If we're now at a line comment, skip to the next line.
+        if source[pos..].starts_with("--") {
+            match source[pos..].find('\n') {
+                Some(i) => pos += i + 1,
+                None => return source.len(),
+            }
+        } else {
+            return pos;
+        }
+    }
 }
 
 /// Convert a byte offset into a 1-based line number.
@@ -273,9 +296,8 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
 
     // Walk column constraints
     for con_node in &col.constraints {
-        let con = match con_node.node.as_ref() {
-            Some(NodeEnum::Constraint(c)) => c,
-            _ => continue,
+        let Some(NodeEnum::Constraint(con)) = con_node.node.as_ref() else {
+            continue;
         };
 
         match con.contype() {
@@ -486,9 +508,8 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
     let mut actions = Vec::new();
 
     for cmd_node in &alter.cmds {
-        let cmd = match cmd_node.node.as_ref() {
-            Some(NodeEnum::AlterTableCmd(c)) => c,
-            _ => continue,
+        let Some(NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref() else {
+            continue;
         };
 
         let new_actions = convert_alter_table_cmd(cmd);
@@ -690,9 +711,8 @@ fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
     };
 
     for cmd_node in &alter.cmds {
-        let cmd = match cmd_node.node.as_ref() {
-            Some(NodeEnum::AlterTableCmd(c)) => c,
-            _ => continue,
+        let Some(NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref() else {
+            continue;
         };
 
         if cmd.subtype() == pg_query::protobuf::AlterTableType::AtAttachPartition {
