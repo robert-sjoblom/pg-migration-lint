@@ -9,7 +9,10 @@ Static analysis for PostgreSQL migration files. Catches unsafe DDL, type anti-pa
 
 ## Quick links
 
-- [Rule Reference](rules) — all 42 lint rules with examples and fixes
+- [Rule Reference](rules) -- all 52 lint rules with examples and fixes
+- [GitHub Actions Integration](github-actions) -- workflow YAML for PR linting with SARIF
+- [SonarQube Integration](sonarqube) -- Generic Issue Import JSON setup
+- [Liquibase XML Support](liquibase) -- bridge JAR and update-sql configuration
 - [GitHub Repository](https://github.com/robert-sjoblom/pg-migration-lint)
 
 ## Installation
