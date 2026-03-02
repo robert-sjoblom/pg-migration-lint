@@ -16,6 +16,28 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.13.0...v2.14.0) (2026-03-02)
+
+
+### Features
+
+* **catalog:** add DropNotNull, DropConstraint, ValidateConstraint support ([3516094](https://github.com/robert-sjoblom/pg-migration-lint/commit/351609453dd28cb11bb19986730046b31001f8eb))
+* **catalog:** add SET/DROP DEFAULT support and index access method tracking ([169c71b](https://github.com/robert-sjoblom/pg-migration-lint/commit/169c71b04deb045968c0344fec3d947fbdbefc80))
+* **rules:** add PGM023 -- VACUUM FULL on existing table ([5e75bf8](https://github.com/robert-sjoblom/pg-migration-lint/commit/5e75bf808a2717e976f9371f35750ebf2601df99))
+* **rules:** add PGM024 — REINDEX without CONCURRENTLY ([5c587af](https://github.com/robert-sjoblom/pg-migration-lint/commit/5c587afcca67e266a971322631dc1ce2a6edc7c1))
+* **rules:** add PGM107 — integer primary key detection ([5cf0d12](https://github.com/robert-sjoblom/pg-migration-lint/commit/5cf0d1240aa1959ca09cd46a9baacf566bc10171))
+* **rules:** add PGM108 — prefer text over varchar(n) ([3da0c6d](https://github.com/robert-sjoblom/pg-migration-lint/commit/3da0c6d8f080912812685176ae829a962e22a343))
+* **rules:** add PGM109 — floating-point column type ([4844118](https://github.com/robert-sjoblom/pg-migration-lint/commit/484411855f0fdfefdabe40c3e2e766b2335ac8ec))
+* **rules:** add PGM507 — DROP NOT NULL on existing table ([4277d1c](https://github.com/robert-sjoblom/pg-migration-lint/commit/4277d1cda633d2b6ef4d12da09bc4537916191a7))
+* **rules:** add PGM508 — duplicate/redundant index detection ([1b4553f](https://github.com/robert-sjoblom/pg-migration-lint/commit/1b4553fbd6ac0ab8fde702898fae953eddc1615f))
+* **rules:** add PGM509 — mixed-case identifiers or reserved words ([fce0f61](https://github.com/robert-sjoblom/pg-migration-lint/commit/fce0f619533714a3b298dacebf26fce72c015d6d))
+
+
+### Bug Fixes
+
+* **rules:** correct lock level and volatile functions ([264d9a6](https://github.com/robert-sjoblom/pg-migration-lint/commit/264d9a6df13fac02ab5d3c04892b13324dea56db))
+* **rules:** use pgm021 and pgm022 instead of 23/24 ([d3e39cb](https://github.com/robert-sjoblom/pg-migration-lint/commit/d3e39cbd7d6b9e9fce9e97265d6131f735bc33d9))
+
 ## [2.13.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.12.0...v2.13.0) (2026-02-27)
 
 
