@@ -248,25 +248,25 @@ expression: parsed
       "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM023: VACUUM FULL on existing table",
+        "message": "PGM021: VACUUM FULL on existing table",
         "textRange": {
           "endLine": 21,
           "startLine": 21
         }
       },
-      "ruleId": "PGM023"
+      "ruleId": "PGM021"
     },
     {
       "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
-        "message": "PGM024: Missing CONCURRENTLY on REINDEX",
+        "message": "PGM022: Missing CONCURRENTLY on REINDEX",
         "textRange": {
           "endLine": 22,
           "startLine": 22
         }
       },
-      "ruleId": "PGM024"
+      "ruleId": "PGM022"
     },
     {
       "effortMinutes": 10,
@@ -896,9 +896,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "VACUUM FULL on existing table. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm023",
+      "description": "VACUUM FULL on existing table. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm021",
       "engineId": "pg-migration-lint",
-      "id": "PGM023",
+      "id": "PGM021",
       "impacts": [
         {
           "severity": "HIGH",
@@ -911,9 +911,9 @@ expression: parsed
     },
     {
       "cleanCodeAttribute": "COMPLETE",
-      "description": "Missing CONCURRENTLY on REINDEX. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm024",
+      "description": "Missing CONCURRENTLY on REINDEX. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm022",
       "engineId": "pg-migration-lint",
-      "id": "PGM024",
+      "id": "PGM022",
       "impacts": [
         {
           "severity": "HIGH",

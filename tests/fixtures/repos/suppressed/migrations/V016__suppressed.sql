@@ -1,6 +1,6 @@
--- pgm-lint:suppress-file PGM024
+-- pgm-lint:suppress-file PGM022
 
--- PGM024: REINDEX without CONCURRENTLY (suppressed)
+-- PGM022: REINDEX without CONCURRENTLY (suppressed)
 REINDEX TABLE customers;
 
 -- Setup for PGM508 violation in V017: table + leading index

@@ -26,6 +26,18 @@ Example (bad):
 ALTER TABLE orders ADD PRIMARY KEY (id);
 
 Fix (safe pattern — build unique index concurrently first):
--- Ensure columns are NOT NULL (use CHECK constraint trick if needed)
+CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
+ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
+
+If the PK columns are nullable, USING INDEX alone is not enough —
+PostgreSQL will still run an implicit SET NOT NULL (full table scan
+under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe
+CHECK-constraint pattern from PGM013:
+ALTER TABLE orders ADD CONSTRAINT orders_id_nn
+CHECK (id IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;
+ALTER TABLE orders ALTER COLUMN id SET NOT NULL;
+ALTER TABLE orders DROP CONSTRAINT orders_id_nn;
+-- Now USING INDEX is truly instant:
 CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
 ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;

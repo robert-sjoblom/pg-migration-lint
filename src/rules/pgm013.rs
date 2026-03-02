@@ -29,7 +29,9 @@ pub(super) const EXPLAIN: &str = "PGM013 — SET NOT NULL on existing table requ
               CHECK (status IS NOT NULL) NOT VALID;\n\
          2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):\n\
             ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
-         3. Set NOT NULL (instant since PG 12 sees the validated CHECK):\n\
+         3. Set NOT NULL (instant in PG 12+ — the optimizer recognises a\n\
+            validated CHECK of exactly the form `CHECK (col IS NOT NULL)`\n\
+            and skips the full table scan; other CHECK forms do not qualify):\n\
             ALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\
          4. Optionally drop the now-redundant CHECK constraint:\n\
             ALTER TABLE orders DROP CONSTRAINT orders_status_nn;\n\

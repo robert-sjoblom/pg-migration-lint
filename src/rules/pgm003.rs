@@ -33,7 +33,9 @@ pub(super) const EXPLAIN: &str = "PGM003 — CONCURRENTLY inside transaction\n\
            </changeSet>\n\
          \n\
          For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\n\
-         the migration file header.";
+         the migration file header.\n\
+         \n\
+         See also: PGM001, PGM002.";
 
 pub(super) fn check(
     rule: impl Rule,

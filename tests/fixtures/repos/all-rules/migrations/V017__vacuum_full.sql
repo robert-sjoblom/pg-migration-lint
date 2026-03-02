@@ -1,2 +1,2 @@
--- PGM023: VACUUM FULL on existing table
+-- PGM021: VACUUM FULL on existing table
 VACUUM FULL customers;

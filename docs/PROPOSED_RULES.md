@@ -16,11 +16,11 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### ~~PGM1023~~ — Promoted to **PGM023**
+### ~~PGM1023~~ — Promoted to **PGM021**
 
 ---
 
-### ~~PGM1024~~ — Promoted to **PGM024**
+### ~~PGM1024~~ — Promoted to **PGM022**
 
 ---
 

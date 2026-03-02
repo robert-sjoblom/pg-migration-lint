@@ -470,6 +470,29 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **pg_query**: `AT_DisableTrig`, `AT_DisableTrigAll`, `AT_DisableTrigUser`.
 - **Message**: Varies by trigger scope — includes scope label (ALL, USER, or trigger name) and scope-specific detail about what guarantees are lost.
 
+#### PGM021 — `VACUUM FULL` on existing table
+
+- **Severity**: CRITICAL
+- **Triggers**: `VACUUM FULL` targeting a table that exists in `catalog_before`.
+- **Why**: `VACUUM FULL` rewrites the entire table and rebuilds all indexes under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes for the full duration of the rewrite. On large tables this causes complete unavailability for minutes to hours. Unlike regular `VACUUM`, there is no concurrent variant. Use `pg_repack` or `pg_squeeze` for online table compaction.
+- **Does not fire when**:
+  - `VACUUM` without `FULL` (regular vacuum does not block reads)
+  - Table doesn't exist in `catalog_before`
+  - Table is new (in `tables_created_in_change`)
+- **IR**: `IrNode::VacuumFull(VacuumFull { table: Option<QualifiedName> })`.
+- **Message**: `VACUUM FULL on existing table '{table}' rewrites the entire table under an ACCESS EXCLUSIVE lock. Use pg_repack or pg_squeeze for online compaction.`
+
+#### PGM022 — Missing `CONCURRENTLY` on `REINDEX`
+
+- **Severity**: CRITICAL
+- **Triggers**: `REINDEX TABLE|INDEX|SCHEMA|DATABASE|SYSTEM` without the `CONCURRENTLY` option.
+- **Why**: `REINDEX` without `CONCURRENTLY` acquires an `ACCESS EXCLUSIVE` lock on the table being reindexed (or the parent table for `REINDEX INDEX`), blocking all reads and writes for the duration of the rebuild. On large tables this causes complete unavailability for minutes to hours. `REINDEX CONCURRENTLY` (PostgreSQL 12+) rebuilds the index without holding an exclusive lock for the entire operation.
+- **Does not fire when**:
+  - `REINDEX ... CONCURRENTLY` is used
+- **IR**: `IrNode::Reindex(Reindex { kind: ReindexObjectKind, target: ReindexTarget, concurrent: bool })`.
+- **Note**: `REINDEX CONCURRENTLY` cannot run inside a transaction block. See PGM003.
+- **Message**: `REINDEX {kind} '{target}' should use CONCURRENTLY to avoid holding an ACCESS EXCLUSIVE lock. Use REINDEX {kind} CONCURRENTLY '{target}' (PostgreSQL 12+).`
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
@@ -984,3 +1007,4 @@ pg-migration-lint/
 | 1.14    | 2026-02-18 | Added PGM3xx DML-in-migrations category: PGM301 (INSERT INTO, INFO), PGM302 (UPDATE, MINOR), PGM303 (DELETE FROM, MINOR). Added PGM506 (CREATE UNLOGGED TABLE, INFO). IR changes: replaced `temporary: bool` on `CreateTable` with `TablePersistence` enum (Permanent/Unlogged/Temporary); added `InsertInto`, `UpdateTable`, `DeleteFrom` IR nodes. |
 | 1.15    | 2026-02-25 | Spec sync with implementation. Added PGM004 (DETACH PARTITION without CONCURRENTLY, CRITICAL) and PGM005 (ATTACH PARTITION without CHECK, CRITICAL). Added partition support: `AlterIndexAttachPartition` IR node, `only` field on `IndexState`, partition-aware behavior for PGM002 and PGM501. Renumbered old PGM016–PGM020 (v1.5) to their current IDs: PGM013 (SET NOT NULL), PGM014 (ADD FK NOT VALID), PGM015 (ADD CHECK NOT VALID), PGM504 (RENAME TABLE), PGM505 (RENAME COLUMN). Added PGM018 (CLUSTER on existing table, CRITICAL) and PGM019 (ADD EXCLUDE constraint, CRITICAL) in freed 0xx slots. Updated IR table with all implemented nodes (Cluster, RenameTable, RenameColumn, AlterIndexAttachPartition) and fields (partition_by, partition_of on CreateTable; only on CreateIndex). Updated `TableConstraint` to reflect `not_valid`, `using_index`, `name` fields. Updated `ColumnDef` to reflect `is_inline_pk`, `is_serial` fields. Updated Catalog/TableState/IndexState structs with partition fields. Removed all stale "Status: Implemented/Not yet implemented" markers and "IR impact" notes — all described rules and IR changes are now implemented. |
 | 1.16    | 2026-02-27 | Added PGM020 (DISABLE TRIGGER on table, MINOR/INFO). Added PGM205 (DROP SCHEMA CASCADE, CRITICAL). New `DropSchema` IR node mapped from `DropStmt(OBJECT_SCHEMA)`. Catalog replay removes all tables with matching schema prefix on CASCADE. Rule always fires on CASCADE regardless of catalog state — lists known affected tables for context. |
+| 1.17    | 2026-03-02 | Added PGM021 (VACUUM FULL on existing table, CRITICAL) and PGM022 (REINDEX without CONCURRENTLY, CRITICAL). New IR nodes: `VacuumFull`, `Reindex`. |

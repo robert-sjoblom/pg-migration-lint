@@ -1,4 +1,4 @@
-//! PGM023 — `VACUUM FULL` on existing table
+//! PGM021 — `VACUUM FULL` on existing table
 //!
 //! Detects `VACUUM FULL` targeting a table that exists in `catalog_before`.
 //! `VACUUM FULL` rewrites the entire table under an ACCESS EXCLUSIVE lock,
@@ -10,7 +10,7 @@ use crate::rules::{Finding, LintContext, Rule};
 
 pub(super) const DESCRIPTION: &str = "VACUUM FULL on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM023 — VACUUM FULL on existing table\n\
+pub(super) const EXPLAIN: &str = "PGM021 — VACUUM FULL on existing table\n\
          \n\
          What it detects:\n\
          A VACUUM FULL statement targeting a table that already exists in the\n\
@@ -103,7 +103,7 @@ mod tests {
             VacuumFull::test(QualifiedName::unqualified("orders")).into(),
         )];
 
-        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        let findings = RuleId::Pgm021.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -124,7 +124,7 @@ mod tests {
             VacuumFull::test(QualifiedName::unqualified("orders")).into(),
         )];
 
-        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        let findings = RuleId::Pgm021.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -145,7 +145,7 @@ mod tests {
             VacuumFull::test(QualifiedName::qualified("myschema", "orders")).into(),
         )];
 
-        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        let findings = RuleId::Pgm021.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].message.contains("myschema.orders"),
@@ -166,7 +166,7 @@ mod tests {
             VacuumFull::test(QualifiedName::unqualified("nonexistent")).into(),
         )];
 
-        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        let findings = RuleId::Pgm021.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -180,7 +180,7 @@ mod tests {
 
         let stmts = vec![located(VacuumFull::test_all().into())];
 
-        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        let findings = RuleId::Pgm021.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].message.contains("every table"),

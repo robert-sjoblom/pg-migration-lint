@@ -1,4 +1,4 @@
-//! PGM024 — Missing `CONCURRENTLY` on `REINDEX`
+//! PGM022 — Missing `CONCURRENTLY` on `REINDEX`
 //!
 //! Detects `REINDEX TABLE|INDEX|SCHEMA|DATABASE|SYSTEM` without `CONCURRENTLY`.
 //! `REINDEX` without `CONCURRENTLY` acquires an ACCESS EXCLUSIVE lock on the
@@ -10,7 +10,7 @@ use crate::rules::{Finding, LintContext, Rule};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on REINDEX";
 
-pub(super) const EXPLAIN: &str = "PGM024 — Missing CONCURRENTLY on REINDEX\n\
+pub(super) const EXPLAIN: &str = "PGM022 — Missing CONCURRENTLY on REINDEX\n\
          \n\
          What it detects:\n\
          A REINDEX statement (TABLE, INDEX, SCHEMA, DATABASE, or SYSTEM) that\n\
@@ -94,7 +94,7 @@ mod tests {
             Reindex::test_table(QualifiedName::unqualified("orders")).into(),
         )];
 
-        let findings = RuleId::Pgm024.check(&stmts, &ctx);
+        let findings = RuleId::Pgm022.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
@@ -112,7 +112,7 @@ mod tests {
                 .into(),
         )];
 
-        let findings = RuleId::Pgm024.check(&stmts, &ctx);
+        let findings = RuleId::Pgm022.check(&stmts, &ctx);
         assert!(findings.is_empty());
     }
 
@@ -135,7 +135,7 @@ mod tests {
 
         for (kind_label, node) in cases {
             let stmts = vec![located(node)];
-            let findings = RuleId::Pgm024.check(&stmts, &ctx);
+            let findings = RuleId::Pgm022.check(&stmts, &ctx);
             assert_eq!(
                 findings.len(),
                 1,
@@ -163,7 +163,7 @@ mod tests {
             Reindex::test_table(QualifiedName::qualified("myschema", "orders")).into(),
         )];
 
-        let findings = RuleId::Pgm024.check(&stmts, &ctx);
+        let findings = RuleId::Pgm022.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].message.contains("myschema.orders"),
