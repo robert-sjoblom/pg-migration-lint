@@ -1,0 +1,28 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM108
+Severity: INFO
+Description: Column uses varchar(n) instead of text
+
+PGM108 — Prefer `text` over `varchar(n)`
+
+What it detects:
+A column declared as `varchar(n)` (with a length modifier) in CREATE TABLE,
+ADD COLUMN, or ALTER COLUMN TYPE. Bare `varchar` without a length is not flagged.
+
+Why it's problematic:
+In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — they
+share identical `varlena` storage. The length constraint adds an artificial
+limit that may require future schema changes. Changing the limit requires
+an ACCESS EXCLUSIVE lock and full table rewrite on PostgreSQL < 14 (or when
+decreasing the limit on 14+). Use `text` with a CHECK constraint if validation
+is needed — CHECK constraints can be added NOT VALID and validated without
+a rewrite.
+
+Example (bad):
+CREATE TABLE users (name varchar(100) NOT NULL);
+
+Fix:
+CREATE TABLE users (name text NOT NULL);

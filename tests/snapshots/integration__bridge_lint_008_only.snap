@@ -14,3 +14,15 @@ expression: findings
   file: 008-add-not-null.xml
   start_line: 31
   end_line: 31
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'region' on 'accounts' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: 008-add-not-null.xml
+  start_line: 13
+  end_line: 13
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'product_type' on 'products' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: 008-add-not-null.xml
+  start_line: 31
+  end_line: 31

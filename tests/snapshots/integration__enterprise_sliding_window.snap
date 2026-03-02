@@ -11,6 +11,18 @@ expression: snapshot
       message: "Column 'created' on 'users' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
+    - line: 8
+      message: "Column 'display_name' on 'users' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 8
+      message: "Column 'username' on 'users' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 8
+      message: "Column 'email' on 'users' uses varchar(255). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 3
       message: "CREATE TABLE 'billing_lock': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
@@ -37,6 +49,34 @@ expression: snapshot
       message: "Column 'created' on 'order_actions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
+    - line: 3
+      message: "Column 'order_type' on 'orders' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'status' on 'orders' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 15
+      message: "Column 'team' on 'internal_orders' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 22
+      message: "Column 'partner_reference' on 'partner_client_orders' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 29
+      message: "Column 'action_type' on 'order_actions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 29
+      message: "Column 'status' on 'order_actions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 29
+      message: "Column 'result' on 'order_actions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 3
       message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
@@ -84,6 +124,22 @@ expression: snapshot
       rule: PGM101
       severity: Minor
     - line: 4
+      message: "Column 'customer_number' on 'subscriptions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'status' on 'subscriptions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 13
+      message: "Column 'status' on 'subscription_items' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 24
+      message: "Column 'invoice_id' on 'subscription_invoices' uses varchar(19). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
       message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -118,6 +174,14 @@ expression: snapshot
       rule: PGM101
       severity: Minor
     - line: 3
+      message: "Column 'event_type' on 'usage_events' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'status' on 'usage_events' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
       message: "CREATE TABLE 'usage_events': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -127,6 +191,10 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'users' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM014
       severity: Critical
+    - line: 5
+      message: "Column 'support_username' on 'users' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 7
       message: "Foreign key on 'users(support_user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
       rule: PGM501
@@ -177,6 +245,10 @@ expression: snapshot
       message: "Adding NOT NULL column 'item_type' to existing table 'subscription_items' without a DEFAULT will fail if the table has any rows. Add a DEFAULT value, or add the column as nullable and backfill."
       rule: PGM008
       severity: Critical
+    - line: 4
+      message: "Column 'item_type' on 'subscription_items' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
   step: step_08_V008__add_not_null_column
 - findings:
     - line: 3
@@ -191,6 +263,14 @@ expression: snapshot
       message: "Primary key column 'id' on 'bundle_products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
+    - line: 3
+      message: "Column 'name' on 'products' uses varchar(1000). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'article_number' on 'products' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 3
       message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
@@ -209,6 +289,18 @@ expression: snapshot
       message: "Primary key column 'id' on 'promotion_products' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
+    - line: 4
+      message: "Column 'name' on 'promotions' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'promotion_type' on 'promotions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'status' on 'promotions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 4
       message: "CREATE TABLE 'promotions': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
@@ -332,6 +424,62 @@ expression: snapshot
       rule: PGM101
       severity: Minor
     - line: 6
+      message: "Column 'report_type' on 'partner_reports' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 15
+      message: "Column 'invited_email' on 'client_invitations' uses varchar(255). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 15
+      message: "Column 'status' on 'client_invitations' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 24
+      message: "Column 'permission_level' on 'external_access_rights' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 33
+      message: "Column 'group_name' on 'product_groups' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 41
+      message: "Column 'feature_name' on 'account_feature_flags' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 49
+      message: "Column 'invoice_id' on 'order_invoice_references' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 56
+      message: "Column 'skip_reason' on 'order_skip_actions' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 64
+      message: "Column 'invoice_id' on 'overdue_invoices' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 64
+      message: "Column 'tax_id' on 'overdue_invoices' uses varchar(20). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 74
+      message: "Column 'event_type' on 'usage_event_balances' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 83
+      message: "Column 'locked_by' on 'account_locks' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 98
+      message: "Column 'metadata_key' on 'usage_event_metadata' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 106
+      message: "Column 'schedule_type' on 'subscription_scheduled_dates' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 6
       message: "CREATE TABLE 'partner_reports': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -448,6 +596,24 @@ expression: snapshot
   step: step_16_V016__add_subscription_constraints
 - findings:
     - line: 3
+      message: "Column 'referral_code' on 'subscriptions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'payment_method' on 'subscriptions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 5
+      message: "Column 'channel' on 'orders' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 6
+      message: "Column 'source_system' on 'orders' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+  step: step_17_V017__add_columns_various
+- findings:
+    - line: 3
       message: "Column 'id' on 'connector_catalog' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
       severity: Info
@@ -463,6 +629,26 @@ expression: snapshot
       message: "Primary key column 'id' on 'connector_articles' uses integer. Consider using bigint to avoid exhausting the integer range on high-write tables."
       rule: PGM107
       severity: Major
+    - line: 3
+      message: "Column 'connector_name' on 'connector_catalog' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'api_version' on 'connector_catalog' uses varchar(20). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 10
+      message: "Column 'request_type' on 'connector_requests' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 10
+      message: "Column 'status' on 'connector_requests' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 19
+      message: "Column 'external_article_id' on 'connector_articles' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 3
       message: "CREATE TABLE 'connector_catalog': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
@@ -518,6 +704,10 @@ expression: snapshot
   step: step_20_V020__add_reseller_support
 - findings:
     - line: 4
+      message: "Column 'billing_status' on 'subscription_periods' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
       message: "CREATE TABLE 'subscription_periods': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -551,6 +741,10 @@ expression: snapshot
       message: "Column 'cancelled_at' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
       severity: Minor
+    - line: 6
+      message: "Column 'source_system' on 'usage_events' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
   step: step_25_V025__add_more_columns
 - findings:
     - line: 4
@@ -748,6 +942,18 @@ expression: snapshot
   step: step_26_V026__bulk_add_primary_keys
 - findings:
     - line: 3
+      message: "Column 'reason' on 'cancellation_feedback' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 12
+      message: "Column 'converted_from' on 'trial_conversions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 12
+      message: "Column 'converted_to' on 'trial_conversions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
       message: "CREATE TABLE 'cancellation_feedback': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -778,6 +984,18 @@ expression: snapshot
       rule: PGM105
       severity: Info
     - line: 3
+      message: "Column 'entity_type' on 'platform_audit_log' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'entity_id' on 'platform_audit_log' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
+      message: "Column 'action' on 'platform_audit_log' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 3
       message: "CREATE TABLE 'platform_audit_log': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
       severity: Minor
@@ -787,6 +1005,18 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM014
       severity: Critical
+    - line: 4
+      message: "Column 'supplier_name' on 'supplier_agreements' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'agreement_type' on 'supplier_agreements' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
+    - line: 4
+      message: "Column 'status' on 'supplier_agreements' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+      rule: PGM108
+      severity: Info
     - line: 4
       message: "CREATE TABLE 'supplier_agreements': add IF NOT EXISTS for idempotent migrations."
       rule: PGM402
