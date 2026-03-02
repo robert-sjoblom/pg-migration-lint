@@ -6,7 +6,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 49 lint rules across seven categories:
+`pg-migration-lint` ships with 51 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -742,6 +742,25 @@ CREATE TABLE users (name text NOT NULL);
 
 ---
 
+### PGM109 — Column uses floating-point type instead of numeric
+{: #pgm109}
+
+**Severity**: Minor
+
+Detects columns declared as `real` (`float4`), `double precision` (`float8`), or `float`. IEEE 754 floating-point types suffer from precision issues — for example, `0.1 + 0.2 ≠ 0.3`. For money, quantities, measurements, or any domain where exact decimal values matter, `numeric`/`decimal` is the correct choice.
+
+**Example** (bad):
+```sql
+CREATE TABLE products (price double precision NOT NULL);
+```
+
+**Fix**:
+```sql
+CREATE TABLE products (price numeric(10,2) NOT NULL);
+```
+
+---
+
 ## 2xx — Destructive Operation Rules
 
 ### PGM201 — DROP TABLE on existing table
@@ -1178,6 +1197,35 @@ DROP INDEX CONCURRENTLY idx_orders_cust_short;
 
 ---
 
+### PGM509 — Mixed-case identifier or reserved word requires double-quoting
+{: #pgm509}
+
+**Severity**: Info
+
+Detects table and column names that require perpetual double-quoting — either because they contain uppercase characters or because they match a PostgreSQL reserved word.
+
+**Example** (flagged):
+```sql
+CREATE TABLE "User" ("Id" bigint, "order" text);
+-- Every query must now use: SELECT "Id", "order" FROM "User";
+```
+
+**Why it matters**:
+- Every query must use the exact case and double-quotes — forgetting them silently references a different (lowercased) identifier.
+- IDE autocompletion and ORMs may generate incorrect SQL.
+- `pg_dump` output becomes harder to read and modify.
+
+**Does NOT fire when**:
+- The identifier is all-lowercase and not a PostgreSQL reserved word.
+- The identifier is a schema name or index name (only table and column names are checked).
+
+**Fix**: Use a lowercase, non-reserved name:
+```sql
+CREATE TABLE users (id bigint, order_status text);
+```
+
+---
+
 ## 9xx — Meta-behavior Rules
 
 ### PGM901 — Meta rules alter the behavior of other rules, they are not rules themselves
@@ -1232,6 +1280,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM106](#pgm106) | Minor | Column uses json type instead of jsonb |
 | [PGM107](#pgm107) | Major | Primary key column uses integer or smallint instead of bigint |
 | [PGM108](#pgm108) | Info | Column uses varchar(n) instead of text |
+| [PGM109](#pgm109) | Minor | Column uses floating-point type instead of numeric |
 | [PGM201](#pgm201) | Minor | DROP TABLE on existing table |
 | [PGM202](#pgm202) | Major | DROP TABLE CASCADE on existing table |
 | [PGM203](#pgm203) | Minor | TRUNCATE TABLE on existing table |
@@ -1251,4 +1300,5 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM506](#pgm506) | Info | CREATE UNLOGGED TABLE |
 | [PGM507](#pgm507) | Info | DROP NOT NULL on existing table allows NULL values |
 | [PGM508](#pgm508) | Info | Duplicate or redundant index detected (prefix of another index) |
+| [PGM509](#pgm509) | Info | Mixed-case identifier or reserved word requires double-quoting |
 | [PGM901](#pgm901) | Info | Meta rules alter the behavior of other rules, they are not rules themselves |
