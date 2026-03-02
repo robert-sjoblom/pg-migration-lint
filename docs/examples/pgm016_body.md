@@ -12,3 +12,17 @@ ALTER TABLE orders ADD PRIMARY KEY (id);
 CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
 ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ```
+
+If the PK columns are nullable, `USING INDEX` alone is not enough — PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](#pgm013):
+
+```sql
+-- Step 1: Make column NOT NULL safely (see PGM013)
+ALTER TABLE orders ADD CONSTRAINT orders_id_nn
+  CHECK (id IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;
+ALTER TABLE orders ALTER COLUMN id SET NOT NULL;
+ALTER TABLE orders DROP CONSTRAINT orders_id_nn;
+-- Step 2: Now USING INDEX is truly instant
+CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
+ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
+```

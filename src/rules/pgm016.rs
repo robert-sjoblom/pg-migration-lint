@@ -33,7 +33,19 @@ pub(super) const EXPLAIN: &str = "PGM016 — ADD PRIMARY KEY on existing table w
            ALTER TABLE orders ADD PRIMARY KEY (id);\n\
          \n\
          Fix (safe pattern — build unique index concurrently first):\n\
-           -- Ensure columns are NOT NULL (use CHECK constraint trick if needed)\n\
+           CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
+           ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;\n\
+         \n\
+         If the PK columns are nullable, USING INDEX alone is not enough —\n\
+         PostgreSQL will still run an implicit SET NOT NULL (full table scan\n\
+         under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe\n\
+         CHECK-constraint pattern from PGM013:\n\
+           ALTER TABLE orders ADD CONSTRAINT orders_id_nn\n\
+             CHECK (id IS NOT NULL) NOT VALID;\n\
+           ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;\n\
+           ALTER TABLE orders ALTER COLUMN id SET NOT NULL;\n\
+           ALTER TABLE orders DROP CONSTRAINT orders_id_nn;\n\
+           -- Now USING INDEX is truly instant:\n\
            CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
            ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;";
 

@@ -44,8 +44,8 @@ mod pgm017;
 mod pgm018;
 mod pgm019;
 mod pgm020;
-mod pgm023;
-mod pgm024;
+mod pgm021;
+mod pgm022;
 
 // 1xx — Type anti-patterns
 mod pgm101;

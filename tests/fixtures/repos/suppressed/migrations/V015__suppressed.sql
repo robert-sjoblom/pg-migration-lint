@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM023
+-- pgm-lint:suppress-file PGM021
 
--- PGM023: VACUUM FULL on existing table (suppressed)
+-- PGM021: VACUUM FULL on existing table (suppressed)
 VACUUM FULL customers;

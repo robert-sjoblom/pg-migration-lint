@@ -30,3 +30,5 @@ Fix:
 
 For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to
 the migration file header.
+
+See also: PGM001, PGM002.

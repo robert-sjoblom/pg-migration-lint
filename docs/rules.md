@@ -345,7 +345,7 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_nn
   CHECK (status IS NOT NULL) NOT VALID;
 -- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
--- Step 3: Set NOT NULL (instant since PG 12 sees the validated CHECK)
+-- Step 3: Set NOT NULL (instant in PG 12+ when CHECK is exactly `col IS NOT NULL`)
 ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 -- Step 4 (optional): Drop the now-redundant CHECK
 ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
@@ -424,6 +424,20 @@ ALTER TABLE orders ADD PRIMARY KEY (id);
 
 **Fix** (safe pattern):
 ```sql
+CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
+ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
+```
+
+If the PK columns are nullable, `USING INDEX` alone is not enough — PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](#pgm013):
+
+```sql
+-- Step 1: Make column NOT NULL safely (see PGM013)
+ALTER TABLE orders ADD CONSTRAINT orders_id_nn
+  CHECK (id IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;
+ALTER TABLE orders ALTER COLUMN id SET NOT NULL;
+ALTER TABLE orders DROP CONSTRAINT orders_id_nn;
+-- Step 2: Now USING INDEX is truly instant
 CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
 ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ```
@@ -518,8 +532,8 @@ ALTER TABLE orders ENABLE TRIGGER ALL;
 
 ---
 
-### PGM023 — VACUUM FULL on existing table
-{: #pgm023}
+### PGM021 — VACUUM FULL on existing table
+{: #pgm021}
 
 **Severity**: Critical
 
@@ -539,8 +553,8 @@ Or schedule during a maintenance window when downtime is acceptable.
 
 ---
 
-### PGM024 — Missing CONCURRENTLY on REINDEX
-{: #pgm024}
+### PGM022 — Missing CONCURRENTLY on REINDEX
+{: #pgm022}
 
 **Severity**: Critical
 
@@ -1208,8 +1222,8 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM018](#pgm018) | Critical | CLUSTER on existing table |
 | [PGM019](#pgm019) | Critical | ADD EXCLUDE constraint on existing table |
 | [PGM020](#pgm020) | Minor | DISABLE TRIGGER on table suppresses FK enforcement |
-| [PGM023](#pgm023) | Critical | VACUUM FULL on existing table |
-| [PGM024](#pgm024) | Critical | Missing CONCURRENTLY on REINDEX |
+| [PGM021](#pgm021) | Critical | VACUUM FULL on existing table |
+| [PGM022](#pgm022) | Critical | Missing CONCURRENTLY on REINDEX |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

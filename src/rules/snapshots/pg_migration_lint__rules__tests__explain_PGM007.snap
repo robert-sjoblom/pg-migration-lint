@@ -24,8 +24,10 @@ Safe casts (no finding):
 - varbit(N) -> varbit(M) where M > N
 
 INFO cast:
-- timestamp -> timestamptz (safe in PG 9.2+ when timezone=UTC;
-verify your timezone config)
+- timestamp -> timestamptz (no rewrite in PG 9.2+; the cast uses the
+session TimeZone at ALTER time, so verify that the executing session
+has TimeZone=UTC — a server default of UTC is not sufficient if the
+connection overrides it)
 
 All other type changes fire as CRITICAL.
 

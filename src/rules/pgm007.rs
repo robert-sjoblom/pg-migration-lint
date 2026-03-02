@@ -28,8 +28,10 @@ pub(super) const EXPLAIN: &str = "PGM007 — ALTER COLUMN TYPE on existing table
          - varbit(N) -> varbit(M) where M > N\n\
          \n\
          INFO cast:\n\
-         - timestamp -> timestamptz (safe in PG 9.2+ when timezone=UTC;\n\
-           verify your timezone config)\n\
+         - timestamp -> timestamptz (no rewrite in PG 9.2+; the cast uses the\n\
+           session TimeZone at ALTER time, so verify that the executing session\n\
+           has TimeZone=UTC — a server default of UTC is not sufficient if the\n\
+           connection overrides it)\n\
          \n\
          All other type changes fire as CRITICAL.\n\
          \n\

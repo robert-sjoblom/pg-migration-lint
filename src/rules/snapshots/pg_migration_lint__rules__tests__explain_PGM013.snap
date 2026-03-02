@@ -24,7 +24,9 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_nn
 CHECK (status IS NOT NULL) NOT VALID;
 2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
-3. Set NOT NULL (instant since PG 12 sees the validated CHECK):
+3. Set NOT NULL (instant in PG 12+ — the optimizer recognises a
+validated CHECK of exactly the form `CHECK (col IS NOT NULL)`
+and skips the full table scan; other CHECK forms do not qualify):
 ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 4. Optionally drop the now-redundant CHECK constraint:
 ALTER TABLE orders DROP CONSTRAINT orders_status_nn;

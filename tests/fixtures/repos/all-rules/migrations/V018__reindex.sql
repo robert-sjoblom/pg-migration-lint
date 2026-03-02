@@ -1,2 +1,2 @@
--- Triggers PGM024: REINDEX without CONCURRENTLY
+-- Triggers PGM022: REINDEX without CONCURRENTLY
 REINDEX TABLE orders;

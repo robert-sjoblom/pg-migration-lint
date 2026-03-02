@@ -12,7 +12,7 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_nn
   CHECK (status IS NOT NULL) NOT VALID;
 -- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
--- Step 3: Set NOT NULL (instant since PG 12 sees the validated CHECK)
+-- Step 3: Set NOT NULL (instant in PG 12+ when CHECK is exactly `col IS NOT NULL`)
 ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 -- Step 4 (optional): Drop the now-redundant CHECK
 ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
