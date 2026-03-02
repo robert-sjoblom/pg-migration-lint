@@ -8,7 +8,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 43 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 52 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -37,102 +37,17 @@ chmod +x pg-migration-lint
 
 ## Rules
 
-pg-migration-lint ships with 43 rules across six categories: unsafe DDL rules (PGM0xx), type anti-pattern rules (PGM1xx), destructive operation rules (PGM2xx), DML in migrations rules (PGM3xx), idempotency guard rules (PGM4xx), and schema design rules (PGM5xx).
+pg-migration-lint ships with 52 rules across seven categories:
 
-### Unsafe DDL Rules (0xx)
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM001 | Critical | Missing `CONCURRENTLY` on `CREATE INDEX` | `CREATE INDEX idx_foo ON orders (status);` |
-| PGM002 | Critical | Missing `CONCURRENTLY` on `DROP INDEX` | `DROP INDEX idx_foo;` |
-| PGM003 | Critical | `CONCURRENTLY` inside transaction | `CREATE INDEX CONCURRENTLY idx ON t (col);` inside a transactional changeset |
-| PGM006 | Minor | Volatile default on column | `ALTER TABLE t ADD COLUMN created_at timestamptz DEFAULT now();` |
-| PGM007 | Critical | `ALTER COLUMN TYPE` causing table rewrite | `ALTER TABLE orders ALTER COLUMN status TYPE int;` |
-| PGM008 | Critical | `ADD COLUMN NOT NULL` without default | `ALTER TABLE orders ADD COLUMN region text NOT NULL;` |
-| PGM009 | Info | `DROP COLUMN` on existing table | `ALTER TABLE orders DROP COLUMN legacy_col;` |
-| PGM010 | Minor | `DROP COLUMN` silently removes unique constraint | `ALTER TABLE users DROP COLUMN email;` (where `email` has a UNIQUE constraint) |
-| PGM011 | Major | `DROP COLUMN` silently removes primary key | `ALTER TABLE orders DROP COLUMN id;` (where `id` is the PK) |
-| PGM012 | Minor | `DROP COLUMN` silently removes foreign key | `ALTER TABLE orders DROP COLUMN customer_id;` (where `customer_id` is an FK) |
-| PGM013 | Critical | `SET NOT NULL` requires ACCESS EXCLUSIVE lock | `ALTER TABLE orders ALTER COLUMN status SET NOT NULL;` |
-| PGM014 | Critical | `ADD FOREIGN KEY` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (cust_id) REFERENCES customers (id);` |
-| PGM015 | Critical | `ADD CHECK` without `NOT VALID` | `ALTER TABLE orders ADD CONSTRAINT chk CHECK (amount > 0);` |
-| PGM016 | Major | `ADD PRIMARY KEY` without prior `UNIQUE` index | `ALTER TABLE orders ADD PRIMARY KEY (id);` |
-| PGM017 | Critical | `ADD UNIQUE` without `USING INDEX` | `ALTER TABLE users ADD CONSTRAINT uq_email UNIQUE (email);` |
-| PGM018 | Critical | `CLUSTER` on existing table | `CLUSTER orders USING idx_orders_id;` |
-| PGM019 | Critical | `ADD EXCLUDE` constraint on existing table | `ALTER TABLE reservations ADD CONSTRAINT excl_overlap EXCLUDE USING gist (room WITH =, period WITH &&);` |
-| PGM020 | Minor/Info | `DISABLE TRIGGER` on table | `ALTER TABLE orders DISABLE TRIGGER ALL;` |
-
-PGM001 and PGM002 do not fire when the table is created in the same set of changed files, because locking a new/empty table is harmless. Both rules are partition-aware: PGM001 emits a partition-specific message for partitioned tables (where `CONCURRENTLY` is not supported); PGM002 suppresses findings for ON ONLY parent index stubs and warns that `CONCURRENTLY` is not supported on partitioned parent indexes. Use `--explain PGM001` or `--explain PGM002` for details.
-
-PGM013, PGM014, and PGM015 only fire on tables that existed before the current set of changed files. Use `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` for safe online constraint addition.
-
-PGM017 follows the same pattern as PGM016: create the unique index `CONCURRENTLY` first, then use `ADD CONSTRAINT ... UNIQUE USING INDEX` to promote it. This avoids a full table scan under an `ACCESS EXCLUSIVE` lock.
-
-### Type Anti-pattern Rules (1xx)
-
-These rules are derived from the [PostgreSQL wiki "Don't Do This"](https://wiki.postgresql.org/wiki/Don%27t_Do_This) page. They detect type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM101 | Minor | Don't use `timestamp` without time zone | `CREATE TABLE t (created_at timestamp);` |
-| PGM102 | Minor | Don't use `timestamp(0)` or `timestamptz(0)` | `CREATE TABLE t (ts timestamptz(0));` |
-| PGM103 | Minor | Don't use `char(n)` | `CREATE TABLE t (code char(3));` |
-| PGM104 | Minor | Don't use the `money` type | `CREATE TABLE t (price money);` |
-| PGM105 | Info | Don't use `serial` / `bigserial` | `CREATE TABLE t (id serial PRIMARY KEY);` |
-| PGM106 | Minor | Don't use `json` (use `jsonb`) | `CREATE TABLE t (data json);` |
-
-### Destructive Operation Rules (2xx)
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM201 | Minor | `DROP TABLE` on existing table | `DROP TABLE legacy_orders;` |
-| PGM202 | Major | `DROP TABLE CASCADE` on existing table | `DROP TABLE legacy_orders CASCADE;` |
-| PGM203 | Minor | `TRUNCATE TABLE` on existing table | `TRUNCATE TABLE audit_trail;` |
-| PGM204 | Major | `TRUNCATE TABLE CASCADE` on existing table | `TRUNCATE TABLE audit_trail CASCADE;` |
-| PGM205 | Critical | `DROP SCHEMA CASCADE` | `DROP SCHEMA myschema CASCADE;` |
-
-PGM201–PGM204 only fire on tables that existed before the current set of changed files. Dropping or truncating a table created in the same changeset is harmless. The CASCADE variants (PGM202, PGM204) are Major because they silently affect dependent tables the developer may not be aware of. PGM205 always fires on `DROP SCHEMA ... CASCADE` regardless of catalog state — it is the most destructive single DDL statement in PostgreSQL.
-
-### DML in Migrations Rules (3xx)
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM301 | Info | `INSERT INTO` existing table in migration | `INSERT INTO config (key, value) VALUES ('feature_x', 'enabled');` |
-| PGM302 | Minor | `UPDATE` on existing table in migration | `UPDATE orders SET status = 'pending' WHERE status IS NULL;` |
-| PGM303 | Minor | `DELETE FROM` existing table in migration | `DELETE FROM audit_log WHERE created_at < '2020-01-01';` |
-
-These rules only fire on tables that existed before the current set of changed files. DML on a table created in the same changeset is expected and not flagged. PGM301 is informational (INSERT is often intentional seed data), while PGM302 and PGM303 are Minor because unbatched UPDATE/DELETE hold row locks and generate WAL pressure.
-
-### Idempotency Guard Rules (4xx)
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM401 | Minor | Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX` | `DROP TABLE orders;` |
-| PGM402 | Minor | Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX` | `CREATE TABLE orders (id bigint PRIMARY KEY);` |
-| PGM403 | Minor | `CREATE TABLE IF NOT EXISTS` for already-existing table | `CREATE TABLE IF NOT EXISTS orders (...);` where `orders` already exists |
-
-### Schema Design Rules (5xx)
-
-| Rule | Severity | Description | Example (bad) |
-|------|----------|-------------|---------------|
-| PGM501 | Major | Foreign key without covering index | `ALTER TABLE orders ADD CONSTRAINT fk FOREIGN KEY (customer_id) REFERENCES customers (id);` |
-| PGM502 | Major | Table without primary key | `CREATE TABLE events (name text, ts timestamptz);` |
-| PGM503 | Info | `UNIQUE NOT NULL` used instead of primary key | `CREATE TABLE t (id int NOT NULL UNIQUE);` |
-| PGM504 | Info | `RENAME TABLE` on existing table | `ALTER TABLE orders RENAME TO orders_old;` |
-| PGM505 | Info | `RENAME COLUMN` on existing table | `ALTER TABLE orders RENAME COLUMN status TO order_status;` |
-| PGM506 | Info | `CREATE UNLOGGED TABLE` | `CREATE UNLOGGED TABLE scratch_data (id int, payload text);` |
-
-PGM501 and PGM502 check the catalog state *after* the entire file is processed, so creating an index or adding a primary key later in the same file avoids false positives. PGM501 is partition-aware: ON ONLY indexes are excluded from FK coverage checks, and partition children delegate to their parent's indexes. See `--explain PGM501` for details.
-
-PGM504 includes replacement detection: if the old table name is re-created in the same file (a common rename-and-replace pattern), the finding is suppressed.
-
-### Meta-behavior Rules (9xx)
-
-The 9xx range is reserved for meta-behaviors that modify how other rules operate. These are not standalone lint rules.
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| PGM901 | -- | Down migration severity cap — all findings in `*.down.sql` / `*_down.sql` files are capped to Info |
+- **Unsafe DDL (PGM001-PGM022)** -- Critical/Major. Missing `CONCURRENTLY`, table rewrites, unsafe constraint additions, silent side effects from `DROP COLUMN`,
+`VACUUM FULL`, `CLUSTER`.
+- **Type Anti-patterns (PGM101-PGM109)** -- Minor/Info. `timestamp` without time zone, `char(n)`, `money`, `serial`, `json`, `varchar(n)`, floating-point columns.
+Derived from the PostgreSQL wiki "Don't Do This" page.
+- **Destructive Operations (PGM201-PGM205)** -- Minor/Major/Critical. `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA CASCADE`.
+- **DML in Migrations (PGM301-PGM303)** -- Info/Minor. `INSERT`, `UPDATE`, `DELETE` on existing tables.
+- **Idempotency Guards (PGM401-PGM403)** -- Minor. Missing `IF EXISTS` / `IF NOT EXISTS`, misleading no-ops.
+- **Schema Design (PGM501-PGM509)** -- Major/Info. Missing FK index, no primary key, risky renames, unlogged tables, redundant indexes, mixed-case identifiers.
+- **Meta-behavior (PGM901)** -- Down migrations cap all findings to Info.
 
 Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why it is dangerous and how to fix it:
 
@@ -140,133 +55,14 @@ Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why 
 ./pg-migration-lint --explain PGM001
 ```
 
-## GitHub Actions Integration
+See the [full rule reference](https://robert-sjoblom.github.io/pg-migration-lint/rules) for every rule with examples and fixes.
 
-### Basic: Lint changed migrations on pull requests
+```markdown
+  ## Integrations
 
-This workflow detects changed SQL migration files, runs pg-migration-lint, and uploads SARIF results so that findings appear as inline annotations on the pull request.
-
-Copy this file to `.github/workflows/migration-lint.yml` in your repository:
-
-```yaml
-name: Migration Lint
-
-on:
-  pull_request:
-    paths:
-      - 'db/migrations/**'
-
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write  # Required for uploading SARIF to GitHub Code Scanning
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Full history so git diff can compare against the base branch
-
-      - name: Get changed migration files
-        id: changes
-        run: |
-          files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'db/migrations/*.sql' | tr '\n' ',')
-          echo "files=$files" >> "$GITHUB_OUTPUT"
-
-      - name: Download pg-migration-lint
-        run: |
-          curl -LO https://github.com/robert-sjoblom/pg-migration-lint/releases/latest/download/pg-migration-lint-x86_64-linux.tar.gz
-          tar xzf pg-migration-lint-x86_64-linux.tar.gz
-          chmod +x pg-migration-lint
-
-      - name: Run linter
-        if: steps.changes.outputs.files != ''
-        run: |
-          ./pg-migration-lint \
-            --changed-files "${{ steps.changes.outputs.files }}" \
-            --format sarif \
-            --fail-on critical
-
-      - name: Upload SARIF
-        if: always() && steps.changes.outputs.files != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: build/reports/migration-lint/findings.sarif
-```
-
-**What each step does:**
-
-- **`fetch-depth: 0`** -- By default, `actions/checkout` performs a shallow clone (only the latest commit). The `git diff` step needs the full commit history to compare your PR branch against the base branch. Without this, the diff will fail or produce incorrect results.
-
-- **`permissions: security-events: write`** -- GitHub requires this permission to upload SARIF files to the Code Scanning API. Without it, the "Upload SARIF" step will fail with a 403 error.
-
-- **Get changed migration files** -- This step runs `git diff --name-only` to list only the SQL files that changed between the base branch and the PR head. The filenames are joined with commas because `--changed-files` expects a comma-separated list. If no migration files changed, the output is empty and subsequent steps are skipped.
-
-- **`--fail-on critical`** -- The linter exits with code 1 if any finding has Critical severity or higher. This blocks the PR (when branch protection requires the check to pass). Set to `major`, `minor`, or `info` to be stricter, or `none` to never fail.
-
-- **`if: always()`** on the SARIF upload step -- The "Run linter" step exits with code 1 when it finds Critical issues, which normally causes subsequent steps to be skipped. The `if: always()` condition ensures the SARIF file is still uploaded so that findings appear as inline annotations on the PR, even when the lint step "fails."
-
-### SonarQube integration
-
-pg-migration-lint can produce SonarQube Generic Issue Import JSON alongside SARIF. Since the `--format` CLI flag accepts only a single format, use a configuration file to produce multiple formats simultaneously.
-
-Create or update your `pg-migration-lint.toml`:
-
-```toml
-[output]
-formats = ["sarif", "sonarqube"]
-```
-
-The SonarQube JSON file will be written to `build/reports/migration-lint/findings.json`.
-
-Then configure your SonarQube scanner to import the findings. Add this to your `sonar-project.properties`:
-
-```properties
-sonar.externalIssuesReportPaths=build/reports/migration-lint/findings.json
-```
-
-In your GitHub Actions workflow, run the linter before the SonarQube scanner step:
-
-```yaml
-      - name: Run migration linter
-        if: steps.changes.outputs.files != ''
-        run: |
-          ./pg-migration-lint \
-            --changed-files "${{ steps.changes.outputs.files }}" \
-            --fail-on critical
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v3
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-```
-
-When using the config file, the `--format` flag is not needed -- the tool reads formats from `[output].formats` in the config.
-
-### Liquibase XML support
-
-If your migrations are managed by Liquibase XML changelogs, set the strategy in your config file:
-
-```toml
-[migrations]
-paths = ["db/changelog/migrations.xml"]
-strategy = "liquibase"
-
-[liquibase]
-bridge_jar_path = "tools/liquibase-bridge.jar"
-strategy = "auto"
-```
-
-For Liquibase, `paths` must point to the root changelog file (e.g. `migrations.xml`), not the directory containing it. The tool follows `<include>` elements from this entrypoint to discover changesets in order.
-
-The tool uses a two-tier approach for Liquibase XML processing (JRE required):
-
-1. **Bridge JAR (preferred)** -- A small Java CLI that embeds Liquibase to extract exact changeset-to-SQL-to-line mappings. Download `liquibase-bridge.jar` from the [releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) and place it at the configured `bridge_jar_path`. Requires a JRE.
-
-2. **`liquibase update-sql` (secondary)** -- If the bridge JAR is unavailable but the Liquibase binary is on the PATH, the tool invokes `liquibase update-sql` for less structured but functional output.
-
-> **Note:** Liquibase `<rollback>` blocks are not detected as down migrations. Down migration detection (PGM901 severity cap) only applies to SQL files with `.down.sql` or `_down.sql` filename suffixes.
-
-> **Note:** `liquibase update-sql` rejects changelogs that `<include>` the same file more than once ("duplicate identifiers" validation error). The bridge JAR does not have this limitation. In production, Liquibase silently skips already-applied changesets, so duplicate includes are harmless. Prefer the bridge JAR for maximum compatibility.
+  - [GitHub Actions](https://robert-sjoblom.github.io/pg-migration-lint/github-actions) -- Workflow YAML for linting changed migrations on PRs with SARIF upload
+  - [SonarQube](https://robert-sjoblom.github.io/pg-migration-lint/sonarqube) -- Generic Issue Import JSON setup
+  - [Liquibase XML](https://robert-sjoblom.github.io/pg-migration-lint/liquibase) -- Bridge JAR and `update-sql` configuration
 
 ## Configuration Reference
 
@@ -311,14 +107,23 @@ exclude = ["**/test/**"]
 # Default: "public"
 default_schema = "public"
 
+# Whether plain SQL files run inside a transaction by default.
+# Set to false for golang-migrate repos where files run outside transactions.
+# Default: true
+run_in_transaction = true
+
 [liquibase]
-# Path to liquibase-bridge.jar (see "Liquibase XML support" above).
+# Path to liquibase-bridge.jar.
 # Default: "tools/liquibase-bridge.jar"
 bridge_jar_path = "tools/liquibase-bridge.jar"
 
 # Path to the liquibase binary (used by the "update-sql" secondary strategy).
 # Default: "liquibase"
 binary_path = "/usr/local/bin/liquibase"
+
+# Path to a liquibase properties file (passed as --defaults-file to the CLI).
+# Default: none
+# properties_file = "liquibase.properties"
 
 # Liquibase processing strategy.
 #   "auto" - tries bridge -> update-sql in order
@@ -337,6 +142,18 @@ formats = ["sarif", "sonarqube"]
 # SonarQube JSON is written to <dir>/findings.json
 # Default: "build/reports/migration-lint"
 dir = "build/reports/migration-lint"
+
+# Optional prefix to strip from finding file paths before emitting reports.
+# Useful when running from a project root but SonarQube expects module-relative paths.
+# Example: strip_prefix = "impl/" turns "impl/src/main/..." into "src/main/..."
+# Default: none
+# strip_prefix = "impl/"
+
+[rules]
+# Rule IDs to disable globally. Findings from disabled rules are not emitted.
+# Invalid rule IDs cause a config-load error (exit 2).
+# Default: []
+disabled = []
 
 [cli]
 # Exit non-zero if any finding meets or exceeds this severity.

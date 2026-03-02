@@ -148,16 +148,15 @@ Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and 
 - **WARNING**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules
+#### Rules (52 total)
 
-**0xx — Unsafe DDL:**
-**1xx — Type Anti-patterns:**
-**2xx — Destructive Operations:**
-**3xx — DML in Migrations:**
-**4xx — Idempotency Guards:**
-**5xx — Schema Design:**
-**9xx — Meta-behavior:**
-- **PGM901**: Down migrations (all findings capped to INFO) — meta-behavior, not a standalone rule
+**0xx — Unsafe DDL** (PGM001–PGM022): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
+**1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
+**2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
+**3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.
+**4xx — Idempotency Guards** (PGM401–PGM403): Missing IF EXISTS / IF NOT EXISTS, misleading IF NOT EXISTS no-ops.
+**5xx — Schema Design** (PGM501–PGM509): Missing FK index, no PK, UNIQUE NOT NULL instead of PK, renames, unlogged tables, DROP NOT NULL, redundant indexes, mixed-case/reserved-word identifiers.
+**9xx — Meta-behavior** (PGM901): Down migrations cap all findings to INFO.
 
 ## Development Workflow
 
@@ -222,10 +221,17 @@ let catalog = CatalogBuilder::new()
 ### Test Fixture Repos
 
 Integration tests use fixture repos in `tests/fixtures/repos/`:
+- `all-rules/` - One violation per rule
+- `catalog-ops/` - Catalog operations (DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes)
 - `clean/` - All migrations correct, expect 0 findings
-- `all-rules/` - One violation per rule, expect 11 findings
+- `enterprise/` - Realistic 31-file migration history
+- `fk-with-later-index/` - PGM501 FK detection across migration boundaries
+- `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
+- `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs
+- `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
+- `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
+- `schema-qualified/` - Schema-qualified names and cross-schema references
 - `suppressed/` - All violations suppressed, expect 0 findings
-- `liquibase-xml/` - Tests Liquibase bridge/update-sql parsing
 
 ## Important Constraints
 

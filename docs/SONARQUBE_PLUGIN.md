@@ -78,7 +78,7 @@ Sections are identified by a line ending in `:` with no leading indentation. SQL
 
 #### Test note
 
-The `--dump-rules-json` snapshot test emits all 39 rules (including PGM901). The 38-rule count referenced in the Java tests is correct because PGM901 exclusion is a Java-side concern — the Rust binary dumps everything, and `PgMigrationLintRulesDefinition` filters it out during registration.
+The `--dump-rules-json` snapshot test emits all 52 rules (including PGM901). The 51-rule count referenced in the Java tests is correct because PGM901 exclusion is a Java-side concern — the Rust binary dumps everything, and `PgMigrationLintRulesDefinition` filters it out during registration.
 
 ### 1b. Add `--stdout` flag for report output
 
@@ -679,8 +679,8 @@ In non-PR (full branch) analysis, `sonar.pgmigrationlint.changedFiles` is not se
 
 ## Verification
 
-1. **Rust changes**: `cargo test` — all existing tests pass. New test for `--dump-rules-json` output (snapshot test verifying all 39 rules are present with correct structure, including PGM901).
-2. **Plugin unit tests**: `mvn -f sonarqube-plugin/pom.xml test` — verify rules registration (38 rules, excluding PGM901), quality profile activation, binary extraction logic, sensor issue reporting with mock data.
+1. **Rust changes**: `cargo test` — all existing tests pass. New test for `--dump-rules-json` output (snapshot test verifying all 52 rules are present with correct structure, including PGM901).
+2. **Plugin unit tests**: `mvn -f sonarqube-plugin/pom.xml test` — verify rules registration (51 rules, excluding PGM901), quality profile activation, binary extraction logic, sensor issue reporting with mock data.
 3. **Manual integration test**: Install plugin JAR in a local SonarQube 10.x instance, run `sonar-scanner` against a project with migration files, verify rules appear in Quality Profiles and issues appear on dashboard.
 
 ---
