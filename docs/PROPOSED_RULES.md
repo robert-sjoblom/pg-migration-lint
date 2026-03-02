@@ -34,19 +34,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### PGM1109 — Floating-point column type
-
-- **Range**: 1xx (TypeAntiPattern)
-- **Severity**: WARNING
-- **Status**: Not yet implemented.
-- **Triggers**: Column with `TypeName.name` in `("float4", "float8", "real", "double precision", "float")`. Detected in `CREATE TABLE` column definitions and `ALTER TABLE ... ADD COLUMN`.
-- **Why**: IEEE 754 floating-point types suffer from precision issues (`0.1 + 0.2 ≠ 0.3`). For money, quantities, measurements, or any domain where exact decimal values matter, `numeric`/`decimal` is correct. Floating-point errors compound in aggregations and can cause silent data corruption.
-- **Does not fire when**:
-  - `numeric` / `decimal` columns.
-  - Existing table columns (only fires on new column definitions).
-- **Message**: `Column '{col}' uses '{type}'. Floating-point types have precision issues (0.1 + 0.2 ≠ 0.3). Use numeric for exact values.`
-- **IR impact**: None — same pattern as other type rules, matching on `TypeName.name`.
-- **Spike tests needed**: Add spike tests to `tests/pg_query_spike.rs` to verify how pg_query normalizes `float` with precision specifiers — `float(1)` through `float(24)` should map to `float4`/`real`, `float(25)` through `float(53)` to `float8`/`double precision`. Confirm the normalized `TypeName.name` values before implementing.
+### ~~PGM1109~~ — Promoted to **PGM109**
 
 ---
 

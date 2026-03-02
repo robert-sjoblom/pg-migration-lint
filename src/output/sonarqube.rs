@@ -155,14 +155,15 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "MAINTAINABILITY",
             impact_severity: "MEDIUM",
         },
-        // Type anti-pattern rules (PGM101-106, PGM108)
+        // Type anti-pattern rules (PGM101-106, PGM108-109)
         RuleId::Pgm101
         | RuleId::Pgm102
         | RuleId::Pgm103
         | RuleId::Pgm104
         | RuleId::Pgm105
         | RuleId::Pgm106
-        | RuleId::Pgm108 => SonarQubeRuleMeta {
+        | RuleId::Pgm108
+        | RuleId::Pgm109 => SonarQubeRuleMeta {
             clean_code_attribute: "CONVENTIONAL",
             issue_type: "CODE_SMELL",
             software_quality: "MAINTAINABILITY",
@@ -286,7 +287,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm105
         | RuleId::Pgm106
         | RuleId::Pgm107
-        | RuleId::Pgm108 => 10,
+        | RuleId::Pgm108
+        | RuleId::Pgm109 => 10,
         // Meta-behavior
         RuleId::Pgm901 => 10,
     }
