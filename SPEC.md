@@ -81,7 +81,7 @@ Input Files
     ▼
 ┌──────────┐
 │  Parser  │  pg_query (libpg_query Rust bindings)
-└────┬─────┘  Liquibase XML parser (fallback)
+└────┬─────┘
      │
      ▼
 ┌──────────┐
@@ -114,9 +114,9 @@ IR node types (non-exhaustive):
 |---|---|
 | `CreateTable { name, columns, constraints, persistence, partition_by, partition_of }` | `CreateStmt` |
 | `AlterTable { name, actions[] }` | `AlterTableStmt` (objtype = ObjectTable) |
-| `CreateIndex { table, columns, unique, concurrent, only }` | `IndexStmt` |
-| `DropIndex { name, concurrent }` | `DropStmt(OBJECT_INDEX)` |
-| `DropTable { name }` | `DropStmt(OBJECT_TABLE)` |
+| `CreateIndex { index_name, table_name, columns, unique, concurrent, if_not_exists, where_clause, only, access_method }` | `IndexStmt` |
+| `DropIndex { index_name, concurrent, if_exists }` | `DropStmt(OBJECT_INDEX)` |
+| `DropTable { name, if_exists, cascade }` | `DropStmt(OBJECT_TABLE)` |
 | `DropSchema { schema_name, cascade, if_exists }` | `DropStmt(OBJECT_SCHEMA)` |
 | `AlterIndexAttachPartition { parent_index_name, child_index_name }` | `AlterTableStmt` (objtype = ObjectIndex, AT_AttachPartition) |
 | `RenameTable { name, new_name }` | `RenameStmt` (ObjectTable) |
@@ -127,7 +127,7 @@ IR node types (non-exhaustive):
 | `DeleteFrom { table_name }` | `DeleteStmt` |
 | `TruncateTable { table_name, cascade }` | `TruncateStmt` |
 
-`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
+`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
 
 **Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
 
@@ -168,6 +168,7 @@ IndexState {
     unique: bool,
     where_clause: Option<String>,    // partial index WHERE clause
     only: bool,                      // CREATE INDEX ON ONLY (parent stub, not recursive)
+    access_method: String,           // "btree" (default), "gin", "gist", "hash", "brin"
 }
 ```
 
@@ -314,18 +315,20 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Note**: Postgres marks the column as dropped without rewriting the table, so this is cheap at the database level. The risk is application-level: queries referencing the column will break. This is informational to increase visibility.
 - **Message**: `Dropping column '{col}' from existing table '{table}'. The DDL is cheap but ensure no application code references this column.`
 
-#### PGM016 — `ADD PRIMARY KEY` on existing table without prior `UNIQUE` constraint
+#### PGM016 — `ADD PRIMARY KEY` on existing table without `USING INDEX`
 
 - **Severity**: MAJOR
-- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY (cols)` where the table exists in the catalog (not created in the same changeset) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
-- **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the PK columns exactly (set equality). If neither exists, fire.
-- **Why**: Adding a primary key builds a unique index (not concurrently) under `ACCESS EXCLUSIVE` lock. If duplicates exist, the command fails at deploy time. The safe pattern is: build a unique index CONCURRENTLY first, then `ADD PRIMARY KEY USING INDEX`.
+- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns.
+- **Why**: Without `USING INDEX`, PostgreSQL always builds a new unique index inline under an `ACCESS EXCLUSIVE` lock, even if a matching unique index already exists. Even with `USING INDEX`, if any PK columns are nullable, PostgreSQL implicitly runs `SET NOT NULL` which requires a full table scan under `ACCESS EXCLUSIVE` lock.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
-  - The PK columns already have a covering unique index (exact column match)
-  - The PK columns already have a `UNIQUE` constraint (exact column match)
-- **Message**: `ADD PRIMARY KEY on existing table '{table}' requires building a unique index under ACCESS EXCLUSIVE lock. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
+  - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL
+- **Message (no USING INDEX)**: `ADD PRIMARY KEY on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
+- **Message (index not found)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
+- **Message (index not unique)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
+- **Message (non-btree)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index uses access method '{method}', but only btree indexes can back a PRIMARY KEY constraint.`
+- **Message (nullable columns)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': column(s) [{cols}] are nullable. PostgreSQL will implicitly SET NOT NULL under ACCESS EXCLUSIVE lock. Run ALTER COLUMN ... SET NOT NULL with a CHECK constraint first.`
 
 #### PGM010 — `DROP COLUMN` silently removes unique constraint
 
@@ -661,6 +664,46 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The `UNLOGGED` keyword is absent (permanent or temporary tables).
 - **Message**: `CREATE UNLOGGED TABLE '{table}'. Unlogged tables are truncated on crash recovery and not replicated to standbys. Confirm this is intentional.`
 
+#### PGM507 — `DROP NOT NULL` on existing table
+
+- **Severity**: INFO
+- **Triggers**: `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Why**: Dropping `NOT NULL` silently allows NULL values in a column where the application may assume non-NULL. This is especially dangerous when the column feeds into aggregations (`COUNT` vs `COUNT(*)`, `SUM` with NULLs), joins (`NULL != NULL`), or application logic that doesn't check for NULL.
+- **Does not fire when**:
+  - The table is created in the same set of changed files
+  - The table does not exist in `catalog_before`
+- **Message**: `DROP NOT NULL on column '{col}' of existing table '{table}' allows NULL values where the application may assume non-NULL. Verify that all code paths handle NULLs.`
+
+#### PGM508 — Duplicate/redundant index
+
+- **Severity**: INFO
+- **Triggers**: `CREATE INDEX` in the changed file where, after applying the migration (`catalog_after`), a non-unique index on a table is a column prefix of another index on the same table. Fires in three directions:
+  1. The new index is an exact duplicate of an existing index (same columns, same access method).
+  2. The new index is redundant (its columns are a prefix of an existing index).
+  3. The new index makes an existing non-unique index redundant (existing index's columns are a prefix of the new one).
+- **Why**: Redundant indexes waste disk space, slow writes (every INSERT/UPDATE/DELETE must maintain all indexes), and add vacuum overhead. A btree index on `(a, b)` already serves lookups on `(a)` alone — a separate index on `(a)` provides no additional query capability.
+- **Does not fire when**:
+  - The shorter (potentially redundant) index is a UNIQUE index — it enforces a constraint that the longer index does not.
+  - Either index is a partial index (has a WHERE clause) — partial indexes serve different query patterns.
+  - Either index has expression entries — expression indexes are not directly comparable by column name.
+  - The indexes use different access methods (e.g., btree vs GIN) — different access methods serve fundamentally different query types.
+- **Message (exact duplicate)**: `Index '{new_idx}' on '{table}' ({cols}) is an exact duplicate of index '{existing_idx}'.`
+- **Message (new is prefix)**: `Index '{shorter_idx}' on '{table}' ({shorter_cols}) is redundant — index '{longer_idx}' ({longer_cols}) covers the same prefix.`
+- **Message (new makes existing redundant)**: `Index '{new_idx}' on '{table}' ({new_cols}) makes existing index '{existing_idx}' ({existing_cols}) redundant — the new index covers the same prefix.`
+
+#### PGM509 — Mixed-case identifiers or reserved words
+
+- **Severity**: INFO
+- **Triggers**: Table or column names that require perpetual double-quoting. Detected in `CREATE TABLE` (table name and all column names), `ALTER TABLE ... ADD COLUMN` (column name), `RENAME TABLE` (new name), and `RENAME COLUMN` (new name). A name requires quoting if it contains uppercase characters or is a PostgreSQL reserved word.
+- **Why**: Double-quoted identifiers are a persistent source of developer friction. Every query must use the exact case and quotes, IDE autocompletion becomes unreliable, and ORMs may generate incorrect SQL. `pg_dump` output becomes harder to read and modify.
+- **Detection strategy**: `pg_query` (libpg_query) lowercases unquoted identifiers and preserves case for quoted ones. If a name contains uppercase characters, it was necessarily quoted in the DDL. If a name is a reserved word and the parse succeeded, it was necessarily quoted.
+- **Does not fire when**:
+  - The identifier is all-lowercase and not a PostgreSQL reserved word.
+  - The identifier is a schema name or index name (only table and column names are checked).
+- **Message (table)**: `Table '{name}' requires double-quoting ({reason}).`
+- **Message (column)**: `Column '{col}' on table '{table}' requires double-quoting ({reason}).`
+- **Message (renamed table)**: `Table '{new_name}' (renamed from '{old_name}') requires double-quoting ({reason}).`
+
 #### PGM901 — Down migration severity cap
 
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
@@ -733,23 +776,35 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 - **Why**: The `json` type stores an exact copy of the input text and must re-parse it on every operation. `jsonb` stores a decomposed binary format that is significantly faster for queries, supports indexing (GIN), and supports containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving exact key order and duplicate keys — both rarely needed.
 - **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
 
-#### Don't use `integer` as primary key type (ID unassigned)
+#### PGM107 — Don't use `integer` as primary key type
 
 - **Severity**: MAJOR
-- **Status**: Not yet implemented. Rule ID unassigned (PGM106 is now used by the json rule).
-- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`.
+- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index.
 - **Why**: `integer` (max ~2.1 billion) is routinely exhausted in high-write tables. When it wraps, inserts fail with a unique constraint violation. Migrating from `integer` to `bigint` requires a full table rewrite under `ACCESS EXCLUSIVE` lock — one of the most dangerous DDL operations on large tables. Starting with `bigint` costs 4 extra bytes per row but avoids a future emergency migration.
 - **Does not fire when**:
   - The PK column type is `int8` / `bigint`
   - The column is not part of a primary key
-- **Message**: `Primary key column '{col}' on '{table}' uses '{type}'. Consider using bigint to avoid exhausting the integer range on high-write tables.`
+  - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog
+- **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
+
+#### PGM108 — Prefer `text` over `varchar(n)`
+
+- **Severity**: INFO
+- **Triggers**: Column type with `TypeName.name == "varchar"` and non-empty `TypeName.modifiers` (i.e., `varchar(n)` with a length) in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`. Bare `varchar` without a length is not flagged.
+- **Why**: In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — they share identical `varlena` storage. The length constraint adds an artificial limit that may require future schema changes. Changing the limit requires an `ACCESS EXCLUSIVE` lock and full table rewrite on PostgreSQL < 14 (or when decreasing the limit on 14+). Use `text` with a `CHECK` constraint if validation is needed — `CHECK` constraints can be added `NOT VALID` and validated without a rewrite.
+- **Message**: `Column '{col}' on '{table}' uses varchar({n}). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes.`
+
+#### PGM109 — Don't use `float`/`real`/`double precision`
+
+- **Severity**: MINOR
+- **Triggers**: Column type with `TypeName.name` in `("float4", "float8")` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
+- **Why**: IEEE 754 floating-point types suffer from precision issues — for example, `0.1 + 0.2 ≠ 0.3`. For money, quantities, measurements, or any domain where exact decimal values matter, `numeric`/`decimal` is the correct choice. Floating-point errors compound in aggregations and can cause silent data corruption.
+- **Message**: `Column '{col}' on '{table}' uses '{type}'. Floating-point types have precision issues (0.1 + 0.2 ≠ 0.3). Use numeric for exact values.`
 
 #### Deferred "Don't Do This" Rules
 
 The following rules are specified but deferred until per-rule enable/disable configuration is implemented. Rule IDs are assigned only when a rule is promoted to implementation.
 
-- Don't use `varchar(n)` for arbitrary length limits (INFO). Very common pattern; needs ability to disable globally.
-- Don't use `float`/`real`/`double precision` for exact values (INFO). Legitimate for many use cases; needs ability to disable.
 - Don't use `INHERITS` for partitioning (MINOR). Requires IR extension to detect `CREATE TABLE ... INHERITS`.
 
 See `docs/dont-do-this-rules.md` for full specifications of deferred rules.
@@ -923,7 +978,7 @@ EXIT CODES:
 
 ---
 
-## 11. Project Structure (Proposed)
+## 11. Project Structure
 
 ```
 pg-migration-lint/
@@ -1008,3 +1063,4 @@ pg-migration-lint/
 | 1.15    | 2026-02-25 | Spec sync with implementation. Added PGM004 (DETACH PARTITION without CONCURRENTLY, CRITICAL) and PGM005 (ATTACH PARTITION without CHECK, CRITICAL). Added partition support: `AlterIndexAttachPartition` IR node, `only` field on `IndexState`, partition-aware behavior for PGM002 and PGM501. Renumbered old PGM016–PGM020 (v1.5) to their current IDs: PGM013 (SET NOT NULL), PGM014 (ADD FK NOT VALID), PGM015 (ADD CHECK NOT VALID), PGM504 (RENAME TABLE), PGM505 (RENAME COLUMN). Added PGM018 (CLUSTER on existing table, CRITICAL) and PGM019 (ADD EXCLUDE constraint, CRITICAL) in freed 0xx slots. Updated IR table with all implemented nodes (Cluster, RenameTable, RenameColumn, AlterIndexAttachPartition) and fields (partition_by, partition_of on CreateTable; only on CreateIndex). Updated `TableConstraint` to reflect `not_valid`, `using_index`, `name` fields. Updated `ColumnDef` to reflect `is_inline_pk`, `is_serial` fields. Updated Catalog/TableState/IndexState structs with partition fields. Removed all stale "Status: Implemented/Not yet implemented" markers and "IR impact" notes — all described rules and IR changes are now implemented. |
 | 1.16    | 2026-02-27 | Added PGM020 (DISABLE TRIGGER on table, MINOR/INFO). Added PGM205 (DROP SCHEMA CASCADE, CRITICAL). New `DropSchema` IR node mapped from `DropStmt(OBJECT_SCHEMA)`. Catalog replay removes all tables with matching schema prefix on CASCADE. Rule always fires on CASCADE regardless of catalog state — lists known affected tables for context. |
 | 1.17    | 2026-03-02 | Added PGM021 (VACUUM FULL on existing table, CRITICAL) and PGM022 (REINDEX without CONCURRENTLY, CRITICAL). New IR nodes: `VacuumFull`, `Reindex`. |
+| 1.18    | 2026-03-02 | Spec sync with implementation. Added PGM107 (integer PK, MAJOR), PGM108 (prefer text over varchar(n), INFO), PGM109 (floating-point type, MINOR) — promoted from deferred "Don't Do This" rules. Added PGM507 (DROP NOT NULL, INFO), PGM508 (duplicate/redundant index, INFO), PGM509 (mixed-case identifiers or reserved words, INFO). Updated PGM016 definition to match implementation (USING INDEX focused, with nullable-column and non-btree checks). Updated IR table: `CreateIndex` gains `index_name`, `if_not_exists`, `where_clause`, `access_method`; `DropIndex` gains `if_exists`; `DropTable` gains `if_exists`, `cascade`. Added `access_method` to `IndexState`. Added missing `AlterTableAction` variants: `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`. Removed stale XML fallback reference from pipeline diagram. Removed "(Proposed)" from §11 heading. Total: 52 rules. |
