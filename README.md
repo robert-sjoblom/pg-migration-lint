@@ -57,12 +57,11 @@ Use `--explain <RULE_ID>` for a detailed explanation of any rule, including why 
 
 See the [full rule reference](https://robert-sjoblom.github.io/pg-migration-lint/rules) for every rule with examples and fixes.
 
-```markdown
-  ## Integrations
+## Integrations
 
-  - [GitHub Actions](https://robert-sjoblom.github.io/pg-migration-lint/github-actions) -- Workflow YAML for linting changed migrations on PRs with SARIF upload
-  - [SonarQube](https://robert-sjoblom.github.io/pg-migration-lint/sonarqube) -- Generic Issue Import JSON setup
-  - [Liquibase XML](https://robert-sjoblom.github.io/pg-migration-lint/liquibase) -- Bridge JAR and `update-sql` configuration
+- [GitHub Actions](https://robert-sjoblom.github.io/pg-migration-lint/github-actions) -- Workflow YAML for linting changed migrations on PRs with SARIF upload
+- [SonarQube](https://robert-sjoblom.github.io/pg-migration-lint/sonarqube) -- Generic Issue Import JSON setup
+- [Liquibase XML](https://robert-sjoblom.github.io/pg-migration-lint/liquibase) -- Bridge JAR and `update-sql` configuration
 
 ## Configuration Reference
 
