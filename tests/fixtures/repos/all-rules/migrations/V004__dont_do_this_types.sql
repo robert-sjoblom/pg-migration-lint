@@ -27,3 +27,6 @@ CREATE TABLE small_ids (
     id integer PRIMARY KEY,
     name text NOT NULL
 );
+
+-- PGM108: varchar(n) instead of text
+ALTER TABLE audit_log_v2 ADD COLUMN description varchar(255);

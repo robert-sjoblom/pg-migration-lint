@@ -30,19 +30,7 @@ Proposed rules use a `PGM1XXX` prefix indicating their target **range**, not a r
 
 ---
 
-### PGM1108 — Prefer `text` over `varchar(n)`
-
-- **Range**: 1xx (TypeAntiPattern)
-- **Severity**: INFO
-- **Status**: Not yet implemented.
-- **Triggers**: Column with `TypeName.name` of `varchar` and non-empty `modifiers` (i.e., `varchar(100)`, not bare `varchar`). Detected in `CREATE TABLE` column definitions and `ALTER TABLE ... ADD COLUMN`.
-- **Why**: In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — internally they are the same `varlena` storage. The length check adds overhead, and when the limit inevitably needs to increase, `ALTER COLUMN TYPE varchar(200)` requires an ACCESS EXCLUSIVE lock and full table rewrite (on PostgreSQL < 14, or when *decreasing* the limit on 14+). Use `text` with a CHECK constraint if validation is needed — CHECK constraints can be added `NOT VALID` and validated without a rewrite.
-- **Does not fire when**:
-  - Bare `varchar` (no length modifier — equivalent to `text`).
-  - `text` columns.
-  - Existing table columns (only fires on new column definitions).
-- **Message**: `Column '{col}' uses varchar({n}). Prefer text — varchar(n) has no performance benefit in PostgreSQL, and changing the limit requires a table rewrite.`
-- **IR impact**: None — `TypeName` already has `name` and `modifiers`.
+### ~~PGM1108~~ — Promoted to **PGM108**
 
 ---
 

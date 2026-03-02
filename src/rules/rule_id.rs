@@ -106,6 +106,9 @@ pub enum RuleId {
     /// Primary key column uses `integer` or `smallint` instead of `bigint`.
     #[strum(serialize = "PGM107")]
     Pgm107,
+    /// `varchar(n)` column (prefer `text`).
+    #[strum(serialize = "PGM108")]
+    Pgm108,
 
     // 2xx — Destructive operations
     /// Dropping an existing table.
@@ -250,7 +253,7 @@ impl Rule for RuleId {
             Self::Pgm101 | Self::Pgm102 | Self::Pgm103 | Self::Pgm104 | Self::Pgm106 => {
                 Severity::Minor
             }
-            Self::Pgm105 => Severity::Info,
+            Self::Pgm105 | Self::Pgm108 => Severity::Info,
             Self::Pgm107 => Severity::Major,
 
             // 2xx — Destructive operations
@@ -311,6 +314,7 @@ impl Rule for RuleId {
             Self::Pgm105 => super::pgm105::DESCRIPTION,
             Self::Pgm106 => super::pgm106::DESCRIPTION,
             Self::Pgm107 => super::pgm107::DESCRIPTION,
+            Self::Pgm108 => super::pgm108::DESCRIPTION,
             Self::Pgm201 => super::pgm201::DESCRIPTION,
             Self::Pgm202 => super::pgm202::DESCRIPTION,
             Self::Pgm203 => super::pgm203::DESCRIPTION,
@@ -366,6 +370,7 @@ impl Rule for RuleId {
             Self::Pgm105 => super::pgm105::EXPLAIN,
             Self::Pgm106 => super::pgm106::EXPLAIN,
             Self::Pgm107 => super::pgm107::EXPLAIN,
+            Self::Pgm108 => super::pgm108::EXPLAIN,
             Self::Pgm201 => super::pgm201::EXPLAIN,
             Self::Pgm202 => super::pgm202::EXPLAIN,
             Self::Pgm203 => super::pgm203::EXPLAIN,
@@ -420,6 +425,7 @@ impl Rule for RuleId {
             Self::Pgm105 => super::pgm105::check(*self, statements, ctx),
             Self::Pgm106 => super::pgm106::check(*self, statements, ctx),
             Self::Pgm107 => super::pgm107::check(*self, statements, ctx),
+            Self::Pgm108 => super::pgm108::check(*self, statements, ctx),
             Self::Pgm201 => super::pgm201::check(*self, statements, ctx),
             Self::Pgm202 => super::pgm202::check(*self, statements, ctx),
             Self::Pgm203 => super::pgm203::check(*self, statements, ctx),

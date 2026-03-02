@@ -8,6 +8,36 @@ expression: findings
   file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
   start_line: 1
   end_line: 1
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'email' on 'auth.users' uses varchar(255). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'account_number' on 'billing.users' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'name' on 'inventory.products' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'sku' on 'inventory.products' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: repos/liquibase-multi-schema/changelog/001-baseline.xml
+  start_line: 1
+  end_line: 1
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'billing_address' on 'billing.users' uses varchar(500). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
+  start_line: 1
+  end_line: 1
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'auth.users': add IF NOT EXISTS for idempotent migrations."

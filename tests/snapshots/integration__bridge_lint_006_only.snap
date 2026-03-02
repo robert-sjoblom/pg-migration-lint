@@ -8,6 +8,18 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 11
   end_line: 11
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'event_type' on 'event_log' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: 006-table-no-pk.xml
+  start_line: 11
+  end_line: 11
+- rule_id: PGM108
+  severity: Info
+  message: "Column 'invoice_id' on 'subscription_invoices' uses varchar(19). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
+  file: 006-table-no-pk.xml
+  start_line: 27
+  end_line: 27
 - rule_id: PGM402
   severity: Minor
   message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."

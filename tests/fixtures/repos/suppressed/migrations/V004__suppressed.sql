@@ -1,4 +1,4 @@
--- pgm-lint:suppress-file PGM101,PGM102,PGM103,PGM104,PGM105,PGM107,PGM502,PGM006,PGM402
+-- pgm-lint:suppress-file PGM101,PGM102,PGM103,PGM104,PGM105,PGM107,PGM108,PGM502,PGM006,PGM402
 
 -- PGM101: timestamp without time zone (suppressed)
 CREATE TABLE audit_log_v2 (
@@ -21,3 +21,6 @@ CREATE TABLE legacy_ids (
     id serial PRIMARY KEY,
     label text
 );
+
+-- PGM108: varchar(n) instead of text (suppressed)
+ALTER TABLE audit_log_v2 ADD COLUMN description varchar(255);
