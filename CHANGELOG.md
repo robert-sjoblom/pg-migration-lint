@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.0...v2.14.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* NOT VALID CHECK suppression in PGM005, custom-named PK drop in catalog ([97a5425](https://github.com/robert-sjoblom/pg-migration-lint/commit/97a54251195a15e9c720c42c4456407bb93303fd))
+
 ## [2.14.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.13.0...v2.14.0) (2026-03-02)
 
 
