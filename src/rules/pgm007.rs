@@ -255,136 +255,100 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
+    use rstest::rstest;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    // --- Unit tests for is_safe_cast ---
-
-    #[test]
-    fn test_varchar_widening_safe() {
-        let old = TypeName::with_modifiers("varchar", vec![50]);
-        let new = TypeName::with_modifiers("varchar", vec![100]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    #[rstest]
+    #[case::varchar_widening_safe("varchar", &[50], "varchar", &[100], CastSafety::Safe)]
+    #[case::varchar_to_text_safe("varchar", &[50], "text", &[], CastSafety::Safe)]
+    #[case::varchar_narrowing_unsafe("varchar", &[100], "varchar", &[50], CastSafety::Unsafe)]
+    #[case::text_to_varchar_unsafe("text", &[], "varchar", &[100], CastSafety::Unsafe)]
+    #[case::numeric_widening_same_scale_safe("numeric", &[10, 2], "numeric", &[12, 2], CastSafety::Safe)]
+    #[case::numeric_precision_only_to_precision_scale_safe("numeric", &[10], "numeric", &[12, 0], CastSafety::Safe)]
+    #[case::numeric_precision_scale_to_precision_only_safe("numeric", &[10, 0], "numeric", &[12], CastSafety::Safe)]
+    #[case::numeric_identity_after_normalization("numeric", &[10], "numeric", &[10, 0], CastSafety::Safe)]
+    #[case::numeric_narrowing_single_modifier_unsafe("numeric", &[10], "numeric", &[8], CastSafety::Unsafe)]
+    #[case::numeric_scale_change_via_normalization_unsafe("numeric", &[10], "numeric", &[10, 2], CastSafety::Unsafe)]
+    #[case::numeric_bare_to_bare_safe("numeric", &[], "numeric", &[], CastSafety::Safe)]
+    #[case::numeric_bare_to_constrained_unsafe("numeric", &[], "numeric", &[10], CastSafety::Unsafe)]
+    #[case::numeric_constrained_to_bare_safe("numeric", &[10, 2], "numeric", &[], CastSafety::Safe)]
+    #[case::numeric_scale_change_unsafe("numeric", &[10, 2], "numeric", &[10, 4], CastSafety::Unsafe)]
+    #[case::numeric_to_text_unsafe("numeric", &[10, 2], "text", &[], CastSafety::Unsafe)]
+    #[case::text_to_numeric_unsafe("text", &[], "numeric", &[10, 2], CastSafety::Unsafe)]
+    #[case::decimal_widening_safe("decimal", &[10, 2], "decimal", &[14, 2], CastSafety::Safe)]
+    #[case::decimal_to_numeric_widening_safe("decimal", &[10, 2], "numeric", &[14, 2], CastSafety::Safe)]
+    #[case::decimal_to_text_unsafe("decimal", &[10, 2], "text", &[], CastSafety::Unsafe)]
+    // numeric with weird modifiers (sentinel path)
+    #[case::numeric_weird_modifiers_to_numeric_1_1_unsafe("numeric", &[1, 2, 3], "numeric", &[1, 1], CastSafety::Unsafe)]
+    #[case::int_to_bigint_unsafe("integer", &[], "bigint", &[], CastSafety::Unsafe)]
+    #[case::totally_different_types_unsafe("integer", &[], "text", &[], CastSafety::Unsafe)]
+    #[case::timestamp_to_timestamptz_info("timestamp", &[], "timestamptz", &[], CastSafety::Info)]
+    #[case::timestamp_without_tz_to_timestamptz_info("timestamp without time zone", &[], "timestamp with time zone", &[], CastSafety::Info)]
+    #[case::timestamptz_to_timestamp_unsafe("timestamptz", &[], "timestamp", &[], CastSafety::Unsafe)]
+    #[case::timestamp_to_text_unsafe("timestamp", &[], "text", &[], CastSafety::Unsafe)]
+    #[case::text_to_timestamptz_unsafe("text", &[], "timestamptz", &[], CastSafety::Unsafe)]
+    #[case::integer_is_not_timestamp_type("integer", &[], "timestamptz", &[], CastSafety::Unsafe)]
+    #[case::timestamp_to_integer_not_timestamptz("timestamp", &[], "integer", &[], CastSafety::Unsafe)]
+    #[case::bit_widening_unsafe("bit", &[8], "bit", &[16], CastSafety::Unsafe)]
+    #[case::bit_narrowing_unsafe("bit", &[16], "bit", &[8], CastSafety::Unsafe)]
+    #[case::bit_to_varbit_unsafe("bit", &[8], "varbit", &[16], CastSafety::Unsafe)]
+    #[case::varbit_to_bit_unsafe("varbit", &[16], "bit", &[8], CastSafety::Unsafe)]
+    #[case::varbit_widening_safe("varbit", &[8], "varbit", &[16], CastSafety::Safe)]
+    #[case::bit_varying_widening_safe("bit varying", &[8], "bit varying", &[16], CastSafety::Safe)]
+    #[case::varbit_narrowing_unsafe("varbit", &[16], "varbit", &[8], CastSafety::Unsafe)]
+    #[case::varbit_to_text_unsafe("varbit", &[8], "text", &[], CastSafety::Unsafe)]
+    #[case::text_to_varbit_unsafe("text", &[], "varbit", &[16], CastSafety::Unsafe)]
+    fn test_is_safe_cast(
+        #[case] old_name: &str,
+        #[case] old_mods: &[i64],
+        #[case] new_name: &str,
+        #[case] new_mods: &[i64],
+        #[case] expected: CastSafety,
+    ) {
+        let old = TypeName::with_modifiers(old_name, old_mods.to_vec());
+        let new = TypeName::with_modifiers(new_name, new_mods.to_vec());
+        assert_eq!(is_safe_cast(&old, &new), expected);
     }
 
-    #[test]
-    fn test_varchar_to_text_safe() {
-        let old = TypeName::with_modifiers("varchar", vec![50]);
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
+    #[rstest]
+    #[case::normalize_numeric_modifiers_empty(&[], (-1, -1))]
+    #[case::normalize_numeric_modifiers_single(&[10], (10, 0))]
+    #[case::normalize_numeric_modifiers_double(&[10, 2], (10, 2))]
+    #[case::normalize_numeric_modifiers_triple_falls_to_sentinel(&[1, 2, 3], (-1, -1))]
+    fn test_normalize_numeric_modifiers(#[case] input: &[i64], #[case] expected: (i64, i64)) {
+        assert_eq!(normalize_numeric_modifiers(input), expected);
     }
 
-    #[test]
-    fn test_varchar_narrowing_unsafe() {
-        let old = TypeName::with_modifiers("varchar", vec![100]);
-        let new = TypeName::with_modifiers("varchar", vec![50]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
+    #[rstest]
+    #[case::varbit_positive(is_varbit_type, "varbit", true)]
+    #[case::bit_varying_positive(is_varbit_type, "bit varying", true)]
+    #[case::bit_not_varbit(is_varbit_type, "bit", false)]
+    #[case::text_not_varbit(is_varbit_type, "text", false)]
+    #[case::varchar_not_varbit(is_varbit_type, "varchar", false)]
+    #[case::timestamp_positive(is_timestamp_type, "timestamp", true)]
+    #[case::timestamp_without_tz_positive(is_timestamp_type, "timestamp without time zone", true)]
+    #[case::timestamptz_not_timestamp(is_timestamp_type, "timestamptz", false)]
+    #[case::timestamp_with_tz_not_timestamp(is_timestamp_type, "timestamp with time zone", false)]
+    #[case::integer_not_timestamp(is_timestamp_type, "integer", false)]
+    #[case::text_not_timestamp(is_timestamp_type, "text", false)]
+    #[case::timestamptz_positive(is_timestamptz_type, "timestamptz", true)]
+    #[case::timestamp_with_tz_positive(is_timestamptz_type, "timestamp with time zone", true)]
+    #[case::timestamp_not_timestamptz(is_timestamptz_type, "timestamp", false)]
+    #[case::timestamp_without_tz_not_timestamptz(
+        is_timestamptz_type,
+        "timestamp without time zone",
+        false
+    )]
+    #[case::integer_not_timestamptz(is_timestamptz_type, "integer", false)]
+    #[case::text_not_timestamptz(is_timestamptz_type, "text", false)]
+    fn test_type_classifier(
+        #[case] classifier: fn(&str) -> bool,
+        #[case] input: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(classifier(input), expected);
     }
-
-    #[test]
-    fn test_text_to_varchar_unsafe() {
-        let old = TypeName::simple("text");
-        let new = TypeName::with_modifiers("varchar", vec![100]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_numeric_widening_same_scale_safe() {
-        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
-        let new = TypeName::with_modifiers("numeric", vec![12, 2]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_precision_only_to_precision_scale_safe() {
-        // numeric(10) is equivalent to numeric(10, 0) in PostgreSQL
-        let old = TypeName::with_modifiers("numeric", vec![10]);
-        let new = TypeName::with_modifiers("numeric", vec![12, 0]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_precision_scale_to_precision_only_safe() {
-        let old = TypeName::with_modifiers("numeric", vec![10, 0]);
-        let new = TypeName::with_modifiers("numeric", vec![12]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_identity_after_normalization() {
-        // numeric(10) = numeric(10, 0), so this is a no-op
-        let old = TypeName::with_modifiers("numeric", vec![10]);
-        let new = TypeName::with_modifiers("numeric", vec![10, 0]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_narrowing_single_modifier_unsafe() {
-        // numeric(10) -> numeric(8) is narrowing (both normalize to scale 0)
-        let old = TypeName::with_modifiers("numeric", vec![10]);
-        let new = TypeName::with_modifiers("numeric", vec![8]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_numeric_scale_change_via_normalization_unsafe() {
-        // numeric(10) = numeric(10,0), so -> numeric(10,2) changes scale
-        let old = TypeName::with_modifiers("numeric", vec![10]);
-        let new = TypeName::with_modifiers("numeric", vec![10, 2]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_numeric_bare_to_bare_safe() {
-        let old = TypeName::simple("numeric");
-        let new = TypeName::simple("numeric");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_bare_to_constrained_unsafe() {
-        let old = TypeName::simple("numeric");
-        let new = TypeName::with_modifiers("numeric", vec![10]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_numeric_constrained_to_bare_safe() {
-        // Removing precision/scale constraints is widening
-        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
-        let new = TypeName::simple("numeric");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_numeric_scale_change_unsafe() {
-        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
-        let new = TypeName::with_modifiers("numeric", vec![10, 4]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_int_to_bigint_unsafe() {
-        let old = TypeName::simple("integer");
-        let new = TypeName::simple("bigint");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_timestamp_to_timestamptz_info() {
-        let old = TypeName::simple("timestamp");
-        let new = TypeName::simple("timestamptz");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Info);
-    }
-
-    #[test]
-    fn test_totally_different_types_unsafe() {
-        let old = TypeName::simple("integer");
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // --- Component tests for the rule ---
 
     #[test]
     fn test_varchar_widening_no_finding() {
@@ -552,281 +516,5 @@ mod tests {
 
         let findings = RuleId::Pgm007.check(&stmts, &ctx);
         assert!(findings.is_empty());
-    }
-
-    // --- Mutation-killing tests for is_safe_cast helper branches ---
-
-    // Mutant #1: line 55 replace && with || in numeric type check.
-    // If `||` were used, numeric->text would enter the numeric widening branch
-    // and return Safe (since numeric_constrained_to_bare is Safe).
-    // But numeric->text should be Unsafe.
-    #[test]
-    fn test_numeric_to_text_unsafe() {
-        // old is numeric, new is NOT numeric — must be Unsafe.
-        // With && -> ||, would incorrectly enter numeric branch.
-        let old = TypeName::with_modifiers("numeric", vec![10, 2]);
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_text_to_numeric_unsafe() {
-        // old is NOT numeric, new IS numeric — must be Unsafe.
-        // With && -> ||, would incorrectly enter numeric branch.
-        let old = TypeName::simple("text");
-        let new = TypeName::with_modifiers("numeric", vec![10, 2]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // bit(N) is fixed-width in PostgreSQL — widening is NOT safe
-    // (requires explicit USING clause and full table rewrite).
-    #[test]
-    fn test_bit_widening_unsafe() {
-        // bit(8) -> bit(16) should be Unsafe (fixed-width type).
-        let old = TypeName::with_modifiers("bit", vec![8]);
-        let new = TypeName::with_modifiers("bit", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_bit_narrowing_unsafe() {
-        // bit(16) -> bit(8) should be Unsafe (narrowing).
-        let old = TypeName::with_modifiers("bit", vec![16]);
-        let new = TypeName::with_modifiers("bit", vec![8]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_bit_to_varbit_unsafe() {
-        // bit -> varbit is NOT in the allowlist, should be Unsafe.
-        let old = TypeName::with_modifiers("bit", vec![8]);
-        let new = TypeName::with_modifiers("varbit", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_varbit_to_bit_unsafe() {
-        // varbit -> bit is NOT in the allowlist, should be Unsafe.
-        let old = TypeName::with_modifiers("varbit", vec![16]);
-        let new = TypeName::with_modifiers("bit", vec![8]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // Mutants #5, #7: line 65 && -> || in varbit check, and line 89 is_varbit_type -> false.
-    #[test]
-    fn test_varbit_widening_safe() {
-        // varbit(8) -> varbit(16) should be Safe.
-        // Killed by is_varbit_type returning false (would fall through to Unsafe)
-        // and && -> || (would enter branch when only one side is varbit).
-        let old = TypeName::with_modifiers("varbit", vec![8]);
-        let new = TypeName::with_modifiers("varbit", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_bit_varying_widening_safe() {
-        // "bit varying" is the alternate name for varbit; tests is_varbit_type.
-        let old = TypeName::with_modifiers("bit varying", vec![8]);
-        let new = TypeName::with_modifiers("bit varying", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_varbit_narrowing_unsafe() {
-        let old = TypeName::with_modifiers("varbit", vec![16]);
-        let new = TypeName::with_modifiers("varbit", vec![8]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_varbit_to_text_unsafe() {
-        // old is varbit, new is NOT varbit — must be Unsafe.
-        // With && -> ||, would incorrectly enter varbit branch.
-        let old = TypeName::with_modifiers("varbit", vec![8]);
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_text_to_varbit_unsafe() {
-        // old is NOT varbit, new IS varbit — must be Unsafe.
-        // With && -> ||, would incorrectly enter varbit branch.
-        let old = TypeName::simple("text");
-        let new = TypeName::with_modifiers("varbit", vec![16]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // Mutants #6, #8, #9: line 70 && -> || in timestamp check,
-    // line 94 is_timestamp_type -> true, line 99 is_timestamptz_type -> true.
-    #[test]
-    fn test_timestamptz_to_timestamp_unsafe() {
-        // Reverse direction: timestamptz -> timestamp is NOT safe.
-        // With && -> ||, one side being timestamptz would incorrectly return Info.
-        // Also kills is_timestamptz_type -> true on the old side (old is timestamptz,
-        // is_timestamp_type(old) is false, but if is_timestamp_type always returned true
-        // this would incorrectly match).
-        let old = TypeName::simple("timestamptz");
-        let new = TypeName::simple("timestamp");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_timestamp_to_text_unsafe() {
-        // old is timestamp but new is NOT timestamptz.
-        // With && -> ||, is_timestamp_type(old) alone would match.
-        // Also kills is_timestamptz_type -> true (would incorrectly match "text").
-        let old = TypeName::simple("timestamp");
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_text_to_timestamptz_unsafe() {
-        // old is NOT timestamp, new IS timestamptz.
-        // With && -> ||, is_timestamptz_type(new) alone would match -> Info.
-        // Also kills is_timestamp_type -> true (would incorrectly match "text").
-        let old = TypeName::simple("text");
-        let new = TypeName::simple("timestamptz");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_timestamp_without_tz_to_timestamptz_info() {
-        // Tests the long-form name for timestamp.
-        // Kills is_timestamp_type -> true if falsely matching non-timestamp types.
-        let old = TypeName::simple("timestamp without time zone");
-        let new = TypeName::simple("timestamp with time zone");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Info);
-    }
-
-    #[test]
-    fn test_integer_is_not_timestamp_type() {
-        // integer -> timestamptz should be Unsafe, not Info.
-        // Kills is_timestamp_type -> true (integer would match as timestamp).
-        let old = TypeName::simple("integer");
-        let new = TypeName::simple("timestamptz");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    #[test]
-    fn test_timestamp_to_integer_not_timestamptz() {
-        // timestamp -> integer should be Unsafe.
-        // Kills is_timestamptz_type -> true (integer would match as timestamptz).
-        let old = TypeName::simple("timestamp");
-        let new = TypeName::simple("integer");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // --- Mutation-killing tests for normalize_numeric_modifiers ---
-
-    // Mutants #10, #11: line 127 delete - in (-1, -1) sentinel.
-    // With the mutation, empty modifiers return (1, 1) instead of (-1, -1).
-    // This sentinel is used in check_numeric_widening when both sides have
-    // modifiers but the input is unexpected (e.g., 3+ modifiers).
-    #[test]
-    fn test_normalize_numeric_modifiers_empty() {
-        // The _ branch should return (-1, -1) for empty modifiers.
-        // If the `-` sign is deleted, it returns (1, 1) instead.
-        assert_eq!(normalize_numeric_modifiers(&[]), (-1, -1));
-    }
-
-    #[test]
-    fn test_normalize_numeric_modifiers_single() {
-        assert_eq!(normalize_numeric_modifiers(&[10]), (10, 0));
-    }
-
-    #[test]
-    fn test_normalize_numeric_modifiers_double() {
-        assert_eq!(normalize_numeric_modifiers(&[10, 2]), (10, 2));
-    }
-
-    #[test]
-    fn test_normalize_numeric_modifiers_triple_falls_to_sentinel() {
-        // Three modifiers should hit the _ arm and return (-1, -1).
-        assert_eq!(normalize_numeric_modifiers(&[1, 2, 3]), (-1, -1));
-    }
-
-    // This exercises the sentinel path through is_safe_cast: if the sentinel
-    // becomes (1, 1), then numeric with 3 mods -> numeric(1, 1) would be Safe
-    // instead of Unsafe, because (1, 1) == (1, 1).
-    #[test]
-    fn test_numeric_weird_modifiers_to_numeric_1_1_unsafe() {
-        // numeric with 3 modifiers (normalizes to sentinel -1, -1)
-        // -> numeric(1, 1). Should be Unsafe because sentinels don't match.
-        // If sentinel were (1, 1) instead of (-1, -1), this would be Safe.
-        let old = TypeName {
-            name: "numeric".to_string(),
-            modifiers: vec![1, 2, 3],
-        };
-        let new = TypeName::with_modifiers("numeric", vec![1, 1]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
-    }
-
-    // --- Direct tests for type-classification helpers ---
-
-    #[test]
-    fn test_is_varbit_type_positive() {
-        assert!(is_varbit_type("varbit"));
-        assert!(is_varbit_type("bit varying"));
-    }
-
-    #[test]
-    fn test_is_varbit_type_negative() {
-        assert!(!is_varbit_type("bit"));
-        assert!(!is_varbit_type("text"));
-        assert!(!is_varbit_type("varchar"));
-    }
-
-    #[test]
-    fn test_is_timestamp_type_positive() {
-        assert!(is_timestamp_type("timestamp"));
-        assert!(is_timestamp_type("timestamp without time zone"));
-    }
-
-    #[test]
-    fn test_is_timestamp_type_negative() {
-        assert!(!is_timestamp_type("timestamptz"));
-        assert!(!is_timestamp_type("timestamp with time zone"));
-        assert!(!is_timestamp_type("integer"));
-        assert!(!is_timestamp_type("text"));
-    }
-
-    #[test]
-    fn test_is_timestamptz_type_positive() {
-        assert!(is_timestamptz_type("timestamptz"));
-        assert!(is_timestamptz_type("timestamp with time zone"));
-    }
-
-    #[test]
-    fn test_is_timestamptz_type_negative() {
-        assert!(!is_timestamptz_type("timestamp"));
-        assert!(!is_timestamptz_type("timestamp without time zone"));
-        assert!(!is_timestamptz_type("integer"));
-        assert!(!is_timestamptz_type("text"));
-    }
-
-    // Test that decimal (alias for numeric) also works through is_safe_cast.
-    #[test]
-    fn test_decimal_widening_safe() {
-        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
-        let new = TypeName::with_modifiers("decimal", vec![14, 2]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_decimal_to_numeric_widening_safe() {
-        // Cross-alias: decimal -> numeric widening
-        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
-        let new = TypeName::with_modifiers("numeric", vec![14, 2]);
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Safe);
-    }
-
-    #[test]
-    fn test_decimal_to_text_unsafe() {
-        // decimal is numeric type but text is not — must be Unsafe.
-        // With && -> || on line 55, one side matching would incorrectly enter numeric branch.
-        let old = TypeName::with_modifiers("decimal", vec![10, 2]);
-        let new = TypeName::simple("text");
-        assert_eq!(is_safe_cast(&old, &new), CastSafety::Unsafe);
     }
 }
