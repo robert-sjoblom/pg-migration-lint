@@ -70,88 +70,58 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
+    use rstest::rstest;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    #[test]
-    fn test_create_table_float8_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::CreateTable(
+    #[rstest]
+    #[case::create_table_float8(
+        "migrations/001.sql",
+        located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("products"))
                 .with_columns(vec![ColumnDef::test("price", "float8")]),
-        ))];
-
-        let findings = RuleId::Pgm109.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_create_table_float4_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::CreateTable(
+        ))
+    )]
+    #[case::create_table_float4(
+        "migrations/001.sql",
+        located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("sensors"))
                 .with_columns(vec![ColumnDef::test("reading", "float4")]),
-        ))];
-
-        let findings = RuleId::Pgm109.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_add_column_float8_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+        ))
+    )]
+    #[case::add_column_float8(
+        "migrations/002.sql",
+        located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("products"),
-            actions: vec![AlterTableAction::AddColumn(ColumnDef::test(
-                "score", "float8",
-            ))],
-        }))];
-
-        let findings = RuleId::Pgm109.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_alter_column_type_float4_fires() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            actions: vec![AlterTableAction::AddColumn(ColumnDef::test("score", "float8"))],
+        }))
+    )]
+    #[case::alter_column_type_float4(
+        "migrations/003.sql",
+        located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("sensors"),
             actions: vec![AlterTableAction::AlterColumnType {
                 column_name: "reading".to_string(),
-                new_type: TypeName {
-                    name: "float4".to_string(),
-                    modifiers: vec![],
-                },
+                new_type: TypeName { name: "float4".to_string(), modifiers: vec![] },
                 old_type: None,
             }],
-        }))];
+        }))
+    )]
+    fn fires(#[case] migration_file: &str, #[case] stmt: Located<IrNode>) {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        let file = PathBuf::from(migration_file);
+        let created = HashSet::new();
+        let ctx = make_ctx(&before, &after, &file, &created);
 
-        let findings = RuleId::Pgm109.check(&stmts, &ctx);
+        let findings = RuleId::Pgm109.check(&[stmt], &ctx);
         insta::assert_yaml_snapshot!(findings);
     }
 
-    #[test]
-    fn test_numeric_no_finding() {
+    #[rstest]
+    #[case::numeric("products", "price", "numeric")]
+    #[case::integer("counters", "count", "int4")]
+    fn no_finding(#[case] table: &str, #[case] column: &str, #[case] col_type: &str) {
         let before = Catalog::new();
         let after = Catalog::new();
         let file = PathBuf::from("migrations/001.sql");
@@ -159,25 +129,8 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("products"))
-                .with_columns(vec![ColumnDef::test("price", "numeric")]),
-        ))];
-
-        let findings = RuleId::Pgm109.check(&stmts, &ctx);
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_integer_no_finding() {
-        let before = Catalog::new();
-        let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("counters"))
-                .with_columns(vec![ColumnDef::test("count", "int4")]),
+            CreateTable::test(QualifiedName::unqualified(table))
+                .with_columns(vec![ColumnDef::test(column, col_type)]),
         ))];
 
         let findings = RuleId::Pgm109.check(&stmts, &ctx);
