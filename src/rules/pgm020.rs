@@ -112,6 +112,7 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{located, make_ctx};
+    use rstest::rstest;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -144,37 +145,15 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_fires_on_existing_table_all() {
+    #[rstest]
+    #[case::all(TriggerDisableScope::All)]
+    #[case::named(TriggerDisableScope::Named("my_trigger".to_string()))]
+    #[case::user(TriggerDisableScope::User)]
+    fn fires_on_existing_table(#[case] scope: TriggerDisableScope) {
         let (before, after, file, created) = existing_orders_ctx();
         let ctx = make_ctx(&before, &after, &file, &created);
 
-        let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
-
-        let findings = RuleId::Pgm020.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_fires_on_existing_table_named() {
-        let (before, after, file, created) = existing_orders_ctx();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![disable_trigger_stmt(
-            "orders",
-            TriggerDisableScope::Named("my_trigger".to_string()),
-        )];
-
-        let findings = RuleId::Pgm020.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
-    }
-
-    #[test]
-    fn test_fires_on_existing_table_user() {
-        let (before, after, file, created) = existing_orders_ctx();
-        let ctx = make_ctx(&before, &after, &file, &created);
-
-        let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::User)];
+        let stmts = vec![disable_trigger_stmt("orders", scope)];
 
         let findings = RuleId::Pgm020.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
