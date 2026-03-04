@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "RENAME TABLE on existing table";
 
@@ -42,6 +42,8 @@ pub(super) const EXPLAIN: &str = "PGM504 — RENAME TABLE on existing table\n\
          \n\
          This rule does NOT fire when a replacement table with the old name\n\
          is created in the same migration unit.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

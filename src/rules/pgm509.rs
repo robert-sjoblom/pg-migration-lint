@@ -10,7 +10,7 @@
 //! it was necessarily quoted.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, reserved_keywords};
+use crate::rules::{Finding, LintContext, Rule, Severity, reserved_keywords};
 
 pub(super) const DESCRIPTION: &str =
     "Mixed-case identifier or reserved word requires double-quoting";
@@ -50,6 +50,8 @@ pub(super) const EXPLAIN: &str = "PGM509 — Mixed-case identifiers or reserved 
          - ALTER TABLE ... ADD COLUMN — column name\n\
          - RENAME TABLE — new name\n\
          - RENAME COLUMN — new name";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 /// Check if a name needs quoting. Returns a reason string if it does.
 ///

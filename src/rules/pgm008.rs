@@ -5,7 +5,7 @@
 //! has any rows.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD COLUMN NOT NULL without DEFAULT on existing table";
 
@@ -36,6 +36,8 @@ pub(super) const EXPLAIN: &str = "PGM008 — ADD COLUMN NOT NULL without DEFAULT
            ALTER TABLE orders ADD COLUMN status text;\n\
            UPDATE orders SET status = 'pending' WHERE status IS NULL;\n\
            ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -6,7 +6,7 @@
 //! `pg_squeeze` for online compaction.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "VACUUM FULL on existing table";
 
@@ -31,6 +31,8 @@ pub(super) const EXPLAIN: &str = "PGM021 — VACUUM FULL on existing table\n\
          1. Use pg_repack or pg_squeeze for online table compaction.\n\
          2. Schedule VACUUM FULL during a maintenance window when downtime is acceptable.\n\
          3. For new tables, VACUUM FULL is fine — this rule only fires on existing tables.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

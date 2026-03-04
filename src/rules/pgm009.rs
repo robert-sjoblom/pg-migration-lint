@@ -6,7 +6,7 @@
 //! referencing the column will break.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN on existing table";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM009 — DROP COLUMN on existing table\n\
          \n\
          This rule is informational (INFO severity) to increase visibility\n\
          of column drops in code review.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

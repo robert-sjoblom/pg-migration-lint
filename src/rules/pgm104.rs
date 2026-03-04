@@ -6,7 +6,7 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses the money type";
 
@@ -33,6 +33,8 @@ pub(super) const EXPLAIN: &str = "PGM104 — Don't use `money` type\n\
          \n\
          Fix:\n\
            CREATE TABLE orders (total numeric(12,2) NOT NULL);";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

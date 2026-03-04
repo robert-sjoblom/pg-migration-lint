@@ -5,7 +5,7 @@
 //! In migration pipelines that may be re-run, this causes hard failures.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX";
 
@@ -29,6 +29,8 @@ pub(super) const EXPLAIN: &str = "PGM402 — Missing IF NOT EXISTS on CREATE TAB
          Recommended fix:\n\
            CREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);\n\
            CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

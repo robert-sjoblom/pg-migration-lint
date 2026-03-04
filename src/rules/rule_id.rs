@@ -229,239 +229,110 @@ impl<'de> serde::Deserialize<'de> for RuleId {
 // `FromStr` is derived via `EnumString` — strum generates a match from
 // `#[strum(serialize = "…")]` attributes. `Err` type is `strum::ParseError`.
 
-impl Rule for RuleId {
-    fn id(&self) -> Self {
-        *self
-    }
+/// Generate the `impl Rule for RuleId` by dispatching each variant to
+/// its module's `DEFAULT_SEVERITY`, `DESCRIPTION`, `EXPLAIN`, and `check`.
+///
+/// PGM901 is a meta-rule with no module — it's handled inline.
+macro_rules! dispatch_rules {
+    ( $( $variant:ident => $module:ident ),+ $(,)? ) => {
+        impl Rule for RuleId {
+            fn id(&self) -> Self {
+                *self
+            }
 
-    fn default_severity(&self) -> Severity {
-        match self {
-            // 0xx — Unsafe DDL
-            Self::Pgm001
-            | Self::Pgm002
-            | Self::Pgm003
-            | Self::Pgm004
-            | Self::Pgm007
-            | Self::Pgm008
-            | Self::Pgm013
-            | Self::Pgm014
-            | Self::Pgm015
-            | Self::Pgm017
-            | Self::Pgm018
-            | Self::Pgm019
-            | Self::Pgm021
-            | Self::Pgm022 => Severity::Critical,
-            Self::Pgm005 | Self::Pgm011 | Self::Pgm016 => Severity::Major,
-            Self::Pgm006 | Self::Pgm010 | Self::Pgm012 | Self::Pgm020 => Severity::Minor,
-            Self::Pgm009 => Severity::Info,
+            fn default_severity(&self) -> Severity {
+                match self {
+                    $( Self::$variant => super::$module::DEFAULT_SEVERITY, )+
+                    Self::Pgm901 => Severity::Info,
+                }
+            }
 
-            // 1xx — Type anti-patterns
-            Self::Pgm101
-            | Self::Pgm102
-            | Self::Pgm103
-            | Self::Pgm104
-            | Self::Pgm106
-            | Self::Pgm109 => Severity::Minor,
-            Self::Pgm105 | Self::Pgm108 => Severity::Info,
-            Self::Pgm107 => Severity::Major,
+            fn description(&self) -> &'static str {
+                match self {
+                    $( Self::$variant => super::$module::DESCRIPTION, )+
+                    Self::Pgm901 => {
+                        "Meta rules alter the behavior of other rules, they are not rules themselves"
+                    }
+                }
+            }
 
-            // 2xx — Destructive operations
-            Self::Pgm201 | Self::Pgm203 => Severity::Minor,
-            Self::Pgm202 | Self::Pgm204 => Severity::Major,
-            Self::Pgm205 => Severity::Critical,
+            fn explain(&self) -> &'static str {
+                match self {
+                    $( Self::$variant => super::$module::EXPLAIN, )+
+                    Self::Pgm901 => "This rule caps severity of triggered rules to INFO (not in SonarQube)",
+                }
+            }
 
-            // 3xx — DML in migrations
-            Self::Pgm301 => Severity::Info,
-            Self::Pgm302 | Self::Pgm303 => Severity::Minor,
-
-            // 4xx — Idempotency guards
-            Self::Pgm401 | Self::Pgm402 | Self::Pgm403 => Severity::Minor,
-
-            // 5xx — Schema design
-            Self::Pgm501 | Self::Pgm502 => Severity::Major,
-            Self::Pgm503
-            | Self::Pgm504
-            | Self::Pgm505
-            | Self::Pgm506
-            | Self::Pgm507
-            | Self::Pgm508
-            | Self::Pgm509 => Severity::Info,
-
-            // 9xx — Meta
-            Self::Pgm901 => Severity::Info,
-        }
-    }
-
-    fn description(&self) -> &'static str {
-        match self {
-            Self::Pgm001 => super::pgm001::DESCRIPTION,
-            Self::Pgm002 => super::pgm002::DESCRIPTION,
-            Self::Pgm003 => super::pgm003::DESCRIPTION,
-            Self::Pgm004 => super::pgm004::DESCRIPTION,
-            Self::Pgm005 => super::pgm005::DESCRIPTION,
-            Self::Pgm006 => super::pgm006::DESCRIPTION,
-            Self::Pgm007 => super::pgm007::DESCRIPTION,
-            Self::Pgm008 => super::pgm008::DESCRIPTION,
-            Self::Pgm009 => super::pgm009::DESCRIPTION,
-            Self::Pgm010 => super::pgm010::DESCRIPTION,
-            Self::Pgm011 => super::pgm011::DESCRIPTION,
-            Self::Pgm012 => super::pgm012::DESCRIPTION,
-            Self::Pgm013 => super::pgm013::DESCRIPTION,
-            Self::Pgm014 => super::pgm014::DESCRIPTION,
-            Self::Pgm015 => super::pgm015::DESCRIPTION,
-            Self::Pgm016 => super::pgm016::DESCRIPTION,
-            Self::Pgm017 => super::pgm017::DESCRIPTION,
-            Self::Pgm018 => super::pgm018::DESCRIPTION,
-            Self::Pgm019 => super::pgm019::DESCRIPTION,
-            Self::Pgm020 => super::pgm020::DESCRIPTION,
-            Self::Pgm021 => super::pgm021::DESCRIPTION,
-            Self::Pgm022 => super::pgm022::DESCRIPTION,
-            Self::Pgm507 => super::pgm507::DESCRIPTION,
-            Self::Pgm101 => super::pgm101::DESCRIPTION,
-            Self::Pgm102 => super::pgm102::DESCRIPTION,
-            Self::Pgm103 => super::pgm103::DESCRIPTION,
-            Self::Pgm104 => super::pgm104::DESCRIPTION,
-            Self::Pgm105 => super::pgm105::DESCRIPTION,
-            Self::Pgm106 => super::pgm106::DESCRIPTION,
-            Self::Pgm107 => super::pgm107::DESCRIPTION,
-            Self::Pgm108 => super::pgm108::DESCRIPTION,
-            Self::Pgm109 => super::pgm109::DESCRIPTION,
-            Self::Pgm201 => super::pgm201::DESCRIPTION,
-            Self::Pgm202 => super::pgm202::DESCRIPTION,
-            Self::Pgm203 => super::pgm203::DESCRIPTION,
-            Self::Pgm204 => super::pgm204::DESCRIPTION,
-            Self::Pgm205 => super::pgm205::DESCRIPTION,
-            Self::Pgm301 => super::pgm301::DESCRIPTION,
-            Self::Pgm302 => super::pgm302::DESCRIPTION,
-            Self::Pgm303 => super::pgm303::DESCRIPTION,
-            Self::Pgm401 => super::pgm401::DESCRIPTION,
-            Self::Pgm402 => super::pgm402::DESCRIPTION,
-            Self::Pgm403 => super::pgm403::DESCRIPTION,
-            Self::Pgm501 => super::pgm501::DESCRIPTION,
-            Self::Pgm502 => super::pgm502::DESCRIPTION,
-            Self::Pgm503 => super::pgm503::DESCRIPTION,
-            Self::Pgm504 => super::pgm504::DESCRIPTION,
-            Self::Pgm505 => super::pgm505::DESCRIPTION,
-            Self::Pgm506 => super::pgm506::DESCRIPTION,
-            Self::Pgm508 => super::pgm508::DESCRIPTION,
-            Self::Pgm509 => super::pgm509::DESCRIPTION,
-            Self::Pgm901 => {
-                "Meta rules alter the behavior of other rules, they are not rules themselves"
+            fn check(
+                &self,
+                statements: &[Located<IrNode>],
+                ctx: &LintContext<'_>,
+            ) -> Vec<Finding> {
+                match self {
+                    $( Self::$variant => super::$module::check(*self, statements, ctx), )+
+                    Self::Pgm901 => vec![],
+                }
             }
         }
-    }
+    };
+}
 
-    fn explain(&self) -> &'static str {
-        match self {
-            Self::Pgm001 => super::pgm001::EXPLAIN,
-            Self::Pgm002 => super::pgm002::EXPLAIN,
-            Self::Pgm003 => super::pgm003::EXPLAIN,
-            Self::Pgm004 => super::pgm004::EXPLAIN,
-            Self::Pgm005 => super::pgm005::EXPLAIN,
-            Self::Pgm006 => super::pgm006::EXPLAIN,
-            Self::Pgm007 => super::pgm007::EXPLAIN,
-            Self::Pgm008 => super::pgm008::EXPLAIN,
-            Self::Pgm009 => super::pgm009::EXPLAIN,
-            Self::Pgm010 => super::pgm010::EXPLAIN,
-            Self::Pgm011 => super::pgm011::EXPLAIN,
-            Self::Pgm012 => super::pgm012::EXPLAIN,
-            Self::Pgm013 => super::pgm013::EXPLAIN,
-            Self::Pgm014 => super::pgm014::EXPLAIN,
-            Self::Pgm015 => super::pgm015::EXPLAIN,
-            Self::Pgm016 => super::pgm016::EXPLAIN,
-            Self::Pgm017 => super::pgm017::EXPLAIN,
-            Self::Pgm018 => super::pgm018::EXPLAIN,
-            Self::Pgm019 => super::pgm019::EXPLAIN,
-            Self::Pgm020 => super::pgm020::EXPLAIN,
-            Self::Pgm021 => super::pgm021::EXPLAIN,
-            Self::Pgm022 => super::pgm022::EXPLAIN,
-            Self::Pgm101 => super::pgm101::EXPLAIN,
-            Self::Pgm102 => super::pgm102::EXPLAIN,
-            Self::Pgm103 => super::pgm103::EXPLAIN,
-            Self::Pgm104 => super::pgm104::EXPLAIN,
-            Self::Pgm105 => super::pgm105::EXPLAIN,
-            Self::Pgm106 => super::pgm106::EXPLAIN,
-            Self::Pgm107 => super::pgm107::EXPLAIN,
-            Self::Pgm108 => super::pgm108::EXPLAIN,
-            Self::Pgm109 => super::pgm109::EXPLAIN,
-            Self::Pgm201 => super::pgm201::EXPLAIN,
-            Self::Pgm202 => super::pgm202::EXPLAIN,
-            Self::Pgm203 => super::pgm203::EXPLAIN,
-            Self::Pgm204 => super::pgm204::EXPLAIN,
-            Self::Pgm205 => super::pgm205::EXPLAIN,
-            Self::Pgm301 => super::pgm301::EXPLAIN,
-            Self::Pgm302 => super::pgm302::EXPLAIN,
-            Self::Pgm303 => super::pgm303::EXPLAIN,
-            Self::Pgm401 => super::pgm401::EXPLAIN,
-            Self::Pgm402 => super::pgm402::EXPLAIN,
-            Self::Pgm403 => super::pgm403::EXPLAIN,
-            Self::Pgm501 => super::pgm501::EXPLAIN,
-            Self::Pgm502 => super::pgm502::EXPLAIN,
-            Self::Pgm503 => super::pgm503::EXPLAIN,
-            Self::Pgm504 => super::pgm504::EXPLAIN,
-            Self::Pgm505 => super::pgm505::EXPLAIN,
-            Self::Pgm506 => super::pgm506::EXPLAIN,
-            Self::Pgm507 => super::pgm507::EXPLAIN,
-            Self::Pgm508 => super::pgm508::EXPLAIN,
-            Self::Pgm509 => super::pgm509::EXPLAIN,
-            Self::Pgm901 => "This rule caps severity of triggered rules to INFO (not in SonarQube)",
-        }
-    }
-
-    fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding> {
-        match self {
-            Self::Pgm001 => super::pgm001::check(*self, statements, ctx),
-            Self::Pgm002 => super::pgm002::check(*self, statements, ctx),
-            Self::Pgm003 => super::pgm003::check(*self, statements, ctx),
-            Self::Pgm004 => super::pgm004::check(*self, statements, ctx),
-            Self::Pgm005 => super::pgm005::check(*self, statements, ctx),
-            Self::Pgm006 => super::pgm006::check(*self, statements, ctx),
-            Self::Pgm007 => super::pgm007::check(*self, statements, ctx),
-            Self::Pgm008 => super::pgm008::check(*self, statements, ctx),
-            Self::Pgm009 => super::pgm009::check(*self, statements, ctx),
-            Self::Pgm010 => super::pgm010::check(*self, statements, ctx),
-            Self::Pgm011 => super::pgm011::check(*self, statements, ctx),
-            Self::Pgm012 => super::pgm012::check(*self, statements, ctx),
-            Self::Pgm013 => super::pgm013::check(*self, statements, ctx),
-            Self::Pgm014 => super::pgm014::check(*self, statements, ctx),
-            Self::Pgm015 => super::pgm015::check(*self, statements, ctx),
-            Self::Pgm016 => super::pgm016::check(*self, statements, ctx),
-            Self::Pgm017 => super::pgm017::check(*self, statements, ctx),
-            Self::Pgm018 => super::pgm018::check(*self, statements, ctx),
-            Self::Pgm019 => super::pgm019::check(*self, statements, ctx),
-            Self::Pgm020 => super::pgm020::check(*self, statements, ctx),
-            Self::Pgm021 => super::pgm021::check(*self, statements, ctx),
-            Self::Pgm022 => super::pgm022::check(*self, statements, ctx),
-            Self::Pgm101 => super::pgm101::check(*self, statements, ctx),
-            Self::Pgm102 => super::pgm102::check(*self, statements, ctx),
-            Self::Pgm103 => super::pgm103::check(*self, statements, ctx),
-            Self::Pgm104 => super::pgm104::check(*self, statements, ctx),
-            Self::Pgm105 => super::pgm105::check(*self, statements, ctx),
-            Self::Pgm106 => super::pgm106::check(*self, statements, ctx),
-            Self::Pgm107 => super::pgm107::check(*self, statements, ctx),
-            Self::Pgm108 => super::pgm108::check(*self, statements, ctx),
-            Self::Pgm109 => super::pgm109::check(*self, statements, ctx),
-            Self::Pgm201 => super::pgm201::check(*self, statements, ctx),
-            Self::Pgm202 => super::pgm202::check(*self, statements, ctx),
-            Self::Pgm203 => super::pgm203::check(*self, statements, ctx),
-            Self::Pgm204 => super::pgm204::check(*self, statements, ctx),
-            Self::Pgm205 => super::pgm205::check(*self, statements, ctx),
-            Self::Pgm301 => super::pgm301::check(*self, statements, ctx),
-            Self::Pgm302 => super::pgm302::check(*self, statements, ctx),
-            Self::Pgm303 => super::pgm303::check(*self, statements, ctx),
-            Self::Pgm401 => super::pgm401::check(*self, statements, ctx),
-            Self::Pgm402 => super::pgm402::check(*self, statements, ctx),
-            Self::Pgm403 => super::pgm403::check(*self, statements, ctx),
-            Self::Pgm501 => super::pgm501::check(*self, statements, ctx),
-            Self::Pgm502 => super::pgm502::check(*self, statements, ctx),
-            Self::Pgm503 => super::pgm503::check(*self, statements, ctx),
-            Self::Pgm504 => super::pgm504::check(*self, statements, ctx),
-            Self::Pgm505 => super::pgm505::check(*self, statements, ctx),
-            Self::Pgm506 => super::pgm506::check(*self, statements, ctx),
-            Self::Pgm507 => super::pgm507::check(*self, statements, ctx),
-            Self::Pgm508 => super::pgm508::check(*self, statements, ctx),
-            Self::Pgm509 => super::pgm509::check(*self, statements, ctx),
-            Self::Pgm901 => vec![],
-        }
-    }
+dispatch_rules! {
+    // 0xx — Unsafe DDL
+    Pgm001 => pgm001,
+    Pgm002 => pgm002,
+    Pgm003 => pgm003,
+    Pgm004 => pgm004,
+    Pgm005 => pgm005,
+    Pgm006 => pgm006,
+    Pgm007 => pgm007,
+    Pgm008 => pgm008,
+    Pgm009 => pgm009,
+    Pgm010 => pgm010,
+    Pgm011 => pgm011,
+    Pgm012 => pgm012,
+    Pgm013 => pgm013,
+    Pgm014 => pgm014,
+    Pgm015 => pgm015,
+    Pgm016 => pgm016,
+    Pgm017 => pgm017,
+    Pgm018 => pgm018,
+    Pgm019 => pgm019,
+    Pgm020 => pgm020,
+    Pgm021 => pgm021,
+    Pgm022 => pgm022,
+    // 1xx — Type anti-patterns
+    Pgm101 => pgm101,
+    Pgm102 => pgm102,
+    Pgm103 => pgm103,
+    Pgm104 => pgm104,
+    Pgm105 => pgm105,
+    Pgm106 => pgm106,
+    Pgm107 => pgm107,
+    Pgm108 => pgm108,
+    Pgm109 => pgm109,
+    // 2xx — Destructive operations
+    Pgm201 => pgm201,
+    Pgm202 => pgm202,
+    Pgm203 => pgm203,
+    Pgm204 => pgm204,
+    Pgm205 => pgm205,
+    // 3xx — DML in migrations
+    Pgm301 => pgm301,
+    Pgm302 => pgm302,
+    Pgm303 => pgm303,
+    // 4xx — Idempotency guards
+    Pgm401 => pgm401,
+    Pgm402 => pgm402,
+    Pgm403 => pgm403,
+    // 5xx — Schema design
+    Pgm501 => pgm501,
+    Pgm502 => pgm502,
+    Pgm503 => pgm503,
+    Pgm504 => pgm504,
+    Pgm505 => pgm505,
+    Pgm506 => pgm506,
+    Pgm507 => pgm507,
+    Pgm508 => pgm508,
+    Pgm509 => pgm509,
 }

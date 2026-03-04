@@ -8,7 +8,7 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses json type instead of jsonb";
 
@@ -30,6 +30,8 @@ pub(super) const EXPLAIN: &str = "PGM106 — Don't use `json` (prefer `jsonb`)\n
          \n\
          Fix:\n\
            CREATE TABLE events (payload jsonb NOT NULL);";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

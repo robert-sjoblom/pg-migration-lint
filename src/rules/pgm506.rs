@@ -6,7 +6,7 @@
 //! replicated to standby servers.
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CREATE UNLOGGED TABLE";
 
@@ -34,6 +34,8 @@ pub(super) const EXPLAIN: &str = "PGM506 — CREATE UNLOGGED TABLE\n\
          \n\
          This rule is INFO severity — it flags the table for review rather\n\
          than treating it as a defect.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

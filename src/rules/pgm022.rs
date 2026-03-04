@@ -6,7 +6,7 @@
 //! writes. Use `REINDEX ... CONCURRENTLY` (PostgreSQL 12+).
 
 use crate::parser::ir::{IrNode, Located, ReindexTarget};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on REINDEX";
 
@@ -37,6 +37,8 @@ pub(super) const EXPLAIN: &str = "PGM022 — Missing CONCURRENTLY on REINDEX\n\
          Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
          framework wraps each file in a transaction (e.g., Liquibase default),\n\
          you must also disable that. See PGM003.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

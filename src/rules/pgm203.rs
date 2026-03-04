@@ -5,7 +5,7 @@
 //! ON DELETE triggers. Unlike DELETE, there is no WHERE clause — every row is gone.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, existing_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "TRUNCATE TABLE on existing table";
 
@@ -31,6 +31,8 @@ pub(super) const EXPLAIN: &str = "PGM203 — TRUNCATE TABLE on existing table\n\
          3. If truncating for a schema migration, document the intent clearly.\n\
          \n\
          This rule is MINOR severity to flag the operation for human review.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

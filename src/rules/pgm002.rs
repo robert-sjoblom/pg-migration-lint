@@ -5,7 +5,7 @@
 //! the table the index belongs to, blocking all reads and writes.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on DROP INDEX";
 
@@ -43,6 +43,8 @@ pub(super) const EXPLAIN: &str = "PGM002 — Missing CONCURRENTLY on DROP INDEX\
            2. CREATE INDEX CONCURRENTLY ON child (col);    -- per-child\n\
            3. ALTER INDEX idx_parent ATTACH PARTITION idx_child;\n\
            -- To remove: reverse the process before dropping the parent.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

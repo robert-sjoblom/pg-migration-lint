@@ -10,7 +10,7 @@
 //! affected tables are listed in the message for context.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "DROP SCHEMA CASCADE";
 
@@ -43,6 +43,8 @@ pub(super) const EXPLAIN: &str = "PGM205 — DROP SCHEMA CASCADE\n\
          \n\
          This rule is CRITICAL severity because CASCADE silently destroys\n\
          every object in the schema.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -192,7 +192,7 @@ impl TableState {
         // Remove constraints referencing the dropped column.
         // PostgreSQL drops the entire constraint, not just the column from it.
         self.constraints.retain(|c| match c {
-            ConstraintState::PrimaryKey { columns }
+            ConstraintState::PrimaryKey { columns, .. }
             | ConstraintState::ForeignKey { columns, .. }
             | ConstraintState::Unique { columns, .. } => !columns.iter().any(|c| c == name),
             ConstraintState::Check { expression, .. } => {
@@ -293,7 +293,18 @@ impl TableState {
     /// relevant to the partition bound rather than an unrelated constraint.
     pub fn has_check_referencing_columns(&self, columns: &[String]) -> bool {
         self.constraints.iter().any(|c| {
-            if let ConstraintState::Check { expression, .. } = c {
+            if let ConstraintState::Check {
+                expression,
+                not_valid,
+                ..
+            } = c
+            {
+                // NOT VALID CHECKs don't skip the partition scan — PostgreSQL
+                // requires the constraint to be validated before ATTACH PARTITION
+                // can skip the full table verification.
+                if *not_valid {
+                    return false;
+                }
                 columns
                     .iter()
                     .all(|col| expression_mentions_column(expression, col))
@@ -374,6 +385,7 @@ impl IndexState {
 #[derive(Debug, Clone)]
 pub enum ConstraintState {
     PrimaryKey {
+        name: Option<String>,
         columns: Vec<String>,
     },
     ForeignKey {
@@ -403,7 +415,7 @@ impl ConstraintState {
     /// Returns true if this constraint involves the given column name.
     pub fn involves_column(&self, col: &str) -> bool {
         match self {
-            ConstraintState::PrimaryKey { columns }
+            ConstraintState::PrimaryKey { columns, .. }
             | ConstraintState::ForeignKey { columns, .. }
             | ConstraintState::Unique { columns, .. } => columns.iter().any(|c| c == col),
             ConstraintState::Check { expression, .. } => {

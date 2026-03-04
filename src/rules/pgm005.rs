@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str =
     "ATTACH PARTITION of existing table without pre-validated CHECK";
@@ -43,6 +43,8 @@ Safe alternative (3-step pattern):
 Note: The rule checks that at least one CHECK constraint on the child
 references all of the parent's partition key columns. It does not verify
 that the CHECK expression values semantically match the partition bound.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 pub(super) fn check(
     rule: impl Rule,
@@ -83,12 +85,16 @@ pub(super) fn check(
                         }
                     } else {
                         // Parent not in catalog or lacks partition info
-                        // (incremental CI). Fall back to any CHECK.
-                        if table
-                            .constraints
-                            .iter()
-                            .any(|c| matches!(c, ConstraintState::Check { .. }))
-                        {
+                        // (incremental CI). Fall back to any validated CHECK.
+                        if table.constraints.iter().any(|c| {
+                            matches!(
+                                c,
+                                ConstraintState::Check {
+                                    not_valid: false,
+                                    ..
+                                }
+                            )
+                        }) {
                             return vec![];
                         }
                     }
@@ -416,10 +422,9 @@ mod tests {
 
     #[test]
     fn test_fires_when_child_has_not_valid_check() {
-        // Known limitation: the rule does NOT distinguish validated vs NOT VALID
-        // CHECK constraints. PostgreSQL would still perform a full table scan
-        // for a NOT VALID constraint during ATTACH PARTITION, but detecting this
-        // requires tracking validation state changes which is out of scope.
+        // NOT VALID CHECKs don't let PostgreSQL skip the partition scan.
+        // The constraint must be validated before ATTACH PARTITION can
+        // skip the full table verification.
         let before = CatalogBuilder::new()
             .table("measurements", |t| {
                 t.column("id", "bigint", false)
@@ -443,17 +448,8 @@ mod tests {
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
-        // The rule suppresses because the CHECK references the partition key
-        // column, even though it is NOT VALID. This is a known limitation:
-        // PostgreSQL would still scan the table for NOT VALID constraints,
-        // but detecting this requires tracking validation state changes
-        // which is out of scope.
         let findings = rule_id().check(&stmts, &ctx);
-        assert!(
-            findings.is_empty(),
-            "Known limitation: NOT VALID CHECK referencing partition key columns \
-             suppresses the finding even though PostgreSQL would still scan"
-        );
+        insta::assert_yaml_snapshot!(findings);
     }
 
     #[test]

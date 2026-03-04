@@ -4,7 +4,7 @@
 //! exist. The safe pattern is ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD FOREIGN KEY on existing table without NOT VALID";
 
@@ -39,6 +39,8 @@ pub(super) const EXPLAIN: &str = "PGM014 — ADD FOREIGN KEY on existing table w
              NOT VALID;\n\
            ALTER TABLE orders\n\
              VALIDATE CONSTRAINT fk_customer;";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

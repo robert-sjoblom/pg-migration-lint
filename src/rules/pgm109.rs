@@ -8,7 +8,7 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses floating-point type instead of numeric";
 
@@ -30,6 +30,8 @@ pub(super) const EXPLAIN: &str = "PGM109 — Floating-point column type\n\
          \n\
          Fix:\n\
            CREATE TABLE products (price numeric(10,2) NOT NULL);";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 /// Map pg_query canonical names to human-readable display names.
 fn display_name(canonical: &str) -> &str {

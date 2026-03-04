@@ -5,7 +5,7 @@
 //! the SQL standard approach with better ownership semantics.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses serial/bigserial instead of identity column";
 
@@ -33,6 +33,8 @@ pub(super) const EXPLAIN: &str = "PGM105 — Don't use `serial` / `bigserial`\n\
            CREATE TABLE orders (\n\
              id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
            );";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -6,7 +6,7 @@
 //! avoids a false positive.
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Table without primary key";
 
@@ -42,6 +42,8 @@ pub(super) const EXPLAIN: &str = "PGM502 — Table without primary key\n\
          partition children when the parent already has a PK or when the\n\
          parent is not in the catalog (common in incremental CI where only\n\
          new migrations are analyzed).";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 pub(super) fn check(
     rule: impl Rule,
@@ -147,6 +149,7 @@ mod tests {
                     ColumnDef::test("event_type", "text"),
                 ])
                 .with_constraints(vec![TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 }]),
@@ -508,6 +511,7 @@ mod tests {
                     ColumnDef::test("status", "text"),
                 ])
                 .with_constraints(vec![TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 }]),

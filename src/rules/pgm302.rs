@@ -5,7 +5,7 @@
 //! duration and can cause significant contention on busy tables.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, existing_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "UPDATE on existing table in migration";
 
@@ -35,6 +35,8 @@ pub(super) const EXPLAIN: &str = "PGM302 — UPDATE on existing table in migrati
          - UPDATE on a table created in the same migration file.\n\
          \n\
          This rule is MINOR severity.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

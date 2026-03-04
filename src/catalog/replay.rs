@@ -119,6 +119,7 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
             apply_table_constraint(
                 &mut table,
                 &TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec![col.name.clone()],
                     using_index: None,
                 },
@@ -173,6 +174,7 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                         apply_table_constraint(
                             table,
                             &TableConstraint::PrimaryKey {
+                                name: None,
                                 columns: vec![col_def.name.clone()],
                                 using_index: None,
                             },
@@ -241,12 +243,19 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                 }
                 AlterTableAction::DropConstraint { constraint_name } => {
                     // Check if we're dropping a PK constraint.
-                    // ConstraintState::PrimaryKey has no name field; PostgreSQL
-                    // names it `{table}_pkey` by default.
-                    let pkey_name = format!("{}_pkey", table.name);
-                    let dropping_pk = table.has_primary_key && *constraint_name == pkey_name;
+                    // Match by stored name, or fall back to the default
+                    // `{table}_pkey` heuristic for unnamed PKs.
+                    let default_pkey_name = format!("{}_pkey", table.name);
+                    let dropping_pk = table.has_primary_key
+                        && table.constraints.iter().any(|c| match c {
+                            ConstraintState::PrimaryKey { name, .. } => {
+                                name.as_deref() == Some(constraint_name)
+                                    || (name.is_none() && *constraint_name == default_pkey_name)
+                            }
+                            _ => false,
+                        });
 
-                    // Remove named constraints (FK, Unique, Check, Exclude).
+                    // Remove named constraints (FK, Unique, Check, Exclude, PK).
                     table.constraints.retain(|c| match c {
                         ConstraintState::ForeignKey { name, .. }
                         | ConstraintState::Unique { name, .. }
@@ -259,8 +268,17 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
 
                     if dropping_pk {
                         table.has_primary_key = false;
-                        indexes_to_unregister.push(pkey_name.clone());
-                        table.indexes.retain(|idx| idx.name != pkey_name);
+                        // Remove the PK backing index — either the default name
+                        // or the constraint name itself (PostgreSQL uses the
+                        // constraint name as the index name).
+                        let pk_index_name =
+                            if table.indexes.iter().any(|idx| idx.name == *constraint_name) {
+                                constraint_name.clone()
+                            } else {
+                                default_pkey_name.clone()
+                            };
+                        indexes_to_unregister.push(pk_index_name.clone());
+                        table.indexes.retain(|idx| idx.name != pk_index_name);
                     }
 
                     // PostgreSQL drops the backing index when a constraint is
@@ -584,7 +602,8 @@ fn apply_rename_column(
     let table_name_key = table.name.clone();
     for constraint in &mut table.constraints {
         match constraint {
-            ConstraintState::PrimaryKey { columns } | ConstraintState::Unique { columns, .. } => {
+            ConstraintState::PrimaryKey { columns, .. }
+            | ConstraintState::Unique { columns, .. } => {
                 for col in columns {
                     if *col == old_name {
                         *col = new_name.to_string();
@@ -681,6 +700,7 @@ fn column_def_to_state(col: &ColumnDef) -> ColumnState {
 fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) {
     match constraint {
         TableConstraint::PrimaryKey {
+            name,
             columns,
             using_index,
         } => {
@@ -705,6 +725,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 columns.clone()
             };
             table.constraints.push(ConstraintState::PrimaryKey {
+                name: name.clone(),
                 columns: resolved_columns,
             });
             // Only create a synthetic PK index when there's no USING INDEX.

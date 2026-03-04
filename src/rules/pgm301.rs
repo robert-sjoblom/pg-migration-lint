@@ -5,7 +5,7 @@
 //! in volume and clearly intentional.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, existing_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "INSERT INTO existing table in migration";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM301 — INSERT INTO existing table in migra
          \n\
          This rule is INFO severity — it flags the DML for awareness rather\n\
          than treating it as a defect.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

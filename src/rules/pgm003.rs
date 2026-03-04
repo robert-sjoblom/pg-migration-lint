@@ -6,7 +6,7 @@
 //! will fail at runtime.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
 
@@ -36,6 +36,8 @@ pub(super) const EXPLAIN: &str = "PGM003 — CONCURRENTLY inside transaction\n\
          the migration file header.\n\
          \n\
          See also: PGM001, PGM002.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

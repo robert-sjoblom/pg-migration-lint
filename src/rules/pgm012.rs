@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, drop_column_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes foreign key";
 
@@ -31,6 +31,8 @@ pub(super) const EXPLAIN: &str = "PGM012 — DROP COLUMN silently removes foreig
          Fix:\n\
          Verify that the referential integrity guarantee provided by the\n\
          foreign key is no longer needed before dropping the column.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

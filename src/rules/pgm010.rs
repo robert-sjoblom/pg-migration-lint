@@ -7,7 +7,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, drop_column_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes unique constraint";
 
@@ -33,6 +33,8 @@ pub(super) const EXPLAIN: &str = "PGM010 — DROP COLUMN silently removes unique
          index is no longer needed before dropping the column. If uniqueness\n\
          is still required on the remaining columns, create a new constraint\n\
          or index covering those columns.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

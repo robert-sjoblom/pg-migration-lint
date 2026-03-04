@@ -6,7 +6,7 @@
 //! the actual table state, the migration chain is ambiguous and misleading.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
     "CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op";
@@ -41,6 +41,8 @@ pub(super) const EXPLAIN: &str = "PGM403 — CREATE TABLE IF NOT EXISTS for alre
          Recommended fix:\n\
            Remove the redundant CREATE TABLE IF NOT EXISTS. If the intent is to\n\
            add columns, use ALTER TABLE ... ADD COLUMN instead.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,
