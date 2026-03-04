@@ -6,7 +6,7 @@
 //! **new** index under ACCESS EXCLUSIVE lock unless `USING INDEX` is explicit.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD UNIQUE on existing table without USING INDEX";
 
@@ -33,6 +33,8 @@ pub(super) const EXPLAIN: &str = "PGM017 — ADD UNIQUE on existing table withou
          Fix (safe pattern — build unique index concurrently first):\n\
            CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\n\
            ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

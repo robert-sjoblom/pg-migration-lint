@@ -309,6 +309,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 is_inline_pk = true;
                 nullable = false;
                 constraints.push(TableConstraint::PrimaryKey {
+                    name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
                     using_index: None,
                 });
@@ -770,6 +771,7 @@ fn convert_table_constraint(
                 columns.push(col.to_string());
             }
             Some(TableConstraint::PrimaryKey {
+                name,
                 columns,
                 using_index: optional_name(&con.indexname),
             })

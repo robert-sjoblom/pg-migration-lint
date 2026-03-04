@@ -5,7 +5,7 @@
 //! code may assume non-NULL values.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "DROP NOT NULL on existing table allows NULL values";
 
@@ -29,6 +29,8 @@ pub(super) const EXPLAIN: &str = "PGM507 — DROP NOT NULL on existing table\n\
          2. Update aggregations and joins that assume non-NULL.\n\
          3. Consider adding a CHECK constraint or application-level validation\n\
             if only certain rows should allow NULL.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

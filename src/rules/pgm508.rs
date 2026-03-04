@@ -5,7 +5,7 @@
 //! Also fires for exact duplicates (same columns, same access method).
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
     "Duplicate or redundant index detected (prefix of another index)";
@@ -40,6 +40,8 @@ pub(super) const EXPLAIN: &str = "PGM508 — Duplicate/redundant indexes\n\
          \n\
          The check uses catalog_after so indexes created later in the same\n\
          migration file are visible.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -6,7 +6,7 @@
 //! with NOT VALID, validate it, then set NOT NULL.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str =
     "SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock";
@@ -44,6 +44,8 @@ pub(super) const EXPLAIN: &str = "PGM013 — SET NOT NULL on existing table requ
              CHECK (status IS NOT NULL) NOT VALID;\n\
            ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
            ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

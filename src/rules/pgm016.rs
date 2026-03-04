@@ -9,7 +9,7 @@
 //! PostgreSQL implicitly runs `SET NOT NULL` under ACCESS EXCLUSIVE lock.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD PRIMARY KEY on existing table without USING INDEX";
 
@@ -49,6 +49,8 @@ pub(super) const EXPLAIN: &str = "PGM016 — ADD PRIMARY KEY on existing table w
            CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
            ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;";
 
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
+
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],
@@ -62,6 +64,7 @@ pub(super) fn check(
             let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 columns,
                 using_index,
+                ..
             }) = action
             else {
                 return vec![];
@@ -150,6 +153,7 @@ mod tests {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: columns.iter().map(|s| s.to_string()).collect(),
                     using_index: None,
                 },
@@ -162,6 +166,7 @@ mod tests {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec![], // empty with USING INDEX
                     using_index: Some(idx_name.to_string()),
                 },

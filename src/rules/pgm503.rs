@@ -5,7 +5,7 @@
 //! equivalent to a PK but less conventional.
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "UNIQUE NOT NULL used instead of PRIMARY KEY";
 
@@ -43,6 +43,8 @@ pub(super) const EXPLAIN: &str = "PGM503 — UNIQUE NOT NULL used instead of PRI
          partition children when the parent already has a PK or when the\n\
          parent is not in the catalog (common in incremental CI where only\n\
          new migrations are analyzed).";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,
@@ -184,6 +186,7 @@ mod tests {
                 ])
                 .with_constraints(vec![
                     TableConstraint::PrimaryKey {
+                        name: None,
                         columns: vec!["id".to_string()],
                         using_index: None,
                     },

@@ -5,7 +5,7 @@
 //! that references the old column name.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, existing_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "RENAME COLUMN on existing table";
 
@@ -37,6 +37,8 @@ pub(super) const EXPLAIN: &str = "PGM505 — RENAME COLUMN on existing table\n\
          This rule does NOT fire when the table is created in the same set of\n\
          changed files, because renaming a column on a new table has no\n\
          external consumers.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 
 pub(super) fn check(
     rule: impl Rule,

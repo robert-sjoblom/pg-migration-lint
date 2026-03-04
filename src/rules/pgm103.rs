@@ -6,7 +6,7 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses char(n) type";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM103 — Don't use `char(n)`\n\
          Fix:\n\
            CREATE TABLE countries (code text NOT NULL);\n\
            -- or: code varchar(2) NOT NULL";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

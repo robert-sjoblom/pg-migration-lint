@@ -284,6 +284,17 @@ impl TableBuilder {
     pub fn pk(&mut self, columns: &[&str]) -> &mut Self {
         self.state.has_primary_key = true;
         self.state.constraints.push(ConstraintState::PrimaryKey {
+            name: None,
+            columns: columns.iter().map(|s| s.to_string()).collect(),
+        });
+        self
+    }
+
+    /// Add a primary key constraint with a custom name
+    pub fn named_pk(&mut self, pk_name: &str, columns: &[&str]) -> &mut Self {
+        self.state.has_primary_key = true;
+        self.state.constraints.push(ConstraintState::PrimaryKey {
+            name: Some(pk_name.to_string()),
             columns: columns.iter().map(|s| s.to_string()).collect(),
         });
         self

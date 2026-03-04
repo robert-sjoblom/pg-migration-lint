@@ -6,7 +6,7 @@
 //! blocking all writes (inserts, updates, deletes).
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on CREATE INDEX";
 
@@ -44,6 +44,8 @@ pub(super) const EXPLAIN: &str = "PGM001 — Missing CONCURRENTLY on CREATE INDE
          on each partition, then ALTER INDEX parent_idx ATTACH PARTITION\n\
          child_idx for each. CREATE INDEX ON ONLY is suppressed by this rule\n\
          because it does not lock child partitions.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

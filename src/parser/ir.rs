@@ -446,6 +446,7 @@ pub enum DefaultExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TableConstraint {
     PrimaryKey {
+        name: Option<String>,
         columns: Vec<String>,
         /// Index name from `USING INDEX` clause, e.g. `ADD PRIMARY KEY USING INDEX idx`.
         /// When present, `columns` will be empty (PostgreSQL derives them from the index).

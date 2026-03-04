@@ -65,6 +65,8 @@ pub(super) const EXPLAIN: &str = "PGM006 — Volatile default on column\n\
          Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
          rows) and are not flagged.";
 
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
+
 /// Returns true if the function name is `nextval` (case-insensitive).
 /// Used to emit a serial-specific message instead of the generic volatile warning.
 fn is_nextval(func_name: &str) -> bool {

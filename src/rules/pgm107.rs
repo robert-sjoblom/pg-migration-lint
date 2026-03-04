@@ -7,7 +7,7 @@
 //! table rewrite.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
     "Primary key column uses integer or smallint instead of bigint";
@@ -35,6 +35,8 @@ pub(super) const EXPLAIN: &str = "PGM107 — Integer Primary Key\n\
            CREATE TABLE orders (\n\
              id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
            );";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 /// Returns `true` for integer types that are too small for a primary key.
 fn is_small_int_type(type_name: &str) -> bool {
@@ -100,6 +102,7 @@ pub(super) fn check(
                     let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                         columns,
                         using_index,
+                        ..
                     }) = action
                     else {
                         continue;
@@ -224,6 +227,7 @@ mod tests {
             CreateTable::test(QualifiedName::unqualified("orders"))
                 .with_columns(vec![ColumnDef::test("id", "int4").with_nullable(false)])
                 .with_constraints(vec![TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 }]),
@@ -288,6 +292,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 },
@@ -314,6 +319,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 },
@@ -341,6 +347,7 @@ mod tests {
             name: QualifiedName::unqualified("order_items"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["order_id".to_string(), "item_id".to_string()],
                     using_index: None,
                 },
@@ -369,6 +376,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec![],
                     using_index: Some("idx_orders_pk".to_string()),
                 },
@@ -398,6 +406,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec![],
                     using_index: Some("idx_orders_pk".to_string()),
                 },
@@ -420,6 +429,7 @@ mod tests {
             name: QualifiedName::unqualified("nonexistent"),
             actions: vec![AlterTableAction::AddConstraint(
                 TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 },

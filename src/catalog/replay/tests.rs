@@ -65,6 +65,7 @@ fn drop_col_constraint_setup_multi_pk() -> (Catalog, &'static str, &'static str,
         CreateTable::test(qname("t"))
             .with_columns(vec![col("a", "integer", false), col("b", "integer", false)])
             .with_constraints(vec![TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec!["a".to_string(), "b".to_string()],
                 using_index: None,
             }])
@@ -360,6 +361,7 @@ fn test_composite_index_column_order() {
     CreateTable::test(qname("t"))
         .with_columns(vec![col("id", "integer", false)])
         .with_constraints(vec![TableConstraint::PrimaryKey {
+            name: None,
             columns: vec!["id".to_string()],
             using_index: None,
         }])
@@ -375,7 +377,7 @@ fn test_pk_normalizes(#[case] create_table: CreateTable) {
     assert!(
         table.constraints.iter().any(|c| matches!(
             c,
-            ConstraintState::PrimaryKey { columns } if columns == &["id".to_string()]
+            ConstraintState::PrimaryKey { columns, .. } if columns == &["id".to_string()]
         )),
         "Should have a PrimaryKey constraint for 'id'"
     );
@@ -646,6 +648,7 @@ fn test_add_constraint_via_alter_table() {
             name: qname("t"),
             actions: vec![
                 AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                    name: None,
                     columns: vec!["id".to_string()],
                     using_index: None,
                 }),
@@ -1207,7 +1210,7 @@ fn test_apply_rename_column_updates_self_referencing_fk_ref_columns() {
         .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
         .expect("PK constraint should exist");
     match pk {
-        ConstraintState::PrimaryKey { columns } => {
+        ConstraintState::PrimaryKey { columns, .. } => {
             assert_eq!(
                 columns,
                 &["employee_id".to_string()],
@@ -1257,6 +1260,7 @@ fn test_add_pk_using_index_resolves_columns_from_index() {
         name: QualifiedName::qualified("public", "orders"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec![], // empty with USING INDEX
                 using_index: Some("idx_orders_pk".to_string()),
             },
@@ -1272,7 +1276,7 @@ fn test_add_pk_using_index_resolves_columns_from_index() {
         .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
         .expect("PK constraint should exist");
     match pk {
-        ConstraintState::PrimaryKey { columns } => {
+        ConstraintState::PrimaryKey { columns, .. } => {
             assert_eq!(
                 columns,
                 &["id".to_string()],
@@ -1434,6 +1438,7 @@ fn test_add_pk_using_index_missing_index_stays_empty() {
         name: QualifiedName::qualified("public", "orders"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec![],
                 using_index: Some("idx_nonexistent".to_string()),
             },
@@ -1449,7 +1454,7 @@ fn test_add_pk_using_index_missing_index_stays_empty() {
         .find(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
         .expect("PK constraint should exist");
     match pk {
-        ConstraintState::PrimaryKey { columns } => {
+        ConstraintState::PrimaryKey { columns, .. } => {
             assert!(
                 columns.is_empty(),
                 "Columns should be empty when referenced index doesn't exist"
@@ -2419,6 +2424,7 @@ fn drop_constraint_setup_pk() -> (Catalog, &'static str, &'static str) {
         CreateTable::test(qname("orders"))
             .with_columns(vec![col("id", "integer", false)])
             .with_constraints(vec![TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec!["id".to_string()],
                 using_index: None,
             }])
@@ -2529,19 +2535,15 @@ fn test_drop_constraint_by_type(#[case] setup: (Catalog, &'static str, &'static 
     );
 }
 
-/// Documents a known limitation: ConstraintState::PrimaryKey has no `name`
-/// field, so DROP CONSTRAINT with a custom PK name (e.g. `pk_orders`) fails
-/// to match. The heuristic only works for PostgreSQL's default `{table}_pkey`.
-/// See TODO.md for the fix plan.
 #[test]
-fn test_drop_custom_named_pk_constraint_is_not_supported() {
+fn test_drop_custom_named_pk_constraint() {
     let mut catalog = Catalog::new();
 
-    // Create table with a PK (catalog doesn't store the custom name).
     let unit1 = make_unit(vec![
         CreateTable::test(qname("orders"))
             .with_columns(vec![col("id", "integer", false)])
             .with_constraints(vec![TableConstraint::PrimaryKey {
+                name: Some("pk_orders".to_string()),
                 columns: vec!["id".to_string()],
                 using_index: None,
             }])
@@ -2551,7 +2553,6 @@ fn test_drop_custom_named_pk_constraint_is_not_supported() {
 
     assert!(catalog.get_table("orders").unwrap().has_primary_key);
 
-    // DROP CONSTRAINT with a custom name — doesn't match the heuristic.
     let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: qname("orders"),
         actions: vec![AlterTableAction::DropConstraint {
@@ -2561,10 +2562,9 @@ fn test_drop_custom_named_pk_constraint_is_not_supported() {
     apply(&mut catalog, &unit2);
 
     let table = catalog.get_table("orders").unwrap();
-    // PK survives because "pk_orders" != "orders_pkey".
     assert!(
-        table.has_primary_key,
-        "known limitation: custom-named PK cannot be dropped (see TODO.md)"
+        !table.has_primary_key,
+        "custom-named PK should be dropped by matching name"
     );
 }
 

@@ -805,6 +805,7 @@ fn test_parse_alter_table_add_primary_key() {
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 columns,
                 using_index,
+                ..
             }) => {
                 assert_eq!(columns, &["id"]);
                 assert_eq!(*using_index, None);
@@ -824,6 +825,7 @@ fn test_parse_add_pk_using_index() {
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 columns,
                 using_index,
+                ..
             }) => {
                 assert!(
                     columns.is_empty(),
@@ -870,6 +872,7 @@ fn test_parse_add_pk_without_using_index() {
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 columns,
                 using_index,
+                ..
             }) => {
                 assert_eq!(columns, &["id"]);
                 assert_eq!(*using_index, None);
@@ -895,6 +898,7 @@ fn test_parse_inline_pk_no_using_index() {
                 TableConstraint::PrimaryKey {
                     columns,
                     using_index,
+                    ..
                 } => {
                     assert_eq!(columns, &["id"]);
                     assert_eq!(*using_index, None);

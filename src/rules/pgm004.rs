@@ -5,7 +5,7 @@
 //! acquires ACCESS EXCLUSIVE on the entire parent table.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "DETACH PARTITION on existing table without CONCURRENTLY";
 
@@ -33,6 +33,8 @@ Fix (safe):
   ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
 
 Note: DETACH PARTITION CONCURRENTLY requires PostgreSQL 14+.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

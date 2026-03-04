@@ -44,6 +44,8 @@ pub(super) const EXPLAIN: &str = "PGM020 \u{2014} DISABLE TRIGGER on table\n\
            INSERT INTO orders SELECT * FROM staging;\n\
            ALTER TABLE orders ENABLE TRIGGER ALL;";
 
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
+
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],

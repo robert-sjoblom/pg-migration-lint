@@ -6,7 +6,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "TRUNCATE TABLE CASCADE on existing table";
 
@@ -39,6 +39,8 @@ pub(super) const EXPLAIN: &str = "PGM204 — TRUNCATE TABLE CASCADE on existing 
          \n\
          This rule is MAJOR severity because CASCADE silently destroys\n\
          data in dependent tables the developer may not be aware of.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -45,6 +45,8 @@ pub(super) const EXPLAIN: &str = "PGM007 — ALTER COLUMN TYPE on existing table
            ALTER TABLE orders DROP COLUMN amount;\n\
            ALTER TABLE orders RENAME COLUMN amount_new TO amount;";
 
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
+
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],

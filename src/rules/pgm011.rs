@@ -8,7 +8,7 @@
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule, drop_column_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes primary key";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM011 — DROP COLUMN silently removes primar
          Add a new primary key on the remaining columns before or after\n\
          dropping the column, or reconsider whether the column drop is\n\
          necessary.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 pub(super) fn check(
     rule: impl Rule,
@@ -279,6 +281,7 @@ mod tests {
                     name: QualifiedName::unqualified("orders"),
                     actions: vec![AlterTableAction::AddConstraint(
                         TableConstraint::PrimaryKey {
+                            name: None,
                             columns: vec![], // empty with USING INDEX
                             using_index: Some("idx_orders_pk".to_string()),
                         },

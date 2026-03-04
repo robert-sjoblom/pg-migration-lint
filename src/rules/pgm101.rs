@@ -6,7 +6,7 @@
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses timestamp without time zone";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM101 — Don't use `timestamp` (without time
          \n\
          Fix:\n\
            CREATE TABLE events (created_at timestamptz NOT NULL);";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
 pub(super) fn check(
     rule: impl Rule,

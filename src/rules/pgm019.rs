@@ -5,7 +5,7 @@
 //! for EXCLUDE constraints — there is no safe online path.
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, TableScope, alter_table_check};
+use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD EXCLUDE constraint on existing table";
 
@@ -36,6 +36,8 @@ pub(super) const EXPLAIN: &str = "PGM019 — ADD EXCLUDE constraint on existing 
          \n\
          Fix:\n\
            There is no online alternative. Plan for a maintenance window.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

@@ -538,6 +538,7 @@ fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
         name: QualifiedName::unqualified("orders"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec!["id".to_string()],
                 using_index: None,
             },
@@ -565,6 +566,7 @@ fn test_matrix_add_pk_and_add_unique_both_fire() {
         name: QualifiedName::unqualified("orders"),
         actions: vec![
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                name: None,
                 columns: vec!["id".to_string()],
                 using_index: None,
             }),

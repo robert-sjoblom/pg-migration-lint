@@ -6,7 +6,7 @@
 //! the full duration. There is no online alternative.
 
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CLUSTER on existing table";
 
@@ -32,6 +32,8 @@ pub(super) const EXPLAIN: &str = "PGM018 — CLUSTER on existing table\n\
          1. Schedule CLUSTER during a maintenance window when downtime is acceptable.\n\
          2. Consider pg_repack or pg_squeeze for online table rewrites.\n\
          3. For new tables, CLUSTER is fine — this rule only fires on existing tables.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
 pub(super) fn check(
     rule: impl Rule,

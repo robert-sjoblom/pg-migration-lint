@@ -6,7 +6,7 @@
 //! the referencing table, leading to severe performance degradation.
 
 use crate::parser::ir::{IrNode, Located, SourceSpan, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Foreign key without covering index on referencing columns";
 
@@ -51,6 +51,8 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
          \n\
          For partition children, the check first looks for an index on the\n\
          child itself, then delegates to the parent's indexes.";
+
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
 pub(super) fn check(
     rule: impl Rule,
