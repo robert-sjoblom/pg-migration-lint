@@ -1,8 +1,59 @@
 use super::*;
+use rstest::rstest;
 
-// -----------------------------------------------------------------------
-// byte_offset_to_line
-// -----------------------------------------------------------------------
+/// Helper: parse a CREATE INDEX with the given expression and return the
+/// referenced_columns from the first (expression) column.
+fn expr_index_refs(expr: &str) -> Vec<String> {
+    let sql = format!("CREATE INDEX idx ON t ({});", expr);
+    let nodes = parse_sql(&sql);
+    match &nodes[0].node {
+        IrNode::CreateIndex(ci) => match &ci.columns[0] {
+            IndexColumn::Expression {
+                referenced_columns, ..
+            } => referenced_columns.clone(),
+            IndexColumn::Column(name) => {
+                panic!("Expected Expression, got Column({name})")
+            }
+        },
+        other => panic!("Expected CreateIndex, got: {:?}", other),
+    }
+}
+
+#[rstest]
+#[case::grant("GRANT SELECT ON orders TO readonly;")]
+#[case::comment_on("COMMENT ON TABLE orders IS 'Order table';")]
+#[case::alter_index_rename("ALTER INDEX idx_foo RENAME TO idx_bar;")]
+#[case::drop_view("DROP VIEW my_view;")]
+#[case::drop_sequence("DROP SEQUENCE my_seq;")]
+#[case::drop_type("DROP TYPE my_type;")]
+#[case::create_view("CREATE VIEW v AS SELECT 1;")]
+#[case::create_function(
+    "CREATE FUNCTION add(a int, b int) RETURNS int AS 'SELECT a + b' LANGUAGE sql;"
+)]
+#[case::create_sequence("CREATE SEQUENCE order_seq START 1;")]
+#[case::create_extension("CREATE EXTENSION IF NOT EXISTS pgcrypto;")]
+#[case::create_type("CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');")]
+#[case::select("SELECT * FROM foo;")]
+#[case::set("SET search_path TO myschema;")]
+#[case::revoke("REVOKE SELECT ON orders FROM readonly;")]
+#[case::create_trigger(
+    "CREATE TRIGGER trg BEFORE INSERT ON foo FOR EACH ROW EXECUTE FUNCTION bar();"
+)]
+#[case::alter_sequence_rename("ALTER SEQUENCE my_seq RENAME TO new_seq;")]
+#[case::drop_function("DROP FUNCTION my_func(int);")]
+#[case::create_schema("CREATE SCHEMA myschema;")]
+#[case::alter_sequence("ALTER SEQUENCE order_seq RESTART WITH 1000;")]
+#[case::vacuum_plain("VACUUM orders;")]
+#[case::alter_index_set("ALTER INDEX idx_foo SET (fillfactor = 70);")]
+fn test_parse_ignored_statements(#[case] sql: &str) {
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1, "Expected exactly 1 node for: {sql}");
+    assert!(
+        matches!(nodes[0].node, IrNode::Ignored { .. }),
+        "Expected IrNode::Ignored for: {sql}, got: {:?}",
+        nodes[0].node
+    );
+}
 
 #[test]
 fn test_byte_offset_to_line_first_line() {
@@ -36,10 +87,6 @@ fn test_byte_offset_to_line_beyond_end() {
     // Should clamp to source length
     assert_eq!(byte_offset_to_line("hello", 999), 1);
 }
-
-// -----------------------------------------------------------------------
-// parse_sql — smoke tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_create_table() {
@@ -208,10 +255,6 @@ fn test_parse_default_string_literal() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Constraints
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_table_level_primary_key() {
     let sql = "CREATE TABLE t (id int, name text, PRIMARY KEY (id));";
@@ -307,10 +350,6 @@ fn test_parse_unique_constraint() {
         other => panic!("Expected CreateTable, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// ALTER TABLE
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_alter_table_add_column() {
@@ -428,10 +467,6 @@ fn test_parse_alter_table_set_not_null() {
     }
 }
 
-// -----------------------------------------------------------------------
-// CREATE INDEX
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_create_index() {
     let sql = "CREATE INDEX idx_status ON orders (status);";
@@ -494,149 +529,28 @@ fn test_parse_create_composite_index() {
     }
 }
 
-// -----------------------------------------------------------------------
-// DROP INDEX / DROP TABLE
-// -----------------------------------------------------------------------
+// DROP INDEX / DROP TABLE single-target tests: see test_parse_drop_table_flags
+// and test_parse_drop_index_flags rstest below.
 
-#[test]
-fn test_parse_drop_index() {
-    let sql = "DROP INDEX idx_status;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx_status");
-            assert!(!di.concurrent);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_index_concurrently() {
-    let sql = "DROP INDEX CONCURRENTLY idx_status;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx_status");
-            assert!(di.concurrent);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_table() {
-    let sql = "DROP TABLE orders;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("orders"));
-            assert!(!dt.cascade, "Plain DROP TABLE should not have cascade");
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_table_with_schema() {
-    let sql = "DROP TABLE myschema.orders;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::qualified("myschema", "orders"));
-            assert!(!dt.cascade);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_table_cascade() {
-    let sql = "DROP TABLE orders CASCADE;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("orders"));
-            assert!(dt.cascade, "DROP TABLE CASCADE should have cascade=true");
-            assert!(!dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_table_if_exists_cascade() {
-    let sql = "DROP TABLE IF EXISTS orders CASCADE;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("orders"));
-            assert!(dt.cascade);
-            assert!(dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// DROP SCHEMA
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_schema_cascade() {
-    let sql = "DROP SCHEMA myschema CASCADE;";
+#[rstest]
+#[case::cascade("DROP SCHEMA myschema CASCADE;", "myschema", true, false)]
+#[case::if_exists_no_cascade("DROP SCHEMA IF EXISTS myschema;", "myschema", false, true)]
+#[case::if_exists_cascade("DROP SCHEMA IF EXISTS myschema CASCADE;", "myschema", true, true)]
+#[case::plain("DROP SCHEMA myschema;", "myschema", false, false)]
+#[case::restrict("DROP SCHEMA myschema RESTRICT;", "myschema", false, false)]
+fn test_parse_drop_schema_flags(
+    #[case] sql: &str,
+    #[case] expected_schema: &str,
+    #[case] expected_cascade: bool,
+    #[case] expected_if_exists: bool,
+) {
     let nodes = parse_sql(sql);
     assert_eq!(nodes.len(), 1);
     match &nodes[0].node {
         IrNode::DropSchema(ds) => {
-            assert_eq!(ds.schema_name, "myschema");
-            assert!(ds.cascade);
-            assert!(!ds.if_exists);
-        }
-        other => panic!("Expected DropSchema, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_schema_if_exists_no_cascade() {
-    let sql = "DROP SCHEMA IF EXISTS myschema;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropSchema(ds) => {
-            assert_eq!(ds.schema_name, "myschema");
-            assert!(!ds.cascade);
-            assert!(ds.if_exists);
-        }
-        other => panic!("Expected DropSchema, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_schema_if_exists_cascade() {
-    let sql = "DROP SCHEMA IF EXISTS myschema CASCADE;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropSchema(ds) => {
-            assert_eq!(ds.schema_name, "myschema");
-            assert!(ds.cascade);
-            assert!(ds.if_exists);
-        }
-        other => panic!("Expected DropSchema, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_schema_plain() {
-    let sql = "DROP SCHEMA myschema;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropSchema(ds) => {
-            assert_eq!(ds.schema_name, "myschema");
-            assert!(!ds.cascade);
-            assert!(!ds.if_exists);
+            assert_eq!(ds.schema_name, expected_schema);
+            assert_eq!(ds.cascade, expected_cascade);
+            assert_eq!(ds.if_exists, expected_if_exists);
         }
         other => panic!("Expected DropSchema, got: {:?}", other),
     }
@@ -664,25 +578,6 @@ fn test_parse_drop_schema_multiple_schemas() {
 }
 
 #[test]
-fn test_parse_drop_schema_restrict() {
-    let sql = "DROP SCHEMA myschema RESTRICT;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropSchema(ds) => {
-            assert_eq!(ds.schema_name, "myschema");
-            assert!(!ds.cascade, "RESTRICT should map to cascade=false");
-            assert!(!ds.if_exists);
-        }
-        other => panic!("Expected DropSchema, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// DO blocks and ignored statements
-// -----------------------------------------------------------------------
-
-#[test]
 fn test_parse_do_block_as_unparseable() {
     let sql = "DO $$ BEGIN RAISE NOTICE 'hello'; END $$;";
     let nodes = parse_sql(sql);
@@ -691,30 +586,6 @@ fn test_parse_do_block_as_unparseable() {
         other => panic!("Expected Unparseable for DO block, got: {:?}", other),
     }
 }
-
-#[test]
-fn test_parse_grant_as_ignored() {
-    let sql = "GRANT SELECT ON orders TO readonly;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected
-        other => panic!("Expected Ignored for GRANT, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_comment_on_as_ignored() {
-    let sql = "COMMENT ON TABLE orders IS 'Order table';";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected
-        other => panic!("Expected Ignored for COMMENT ON, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// Multi-statement parsing
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_multi_statement() {
@@ -739,10 +610,6 @@ fn test_parse_invalid_sql() {
     assert_eq!(nodes.len(), 1);
     assert!(matches!(nodes[0].node, IrNode::Unparseable { .. }));
 }
-
-// -----------------------------------------------------------------------
-// Source span accuracy
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_source_span_single_statement() {
@@ -790,10 +657,6 @@ fn test_source_span_statement_after_multiple_comment_lines() {
     );
 }
 
-// -----------------------------------------------------------------------
-// Table hint extraction
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_extract_table_hint_alter() {
     let hint = extract_table_hint_from_raw("ALTER TABLE orders ADD COLUMN x int;");
@@ -835,10 +698,6 @@ fn test_extract_table_hint_none() {
     let hint = extract_table_hint_from_raw("DO $$ BEGIN END $$;");
     assert!(hint.is_none());
 }
-
-// -----------------------------------------------------------------------
-// Nullable inference from constraints
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_nullable_column_default() {
@@ -885,10 +744,6 @@ fn test_primary_key_implies_not_null() {
     }
 }
 
-// -----------------------------------------------------------------------
-// check constraint
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_check_constraint() {
     let sql = "CREATE TABLE t (col int, CHECK (col > 0));";
@@ -906,10 +761,6 @@ fn test_parse_check_constraint() {
         other => panic!("Expected CreateTable, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// ALTER TABLE ADD COLUMN with serial
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_alter_add_column_serial() {
@@ -930,10 +781,6 @@ fn test_parse_alter_add_column_serial() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Boolean default
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_boolean_default() {
     let sql = "CREATE TABLE t (active bool DEFAULT TRUE);";
@@ -948,10 +795,6 @@ fn test_parse_boolean_default() {
         other => panic!("Expected CreateTable, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// Named constraint via ALTER TABLE
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_alter_table_add_primary_key() {
@@ -971,10 +814,6 @@ fn test_parse_alter_table_add_primary_key() {
         other => panic!("Expected AlterTable, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// USING INDEX
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_add_pk_using_index() {
@@ -1089,10 +928,6 @@ fn test_parse_inline_unique_no_using_index() {
     }
 }
 
-// -----------------------------------------------------------------------
-// NOT VALID constraints
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_add_fk_not_valid() {
     let sql = "ALTER TABLE orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;";
@@ -1184,10 +1019,6 @@ fn test_parse_add_check_without_not_valid() {
     }
 }
 
-// -----------------------------------------------------------------------
-// RENAME TABLE / RENAME COLUMN / RENAME INDEX
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_rename_table() {
     let sql = "ALTER TABLE orders RENAME TO orders_v2;";
@@ -1221,109 +1052,28 @@ fn test_parse_rename_column() {
     }
 }
 
-#[test]
-fn test_parse_rename_index_ignored() {
-    let sql = "ALTER INDEX idx_foo RENAME TO idx_bar;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected
-        other => panic!("Expected Ignored for ALTER INDEX RENAME, got: {:?}", other),
-    }
-}
+// Schema-qualified DROP INDEX: see test_parse_drop_index_flags rstest.
 
-// -----------------------------------------------------------------------
-// Schema-qualified DROP INDEX
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_index_schema_qualified() {
-    let sql = "DROP INDEX myschema.idx_status;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx_status");
-            assert!(!di.concurrent);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// Temp table filtering
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_create_temp_table() {
-    let sql = "CREATE TEMP TABLE scratch (id int);";
+#[rstest]
+#[case::temp("CREATE TEMP TABLE scratch (id int);", TablePersistence::Temporary)]
+#[case::temporary(
+    "CREATE TEMPORARY TABLE scratch (id int);",
+    TablePersistence::Temporary
+)]
+#[case::permanent("CREATE TABLE scratch (id int);", TablePersistence::Permanent)]
+#[case::unlogged(
+    "CREATE UNLOGGED TABLE scratch (id int, payload text);",
+    TablePersistence::Unlogged
+)]
+fn test_table_persistence(#[case] sql: &str, #[case] expected: TablePersistence) {
     let nodes = parse_sql(sql);
     match &nodes[0].node {
         IrNode::CreateTable(ct) => {
-            assert_eq!(ct.name.name, "scratch");
-            assert_eq!(
-                ct.persistence,
-                TablePersistence::Temporary,
-                "TEMP table should have Temporary persistence"
-            );
-            assert_eq!(ct.columns.len(), 1);
+            assert_eq!(ct.persistence, expected);
         }
         other => panic!("Expected CreateTable, got: {:?}", other),
     }
 }
-
-#[test]
-fn test_parse_create_temporary_table() {
-    let sql = "CREATE TEMPORARY TABLE scratch (id int);";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::CreateTable(ct) => {
-            assert_eq!(
-                ct.persistence,
-                TablePersistence::Temporary,
-                "TEMPORARY table should have Temporary persistence"
-            );
-        }
-        other => panic!("Expected CreateTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_regular_table_not_temporary() {
-    let sql = "CREATE TABLE regular (id int);";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::CreateTable(ct) => {
-            assert_eq!(
-                ct.persistence,
-                TablePersistence::Permanent,
-                "Regular table should have Permanent persistence"
-            );
-        }
-        other => panic!("Expected CreateTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_create_unlogged_table() {
-    let sql = "CREATE UNLOGGED TABLE scratch (id int, payload text);";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::CreateTable(ct) => {
-            assert_eq!(ct.name.name, "scratch");
-            assert_eq!(
-                ct.persistence,
-                TablePersistence::Unlogged,
-                "UNLOGGED table should have Unlogged persistence"
-            );
-            assert_eq!(ct.columns.len(), 2);
-        }
-        other => panic!("Expected CreateTable, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// IF NOT EXISTS
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_create_table_if_not_exists() {
@@ -1350,10 +1100,6 @@ fn test_parse_create_index_if_not_exists() {
         other => panic!("Expected CreateIndex, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// TRUNCATE TABLE
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_truncate_table() {
@@ -1401,10 +1147,6 @@ fn test_parse_truncate_multi_table() {
     assert_eq!(names, vec!["t1", "t2", "t3"]);
 }
 
-// -----------------------------------------------------------------------
-// Multi-table DROP TABLE / DROP INDEX (regression tests)
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_drop_table_multi() {
     let sql = "DROP TABLE t1, t2;";
@@ -1443,47 +1185,6 @@ fn test_parse_drop_index_multi() {
     }
 }
 
-// -----------------------------------------------------------------------
-// convert_drop_stmt — catch-all arm (non-table, non-index DROP)
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_view_ignored() {
-    let sql = "DROP VIEW my_view;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected — DROP VIEW hits the catch-all arm
-        other => panic!("Expected Ignored for DROP VIEW, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_sequence_ignored() {
-    let sql = "DROP SEQUENCE my_seq;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected — DROP SEQUENCE hits the catch-all arm
-        other => panic!("Expected Ignored for DROP SEQUENCE, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_type_ignored() {
-    let sql = "DROP TYPE my_type;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::Ignored { .. } => {} // Expected — DROP TYPE hits the catch-all arm
-        other => panic!("Expected Ignored for DROP TYPE, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// TRUNCATE with schema-qualified name
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_truncate_schema_qualified() {
     let sql = "TRUNCATE TABLE myschema.foo;";
@@ -1498,161 +1199,84 @@ fn test_parse_truncate_schema_qualified() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Single-target DROP TABLE / DROP INDEX variations
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_table_single_no_cascade_no_if_exists() {
-    let sql = "DROP TABLE foo;";
+#[rstest]
+#[case::plain("DROP TABLE foo;", None, "foo", false, false)]
+#[case::if_exists("DROP TABLE IF EXISTS foo;", None, "foo", false, true)]
+#[case::cascade("DROP TABLE foo CASCADE;", None, "foo", true, false)]
+#[case::if_exists_cascade("DROP TABLE IF EXISTS orders CASCADE;", None, "orders", true, true)]
+#[case::unqualified("DROP TABLE orders;", None, "orders", false, false)]
+#[case::schema_qualified(
+    "DROP TABLE myschema.orders;",
+    Some("myschema"),
+    "orders",
+    false,
+    false
+)]
+#[case::schema_qualified_foo("DROP TABLE myschema.foo;", Some("myschema"), "foo", false, false)]
+#[case::three_part_name(
+    "DROP TABLE mycat.myschema.foo;",
+    Some("myschema"),
+    "foo",
+    false,
+    false
+)]
+fn test_parse_drop_table_flags(
+    #[case] sql: &str,
+    #[case] expected_schema: Option<&str>,
+    #[case] expected_name: &str,
+    #[case] cascade: bool,
+    #[case] if_exists: bool,
+) {
     let nodes = parse_sql(sql);
     assert_eq!(nodes.len(), 1);
     match &nodes[0].node {
         IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("foo"));
-            assert!(!dt.cascade);
-            assert!(!dt.if_exists);
+            let expected_qname = match expected_schema {
+                Some(s) => QualifiedName::qualified(s, expected_name),
+                None => QualifiedName::unqualified(expected_name),
+            };
+            assert_eq!(dt.name, expected_qname, "name mismatch for: {sql}");
+            assert_eq!(dt.cascade, cascade, "cascade mismatch for: {sql}");
+            assert_eq!(dt.if_exists, if_exists, "if_exists mismatch for: {sql}");
         }
-        other => panic!("Expected DropTable, got: {:?}", other),
+        other => panic!("Expected DropTable for `{sql}`, got: {other:?}"),
     }
 }
 
-#[test]
-fn test_parse_drop_table_if_exists() {
-    let sql = "DROP TABLE IF EXISTS foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("foo"));
-            assert!(!dt.cascade);
-            assert!(dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_table_cascade_without_if_exists() {
-    let sql = "DROP TABLE foo CASCADE;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::unqualified("foo"));
-            assert!(dt.cascade);
-            assert!(!dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_index_single() {
-    let sql = "DROP INDEX foo;";
+#[rstest]
+#[case::plain("DROP INDEX foo;", "foo", false, false)]
+#[case::if_exists("DROP INDEX IF EXISTS foo;", "foo", false, true)]
+#[case::concurrently_if_exists("DROP INDEX CONCURRENTLY IF EXISTS foo;", "foo", true, true)]
+#[case::plain_idx_status("DROP INDEX idx_status;", "idx_status", false, false)]
+#[case::concurrently("DROP INDEX CONCURRENTLY idx_status;", "idx_status", true, false)]
+#[case::schema_qualified("DROP INDEX myschema.idx_status;", "idx_status", false, false)]
+#[case::schema_qualified_with_flags(
+    "DROP INDEX CONCURRENTLY IF EXISTS myschema.idx_foo;",
+    "idx_foo",
+    true,
+    true
+)]
+#[case::if_exists_idx_foo("DROP INDEX IF EXISTS idx_foo;", "idx_foo", false, true)]
+fn test_parse_drop_index_flags(
+    #[case] sql: &str,
+    #[case] expected_index_name: &str,
+    #[case] concurrent: bool,
+    #[case] if_exists: bool,
+) {
     let nodes = parse_sql(sql);
     assert_eq!(nodes.len(), 1);
     match &nodes[0].node {
         IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "foo");
-            assert!(!di.concurrent);
-            assert!(!di.if_exists);
+            assert_eq!(
+                di.index_name, expected_index_name,
+                "index_name mismatch for: {sql}"
+            );
+            assert_eq!(di.concurrent, concurrent, "concurrent mismatch for: {sql}");
+            assert_eq!(di.if_exists, if_exists, "if_exists mismatch for: {sql}");
         }
-        other => panic!("Expected DropIndex, got: {:?}", other),
+        other => panic!("Expected DropIndex for `{sql}`, got: {other:?}"),
     }
 }
-
-#[test]
-fn test_parse_drop_index_if_exists() {
-    let sql = "DROP INDEX IF EXISTS foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "foo");
-            assert!(!di.concurrent);
-            assert!(di.if_exists);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_index_concurrently_if_exists() {
-    let sql = "DROP INDEX CONCURRENTLY IF EXISTS foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "foo");
-            assert!(di.concurrent);
-            assert!(di.if_exists);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// Schema-qualified DROP TABLE / DROP INDEX
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_table_schema_qualified() {
-    let sql = "DROP TABLE myschema.foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            assert_eq!(dt.name, QualifiedName::qualified("myschema", "foo"));
-            assert!(!dt.cascade);
-            assert!(!dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_drop_index_schema_qualified_with_flags() {
-    let sql = "DROP INDEX CONCURRENTLY IF EXISTS myschema.idx_foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            // extract_all_names_from_drop_objects takes last string, which is the index name
-            assert_eq!(di.index_name, "idx_foo");
-            assert!(di.concurrent);
-            assert!(di.if_exists);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// extract_all_qualified_names_from_drop_objects — 3+ component names
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_drop_table_three_part_name() {
-    // In PostgreSQL, `catalog.schema.table` is a valid 3-part name.
-    // pg_query parses this and produces 3 string components.
-    // This exercises the `_ if !strings.is_empty()` arm (line ~777).
-    let sql = "DROP TABLE mycat.myschema.foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::DropTable(dt) => {
-            // The 3+ branch takes last two: schema = strings[len-2], name = strings[last]
-            assert_eq!(dt.name, QualifiedName::qualified("myschema", "foo"));
-            assert!(!dt.cascade);
-            assert!(!dt.if_exists);
-        }
-        other => panic!("Expected DropTable, got: {:?}", other),
-    }
-}
-
-// -----------------------------------------------------------------------
-// Multi-target DROP TABLE with mixed qualified names
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_drop_table_multi_mixed_qualified() {
@@ -1690,10 +1314,6 @@ fn test_parse_drop_table_multi_cascade_if_exists() {
     }
 }
 
-// -----------------------------------------------------------------------
-// DROP INDEX — multi-target with schema-qualified names
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_drop_index_multi_schema_qualified() {
     let sql = "DROP INDEX myschema.idx1, myschema.idx2;";
@@ -1712,10 +1332,6 @@ fn test_parse_drop_index_multi_schema_qualified() {
         other => panic!("Expected DropIndex for idx2, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// TRUNCATE without TABLE keyword (bare TRUNCATE)
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_truncate_bare() {
@@ -1751,50 +1367,6 @@ fn test_parse_truncate_multi_schema_qualified() {
         }
         other => panic!("Expected TruncateTable, got: {:?}", other),
     }
-}
-
-// -----------------------------------------------------------------------
-// Additional convert_node catch-all tests (IrNode::Ignored paths)
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_create_view_ignored() {
-    let sql = "CREATE VIEW v AS SELECT 1;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_function_ignored() {
-    let sql = "CREATE FUNCTION add(a int, b int) RETURNS int AS 'SELECT a + b' LANGUAGE sql;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_sequence_ignored() {
-    let sql = "CREATE SEQUENCE order_seq START 1;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_extension_ignored() {
-    let sql = "CREATE EXTENSION IF NOT EXISTS pgcrypto;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_type_ignored() {
-    let sql = "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
 }
 
 #[test]
@@ -1848,42 +1420,6 @@ fn test_parse_delete() {
         other => panic!("Expected DeleteFrom, got: {:?}", other),
     }
 }
-
-#[test]
-fn test_parse_select_ignored() {
-    let sql = "SELECT * FROM foo;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_set_ignored() {
-    let sql = "SET search_path TO myschema;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_revoke_ignored() {
-    let sql = "REVOKE SELECT ON orders FROM readonly;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_trigger_ignored() {
-    let sql = "CREATE TRIGGER trg BEFORE INSERT ON foo FOR EACH ROW EXECUTE FUNCTION bar();";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-// -----------------------------------------------------------------------
-// ALTER TABLE — Other actions and empty-action edge cases
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_alter_table_enable_trigger_as_other() {
@@ -1997,10 +1533,6 @@ fn test_parse_alter_table_drop_constraint_if_exists() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Default expression coverage
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_default_float_literal() {
     let sql = "CREATE TABLE t (price numeric DEFAULT 9.99);";
@@ -2054,10 +1586,6 @@ fn test_parse_default_expression() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Other helper coverage
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_parse_create_index_without_name() {
     // Anonymous indexes should have index_name == None
@@ -2069,33 +1597,6 @@ fn test_parse_create_index_without_name() {
             assert_eq!(ci.table_name.name, "foo");
         }
         other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_rename_schema_ignored() {
-    // ALTER ... RENAME that is not TABLE or COLUMN should be Ignored
-    let sql = "ALTER SEQUENCE my_seq RENAME TO new_seq;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    // Sequence rename may go through RenameStmt catch-all
-    assert!(
-        matches!(nodes[0].node, IrNode::Ignored { .. }),
-        "Expected Ignored for ALTER SEQUENCE RENAME, got: {:?}",
-        nodes[0].node
-    );
-}
-
-#[test]
-fn test_parse_drop_index_if_exists_coverage() {
-    let sql = "DROP INDEX IF EXISTS idx_foo;";
-    let nodes = parse_sql(sql);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx_foo");
-            assert!(di.if_exists);
-        }
-        other => panic!("Expected DropIndex, got: {:?}", other),
     }
 }
 
@@ -2178,51 +1679,15 @@ fn test_parse_create_table_with_named_check() {
 }
 
 #[test]
-fn test_parse_drop_function_ignored() {
-    let sql = "DROP FUNCTION my_func(int);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_create_schema_ignored() {
-    let sql = "CREATE SCHEMA myschema;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-#[test]
-fn test_parse_alter_sequence_ignored() {
-    let sql = "ALTER SEQUENCE order_seq RESTART WITH 1000;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(matches!(nodes[0].node, IrNode::Ignored { .. }));
-}
-
-// -----------------------------------------------------------------------
-// relation_to_qualified_name with None input
-// -----------------------------------------------------------------------
-
-#[test]
 fn test_relation_to_qualified_name_none() {
     let name = relation_to_qualified_name(None);
     assert_eq!(name.name, "unknown");
 }
 
-// -----------------------------------------------------------------------
-// relation_persistence with None input
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_relation_persistence_none() {
     assert_eq!(relation_persistence(None), TablePersistence::Permanent);
 }
-
-// -----------------------------------------------------------------------
-// extract_table_hint_from_raw — additional coverage
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_extract_table_hint_no_match() {
@@ -2235,10 +1700,6 @@ fn test_extract_table_hint_empty() {
     let hint = extract_table_hint_from_raw("");
     assert!(hint.is_none());
 }
-
-// -----------------------------------------------------------------------
-// CLUSTER statement
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_cluster_with_index() {
@@ -2282,10 +1743,6 @@ fn test_parse_cluster_schema_qualified() {
         other => panic!("Expected Cluster, got: {:?}", other),
     }
 }
-
-// -----------------------------------------------------------------------
-// VACUUM FULL statement
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_vacuum_full() {
@@ -2335,18 +1792,6 @@ fn test_parse_vacuum_full_analyze() {
 }
 
 #[test]
-fn test_parse_vacuum_plain_is_ignored() {
-    let sql = "VACUUM orders;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(
-        matches!(&nodes[0].node, IrNode::Ignored { .. }),
-        "Plain VACUUM should map to Ignored, got: {:?}",
-        nodes[0].node
-    );
-}
-
-#[test]
 fn test_parse_vacuum_full_multiple_tables() {
     let sql = "VACUUM FULL orders, customers;";
     let nodes = parse_sql(sql);
@@ -2385,10 +1830,6 @@ fn test_parse_vacuum_full_no_table() {
         other => panic!("Expected VacuumFull, got: {other:?}"),
     }
 }
-
-// -----------------------------------------------------------------------
-// Tests: Partial and expression indexes
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_expression_index() {
@@ -2475,113 +1916,25 @@ fn test_parse_partial_unique_index() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Tests: extract_column_refs via expression index parsing
-// -----------------------------------------------------------------------
-
-/// Helper: parse a CREATE INDEX with the given expression and return the
-/// referenced_columns from the first (expression) column.
-fn expr_index_refs(expr: &str) -> Vec<String> {
-    let sql = format!("CREATE INDEX idx ON t ({});", expr);
-    let nodes = parse_sql(&sql);
-    match &nodes[0].node {
-        IrNode::CreateIndex(ci) => match &ci.columns[0] {
-            IndexColumn::Expression {
-                referenced_columns, ..
-            } => referenced_columns.clone(),
-            IndexColumn::Column(name) => {
-                panic!("Expected Expression, got Column({name})")
-            }
-        },
-        other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
+#[rstest]
+#[case::lower_email("LOWER(email)", &["email"])]
+#[case::typecast("(email::text)", &["email"])]
+#[case::coalesce("COALESCE(a, b)", &["a", "b"])]
+#[case::arithmetic("(a + 1)", &["a"])]
+#[case::constants_only("(1 + 2)", &[])]
+#[case::nested_func_typecast("LOWER(email::text)", &["email"])]
+#[case::multi_arg_func("COALESCE(first_name, last_name, 'unknown')", &["first_name", "last_name"])]
+#[case::bool_expr("(a > 0 AND b > 0)", &["a", "b"])]
+#[case::case_with_default("(CASE WHEN status = 'active' THEN priority ELSE 0 END)", &["priority", "status"])]
+#[case::case_simple_form("(CASE status WHEN 'a' THEN priority ELSE rank END)", &["priority", "rank", "status"])]
+#[case::null_test_in_case("(CASE WHEN email IS NOT NULL THEN email ELSE 'none' END)", &["email"])]
+#[case::greatest("GREATEST(a, b)", &["a", "b"])]
+#[case::least("LEAST(x, y, z)", &["x", "y", "z"])]
+#[case::dedup("(a + a)", &["a"])]
+fn test_extract_column_refs(#[case] expr: &str, #[case] expected: &[&str]) {
+    let expected: Vec<String> = expected.iter().map(|s| (*s).to_owned()).collect();
+    assert_eq!(expr_index_refs(expr), expected);
 }
-
-#[test]
-fn test_extract_refs_lower_email() {
-    assert_eq!(expr_index_refs("LOWER(email)"), vec!["email"]);
-}
-
-#[test]
-fn test_extract_refs_typecast() {
-    // PostgreSQL requires parentheses around non-function expressions in indexes.
-    assert_eq!(expr_index_refs("(email::text)"), vec!["email"]);
-}
-
-#[test]
-fn test_extract_refs_coalesce() {
-    let refs = expr_index_refs("COALESCE(a, b)");
-    assert_eq!(refs, vec!["a", "b"]);
-}
-
-#[test]
-fn test_extract_refs_arithmetic() {
-    // PostgreSQL requires parentheses around operator expressions in indexes.
-    assert_eq!(expr_index_refs("(a + 1)"), vec!["a"]);
-}
-
-#[test]
-fn test_extract_refs_constants_only() {
-    // PostgreSQL requires parentheses around operator expressions in indexes.
-    assert_eq!(expr_index_refs("(1 + 2)"), Vec::<String>::new());
-}
-
-#[test]
-fn test_extract_refs_nested_func_typecast() {
-    assert_eq!(expr_index_refs("LOWER(email::text)"), vec!["email"]);
-}
-
-#[test]
-fn test_extract_refs_multi_arg_func() {
-    let refs = expr_index_refs("COALESCE(first_name, last_name, 'unknown')");
-    assert_eq!(refs, vec!["first_name", "last_name"]);
-}
-
-#[test]
-fn test_extract_refs_bool_expr() {
-    let refs = expr_index_refs("(a > 0 AND b > 0)");
-    assert_eq!(refs, vec!["a", "b"]);
-}
-
-#[test]
-fn test_extract_refs_case_with_default() {
-    let refs = expr_index_refs("(CASE WHEN status = 'active' THEN priority ELSE 0 END)");
-    assert_eq!(refs, vec!["priority", "status"]);
-}
-
-#[test]
-fn test_extract_refs_case_simple_form() {
-    let refs = expr_index_refs("(CASE status WHEN 'a' THEN priority ELSE rank END)");
-    assert_eq!(refs, vec!["priority", "rank", "status"]);
-}
-
-#[test]
-fn test_extract_refs_null_test_in_case() {
-    let refs = expr_index_refs("(CASE WHEN email IS NOT NULL THEN email ELSE 'none' END)");
-    assert_eq!(refs, vec!["email"]);
-}
-
-#[test]
-fn test_extract_refs_greatest() {
-    let refs = expr_index_refs("GREATEST(a, b)");
-    assert_eq!(refs, vec!["a", "b"]);
-}
-
-#[test]
-fn test_extract_refs_least() {
-    let refs = expr_index_refs("LEAST(x, y, z)");
-    assert_eq!(refs, vec!["x", "y", "z"]);
-}
-
-#[test]
-fn test_extract_refs_dedup() {
-    let refs = expr_index_refs("(a + a)");
-    assert_eq!(refs, vec!["a"]);
-}
-
-// -----------------------------------------------------------------------
-// Partition support tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_partition_by_range() {
@@ -2769,10 +2122,6 @@ fn test_partition_by_expression() {
     }
 }
 
-// -----------------------------------------------------------------------
-// ALTER INDEX
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_alter_index_attach_partition() {
     let sql = "ALTER INDEX idx_parent ATTACH PARTITION idx_child;";
@@ -2809,22 +2158,6 @@ fn test_alter_index_attach_partition_schema_qualified() {
         other => panic!("Expected AlterIndexAttachPartition, got {:?}", other),
     }
 }
-
-#[test]
-fn test_alter_index_set_ignored() {
-    let sql = "ALTER INDEX idx_foo SET (fillfactor = 70);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    assert!(
-        matches!(&nodes[0].node, IrNode::Ignored { .. }),
-        "ALTER INDEX SET should map to Ignored, got: {:?}",
-        nodes[0].node
-    );
-}
-
-// -----------------------------------------------------------------------
-// SET DEFAULT / DROP DEFAULT
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_parse_alter_column_set_default_literal() {
@@ -2980,70 +2313,18 @@ fn test_parse_alter_column_set_default_null() {
     }
 }
 
-// -----------------------------------------------------------------------
-// Index access method
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_parse_create_index_default_btree() {
-    let sql = "CREATE INDEX idx ON t (col);";
+#[rstest]
+#[case::default_btree("CREATE INDEX idx ON t (col);", "btree")]
+#[case::gin("CREATE INDEX idx ON t USING gin (col);", "gin")]
+#[case::gist("CREATE INDEX idx ON t USING gist (col);", "gist")]
+#[case::hash("CREATE INDEX idx ON t USING hash (col);", "hash")]
+#[case::brin("CREATE INDEX idx ON t USING brin (col);", "brin")]
+fn test_parse_create_index_access_method(#[case] sql: &str, #[case] expected_method: &str) {
     let nodes = parse_sql(sql);
     assert_eq!(nodes.len(), 1);
     match &nodes[0].node {
         IrNode::CreateIndex(ci) => {
-            assert_eq!(ci.access_method, "btree");
-        }
-        other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_create_index_gin() {
-    let sql = "CREATE INDEX idx ON t USING gin (col);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::CreateIndex(ci) => {
-            assert_eq!(ci.access_method, "gin");
-        }
-        other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_create_index_gist() {
-    let sql = "CREATE INDEX idx ON t USING gist (col);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::CreateIndex(ci) => {
-            assert_eq!(ci.access_method, "gist");
-        }
-        other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_create_index_hash() {
-    let sql = "CREATE INDEX idx ON t USING hash (col);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::CreateIndex(ci) => {
-            assert_eq!(ci.access_method, "hash");
-        }
-        other => panic!("Expected CreateIndex, got: {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_create_index_brin() {
-    let sql = "CREATE INDEX idx ON t USING brin (col);";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 1);
-    match &nodes[0].node {
-        IrNode::CreateIndex(ci) => {
-            assert_eq!(ci.access_method, "brin");
+            assert_eq!(ci.access_method, expected_method);
         }
         other => panic!("Expected CreateIndex, got: {:?}", other),
     }
