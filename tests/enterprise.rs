@@ -3,6 +3,7 @@ use std::{collections::HashSet, path::PathBuf};
 use pg_migration_lint::{
     Finding, LintPipeline, RuleId, input::sql::SqlLoader, normalize, suppress::parse_suppressions,
 };
+use rstest::rstest;
 
 use crate::common::{format_findings, lint_fixture, lint_fixture_rules};
 
@@ -40,67 +41,47 @@ fn test_enterprise_lint_all_finds_violations() {
     );
 }
 
-#[test]
-fn test_enterprise_lint_v007_only() {
-    // V001-V006 are replayed as history, V007 is the only changed file.
-    // V007 creates indexes WITHOUT CONCURRENTLY on pre-existing tables → PGM001
-    let findings = lint_fixture_rules(
-        "enterprise",
-        &["V007__create_index_no_concurrently.sql"],
-        &["PGM001"],
-    );
+/// Single-file, single-rule enterprise tests.
+///
+/// Each case replays all prior migrations as catalog history, then lints a
+/// single changed file against one rule.
+///
+/// `expected_count`:
+/// - `Some(n)` — assert exactly `n` findings
+/// - `None`    — assert at least one finding (non-empty)
+#[rstest]
+#[case::v007_create_index_no_concurrently(
+    "V007__create_index_no_concurrently.sql",
+    "PGM001",
+    Some(3)
+)]
+#[case::v023_drop_index_no_concurrently("V023__drop_index_no_concurrently.sql", "PGM002", None)]
+#[case::v008_add_not_null_column("V008__add_not_null_column.sql", "PGM008", Some(1))]
+#[case::v013_alter_column_type("V013__alter_column_type.sql", "PGM007", None)]
+fn test_enterprise_single_file_single_rule(
+    #[case] changed_file: &str,
+    #[case] rule_id: &str,
+    #[case] expected_count: Option<usize>,
+) {
+    let findings = lint_fixture_rules("enterprise", &[changed_file], &[rule_id]);
 
-    assert_eq!(
-        findings.len(),
-        3,
-        "Expected 3 PGM001 findings for 3 non-concurrent indexes. Got:\n  {}",
-        format_findings(&findings)
-    );
-}
-
-#[test]
-fn test_enterprise_lint_v023_only() {
-    // V001-V022 replayed, V023 is changed: DROP INDEX without CONCURRENTLY → PGM002
-    let findings = lint_fixture_rules(
-        "enterprise",
-        &["V023__drop_index_no_concurrently.sql"],
-        &["PGM002"],
-    );
-
-    assert!(
-        !findings.is_empty(),
-        "Expected PGM002 for DROP INDEX without CONCURRENTLY. Got:\n  {}",
-        format_findings(&findings)
-    );
-}
-
-#[test]
-fn test_enterprise_lint_v008_only() {
-    // V001-V007 replayed, V008 is changed: ADD COLUMN NOT NULL without default → PGM008
-    let findings = lint_fixture_rules(
-        "enterprise",
-        &["V008__add_not_null_column.sql"],
-        &["PGM008"],
-    );
-
-    assert_eq!(
-        findings.len(),
-        1,
-        "Expected 1 PGM008 for NOT NULL without default. Got:\n  {}",
-        format_findings(&findings)
-    );
-}
-
-#[test]
-fn test_enterprise_lint_v013_only() {
-    // V001-V012 replayed, V013 is changed: ALTER COLUMN TYPE → PGM007
-    let findings = lint_fixture_rules("enterprise", &["V013__alter_column_type.sql"], &["PGM007"]);
-
-    assert!(
-        !findings.is_empty(),
-        "Expected PGM007 for ALTER COLUMN TYPE. Got:\n  {}",
-        format_findings(&findings)
-    );
+    match expected_count {
+        Some(n) => {
+            assert_eq!(
+                findings.len(),
+                n,
+                "Expected {n} {rule_id} findings for {changed_file}. Got:\n  {}",
+                format_findings(&findings)
+            );
+        }
+        None => {
+            assert!(
+                !findings.is_empty(),
+                "Expected at least one {rule_id} finding for {changed_file}. Got:\n  {}",
+                format_findings(&findings)
+            );
+        }
+    }
 }
 
 #[test]
