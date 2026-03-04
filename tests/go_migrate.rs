@@ -1,6 +1,7 @@
 use std::{collections::HashSet, path::PathBuf};
 
 use pg_migration_lint::input::sql::SqlLoader;
+use rstest::rstest;
 
 use crate::common::{format_findings, lint_fixture, lint_fixture_rules};
 
@@ -121,129 +122,72 @@ fn test_gomigrate_changed_file_filtering() {
     );
 }
 
-#[test]
-fn test_gomigrate_pgm001_fires() {
-    // Only 000006 is changed. Tables from 000001-000005 are replayed as
-    // history (pre-existing). 000006 creates indexes WITHOUT CONCURRENTLY.
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000006_add_indexes_no_concurrently.up.sql"],
-        &["PGM001"],
-    );
+/// Table-driven test for single-file, single-rule lint assertions.
+///
+/// Each case lints one changed file against one rule and verifies the expected
+/// finding count and (optionally) that a message substring appears in at least
+/// one finding.
+#[rstest]
+#[case::pgm001(
+    "000006_add_indexes_no_concurrently.up.sql",
+    &["PGM001"],
+    2,
+    "",
+)]
+#[case::pgm501(
+    "000008_add_fk_without_index.up.sql",
+    &["PGM501"],
+    1,
+    "assigned_user_id",
+)]
+#[case::pgm502(
+    "000007_create_audit_log.up.sql",
+    &["PGM502"],
+    1,
+    "audit_log",
+)]
+#[case::pgm006(
+    "000009_add_volatile_defaults.up.sql",
+    &["PGM006"],
+    2,
+    "",
+)]
+#[case::pgm008(
+    "000010_add_not_null_no_default.up.sql",
+    &["PGM008"],
+    1,
+    "role",
+)]
+#[case::pgm016(
+    "000012_add_primary_key_no_unique.up.sql",
+    &["PGM016"],
+    1,
+    "audit_log",
+)]
+fn test_gomigrate_single_rule_fires(
+    #[case] file: &str,
+    #[case] rules: &[&str],
+    #[case] expected_count: usize,
+    #[case] message_substring: &str,
+) {
+    let findings = lint_fixture_rules("go-migrate", &[file], rules);
 
     assert_eq!(
         findings.len(),
-        2,
-        "Expected 2 PGM001 findings for indexes on users and orders. Got:\n  {}",
+        expected_count,
+        "Expected {expected_count} finding(s) for {rules:?} in {file}. Got:\n  {}",
         format_findings(&findings)
     );
-}
 
-#[test]
-fn test_gomigrate_pgm501_fires() {
-    // Replay 000001-000007 as history, lint 000008 (adds FK without index).
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000008_add_fk_without_index.up.sql"],
-        &["PGM501"],
-    );
-
-    assert!(
-        !findings.is_empty(),
-        "Expected at least 1 PGM501 finding for orders.assigned_user_id FK. Got:\n  {}",
-        format_findings(&findings)
-    );
-    assert!(
-        findings
-            .iter()
-            .any(|f| f.message.contains("assigned_user_id")),
-        "PGM501 should mention assigned_user_id. Got:\n  {}",
-        format_findings(&findings)
-    );
-}
-
-#[test]
-fn test_gomigrate_pgm502_fires() {
-    // Replay 000001-000006, lint 000007 (creates audit_log without PK).
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000007_create_audit_log.up.sql"],
-        &["PGM502"],
-    );
-
-    assert_eq!(
-        findings.len(),
-        1,
-        "Expected 1 PGM502 finding for audit_log. Got:\n  {}",
-        format_findings(&findings)
-    );
-    assert!(
-        findings[0].message.contains("audit_log"),
-        "PGM502 should mention audit_log. Got: {}",
-        findings[0].message
-    );
-}
-
-#[test]
-fn test_gomigrate_pgm006_fires() {
-    // Replay 000001-000008, lint 000009 (adds volatile defaults).
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000009_add_volatile_defaults.up.sql"],
-        &["PGM006"],
-    );
-
-    assert_eq!(
-        findings.len(),
-        2,
-        "Expected 2 PGM006 findings for clock_timestamp() and gen_random_uuid(). Got:\n  {}",
-        format_findings(&findings)
-    );
-}
-
-#[test]
-fn test_gomigrate_pgm008_fires() {
-    // Replay 000001-000009, lint 000010 (ADD COLUMN NOT NULL no default).
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000010_add_not_null_no_default.up.sql"],
-        &["PGM008"],
-    );
-
-    assert_eq!(
-        findings.len(),
-        1,
-        "Expected 1 PGM008 finding for users.role. Got:\n  {}",
-        format_findings(&findings)
-    );
-    assert!(
-        findings[0].message.contains("role"),
-        "PGM008 should mention 'role'. Got: {}",
-        findings[0].message
-    );
-}
-
-#[test]
-fn test_gomigrate_pgm016_fires() {
-    // Replay 000001-000011, skip 000012.down.sql, lint 000012.up.sql
-    // (ADD PRIMARY KEY on audit_log without prior unique constraint).
-    let findings = lint_fixture_rules(
-        "go-migrate",
-        &["000012_add_primary_key_no_unique.up.sql"],
-        &["PGM016"],
-    );
-
-    assert_eq!(
-        findings.len(),
-        1,
-        "Expected 1 PGM016 finding for audit_log. Got:\n  {}",
-        format_findings(&findings)
-    );
-    assert!(
-        findings[0].message.contains("audit_log"),
-        "PGM016 should mention audit_log. Got: {}",
-        findings[0].message
-    );
+    if !message_substring.is_empty() {
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.message.contains(message_substring)),
+            "Expected at least one finding to mention '{message_substring}'. Got:\n  {}",
+            format_findings(&findings)
+        );
+    }
 }
 
 #[test]

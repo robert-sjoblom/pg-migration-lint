@@ -1,36 +1,24 @@
 mod common;
 
-#[test]
-fn test_catalog_ops_pgm503_not_triggered_after_drop_not_null() {
-    // V001 creates `settings` with UNIQUE NOT NULL on `key` but no PK.
-    // V002 does ALTER TABLE settings ALTER COLUMN key DROP NOT NULL.
-    // After replay, `key` is nullable → has_unique_not_null() = false → PGM503 silent.
-    //
-    // Without proper DROP NOT NULL handling in the catalog, `key` would stay
-    // NOT NULL and PGM503 would incorrectly fire.
-    let findings =
-        common::lint_fixture_rules("catalog-ops", &["V002__catalog_ops.sql"], &["PGM503"]);
-    assert!(
-        findings.is_empty(),
-        "PGM503 should NOT fire for settings: key is now nullable after DROP NOT NULL. \
-         Got {} finding(s): {:?}",
-        findings.len(),
-        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
-    );
-}
+use rstest::rstest;
 
-#[test]
-fn test_catalog_ops_drop_constraint_removes_fk() {
-    // V001 adds fk_customer (FK without covering index) on orders.
-    // V002 drops it with DROP CONSTRAINT fk_customer.
-    // PGM501 collects FKs from IR in the changed file. Since V002 has no
-    // ADD CONSTRAINT FK, PGM501 has nothing to flag.
-    let findings =
-        common::lint_fixture_rules("catalog-ops", &["V002__catalog_ops.sql"], &["PGM501"]);
+/// V002 drops NOT NULL from `key` and drops the FK `fk_customer`.
+/// After replay, PGM503 should not fire (key is nullable) and
+/// PGM501 should not fire (no FK added in V002).
+#[rstest]
+#[case::pgm503_not_triggered_after_drop_not_null(
+    "PGM503",
+    "PGM503 should NOT fire for settings: key is now nullable after DROP NOT NULL"
+)]
+#[case::drop_constraint_removes_fk(
+    "PGM501",
+    "PGM501 should NOT fire: V002 adds no FK, and the baseline FK was dropped"
+)]
+fn test_catalog_ops_v002_no_finding(#[case] rule: &str, #[case] reason: &str) {
+    let findings = common::lint_fixture_rules("catalog-ops", &["V002__catalog_ops.sql"], &[rule]);
     assert!(
         findings.is_empty(),
-        "PGM501 should NOT fire: V002 adds no FK, and the baseline FK was dropped. \
-         Got {} finding(s): {:?}",
+        "{reason}. Got {} finding(s): {:?}",
         findings.len(),
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
