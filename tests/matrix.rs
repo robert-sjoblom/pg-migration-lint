@@ -11,10 +11,6 @@ use pg_migration_lint::rules::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-// ---------------------------------------------------------------------------
-// Helpers (re-created here because test_helpers is #[cfg(test)] crate-internal)
-// ---------------------------------------------------------------------------
-
 fn make_ctx<'a>(
     before: &'a Catalog,
     after: &'a Catalog,
@@ -59,9 +55,6 @@ fn run_selected_rules(
     findings
 }
 
-// ---------------------------------------------------------------------------
-// (a) ADD COLUMN NOT NULL with volatile default -> PGM006 fires, PGM008 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_column_not_null_with_volatile_default() {
     let before = CatalogBuilder::new()
@@ -94,9 +87,6 @@ fn test_matrix_add_column_not_null_with_volatile_default() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (b) ADD COLUMN NOT NULL without default -> PGM008 fires, PGM006 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_column_not_null_without_default() {
     let before = CatalogBuilder::new()
@@ -125,9 +115,6 @@ fn test_matrix_add_column_not_null_without_default() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (c) CREATE INDEX CONCURRENTLY in transaction -> PGM003 fires, PGM001 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_index_concurrent_in_transaction() {
     let before = CatalogBuilder::new()
@@ -158,9 +145,6 @@ fn test_matrix_create_index_concurrent_in_transaction() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (d) CREATE INDEX (non-concurrent) in transaction -> PGM001 fires, PGM003 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_index_non_concurrent_in_transaction() {
     let before = CatalogBuilder::new()
@@ -190,9 +174,6 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (e) CREATE TABLE no PK with FK no covering index -> PGM501 and PGM502 both fire
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_table_no_pk_with_fk_no_index() {
     let before = Catalog::new();
@@ -250,9 +231,6 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (f) CREATE TABLE no PK but UNIQUE NOT NULL -> PGM503 fires, PGM502 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_table_no_pk_but_unique_not_null() {
     let before = Catalog::new();
@@ -303,9 +281,6 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (g) ADD FK without NOT VALID, no covering index -> PGM501 and PGM014 both fire
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_fk_without_not_valid_no_index() {
     let before = CatalogBuilder::new()
@@ -351,9 +326,6 @@ fn test_matrix_add_fk_without_not_valid_no_index() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (h) ADD FK NOT VALID, no covering index -> PGM501 fires, PGM014 does not
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_fk_not_valid_no_index() {
     let before = CatalogBuilder::new()
@@ -399,9 +371,6 @@ fn test_matrix_add_fk_not_valid_no_index() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (i) ADD CHECK without NOT VALID on existing table -> PGM015 fires
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_check_without_not_valid() {
     let before = CatalogBuilder::new()
@@ -429,9 +398,6 @@ fn test_matrix_add_check_without_not_valid() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (j) SET NOT NULL on existing table -> PGM013 fires
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_set_not_null_on_existing() {
     let before = CatalogBuilder::new()
@@ -457,9 +423,6 @@ fn test_matrix_set_not_null_on_existing() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (k) Down migration caps severity to Info
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_down_migration_caps_severity() {
     let mut findings = vec![
@@ -496,9 +459,6 @@ fn test_matrix_down_migration_caps_severity() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (l) CREATE TABLE with bad column types -> PGM101, PGM103, PGM104, PGM105
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_create_table_with_bad_types() {
     let before = Catalog::new();
@@ -561,9 +521,6 @@ fn test_matrix_create_table_with_bad_types() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (m) ADD PRIMARY KEY fires PGM016 only, not PGM017
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
     let before = CatalogBuilder::new()
@@ -591,9 +548,6 @@ fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
     insta::assert_yaml_snapshot!(findings);
 }
 
-// ---------------------------------------------------------------------------
-// (n) Multi-action ALTER TABLE: ADD PK + ADD UNIQUE fires both PGM016 and PGM017
-// ---------------------------------------------------------------------------
 #[test]
 fn test_matrix_add_pk_and_add_unique_both_fire() {
     let before = CatalogBuilder::new()

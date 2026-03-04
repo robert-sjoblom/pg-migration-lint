@@ -76,6 +76,7 @@ mod tests {
 
     #[rstest]
     #[case::create_table_float8(
+        "create_table_float8",
         "migrations/001.sql",
         located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("products"))
@@ -83,6 +84,7 @@ mod tests {
         ))
     )]
     #[case::create_table_float4(
+        "create_table_float4",
         "migrations/001.sql",
         located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("sensors"))
@@ -90,6 +92,7 @@ mod tests {
         ))
     )]
     #[case::add_column_float8(
+        "add_column_float8",
         "migrations/002.sql",
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("products"),
@@ -97,6 +100,7 @@ mod tests {
         }))
     )]
     #[case::alter_column_type_float4(
+        "alter_column_type_float4",
         "migrations/003.sql",
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("sensors"),
@@ -107,7 +111,7 @@ mod tests {
             }],
         }))
     )]
-    fn fires(#[case] migration_file: &str, #[case] stmt: Located<IrNode>) {
+    fn fires(#[case] name: &str, #[case] migration_file: &str, #[case] stmt: Located<IrNode>) {
         let before = Catalog::new();
         let after = Catalog::new();
         let file = PathBuf::from(migration_file);
@@ -115,7 +119,7 @@ mod tests {
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let findings = RuleId::Pgm109.check(&[stmt], &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        insta::assert_yaml_snapshot!(format!("fires_{name}"), findings);
     }
 
     #[rstest]

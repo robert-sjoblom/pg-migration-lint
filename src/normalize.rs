@@ -441,10 +441,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Partition support tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_normalize_partition_of_name() {
         let mut units = vec![make_unit(vec![

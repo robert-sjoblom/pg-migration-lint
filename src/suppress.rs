@@ -216,10 +216,6 @@ CREATE INDEX idx_foo ON foo(id);
         assert!(suppressions.is_suppressed(RuleId::Pgm002, 3));
     }
 
-    // -----------------------------------------------------------------------
-    // XML comment suppression tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_xml_comment_suppress() {
         let source = r#"<?xml version="1.0" encoding="UTF-8"?>
