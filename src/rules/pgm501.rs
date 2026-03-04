@@ -514,10 +514,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // Partition-aware tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_fk_on_partitioned_table_with_regular_index_no_finding() {
         let before = Catalog::new();

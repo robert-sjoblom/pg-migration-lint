@@ -146,17 +146,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case::all(TriggerDisableScope::All)]
-    #[case::named(TriggerDisableScope::Named("my_trigger".to_string()))]
-    #[case::user(TriggerDisableScope::User)]
-    fn fires_on_existing_table(#[case] scope: TriggerDisableScope) {
+    #[case::all("all", TriggerDisableScope::All)]
+    #[case::named("named", TriggerDisableScope::Named("my_trigger".to_string()))]
+    #[case::user("user", TriggerDisableScope::User)]
+    fn fires_on_existing_table(#[case] name: &str, #[case] scope: TriggerDisableScope) {
         let (before, after, file, created) = existing_orders_ctx();
         let ctx = make_ctx(&before, &after, &file, &created);
 
         let stmts = vec![disable_trigger_stmt("orders", scope)];
 
         let findings = RuleId::Pgm020.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        insta::assert_yaml_snapshot!(format!("fires_on_existing_table_{name}"), findings);
     }
 
     #[test]

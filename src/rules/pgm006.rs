@@ -556,10 +556,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // SET DEFAULT — volatile function detection
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_set_default_volatile_fires_info() {
         let before = CatalogBuilder::new()

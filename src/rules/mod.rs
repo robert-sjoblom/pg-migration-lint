@@ -235,10 +235,6 @@ mod tests {
         assert_eq!(Severity::parse("none"), None);
     }
 
-    // -----------------------------------------------------------------------
-    // RuleId enum tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_rule_id_display_round_trip() {
         // Every variant should survive Display → FromStr round-trip

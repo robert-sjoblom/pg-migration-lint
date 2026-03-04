@@ -519,10 +519,6 @@ fn spike_alter_index_attach_partition() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// DROP SCHEMA AST structure spike
-// ---------------------------------------------------------------------------
-
 #[test]
 fn spike_drop_schema_ast() {
     let sql = "DROP SCHEMA myschema CASCADE";
@@ -639,10 +635,6 @@ fn spike_drop_schema_multiple_schemas() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SET/DROP DEFAULT and index access method spikes
-// ---------------------------------------------------------------------------
-
 #[test]
 fn spike_alter_column_set_drop_default() {
     let sqls = [
@@ -699,10 +691,6 @@ fn spike_index_access_method() {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// VACUUM statements
-// ---------------------------------------------------------------------------
 
 #[test]
 fn spike_vacuum_full() {
@@ -787,10 +775,6 @@ fn spike_vacuum_full_analyze() {
         panic!("Expected VacuumStmt, got: {stmt:?}");
     }
 }
-
-// ---------------------------------------------------------------------------
-// SQL keyword defaults vs function call defaults
-// ---------------------------------------------------------------------------
 
 /// Documents how pg_query represents SQL keyword defaults (CURRENT_TIMESTAMP,
 /// CURRENT_DATE, etc.) versus function call defaults (now(), random()).
@@ -953,10 +937,6 @@ fn spike_sql_value_function_vs_func_call() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// REINDEX statement AST structure spike
-// ---------------------------------------------------------------------------
-
 #[test]
 fn spike_reindex_stmt() {
     let sqls = [
@@ -986,10 +966,6 @@ fn spike_reindex_stmt() {
         println!("{:#?}", stmt);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Floating-point type canonical names
-// ---------------------------------------------------------------------------
 
 #[test]
 fn spike_float_type_canonical_names() {

@@ -419,6 +419,7 @@ mod tests {
     use super::*;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::PartitionStrategy;
+    use rstest::rstest;
 
     #[test]
     fn test_is_partition_child() {
@@ -474,59 +475,34 @@ mod tests {
         assert!(catalog_clone.get_partition_children("parent").is_empty());
     }
 
-    #[test]
-    fn test_expression_mentions_column_simple() {
-        assert!(expression_mentions_column("(ts >= '2024-01-01')", "ts"));
+    #[rstest]
+    #[case::simple("(ts >= '2024-01-01')", "ts", true)]
+    #[case::cast("ts::date >= '2024-01-01'", "ts", true)]
+    #[case::no_match("(amount > 0)", "ts", false)]
+    #[case::substring_no_false_positive("(id_type = 'foo')", "id", false)]
+    #[case::empty_expression("", "ts", false)]
+    #[case::function_call("date_trunc('month', ts)", "ts", true)]
+    fn test_expression_mentions_column(
+        #[case] expr: &str,
+        #[case] col: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(expression_mentions_column(expr, col), expected);
     }
 
-    #[test]
-    fn test_expression_mentions_column_cast() {
-        assert!(expression_mentions_column("ts::date >= '2024-01-01'", "ts"));
-    }
-
-    #[test]
-    fn test_expression_mentions_column_no_match() {
-        assert!(!expression_mentions_column("(amount > 0)", "ts"));
-    }
-
-    #[test]
-    fn test_expression_mentions_column_substring_no_false_positive() {
-        assert!(!expression_mentions_column("(id_type = 'foo')", "id"));
-    }
-
-    #[test]
-    fn test_expression_mentions_column_empty_expression() {
-        assert!(!expression_mentions_column("", "ts"));
-    }
-
-    #[test]
-    fn test_expression_mentions_column_function_call() {
-        assert!(expression_mentions_column("date_trunc('month', ts)", "ts"));
-    }
-
-    #[test]
-    fn test_involves_column_check_constraint_matches() {
+    #[rstest]
+    #[case::matches("amount", true)]
+    #[case::no_match("id", false)]
+    fn test_involves_column_check_constraint(#[case] col: &str, #[case] expected: bool) {
         let constraint = ConstraintState::Check {
             name: Some("chk_positive".to_string()),
             expression: "(amount > 0)".to_string(),
             not_valid: false,
         };
-        assert!(
-            constraint.involves_column("amount"),
-            "CHECK constraint with expression '(amount > 0)' should involve column 'amount'"
-        );
-    }
-
-    #[test]
-    fn test_involves_column_check_constraint_no_match() {
-        let constraint = ConstraintState::Check {
-            name: Some("chk_positive".to_string()),
-            expression: "(amount > 0)".to_string(),
-            not_valid: false,
-        };
-        assert!(
-            !constraint.involves_column("id"),
-            "CHECK constraint with expression '(amount > 0)' should not involve column 'id'"
+        assert_eq!(
+            constraint.involves_column(col),
+            expected,
+            "CHECK constraint with expression '(amount > 0)' involves_column(\"{col}\") should be {expected}"
         );
     }
 

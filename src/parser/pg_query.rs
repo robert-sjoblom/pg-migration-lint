@@ -166,10 +166,6 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CREATE TABLE
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.
 fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str) -> IrNode {
     let name = relation_to_qualified_name(create.relation.as_ref());
@@ -363,10 +359,6 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
     (col_def, constraints)
 }
 
-// ---------------------------------------------------------------------------
-// Type name extraction
-// ---------------------------------------------------------------------------
-
 /// Extract a canonical `TypeName` from a pg_query `TypeName` node.
 ///
 /// Returns `(TypeName, is_serial)` where `is_serial` is true if the original
@@ -438,10 +430,6 @@ fn extract_type_modifiers(typmods: &[pg_query::protobuf::Node]) -> Vec<i64> {
     mods
 }
 
-// ---------------------------------------------------------------------------
-// Default expressions
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query expression node into an IR `DefaultExpr`.
 ///
 /// Mapping:
@@ -496,10 +484,6 @@ fn convert_default_expr_from_node(node: &NodeEnum) -> DefaultExpr {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// ALTER TABLE
-// ---------------------------------------------------------------------------
 
 /// Convert a pg_query `AlterTableStmt` to `IrNode::AlterTable`.
 fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> IrNode {
@@ -692,10 +676,6 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
     }
 }
 
-// ---------------------------------------------------------------------------
-// ALTER INDEX
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query `AlterTableStmt` with `objtype = ObjectIndex` to IR nodes.
 ///
 /// pg_query represents `ALTER INDEX` as `AlterTableStmt` with `objtype = ObjectIndex`.
@@ -742,10 +722,6 @@ fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
     }]
 }
 
-// ---------------------------------------------------------------------------
-// RENAME TABLE / RENAME COLUMN
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query `RenameStmt` to the appropriate IR node.
 ///
 /// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
@@ -773,10 +749,6 @@ fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -
         },
     }
 }
-
-// ---------------------------------------------------------------------------
-// Constraints
-// ---------------------------------------------------------------------------
 
 /// Convert a pg_query `Constraint` node into an IR `TableConstraint`.
 ///
@@ -849,10 +821,6 @@ fn convert_table_constraint(
     }
 }
 
-// ---------------------------------------------------------------------------
-// CREATE INDEX
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query `IndexStmt` to `IrNode::CreateIndex`.
 fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
     let table_name = relation_to_qualified_name(idx.relation.as_ref());
@@ -910,10 +878,6 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         access_method,
     })
 }
-
-// ---------------------------------------------------------------------------
-// DROP statements
-// ---------------------------------------------------------------------------
 
 /// Convert a pg_query `DropStmt` to the appropriate IR node(s).
 ///
@@ -985,10 +949,6 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<
     }
 }
 
-// ---------------------------------------------------------------------------
-// TRUNCATE
-// ---------------------------------------------------------------------------
-
 /// Convert a pg_query `TruncateStmt` to one IR node per target table.
 ///
 /// `TRUNCATE t1, t2, t3 CASCADE` produces three `TruncateTable` nodes,
@@ -1011,10 +971,6 @@ fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// DML statements (INSERT, UPDATE, DELETE)
-// ---------------------------------------------------------------------------
-
 /// Convert an `InsertStmt` to `IrNode::InsertInto`.
 fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt) -> IrNode {
     let table_name = relation_to_qualified_name(insert.relation.as_ref());
@@ -1032,10 +988,6 @@ fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode {
     let table_name = relation_to_qualified_name(delete.relation.as_ref());
     IrNode::DeleteFrom(DeleteFrom { table_name })
 }
-
-// ---------------------------------------------------------------------------
-// CLUSTER
-// ---------------------------------------------------------------------------
 
 fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
     let table = relation_to_qualified_name(cluster.relation.as_ref());
@@ -1082,10 +1034,6 @@ fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
         })
         .collect()
 }
-
-// ---------------------------------------------------------------------------
-// REINDEX
-// ---------------------------------------------------------------------------
 
 /// Convert a `ReindexStmt` to IR.
 ///
@@ -1134,10 +1082,6 @@ fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
         concurrent,
     })
 }
-
-// ---------------------------------------------------------------------------
-// DROP statement helpers
-// ---------------------------------------------------------------------------
 
 /// Extract ALL object names from `DropStmt.objects[]`.
 ///
@@ -1214,10 +1158,6 @@ fn extract_all_qualified_names_from_drop_objects(
         })
         .collect()
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Convert a pg_query `RangeVar` (relation reference) to a `QualifiedName`.
 fn relation_to_qualified_name(rel: Option<&pg_query::protobuf::RangeVar>) -> QualifiedName {

@@ -614,10 +614,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // Partition support tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_partitioned_by_builder() {
         use crate::parser::ir::PartitionStrategy;

@@ -529,11 +529,6 @@ pub struct SourceSpan {
     pub end_offset: usize,
 }
 
-// ---------------------------------------------------------------------------
-// Test builders — centralise IR node construction so adding a new field
-// only requires changing one place.
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 impl ColumnDef {
     /// Minimal column: nullable, no default, not a PK, not serial.
