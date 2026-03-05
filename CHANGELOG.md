@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.1...v2.14.2) (2026-03-05)
+
+
+### Bug Fixes
+
+* drop bidirectional partition map support, derive on request ([3473287](https://github.com/robert-sjoblom/pg-migration-lint/commit/3473287382d7af90c2a3c7962ce99999f7d81205))
+
 ## [2.14.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.0...v2.14.1) (2026-03-04)
 
 
