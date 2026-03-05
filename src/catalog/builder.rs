@@ -103,21 +103,7 @@ impl CatalogBuilder {
         self
     }
 
-    pub fn build(mut self) -> Catalog {
-        // Build partition_children map from tables with parent_table set.
-        let pairs: Vec<(String, String)> = self
-            .catalog
-            .tables()
-            .filter_map(|table| {
-                table
-                    .parent_table
-                    .as_ref()
-                    .map(|pk| (pk.clone(), table.name.clone()))
-            })
-            .collect();
-        for (parent_key, child_key) in pairs {
-            self.catalog.attach_partition(&parent_key, &child_key);
-        }
+    pub fn build(self) -> Catalog {
         self.catalog
     }
 }
@@ -658,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn test_partition_children_built_from_tables() {
+    fn test_partition_children_computed_from_parent_table() {
         use crate::parser::ir::PartitionStrategy;
 
         let catalog = CatalogBuilder::new()

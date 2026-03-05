@@ -11,8 +11,6 @@ pub struct Catalog {
     tables: HashMap<String, TableState>,
     /// Reverse lookup: index name → owning table key.
     index_to_table: HashMap<String, String>,
-    /// Partition parent → children lookup: parent catalog key → vec of child catalog keys.
-    partition_children: HashMap<String, Vec<String>>,
 }
 
 impl Catalog {
@@ -48,17 +46,6 @@ impl Catalog {
             for idx in &table.indexes {
                 self.index_to_table.remove(&idx.name);
             }
-            // If this table is a partition child, remove it from the parent's children list.
-            if let Some(ref parent_key) = table.parent_table
-                && let Some(children) = self.partition_children.get_mut(parent_key)
-            {
-                children.retain(|c| c != name);
-                if children.is_empty() {
-                    self.partition_children.remove(parent_key);
-                }
-            }
-            // If this table is a partition parent, remove its partition_children entry.
-            self.partition_children.remove(name);
             Some(table)
         } else {
             None
@@ -95,11 +82,16 @@ impl Catalog {
     }
 
     /// Returns the catalog keys of all partition children of the given parent.
-    pub(crate) fn get_partition_children(&self, key: &str) -> &[String] {
-        self.partition_children
-            .get(key)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+    ///
+    /// Computed on demand by scanning tables with matching `parent_table`.
+    /// Partition queries are rare (only a few rules check them), so the O(n)
+    /// scan is negligible compared to maintaining a bidirectional map.
+    pub(crate) fn get_partition_children(&self, key: &str) -> Vec<String> {
+        self.tables
+            .values()
+            .filter(|t| t.parent_table.as_deref() == Some(key))
+            .map(|t| t.name.clone())
+            .collect()
     }
 
     /// Returns `true` if the given table is a partition child (has a `parent_table`).
@@ -109,41 +101,6 @@ impl Catalog {
             .get(key)
             .and_then(|t| t.parent_table.as_ref())
             .is_some()
-    }
-
-    /// Register a child partition under a parent in the partition_children map.
-    pub(crate) fn attach_partition(&mut self, parent_key: &str, child_key: &str) {
-        let children = self
-            .partition_children
-            .entry(parent_key.to_string())
-            .or_default();
-        if !children.contains(&child_key.to_string()) {
-            children.push(child_key.to_string());
-        }
-    }
-
-    /// Remove a child from a parent's partition_children list.
-    pub(crate) fn detach_partition(&mut self, parent_key: &str, child_key: &str) {
-        if let Some(children) = self.partition_children.get_mut(parent_key) {
-            children.retain(|c| c != child_key);
-            if children.is_empty() {
-                self.partition_children.remove(parent_key);
-            }
-        }
-    }
-
-    /// Remove and return the partition_children entry for a given parent key.
-    pub(crate) fn remove_partition_children(&mut self, key: &str) -> Option<Vec<String>> {
-        self.partition_children.remove(key)
-    }
-
-    /// Set the partition_children entry for a given parent key.
-    pub(crate) fn set_partition_children(&mut self, key: &str, children: Vec<String>) {
-        if children.is_empty() {
-            self.partition_children.remove(key);
-        } else {
-            self.partition_children.insert(key.to_string(), children);
-        }
     }
 }
 
@@ -455,18 +412,18 @@ mod tests {
     }
 
     #[test]
-    fn test_set_partition_children_empty_removes_entry() {
-        let mut catalog = Catalog::new();
-        catalog.attach_partition("parent", "child");
-        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+    fn test_remove_table_returns_none_for_nonexistent() {
+        let mut catalog = CatalogBuilder::new()
+            .table("parent", |t| {
+                t.column("id", "integer", false);
+            })
+            .build();
 
-        // Setting to empty vec removes the entry entirely
-        catalog.set_partition_children("parent", vec![]);
-        assert!(catalog.get_partition_children("parent").is_empty());
+        assert!(catalog.remove_table("nonexistent").is_none());
     }
 
     #[test]
-    fn test_remove_table_cleans_up_parent_partition_children() {
+    fn test_get_partition_children_computed_on_demand() {
         let catalog = CatalogBuilder::new()
             .table("parent", |t| {
                 t.column("id", "integer", false)
@@ -477,14 +434,9 @@ mod tests {
             })
             .build();
 
-        // Removing a non-existent table returns None
-        let mut catalog_clone = catalog.clone();
-        assert!(catalog_clone.remove_table("nonexistent").is_none());
-
-        // Removing the parent cleans up partition_children
-        let mut catalog_clone = catalog.clone();
-        catalog_clone.remove_table("parent");
-        assert!(catalog_clone.get_partition_children("parent").is_empty());
+        let children = catalog.get_partition_children("parent");
+        assert_eq!(children, vec!["child"]);
+        assert!(catalog.get_partition_children("nonexistent").is_empty());
     }
 
     #[rstest]

@@ -1731,7 +1731,7 @@ fn test_create_partition_of_with_parent_in_catalog() {
     assert_eq!(child.columns[0].name, "id");
     assert_eq!(child.columns[1].name, "ts");
 
-    assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+    assert_eq!(catalog.get_partition_children("parent"), vec!["child"]);
 }
 
 #[test]
@@ -1750,10 +1750,11 @@ fn test_create_partition_of_without_parent_in_catalog() {
     assert_eq!(child.parent_table.as_deref(), Some("unknown_parent"));
     // No inherited columns since parent doesn't exist
     assert_eq!(child.columns.len(), 0);
-    // partition_children NOT registered when parent doesn't exist in catalog
-    assert!(
-        catalog.get_partition_children("unknown_parent").is_empty(),
-        "No phantom entry should be created for unknown parent"
+    // parent_table is set, so get_partition_children finds the child via table scan.
+    assert_eq!(
+        catalog.get_partition_children("unknown_parent"),
+        vec!["child"],
+        "Child should be discoverable even when parent is not in catalog"
     );
 }
 
@@ -1832,7 +1833,7 @@ fn test_partition_attach_detach(#[case] is_attach: bool, #[case] child_exists: b
     if is_attach && child_exists {
         let child = catalog.get_table("child").expect("child should exist");
         assert_eq!(child.parent_table.as_deref(), Some("parent"));
-        assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+        assert_eq!(catalog.get_partition_children("parent"), vec!["child"]);
     } else if is_attach && !child_exists {
         assert!(
             catalog.get_partition_children("parent").is_empty(),
@@ -1952,13 +1953,14 @@ fn test_drop_parent_no_cascade_keeps_children() {
         catalog.has_table("child"),
         "Child should still exist without CASCADE"
     );
-    // Child keeps stale parent_table
+    // Child keeps stale parent_table — get_partition_children still finds it
+    // because parent_table is the source of truth.
     let child = catalog.get_table("child").unwrap();
     assert_eq!(child.parent_table.as_deref(), Some("parent"));
-    // partition_children entry for the dropped parent should be cleaned up
-    assert!(
-        catalog.get_partition_children("parent").is_empty(),
-        "partition_children entry for dropped parent should be cleaned up"
+    assert_eq!(
+        catalog.get_partition_children("parent"),
+        vec!["child"],
+        "Child still references parent via parent_table"
     );
 }
 
@@ -2139,7 +2141,7 @@ fn test_rename_partition_child() {
         })
         .build();
 
-    assert_eq!(catalog.get_partition_children("parent"), &["child"]);
+    assert_eq!(catalog.get_partition_children("parent"), vec!["child"]);
 
     let unit = make_unit(vec![IrNode::RenameTable {
         name: qname("child"),
@@ -2151,9 +2153,9 @@ fn test_rename_partition_child() {
     assert!(!catalog.has_table("child"));
     assert!(catalog.has_table("child_v2"));
 
-    // Parent's partition_children updated: old child removed, new child registered
+    // Parent's children updated: old child removed, new child registered
     let children = catalog.get_partition_children("parent");
-    assert_eq!(children, &["child_v2"]);
+    assert_eq!(children, vec!["child_v2"]);
 
     // Renamed child retains parent_table
     let child = catalog.get_table("child_v2").unwrap();

@@ -35,6 +35,10 @@ chmod +x pg-migration-lint
 ./pg-migration-lint --explain PGM001
 ```
 
+## PostgreSQL Version Support
+
+pg-migration-lint targets currently supported PostgreSQL versions (14+). Rule advice (e.g. recommending `REINDEX CONCURRENTLY` or `DETACH PARTITION CONCURRENTLY`) assumes a modern PostgreSQL release. Running against migrations intended for older, unsupported versions may produce false positives.
+
 ## Rules
 
 pg-migration-lint ships with 52 rules across seven categories:
