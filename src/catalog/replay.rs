@@ -133,14 +133,6 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
     }
 
     catalog.insert_table(table);
-
-    // Register as partition child only if parent exists in catalog.
-    // If parent is not tracked, skip partition_children registration.
-    if let Some(ref pk) = parent_key
-        && catalog.has_table(pk)
-    {
-        catalog.attach_partition(pk, &table_key);
-    }
 }
 
 /// Handle ALTER TABLE: apply each action to the existing table.
@@ -329,20 +321,15 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
         match action {
             AlterTableAction::AttachPartition { child } => {
                 let child_key = child.catalog_key().to_string();
-                if catalog.has_table(&child_key) {
-                    if let Some(child_table) = catalog.get_table_mut(&child_key) {
-                        child_table.parent_table = Some(table_key.clone());
-                    }
-                    catalog.attach_partition(&table_key, &child_key);
+                if let Some(child_table) = catalog.get_table_mut(&child_key) {
+                    child_table.parent_table = Some(table_key.clone());
                 }
-                // If child not in catalog: skip silently (no phantom entry).
             }
             AlterTableAction::DetachPartition { child, .. } => {
                 let child_key = child.catalog_key().to_string();
                 if let Some(child_table) = catalog.get_table_mut(&child_key) {
                     child_table.parent_table = None;
                 }
-                catalog.detach_partition(&table_key, &child_key);
             }
             _ => {}
         }
@@ -482,10 +469,9 @@ fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
         if !visited.insert(key.clone()) {
             continue;
         }
-        let children = catalog.get_partition_children(&key);
-        for child in children {
+        for child in catalog.get_partition_children(&key) {
             result.push(child.clone());
-            stack.push(child.clone());
+            stack.push(child);
         }
     }
 
@@ -495,16 +481,15 @@ fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
 /// Handle RENAME TABLE: move the table state to a new key.
 ///
 /// Also updates partition tracking:
-/// - If the renamed table is a partitioned parent: migrates `partition_children`
-///   to the new key and updates each child's `parent_table`.
-/// - If the renamed table is a partition child: updates the parent's
-///   `partition_children` list (old key was already removed by `remove_table`;
-///   new key is re-added).
+/// - If the renamed table is a partitioned parent: updates each child's
+///   `parent_table` to point to the new key.
+/// - If the renamed table is a partition child: `parent_table` is preserved
+///   automatically (carried over on the `TableState`).
 fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &str) {
     let old_key = name.catalog_key().to_string();
 
-    // Grab partition children BEFORE remove_table, which cleans up partition_children.
-    let partition_children = catalog.remove_partition_children(&old_key);
+    // Compute children before remove_table removes the table from the HashMap.
+    let children = catalog.get_partition_children(&old_key);
 
     if let Some(mut table) = catalog.remove_table(&old_key) {
         // Build the new key using the same schema as the old name.
@@ -521,24 +506,11 @@ fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &st
             }
         };
 
-        // Migrate partition_children from old key to new key, and update
-        // each child's parent_table reference.
-        if table.is_partitioned
-            && let Some(children) = partition_children
-        {
-            for child_key in &children {
-                if let Some(child) = catalog.get_table_mut(child_key) {
-                    child.parent_table = Some(new_key.clone());
-                }
+        // Update each child's parent_table to point to the new key.
+        for child_key in &children {
+            if let Some(child) = catalog.get_table_mut(child_key) {
+                child.parent_table = Some(new_key.clone());
             }
-            catalog.set_partition_children(&new_key, children);
-        }
-
-        // If the renamed table is a child, re-register under the new key
-        // in the parent's partition_children list. (remove_table already
-        // removed the old key from the parent's list.)
-        if let Some(ref parent_key) = table.parent_table {
-            catalog.attach_partition(parent_key, &new_key);
         }
 
         table.name = new_key.clone();
