@@ -127,9 +127,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     /// Helper to build an ALTER TABLE ... ATTACH PARTITION statement.
     fn attach_stmt(parent: &str, child: &str) -> Located<IrNode> {
@@ -159,9 +157,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -188,9 +184,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -215,9 +209,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -244,9 +236,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("events", "events_2024_q1")];
 
@@ -277,9 +267,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("events", "events_2024_q1")];
 
@@ -301,9 +289,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -328,10 +314,7 @@ mod tests {
                     .column("ts", "timestamptz", false);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("measurements".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["measurements"]);
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -359,10 +342,7 @@ mod tests {
                     .column("ts", "timestamptz", false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let mut created = HashSet::new();
-        created.insert("measurements_2024".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", created: ["measurements_2024"]);
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -380,9 +360,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -406,9 +384,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("orders", "orders_2024")];
 
@@ -442,9 +418,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -476,9 +450,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("measurements", "measurements_2024")];
 
@@ -508,9 +480,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![attach_stmt("events", "events_2024")];
 

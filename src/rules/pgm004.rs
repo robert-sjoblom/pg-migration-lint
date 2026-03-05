@@ -75,9 +75,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     /// Helper to build an ALTER TABLE ... DETACH PARTITION statement.
     fn detach_stmt(parent: &str, child: &str, concurrent: bool) -> Located<IrNode> {
@@ -104,9 +102,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![detach_stmt("measurements", "measurements_2023", false)];
 
@@ -124,9 +120,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![detach_stmt("measurements", "measurements_2023", true)];
 
@@ -144,10 +138,7 @@ mod tests {
                     .partitioned_by(PartitionStrategy::Range, &["ts"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("measurements".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["measurements"]);
 
         let stmts = vec![detach_stmt("measurements", "measurements_2023", false)];
 
@@ -159,9 +150,7 @@ mod tests {
     fn test_no_finding_when_parent_not_in_catalog() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![detach_stmt("measurements", "measurements_2023", false)];
 

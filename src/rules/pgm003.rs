@@ -80,17 +80,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn test_concurrent_in_transaction_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
 
         let stmts = vec![located(IrNode::CreateIndex(
             CreateIndex::test(
@@ -109,9 +105,7 @@ mod tests {
     fn test_concurrent_no_transaction_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx_with_txn(&before, &after, &file, &created, false);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: false);
 
         let stmts = vec![located(IrNode::CreateIndex(
             CreateIndex::test(
@@ -130,9 +124,7 @@ mod tests {
     fn test_no_concurrent_in_transaction_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
 
         let stmts = vec![located(IrNode::CreateIndex(
             CreateIndex::test(
@@ -150,9 +142,7 @@ mod tests {
     fn test_drop_index_concurrent_in_transaction_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx_with_txn(&before, &after, &file, &created, true);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_foo")

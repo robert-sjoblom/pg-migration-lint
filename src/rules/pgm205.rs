@@ -100,9 +100,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn rule_id() -> RuleId {
         RuleId::Pgm205
@@ -112,9 +110,7 @@ mod tests {
     fn test_drop_schema_cascade_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![located(
             DropSchema::test("myschema").with_cascade(true).into(),
@@ -135,9 +131,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![located(
             DropSchema::test("myschema").with_cascade(true).into(),
@@ -151,9 +145,7 @@ mod tests {
     fn test_drop_schema_cascade_empty_catalog_still_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![located(
             DropSchema::test("emptyschema").with_cascade(true).into(),
@@ -175,9 +167,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![located(
             DropSchema::test("myschema").with_cascade(true).into(),
@@ -199,9 +189,7 @@ mod tests {
     fn test_drop_schema_cascade_multiple_findings() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![
             located(DropSchema::test("schema_a").with_cascade(true).into()),
@@ -222,9 +210,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/016.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/016.sql");
 
         let stmts = vec![located(DropSchema::test("myschema").into())];
 

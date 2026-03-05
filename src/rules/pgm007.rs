@@ -256,10 +256,8 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::test_helpers::{lint_ctx, located};
     use rstest::rstest;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
 
     #[rstest]
     #[case::varchar_widening_safe("varchar", &[50], "varchar", &[100], CastSafety::Safe)]
@@ -371,9 +369,7 @@ mod tests {
         }
 
         let after = before_with_mods.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before_with_mods, &after, &file, &created);
+        lint_ctx!(ctx, &before_with_mods, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("users"),
@@ -397,9 +393,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("users"),
@@ -426,9 +420,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("users"),
@@ -452,9 +444,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -477,9 +467,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("events"),
@@ -502,10 +490,7 @@ mod tests {
                 t.column("amount", "bigint", false);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),

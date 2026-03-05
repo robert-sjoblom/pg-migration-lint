@@ -160,8 +160,6 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
 
     #[test]
     fn test_fk_no_index_fires() {
@@ -187,9 +185,7 @@ mod tests {
                     .fk("fk_parent", &["pid"], "parent", &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
@@ -233,9 +229,7 @@ mod tests {
                     .index("idx_child_pid", &["pid"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
@@ -266,9 +260,7 @@ mod tests {
                     .index("idx_wrong_order", &["b", "a"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("child"))
@@ -302,9 +294,7 @@ mod tests {
                     .index("idx_abc", &["a", "b", "c"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
@@ -337,9 +327,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -376,9 +364,7 @@ mod tests {
                     .partition_of("orders_parent");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -412,9 +398,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("orders"))
@@ -455,9 +439,7 @@ mod tests {
                     .partial_index("idx_pid_active", &["pid"], false, "active = true");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
@@ -491,9 +473,7 @@ mod tests {
                     .expression_index("idx_pid_expr", &["expr:lower(pid::text)"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
@@ -531,9 +511,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -570,9 +548,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -611,9 +587,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -650,9 +624,7 @@ mod tests {
                     .partition_of("orders_parent");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -695,9 +667,7 @@ mod tests {
                 t.column("id", "integer", false).pk(&["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -744,9 +714,7 @@ mod tests {
                 t.column("id", "integer", false).pk(&["id"]);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -789,9 +757,7 @@ mod tests {
                     .partition_of("orders_parent");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders_child"),
@@ -833,9 +799,7 @@ mod tests {
                     .partition_of("orders_parent");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders_child"),

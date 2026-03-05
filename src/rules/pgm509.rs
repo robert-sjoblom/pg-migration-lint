@@ -155,9 +155,7 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     // -- CreateTable tests --
 
@@ -165,9 +163,7 @@ mod tests {
     fn test_mixed_case_table_name_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("User"))
@@ -182,9 +178,7 @@ mod tests {
     fn test_mixed_case_column_name_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
@@ -201,9 +195,7 @@ mod tests {
     fn test_reserved_word_table_name_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("order"))
@@ -218,9 +210,7 @@ mod tests {
     fn test_reserved_word_column_name_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("items")).with_columns(vec![
@@ -237,9 +227,7 @@ mod tests {
     fn test_lowercase_non_reserved_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
@@ -258,9 +246,7 @@ mod tests {
     fn test_add_column_mixed_case_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("users"),
@@ -278,9 +264,7 @@ mod tests {
     fn test_add_column_reserved_word_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("users"),
@@ -299,9 +283,7 @@ mod tests {
     fn test_rename_table_to_mixed_case_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::RenameTable {
             name: QualifiedName::unqualified("users"),
@@ -318,9 +300,7 @@ mod tests {
     fn test_rename_column_to_reserved_word_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::RenameColumn {
             table: QualifiedName::unqualified("users"),

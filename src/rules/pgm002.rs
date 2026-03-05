@@ -122,9 +122,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn test_drop_index_no_concurrent_fires() {
@@ -138,9 +136,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status").with_if_exists(false),
@@ -161,9 +157,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status").with_if_exists(false),
@@ -185,9 +179,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status").with_if_exists(false),
@@ -212,9 +204,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status").with_if_exists(false),
@@ -241,9 +231,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/005.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/005.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status").with_if_exists(false),
@@ -275,9 +263,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
             DropIndex::test("idx_orders_status")

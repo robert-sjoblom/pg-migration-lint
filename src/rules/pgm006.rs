@@ -258,9 +258,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn col_with_default(name: &str, default: DefaultExpr) -> ColumnDef {
         ColumnDef::test(name, "timestamptz").with_default(default)
@@ -276,9 +274,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -307,9 +303,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -331,9 +325,7 @@ mod tests {
     fn test_create_table_with_volatile_default_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("tokens")).with_columns(vec![
@@ -358,9 +350,7 @@ mod tests {
     fn test_add_column_on_new_in_same_changeset_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created: HashSet<String> = ["orders".to_string()].into_iter().collect();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", created: ["orders"]);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -384,9 +374,7 @@ mod tests {
     fn test_literal_default_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -404,9 +392,7 @@ mod tests {
     fn test_unknown_function_fires_info() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -427,9 +413,7 @@ mod tests {
     fn test_nextval_fires_warning() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -450,9 +434,7 @@ mod tests {
     fn test_no_default_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -472,9 +454,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -503,9 +483,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -536,9 +514,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -566,9 +542,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -596,9 +570,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -626,9 +598,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -650,9 +620,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -681,9 +649,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
@@ -710,9 +676,7 @@ mod tests {
     fn test_set_default_on_new_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created: HashSet<String> = ["orders".to_string()].into_iter().collect();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", created: ["orders"]);
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),

@@ -65,9 +65,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn test_drop_existing_table_fires() {
@@ -77,9 +75,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
@@ -93,10 +89,7 @@ mod tests {
     fn test_drop_table_created_in_same_change_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),
@@ -110,9 +103,7 @@ mod tests {
     fn test_drop_nonexistent_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("orders")).with_if_exists(false),

@@ -69,17 +69,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn test_char_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("countries"))
@@ -94,9 +90,7 @@ mod tests {
     fn test_char_n_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("countries")).with_columns(vec![
@@ -114,9 +108,7 @@ mod tests {
     fn test_text_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("countries"))
@@ -131,9 +123,7 @@ mod tests {
     fn test_varchar_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("countries")).with_columns(vec![
