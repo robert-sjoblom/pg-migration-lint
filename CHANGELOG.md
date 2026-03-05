@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.3](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.2...v2.14.3) (2026-03-05)
+
+
+### Bug Fixes
+
+* **constraints:** drop unique indexes when unique constraint is dropped ([1122b6d](https://github.com/robert-sjoblom/pg-migration-lint/commit/1122b6ddcb2d08467a30374fb88b0310b16e6e89))
+
 ## [2.14.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.1...v2.14.2) (2026-03-05)
 
 
