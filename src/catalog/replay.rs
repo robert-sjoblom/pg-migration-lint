@@ -247,6 +247,19 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                             _ => false,
                         });
 
+                    // Grab `using_index` from UNIQUE constraints before retain removes them.
+                    // When a UNIQUE constraint was created via USING INDEX, the backing
+                    // index name may differ from the constraint name.
+                    let unique_using_index: Option<String> =
+                        table.constraints.iter().find_map(|c| match c {
+                            ConstraintState::Unique {
+                                name,
+                                using_index: Some(idx),
+                                ..
+                            } if name.as_deref() == Some(constraint_name) => Some(idx.clone()),
+                            _ => None,
+                        });
+
                     // Remove named constraints (FK, Unique, Check, Exclude, PK).
                     table.constraints.retain(|c| match c {
                         ConstraintState::ForeignKey { name, .. }
@@ -279,6 +292,15 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                     if table.indexes.iter().any(|idx| idx.name == *constraint_name) {
                         table.indexes.retain(|idx| idx.name != *constraint_name);
                         indexes_to_unregister.push(constraint_name.clone());
+                    }
+
+                    // If the UNIQUE constraint was created via USING INDEX with a
+                    // different name, also remove that backing index.
+                    if let Some(idx_name) = unique_using_index
+                        && idx_name != *constraint_name
+                    {
+                        table.indexes.retain(|idx| idx.name != idx_name);
+                        indexes_to_unregister.push(idx_name);
                     }
                 }
                 AlterTableAction::ValidateConstraint { constraint_name } => {
@@ -756,6 +778,7 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             table.constraints.push(ConstraintState::Unique {
                 name: name.clone(),
                 columns: resolved_columns,
+                using_index: using_index.clone(),
             });
         }
         TableConstraint::Check {

@@ -310,6 +310,7 @@ impl TableBuilder {
         self.state.constraints.push(ConstraintState::Unique {
             name: Some(name.to_string()),
             columns: columns.iter().map(|s| s.to_string()).collect(),
+            using_index: None,
         });
         self
     }

@@ -1325,6 +1325,63 @@ fn test_add_unique_using_index_resolves_columns_from_index() {
     }
 }
 
+#[test]
+fn test_drop_unique_using_index_removes_backing_index() {
+    // When a UNIQUE constraint was created via USING INDEX with a name that
+    // differs from the constraint, dropping the constraint must also remove
+    // the backing index.
+    let mut catalog = CatalogBuilder::new()
+        .table("public.orders", |t| {
+            t.column("email", "text", false)
+                .index("idx_orders_email", &["email"], true);
+        })
+        .build();
+
+    // Add UNIQUE constraint referencing the existing index.
+    let add_unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: QualifiedName::qualified("public", "orders"),
+        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            name: Some("uq_orders_email".to_string()),
+            columns: vec![],
+            using_index: Some("idx_orders_email".to_string()),
+        })],
+    })]);
+    apply(&mut catalog, &add_unit);
+
+    // Verify constraint and index both exist.
+    let table = catalog.get_table("public.orders").unwrap();
+    assert!(table.constraints.iter().any(
+        |c| matches!(c, ConstraintState::Unique { name: Some(n), .. } if n == "uq_orders_email")
+    ));
+    assert!(table.indexes.iter().any(|i| i.name == "idx_orders_email"));
+
+    // Drop the constraint — the backing index should also be removed.
+    let drop_unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: QualifiedName::qualified("public", "orders"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "uq_orders_email".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &drop_unit);
+
+    let table = catalog.get_table("public.orders").unwrap();
+    assert!(
+        !table
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ConstraintState::Unique { .. })),
+        "Constraint should be removed"
+    );
+    assert!(
+        !table.indexes.iter().any(|i| i.name == "idx_orders_email"),
+        "Backing index should be removed when constraint is dropped"
+    );
+    assert!(
+        catalog.table_for_index("idx_orders_email").is_none(),
+        "Index should be unregistered from reverse lookup"
+    );
+}
+
 #[rstest]
 #[case::table_skips_when_exists(true)]
 #[case::index_skips_when_exists(false)]
