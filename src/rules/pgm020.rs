@@ -113,10 +113,8 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::test_helpers::{lint_ctx, located};
     use rstest::rstest;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
 
     /// Helper to build an ALTER TABLE ... DISABLE TRIGGER statement.
     fn disable_trigger_stmt(table: &str, scope: TriggerDisableScope) -> Located<IrNode> {
@@ -126,12 +124,7 @@ mod tests {
         }))
     }
 
-    fn existing_orders_ctx() -> (
-        crate::catalog::Catalog,
-        crate::catalog::Catalog,
-        PathBuf,
-        HashSet<String>,
-    ) {
+    fn existing_orders_catalogs() -> (crate::catalog::Catalog, crate::catalog::Catalog) {
         let before = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("id", "bigint", false)
@@ -139,12 +132,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        (
-            before,
-            after,
-            PathBuf::from("migrations/002.sql"),
-            HashSet::new(),
-        )
+        (before, after)
     }
 
     #[rstest]
@@ -152,8 +140,8 @@ mod tests {
     #[case::named("named", TriggerDisableScope::Named("my_trigger".to_string()))]
     #[case::user("user", TriggerDisableScope::User)]
     fn fires_on_existing_table(#[case] name: &str, #[case] scope: TriggerDisableScope) {
-        let (before, after, file, created) = existing_orders_ctx();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        let (before, after) = existing_orders_catalogs();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![disable_trigger_stmt("orders", scope)];
 
@@ -170,10 +158,7 @@ mod tests {
                     .column("status", "text", true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 
@@ -185,9 +170,7 @@ mod tests {
     fn test_fires_at_info_on_unknown_table() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![disable_trigger_stmt("orders", TriggerDisableScope::All)];
 

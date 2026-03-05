@@ -71,10 +71,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
+    use crate::rules::test_helpers::{lint_ctx, located};
     use rstest::rstest;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
 
     #[rstest]
     #[case::create_table_float8(
@@ -116,9 +114,7 @@ mod tests {
     fn fires(#[case] name: &str, #[case] migration_file: &str, #[case] stmt: Located<IrNode>) {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from(migration_file);
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, migration_file);
 
         let findings = RuleId::Pgm109.check(&[stmt], &ctx);
         insta::assert_yaml_snapshot!(format!("fires_{name}"), findings);
@@ -130,9 +126,7 @@ mod tests {
     fn no_finding(#[case] table: &str, #[case] column: &str, #[case] col_type: &str) {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified(table))

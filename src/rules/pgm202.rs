@@ -109,9 +109,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn rule_id() -> RuleId {
         RuleId::Pgm202
@@ -125,9 +123,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("customers"))
@@ -164,9 +160,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("customers"))
@@ -182,10 +176,7 @@ mod tests {
     fn test_drop_cascade_new_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("customers".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["customers"]);
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("customers"))
@@ -205,9 +196,7 @@ mod tests {
             })
             .build();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("customers")).with_if_exists(false),
@@ -221,9 +210,7 @@ mod tests {
     fn test_drop_cascade_nonexistent_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(IrNode::DropTable(
             DropTable::test(QualifiedName::unqualified("customers"))

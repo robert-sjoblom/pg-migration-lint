@@ -156,9 +156,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn create_index_stmt(name: &str, table: &str, columns: &[&str]) -> Located<IrNode> {
         located(IrNode::CreateIndex(CreateIndex {
@@ -187,9 +185,7 @@ mod tests {
                     .index("idx_b", &["email"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_b", "orders", &["email"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -207,9 +203,7 @@ mod tests {
                     .index("idx_ab", &["a", "b"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_a", "orders", &["a"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -227,9 +221,7 @@ mod tests {
                     .index("idx_ab", &["a", "b"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_ab", "orders", &["a", "b"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -246,9 +238,7 @@ mod tests {
                     .index_with_method("idx_gin", &["data"], false, "gin");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_btree", "orders", &["data"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -266,9 +256,7 @@ mod tests {
                     .index("idx_ab", &["a", "b"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         // The unique index on (a) is the one being created — it's unique, so
         // even though (a) is a prefix of (a, b), it shouldn't fire.
@@ -293,9 +281,7 @@ mod tests {
                     .partial_index("idx_a_active", &["a"], false, "active = true");
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_a", "orders", &["a"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -312,9 +298,7 @@ mod tests {
                     .expression_index("idx_email_lower", &["expr:lower(email)"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_email", "orders", &["email"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -332,9 +316,7 @@ mod tests {
                     .index("idx_ba", &["b", "a"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_ab", "orders", &["a", "b"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
@@ -352,9 +334,7 @@ mod tests {
                     .index("idx_b", &["b"], false);
             })
             .build();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![create_index_stmt("idx_a", "orders", &["a"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);

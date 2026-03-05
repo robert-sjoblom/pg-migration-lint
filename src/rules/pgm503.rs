@@ -102,8 +102,6 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
-    use std::collections::HashSet;
-    use std::path::PathBuf;
 
     #[test]
     fn test_unique_not_null_no_pk_fires() {
@@ -115,9 +113,7 @@ mod tests {
                     .unique("uk_email", &["email"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users"))
@@ -146,9 +142,7 @@ mod tests {
                     .index("idx_email_unique", &["email"], true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
@@ -172,9 +166,7 @@ mod tests {
                     .unique("uk_email", &["email"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users"))
@@ -217,9 +209,7 @@ mod tests {
                     .partition_of("parent");
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("child"))
@@ -250,9 +240,7 @@ mod tests {
                     .partition_of("parent");
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("child"))
@@ -279,9 +267,7 @@ mod tests {
                     .partition_of("unknown_parent");
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("child"))
@@ -314,9 +300,7 @@ mod tests {
                     .partition_of("parent");
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         // IR has no partition_of — the table was ATTACHed, not created with PARTITION OF.
         let stmts = vec![located(IrNode::CreateTable(
@@ -347,9 +331,7 @@ mod tests {
                     .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["email"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("parent"))
@@ -386,9 +368,7 @@ mod tests {
                     .unique("uq_key", &["key"]);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("settings"))
@@ -422,9 +402,7 @@ mod tests {
                     .partial_index("idx_email_unique", &["email"], true, "deleted_at IS NULL");
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users")).with_columns(vec![
@@ -455,9 +433,7 @@ mod tests {
                 );
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("users"))

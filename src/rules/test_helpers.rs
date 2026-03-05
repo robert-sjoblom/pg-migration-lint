@@ -41,6 +41,49 @@ pub fn make_ctx_with_txn<'a>(
     }
 }
 
+/// Create a [`LintContext`] with default settings, reducing the 3-line
+/// `file` + `created` + `make_ctx` boilerplate to a single invocation.
+///
+/// The macro creates hygienic bindings for `PathBuf` and `HashSet` that live
+/// in the caller's scope (satisfying the borrow lifetimes on `LintContext`).
+///
+/// ```ignore
+/// // Empty created set:
+/// lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+///
+/// // With tables created in the same change:
+/// lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
+///
+/// // With explicit run_in_transaction flag:
+/// lint_ctx!(ctx, &before, &after, "migrations/001.sql", txn: false);
+/// ```
+macro_rules! lint_ctx {
+    ($ctx:ident, $before:expr, $after:expr, $file:expr) => {
+        let __lint_file = ::std::path::PathBuf::from($file);
+        let __lint_created = ::std::collections::HashSet::<String>::new();
+        let $ctx = $crate::rules::test_helpers::make_ctx(
+            $before, $after, &__lint_file, &__lint_created,
+        );
+    };
+    ($ctx:ident, $before:expr, $after:expr, $file:expr, created: [$($table:expr),+ $(,)?]) => {
+        let __lint_file = ::std::path::PathBuf::from($file);
+        let __lint_created: ::std::collections::HashSet<String> =
+            [$(($table).to_string()),+].into_iter().collect();
+        let $ctx = $crate::rules::test_helpers::make_ctx(
+            $before, $after, &__lint_file, &__lint_created,
+        );
+    };
+    ($ctx:ident, $before:expr, $after:expr, $file:expr, txn: $txn:expr) => {
+        let __lint_file = ::std::path::PathBuf::from($file);
+        let __lint_created = ::std::collections::HashSet::<String>::new();
+        let $ctx = $crate::rules::test_helpers::make_ctx_with_txn(
+            $before, $after, &__lint_file, &__lint_created, $txn,
+        );
+    };
+}
+
+pub(crate) use lint_ctx;
+
 /// Wrap an `IrNode` in a `Located` with a dummy span at line 1.
 pub fn located(node: IrNode) -> Located<IrNode> {
     Located {

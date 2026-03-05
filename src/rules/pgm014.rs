@@ -84,9 +84,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     /// Helper to build an ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY statement.
     fn add_fk_stmt(table: &str, not_valid: bool) -> Located<IrNode> {
@@ -113,9 +111,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
@@ -132,9 +128,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![add_fk_stmt("orders", true)];
 
@@ -151,10 +145,7 @@ mod tests {
                     .column("customer_id", "bigint", true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
 
         let stmts = vec![add_fk_stmt("orders", false)];
 
@@ -171,9 +162,7 @@ mod tests {
                     .column("customer_id", "bigint", true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         // FK inside a CreateTable, not an AlterTable
         let stmts = vec![located(IrNode::CreateTable(

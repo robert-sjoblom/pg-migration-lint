@@ -75,17 +75,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn test_create_table_without_if_not_exists_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::CreateTable(CreateTable::test(
             QualifiedName::unqualified("orders"),
@@ -99,9 +95,7 @@ mod tests {
     fn test_create_table_with_if_not_exists_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::CreateTable(
             CreateTable::test(QualifiedName::unqualified("orders")).with_if_not_exists(true),
@@ -115,9 +109,7 @@ mod tests {
     fn test_create_index_without_if_not_exists_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::CreateIndex(CreateIndex::test(
             Some("idx_orders_status".to_string()),
@@ -132,9 +124,7 @@ mod tests {
     fn create_index_unnamed_without_if_not_exists_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::CreateIndex(CreateIndex::test(
             None,
@@ -149,9 +139,7 @@ mod tests {
     fn test_create_index_with_if_not_exists_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/003.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::CreateIndex(
             CreateIndex::test(

@@ -63,9 +63,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn rule_id() -> RuleId {
         RuleId::Pgm301
@@ -81,9 +79,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/005.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/005.sql");
 
         let stmts = vec![located(
             InsertInto::test(QualifiedName::unqualified("config")).into(),
@@ -101,10 +97,7 @@ mod tests {
                 t.column("key", "text", false);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("config".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["config"]);
 
         let stmts = vec![located(
             InsertInto::test(QualifiedName::unqualified("config")).into(),
@@ -118,9 +111,7 @@ mod tests {
     fn test_insert_nonexistent_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(
             InsertInto::test(QualifiedName::unqualified("config")).into(),

@@ -80,17 +80,13 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     #[test]
     fn reindex_table_without_concurrently_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(
             Reindex::test_table(QualifiedName::unqualified("orders")).into(),
@@ -104,9 +100,7 @@ mod tests {
     fn reindex_concurrently_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(
             Reindex::test_table(QualifiedName::unqualified("orders"))
@@ -122,9 +116,7 @@ mod tests {
     fn all_reindex_kinds_fire_without_concurrently() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let cases: Vec<(&str, IrNode)> = vec![
             (
@@ -157,9 +149,7 @@ mod tests {
     fn reindex_schema_qualified_fires() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/010.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
         let stmts = vec![located(
             Reindex::test_table(QualifiedName::qualified("myschema", "orders")).into(),

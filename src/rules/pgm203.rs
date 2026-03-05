@@ -62,9 +62,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     fn rule_id() -> RuleId {
         RuleId::Pgm203
@@ -80,9 +78,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/005.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/005.sql");
 
         let stmts = vec![located(
             TruncateTable::test(QualifiedName::unqualified("audit_trail")).into(),
@@ -96,10 +92,7 @@ mod tests {
     fn test_truncate_table_created_in_same_change_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("audit_trail".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["audit_trail"]);
 
         let stmts = vec![located(
             TruncateTable::test(QualifiedName::unqualified("audit_trail")).into(),
@@ -119,9 +112,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/006.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/006.sql");
 
         let stmts = vec![located(
             TruncateTable::test(QualifiedName::unqualified("audit_trail"))
@@ -137,9 +128,7 @@ mod tests {
     fn test_truncate_nonexistent_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(
             TruncateTable::test(QualifiedName::unqualified("audit_trail")).into(),

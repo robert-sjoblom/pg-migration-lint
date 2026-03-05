@@ -78,9 +78,7 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{located, make_ctx};
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     /// Helper to build an ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE statement.
     fn add_exclude_stmt(table: &str) -> Located<IrNode> {
@@ -101,9 +99,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![add_exclude_stmt("orders")];
 
@@ -120,10 +116,7 @@ mod tests {
                     .column("order_range", "tsrange", true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let mut created = HashSet::new();
-        created.insert("orders".to_string());
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders"]);
 
         let stmts = vec![add_exclude_stmt("orders")];
 
@@ -135,9 +128,7 @@ mod tests {
     fn test_no_finding_when_table_not_in_catalog() {
         let before = Catalog::new();
         let after = Catalog::new();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![add_exclude_stmt("orders")];
 
@@ -154,9 +145,7 @@ mod tests {
                     .column("order_range", "tsrange", true);
             })
             .build();
-        let file = PathBuf::from("migrations/001.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
         // EXCLUDE inside a CreateTable, not an AlterTable
         let stmts = vec![located(IrNode::CreateTable(
@@ -183,9 +172,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::qualified("myschema", "orders"),
@@ -212,9 +199,7 @@ mod tests {
             })
             .build();
         let after = before.clone();
-        let file = PathBuf::from("migrations/002.sql");
-        let created = HashSet::new();
-        let ctx = make_ctx(&before, &after, &file, &created);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         // ALTER TABLE with multiple actions: ADD COLUMN + ADD EXCLUDE
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
