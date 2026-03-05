@@ -357,6 +357,9 @@ pub enum ConstraintState {
     Unique {
         name: Option<String>,
         columns: Vec<String>,
+        /// Index name from `USING INDEX` clause. When the constraint is dropped,
+        /// this index must also be removed (its name may differ from the constraint name).
+        using_index: Option<String>,
     },
     Check {
         name: Option<String>,

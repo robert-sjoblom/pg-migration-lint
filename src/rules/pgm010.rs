@@ -52,6 +52,7 @@ pub(super) fn check(
                 if let ConstraintState::Unique {
                     name: constraint_name,
                     columns,
+                    ..
                 } = constraint
                 {
                     let constraint_description = match constraint_name {
