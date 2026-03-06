@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.4](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.3...v2.14.4) (2026-03-06)
+
+
+### Bug Fixes
+
+* **parser:** correctly extract column names from expression-based partition keys ([bda3ac3](https://github.com/robert-sjoblom/pg-migration-lint/commit/bda3ac396c316fd9a5156076b3fabb2663ef18fa))
+
 ## [2.14.3](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.2...v2.14.3) (2026-03-05)
 
 
