@@ -28,16 +28,36 @@ mod tests;
 /// GRANT, COMMENT ON) are returned as `Ignored`.
 ///
 /// Line numbers in the returned `SourceSpan`s are 1-based.
-pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
+#[cfg(test)]
+pub(crate) fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
+    parse_sql_impl(source, None)
+}
+
+/// Parse a SQL source string, applying a default schema to unqualified names.
+///
+/// Behaves identically to [`parse_sql`] but every unqualified table/index
+/// reference is constructed with the given `default_schema` so that catalog
+/// keys are schema-qualified without a separate normalize pass.
+pub fn parse_sql_with_schema(source: &str, default_schema: &str) -> Vec<Located<IrNode>> {
+    parse_sql_impl(source, Some(default_schema))
+}
+
+/// Shared implementation behind [`parse_sql`] and [`parse_sql_with_schema`].
+fn parse_sql_impl(source: &str, ds: Option<&str>) -> Vec<Located<IrNode>> {
     let result = match pg_query::parse(source) {
         Ok(r) => r,
         Err(_) => {
             // Entire source failed to parse; return a single Unparseable node
             let end_line = source.lines().count().max(1);
+            let hint = extract_table_hint_from_raw(source);
+            let hint = match (hint, ds) {
+                (Some(h), Some(schema)) if !h.contains('.') => Some(format!("{schema}.{h}")),
+                (h, _) => h,
+            };
             return vec![Located {
                 node: IrNode::Unparseable {
                     raw_sql: source.to_string(),
-                    table_hint: extract_table_hint_from_raw(source),
+                    table_hint: hint,
                 },
                 span: SourceSpan {
                     start_line: 1,
@@ -75,7 +95,7 @@ pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
         let stmt_node = raw_stmt.stmt.as_ref().and_then(|s| s.node.as_ref());
 
         let ir_nodes = match stmt_node {
-            Some(node_enum) => convert_node(node_enum, &raw_sql),
+            Some(node_enum) => convert_node(node_enum, &raw_sql, ds),
             None => vec![IrNode::Ignored {
                 raw_sql: raw_sql.clone(),
             }],
@@ -136,30 +156,37 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
 /// Most statements produce a single IR node. Multi-target statements like
 /// `DROP TABLE t1, t2` or `TRUNCATE t1, t2, t3 CASCADE` produce one node
 /// per target table.
-fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
+fn convert_node(node: &NodeEnum, raw_sql: &str, ds: Option<&str>) -> Vec<IrNode> {
     match node {
-        NodeEnum::CreateStmt(create) => vec![convert_create_table(create, raw_sql)],
+        NodeEnum::CreateStmt(create) => vec![convert_create_table(create, raw_sql, ds)],
         NodeEnum::AlterTableStmt(alter) => {
             if alter.objtype() == pg_query::protobuf::ObjectType::ObjectIndex {
-                convert_alter_index(alter, raw_sql)
+                convert_alter_index(alter, raw_sql, ds)
             } else {
-                vec![convert_alter_table(alter, raw_sql)]
+                vec![convert_alter_table(alter, raw_sql, ds)]
             }
         }
-        NodeEnum::IndexStmt(idx) => vec![convert_create_index(idx)],
-        NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql),
-        NodeEnum::RenameStmt(rename) => vec![convert_rename_stmt(rename, raw_sql)],
-        NodeEnum::TruncateStmt(trunc) => convert_truncate_stmt(trunc),
-        NodeEnum::InsertStmt(insert) => vec![convert_insert_stmt(insert)],
-        NodeEnum::UpdateStmt(update) => vec![convert_update_stmt(update)],
-        NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete)],
-        NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster)],
-        NodeEnum::VacuumStmt(vacuum) => convert_vacuum_stmt(vacuum),
-        NodeEnum::ReindexStmt(reindex) => vec![convert_reindex_stmt(reindex)],
-        NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
-            raw_sql: raw_sql.to_string(),
-            table_hint: None,
-        }],
+        NodeEnum::IndexStmt(idx) => vec![convert_create_index(idx, ds)],
+        NodeEnum::DropStmt(drop) => convert_drop_stmt(drop, raw_sql, ds),
+        NodeEnum::RenameStmt(rename) => vec![convert_rename_stmt(rename, raw_sql, ds)],
+        NodeEnum::TruncateStmt(trunc) => convert_truncate_stmt(trunc, ds),
+        NodeEnum::InsertStmt(insert) => vec![convert_insert_stmt(insert, ds)],
+        NodeEnum::UpdateStmt(update) => vec![convert_update_stmt(update, ds)],
+        NodeEnum::DeleteStmt(delete) => vec![convert_delete_stmt(delete, ds)],
+        NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster, ds)],
+        NodeEnum::VacuumStmt(vacuum) => convert_vacuum_stmt(vacuum, ds),
+        NodeEnum::ReindexStmt(reindex) => vec![convert_reindex_stmt(reindex, ds)],
+        NodeEnum::DoStmt(_) => {
+            let hint = extract_table_hint_from_raw(raw_sql);
+            let hint = match (hint, ds) {
+                (Some(h), Some(schema)) if !h.contains('.') => Some(format!("{schema}.{h}")),
+                (h, _) => h,
+            };
+            vec![IrNode::Unparseable {
+                raw_sql: raw_sql.to_string(),
+                table_hint: hint,
+            }]
+        }
         _ => vec![IrNode::Ignored {
             raw_sql: raw_sql.to_string(),
         }],
@@ -167,8 +194,12 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
 }
 
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.
-fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str) -> IrNode {
-    let name = relation_to_qualified_name(create.relation.as_ref());
+fn convert_create_table(
+    create: &pg_query::protobuf::CreateStmt,
+    _raw_sql: &str,
+    ds: Option<&str>,
+) -> IrNode {
+    let name = make_qualified_name(create.relation.as_ref(), ds);
 
     let persistence = if matches!(
         create.oncommit(),
@@ -191,12 +222,12 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
 
         match node {
             NodeEnum::ColumnDef(col) => {
-                let (col_def, inline_constraints) = convert_column_def(col);
+                let (col_def, inline_constraints) = convert_column_def(col, ds);
                 columns.push(col_def);
                 constraints.extend(inline_constraints);
             }
             NodeEnum::Constraint(con) => {
-                if let Some(tc) = convert_table_constraint(con, None) {
+                if let Some(tc) = convert_table_constraint(con, None, ds) {
                     constraints.push(tc);
                 }
             }
@@ -255,7 +286,7 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
             .inh_relations
             .first()
             .and_then(|node| match node.node.as_ref() {
-                Some(NodeEnum::RangeVar(rv)) => Some(relation_to_qualified_name(Some(rv))),
+                Some(NodeEnum::RangeVar(rv)) => Some(make_qualified_name(Some(rv), ds)),
                 _ => None,
             })
     } else {
@@ -287,7 +318,10 @@ fn optional_name(name: &str) -> Option<String> {
 ///
 /// Returns `(ColumnDef, Vec<TableConstraint>)` where the vector contains
 /// inline PRIMARY KEY, FOREIGN KEY, UNIQUE, and CHECK constraints.
-fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<TableConstraint>) {
+fn convert_column_def(
+    col: &pg_query::protobuf::ColumnDef,
+    ds: Option<&str>,
+) -> (ColumnDef, Vec<TableConstraint>) {
     let col_name = col.colname.clone();
 
     // Extract type name
@@ -331,7 +365,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 });
             }
             pg_query::protobuf::ConstrType::ConstrForeign => {
-                let ref_table = relation_to_qualified_name(con.pktable.as_ref());
+                let ref_table = make_qualified_name(con.pktable.as_ref(), ds);
                 let ref_columns = extract_string_list(&con.pk_attrs);
                 constraints.push(TableConstraint::ForeignKey {
                     name: optional_name(&con.conname),
@@ -503,8 +537,12 @@ fn convert_default_expr_from_node(node: &NodeEnum) -> DefaultExpr {
 }
 
 /// Convert a pg_query `AlterTableStmt` to `IrNode::AlterTable`.
-fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> IrNode {
-    let name = relation_to_qualified_name(alter.relation.as_ref());
+fn convert_alter_table(
+    alter: &pg_query::protobuf::AlterTableStmt,
+    raw_sql: &str,
+    ds: Option<&str>,
+) -> IrNode {
+    let name = make_qualified_name(alter.relation.as_ref(), ds);
 
     let mut actions = Vec::new();
 
@@ -513,7 +551,7 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
             continue;
         };
 
-        let new_actions = convert_alter_table_cmd(cmd);
+        let new_actions = convert_alter_table_cmd(cmd, ds);
         actions.extend(new_actions);
     }
 
@@ -530,12 +568,15 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
 ///
 /// Returns a `Vec` because `ADD COLUMN` with inline constraints (e.g. FK,
 /// UNIQUE, CHECK) produces the column action *plus* constraint actions.
-fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<AlterTableAction> {
+fn convert_alter_table_cmd(
+    cmd: &pg_query::protobuf::AlterTableCmd,
+    ds: Option<&str>,
+) -> Vec<AlterTableAction> {
     match cmd.subtype() {
         pg_query::protobuf::AlterTableType::AtAddColumn => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
                 Some(NodeEnum::ColumnDef(col)) => {
-                    let (col_def, inline_constraints) = convert_column_def(col);
+                    let (col_def, inline_constraints) = convert_column_def(col, ds);
                     let mut result = vec![AlterTableAction::AddColumn(col_def)];
                     result.extend(
                         inline_constraints
@@ -554,7 +595,7 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
         }],
         pg_query::protobuf::AlterTableType::AtAddConstraint => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
-                Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None) {
+                Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None, ds) {
                     Some(tc) => vec![AlterTableAction::AddConstraint(tc)],
                     None => vec![AlterTableAction::Other {
                         description: "ADD CONSTRAINT (unknown type)".to_string(),
@@ -615,10 +656,9 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                 .as_ref()
                 .and_then(|d| d.node.as_ref())
                 .and_then(|n| match n {
-                    NodeEnum::PartitionCmd(pc) => pc
-                        .name
-                        .as_ref()
-                        .map(|rv| relation_to_qualified_name(Some(rv))),
+                    NodeEnum::PartitionCmd(pc) => {
+                        pc.name.as_ref().map(|rv| make_qualified_name(Some(rv), ds))
+                    }
                     _ => None,
                 });
             match child {
@@ -637,7 +677,7 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
                     NodeEnum::PartitionCmd(pc) => pc
                         .name
                         .as_ref()
-                        .map(|rv| (relation_to_qualified_name(Some(rv)), pc.concurrent)),
+                        .map(|rv| (make_qualified_name(Some(rv), ds), pc.concurrent)),
                     _ => None,
                 });
             match result {
@@ -697,7 +737,11 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
 ///
 /// pg_query represents `ALTER INDEX` as `AlterTableStmt` with `objtype = ObjectIndex`.
 /// We only model `ATTACH PARTITION`; all other ALTER INDEX subtypes are ignored.
-fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> Vec<IrNode> {
+fn convert_alter_index(
+    alter: &pg_query::protobuf::AlterTableStmt,
+    raw_sql: &str,
+    ds: Option<&str>,
+) -> Vec<IrNode> {
     let parent_name = match alter.relation.as_ref() {
         Some(r) => r.relname.clone(),
         None => {
@@ -718,10 +762,9 @@ fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
                 .as_ref()
                 .and_then(|d| d.node.as_ref())
                 .and_then(|n| match n {
-                    NodeEnum::PartitionCmd(pc) => pc
-                        .name
-                        .as_ref()
-                        .map(|rv| relation_to_qualified_name(Some(rv))),
+                    NodeEnum::PartitionCmd(pc) => {
+                        pc.name.as_ref().map(|rv| make_qualified_name(Some(rv), ds))
+                    }
                     _ => None,
                 });
             if let Some(child_index_name) = child {
@@ -744,17 +787,21 @@ fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
 /// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
 /// - `ObjectType::ObjectColumn` → `IrNode::RenameColumn`
 /// - Everything else → `IrNode::Ignored`
-fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -> IrNode {
+fn convert_rename_stmt(
+    rename: &pg_query::protobuf::RenameStmt,
+    raw_sql: &str,
+    ds: Option<&str>,
+) -> IrNode {
     match rename.rename_type() {
         pg_query::protobuf::ObjectType::ObjectTable => {
-            let name = relation_to_qualified_name(rename.relation.as_ref());
+            let name = make_qualified_name(rename.relation.as_ref(), ds);
             IrNode::RenameTable {
                 name,
                 new_name: rename.newname.clone(),
             }
         }
         pg_query::protobuf::ObjectType::ObjectColumn => {
-            let table = relation_to_qualified_name(rename.relation.as_ref());
+            let table = make_qualified_name(rename.relation.as_ref(), ds);
             IrNode::RenameColumn {
                 table,
                 old_name: rename.subname.clone(),
@@ -775,6 +822,7 @@ fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -
 fn convert_table_constraint(
     con: &pg_query::protobuf::Constraint,
     context_column: Option<&str>,
+    ds: Option<&str>,
 ) -> Option<TableConstraint> {
     let name = optional_name(&con.conname);
 
@@ -793,7 +841,7 @@ fn convert_table_constraint(
             })
         }
         pg_query::protobuf::ConstrType::ConstrForeign => {
-            let ref_table = relation_to_qualified_name(con.pktable.as_ref());
+            let ref_table = make_qualified_name(con.pktable.as_ref(), ds);
             let ref_columns = extract_string_list(&con.pk_attrs);
             let mut columns = extract_string_list(&con.fk_attrs);
             if columns.is_empty()
@@ -840,8 +888,8 @@ fn convert_table_constraint(
 }
 
 /// Convert a pg_query `IndexStmt` to `IrNode::CreateIndex`.
-fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
-    let table_name = relation_to_qualified_name(idx.relation.as_ref());
+fn convert_create_index(idx: &pg_query::protobuf::IndexStmt, ds: Option<&str>) -> IrNode {
+    let table_name = make_qualified_name(idx.relation.as_ref(), ds);
 
     let index_name = if idx.idxname.is_empty() {
         None
@@ -905,7 +953,11 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 /// - `ObjectType::ObjectIndex` -> `IrNode::DropIndex` (one per index)
 /// - `ObjectType::ObjectTable` -> `IrNode::DropTable` (one per table)
 /// - Everything else -> `IrNode::Ignored`
-fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<IrNode> {
+fn convert_drop_stmt(
+    drop: &pg_query::protobuf::DropStmt,
+    raw_sql: &str,
+    ds: Option<&str>,
+) -> Vec<IrNode> {
     match drop.remove_type() {
         pg_query::protobuf::ObjectType::ObjectIndex => {
             let names = extract_all_names_from_drop_objects(&drop.objects);
@@ -926,7 +978,7 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<
                 .collect()
         }
         pg_query::protobuf::ObjectType::ObjectTable => {
-            let qualified_names = extract_all_qualified_names_from_drop_objects(&drop.objects);
+            let qualified_names = extract_all_qualified_names_from_drop_objects(&drop.objects, ds);
             if qualified_names.is_empty() {
                 return vec![IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
@@ -971,7 +1023,10 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<
 ///
 /// `TRUNCATE t1, t2, t3 CASCADE` produces three `TruncateTable` nodes,
 /// all sharing the same `cascade` flag.
-fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode> {
+fn convert_truncate_stmt(
+    trunc: &pg_query::protobuf::TruncateStmt,
+    ds: Option<&str>,
+) -> Vec<IrNode> {
     let cascade = trunc.behavior() == pg_query::protobuf::DropBehavior::DropCascade;
 
     trunc
@@ -980,7 +1035,7 @@ fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode
         .filter_map(|rel_node| {
             rel_node.node.as_ref().and_then(|n| match n {
                 NodeEnum::RangeVar(rv) => Some(IrNode::TruncateTable(TruncateTable {
-                    name: relation_to_qualified_name(Some(rv)),
+                    name: make_qualified_name(Some(rv), ds),
                     cascade,
                 })),
                 _ => None,
@@ -990,25 +1045,25 @@ fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode
 }
 
 /// Convert an `InsertStmt` to `IrNode::InsertInto`.
-fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt) -> IrNode {
-    let table_name = relation_to_qualified_name(insert.relation.as_ref());
+fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt, ds: Option<&str>) -> IrNode {
+    let table_name = make_qualified_name(insert.relation.as_ref(), ds);
     IrNode::InsertInto(InsertInto { table_name })
 }
 
 /// Convert an `UpdateStmt` to `IrNode::UpdateTable`.
-fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt) -> IrNode {
-    let table_name = relation_to_qualified_name(update.relation.as_ref());
+fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt, ds: Option<&str>) -> IrNode {
+    let table_name = make_qualified_name(update.relation.as_ref(), ds);
     IrNode::UpdateTable(UpdateTable { table_name })
 }
 
 /// Convert a `DeleteStmt` to `IrNode::DeleteFrom`.
-fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode {
-    let table_name = relation_to_qualified_name(delete.relation.as_ref());
+fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt, ds: Option<&str>) -> IrNode {
+    let table_name = make_qualified_name(delete.relation.as_ref(), ds);
     IrNode::DeleteFrom(DeleteFrom { table_name })
 }
 
-fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
-    let table = relation_to_qualified_name(cluster.relation.as_ref());
+fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt, ds: Option<&str>) -> IrNode {
+    let table = make_qualified_name(cluster.relation.as_ref(), ds);
     let index = if cluster.indexname.is_empty() {
         None
     } else {
@@ -1021,7 +1076,7 @@ fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
 ///
 /// Only `VACUUM FULL` is relevant — it rewrites the table under ACCESS EXCLUSIVE.
 /// Plain `VACUUM` (no `FULL` option) is mapped to `Ignored`.
-fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
+fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt, ds: Option<&str>) -> Vec<IrNode> {
     let is_full = vacuum.options.iter().any(|n| {
         matches!(
             n.node.as_ref(),
@@ -1045,7 +1100,7 @@ fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
         .iter()
         .filter_map(|n| match n.node.as_ref() {
             Some(NodeEnum::VacuumRelation(vr)) => {
-                let table = relation_to_qualified_name(vr.relation.as_ref());
+                let table = make_qualified_name(vr.relation.as_ref(), ds);
                 Some(IrNode::VacuumFull(VacuumFull { table: Some(table) }))
             }
             _ => None,
@@ -1057,7 +1112,7 @@ fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
 ///
 /// `REINDEX` without `CONCURRENTLY` acquires ACCESS EXCLUSIVE lock on the
 /// target table (or parent table for INDEX). All four object kinds are mapped.
-fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
+fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt, ds: Option<&str>) -> IrNode {
     use pg_query::protobuf::ReindexObjectType;
 
     let concurrent = reindex.params.iter().any(|n| {
@@ -1069,11 +1124,11 @@ fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
 
     let (kind, target) = match reindex.kind() {
         ReindexObjectType::ReindexObjectTable => {
-            let name = relation_to_qualified_name(reindex.relation.as_ref());
+            let name = make_qualified_name(reindex.relation.as_ref(), ds);
             (ReindexObjectKind::Table, ReindexTarget::Relation(name))
         }
         ReindexObjectType::ReindexObjectIndex => {
-            let name = relation_to_qualified_name(reindex.relation.as_ref());
+            let name = make_qualified_name(reindex.relation.as_ref(), ds);
             (ReindexObjectKind::Index, ReindexTarget::Relation(name))
         }
         ReindexObjectType::ReindexObjectSchema => (
@@ -1146,6 +1201,7 @@ fn extract_schema_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) 
 /// For `DROP TABLE foo, myschema.bar`, returns both names.
 fn extract_all_qualified_names_from_drop_objects(
     objects: &[pg_query::protobuf::Node],
+    ds: Option<&str>,
 ) -> Vec<QualifiedName> {
     objects
         .iter()
@@ -1161,7 +1217,10 @@ fn extract_all_qualified_names_from_drop_objects(
                     .collect();
 
                 match strings.len() {
-                    1 => Some(QualifiedName::unqualified(&strings[0])),
+                    1 => Some(match ds {
+                        Some(schema) => QualifiedName::with_default_schema(&strings[0], schema),
+                        None => QualifiedName::unqualified(&strings[0]),
+                    }),
                     2 => Some(QualifiedName::qualified(&strings[0], &strings[1])),
                     _ if !strings.is_empty() => {
                         let name = strings.last().cloned().unwrap_or_default();
@@ -1177,17 +1236,27 @@ fn extract_all_qualified_names_from_drop_objects(
         .collect()
 }
 
-/// Convert a pg_query `RangeVar` (relation reference) to a `QualifiedName`.
-fn relation_to_qualified_name(rel: Option<&pg_query::protobuf::RangeVar>) -> QualifiedName {
+/// Convert a pg_query `RangeVar` to a `QualifiedName`, optionally applying a
+/// default schema to unqualified names.
+fn make_qualified_name(
+    rel: Option<&pg_query::protobuf::RangeVar>,
+    ds: Option<&str>,
+) -> QualifiedName {
     match rel {
         Some(r) => {
             if r.schemaname.is_empty() {
-                QualifiedName::unqualified(&r.relname)
+                match ds {
+                    Some(schema) => QualifiedName::with_default_schema(&r.relname, schema),
+                    None => QualifiedName::unqualified(&r.relname),
+                }
             } else {
                 QualifiedName::qualified(&r.schemaname, &r.relname)
             }
         }
-        None => QualifiedName::unqualified("unknown"),
+        None => match ds {
+            Some(schema) => QualifiedName::with_default_schema("unknown", schema),
+            None => QualifiedName::unqualified("unknown"),
+        },
     }
 }
 

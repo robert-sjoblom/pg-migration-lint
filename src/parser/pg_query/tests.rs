@@ -1683,8 +1683,8 @@ fn test_parse_create_table_with_named_check() {
 }
 
 #[test]
-fn test_relation_to_qualified_name_none() {
-    let name = relation_to_qualified_name(None);
+fn test_make_qualified_name_none() {
+    let name = make_qualified_name(None, None);
     assert_eq!(name.name, "unknown");
 }
 

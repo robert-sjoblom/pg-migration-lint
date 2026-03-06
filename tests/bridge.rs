@@ -9,7 +9,7 @@ mod tests {
     use pg_migration_lint::input::liquibase_bridge::{BridgeLoader, resolve_source_paths};
     use pg_migration_lint::input::liquibase_updatesql::UpdateSqlLoader;
     use pg_migration_lint::suppress::parse_suppressions;
-    use pg_migration_lint::{Finding, LintPipeline, RuleId, normalize};
+    use pg_migration_lint::{Finding, LintPipeline, RuleId};
 
     use super::common;
 
@@ -24,17 +24,15 @@ mod tests {
 
     /// Shared replay+lint logic for Liquibase loaders (bridge and update-sql).
     ///
-    /// Converts raw migration units into `MigrationUnit`s, normalizes schemas,
-    /// replays catalog history, and runs the full rule engine on changed units.
+    /// Converts raw migration units into `MigrationUnit`s, replays catalog
+    /// history, and runs the full rule engine on changed units.
     /// The only difference between bridge and update-sql is HOW they produce
     /// `raw_units`; everything after that is identical.
     fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> Vec<Finding> {
-        let mut units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
+        let units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
             .into_iter()
-            .map(|r| r.into_migration_unit())
+            .map(|r| r.into_migration_unit("public"))
             .collect();
-
-        normalize::normalize_schemas(&mut units, "public");
 
         let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
 

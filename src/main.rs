@@ -15,7 +15,6 @@ use std::path::PathBuf;
 use pg_migration_lint::input::MigrationHistory;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
 use pg_migration_lint::input::sql::SqlLoader;
-use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
@@ -102,12 +101,10 @@ fn run(args: Args) -> Result<bool> {
     let changed_files = parse_changed_files(&args)?;
 
     // --- Step 1: Load migration files ---
-    let mut history = load_migrations(&config)?;
-
-    // --- Step 1b: Normalize schemas ---
-    // Assign the configured default schema to every unqualified QualifiedName
-    // so that catalog keys are always schema-qualified.
-    normalize::normalize_schemas(&mut history.units, &config.migrations.default_schema);
+    // Schema normalization is folded into parsing: the parser assigns the
+    // configured default schema to every unqualified QualifiedName during
+    // IR construction.
+    let history = load_migrations(&config)?;
 
     // --- Step 2: Build changed files set for O(1) lookup ---
     // Convert the Vec<PathBuf> into a HashSet<PathBuf>.
@@ -355,9 +352,10 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
             let raw_units = load_liquibase(&config.liquibase, &config.migrations.paths)
                 .context("Failed to load Liquibase migrations")?;
 
+            let ds = &config.migrations.default_schema;
             let units = raw_units
                 .into_iter()
-                .map(|r| r.into_migration_unit())
+                .map(|r| r.into_migration_unit(ds))
                 .collect();
 
             Ok(MigrationHistory { units })
@@ -365,7 +363,7 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
         "filename_lexicographic" => {
             eprintln!("pg-migration-lint: using filename_lexicographic strategy");
             let run_in_tx = config.migrations.run_in_transaction.unwrap_or(true);
-            let loader = SqlLoader::new(run_in_tx);
+            let loader = SqlLoader::new(run_in_tx, &config.migrations.default_schema);
             let history = loader
                 .load(&config.migrations.paths)
                 .context("Failed to load migrations")?;
@@ -376,7 +374,7 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
                 "pg-migration-lint: unknown strategy '{other}', falling back to filename_lexicographic",
             );
             let run_in_tx = config.migrations.run_in_transaction.unwrap_or(true);
-            let loader = SqlLoader::new(run_in_tx);
+            let loader = SqlLoader::new(run_in_tx, &config.migrations.default_schema);
             let history = loader
                 .load(&config.migrations.paths)
                 .context("Failed to load migrations")?;

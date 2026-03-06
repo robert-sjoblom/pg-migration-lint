@@ -72,8 +72,9 @@ impl RawMigrationUnit {
     /// findings point to the correct line in the original file (e.g., the
     /// XML line for Liquibase changesets). For raw SQL files the offset
     /// is 1, making this a no-op.
-    pub fn into_migration_unit(self) -> MigrationUnit {
-        let mut statements = crate::parser::pg_query::parse_sql(&self.sql);
+    pub fn into_migration_unit(self, default_schema: &str) -> MigrationUnit {
+        let mut statements =
+            crate::parser::pg_query::parse_sql_with_schema(&self.sql, default_schema);
 
         // Shift line numbers so they are absolute within the source file.
         // The parser returns 1-based lines relative to the SQL snippet;
@@ -119,7 +120,7 @@ mod tests {
     /// mutant (which would also adjust at offset=1).
     #[test]
     fn test_offset_one_no_adjustment() {
-        let unit = raw_unit("CREATE TABLE t (id int);\n", 1).into_migration_unit();
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 1).into_migration_unit("public");
         assert!(
             !unit.statements.is_empty(),
             "parser should produce at least one statement"
@@ -138,7 +139,7 @@ mod tests {
     /// `+=` vs `-=`/`*=` in the delta application.
     #[test]
     fn test_offset_greater_than_one() {
-        let unit = raw_unit("CREATE TABLE t (id int);\n", 10).into_migration_unit();
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 10).into_migration_unit("public");
         assert!(!unit.statements.is_empty());
         let span = &unit.statements[0].span;
         // Parser returns line 1; delta = 10 - 1 = 9; result = 1 + 9 = 10
@@ -152,7 +153,7 @@ mod tests {
     /// leaving lines unadjusted.
     #[test]
     fn test_offset_two_boundary() {
-        let unit = raw_unit("CREATE TABLE t (id int);\n", 2).into_migration_unit();
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 2).into_migration_unit("public");
         assert!(!unit.statements.is_empty());
         let span = &unit.statements[0].span;
         assert_eq!(span.start_line, 2, "start_line should be shifted by 1");
@@ -163,7 +164,7 @@ mod tests {
     /// This confirms the guard works for offset < 1 as well.
     #[test]
     fn test_offset_zero_no_adjustment() {
-        let unit = raw_unit("CREATE TABLE t (id int);\n", 0).into_migration_unit();
+        let unit = raw_unit("CREATE TABLE t (id int);\n", 0).into_migration_unit("public");
         assert!(!unit.statements.is_empty());
         let span = &unit.statements[0].span;
         assert_eq!(
@@ -179,7 +180,7 @@ mod tests {
     #[test]
     fn test_offset_multiline_statement() {
         let sql = "CREATE TABLE t (\n  id int,\n  name text\n);\n";
-        let unit = raw_unit(sql, 5).into_migration_unit();
+        let unit = raw_unit(sql, 5).into_migration_unit("public");
         assert!(!unit.statements.is_empty());
         let span = &unit.statements[0].span;
         // The CREATE TABLE spans lines 1..=4 in the snippet (4 lines),
@@ -201,7 +202,7 @@ mod tests {
         // after the shift. We verify the delta was applied correctly:
         // If original end_line was E, shifted should be E + delta.
         // Parse the same SQL with offset=1 to get the original end_line.
-        let baseline = raw_unit(sql, 1).into_migration_unit();
+        let baseline = raw_unit(sql, 1).into_migration_unit("public");
         let original_end = baseline.statements[0].span.end_line;
         assert_eq!(
             span.end_line,
@@ -221,7 +222,7 @@ mod tests {
             run_in_transaction: false,
             is_down: true,
         };
-        let unit = raw.into_migration_unit();
+        let unit = raw.into_migration_unit("public");
         assert_eq!(unit.id, "cs-42");
         assert_eq!(unit.source_file, PathBuf::from("db/changelog.xml"));
         assert_eq!(unit.source_line_offset, 7);

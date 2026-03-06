@@ -296,7 +296,7 @@ pub struct QualifiedName {
     pub schema: Option<String>,
     pub name: String,
     /// Pre-computed lookup key: `"schema.name"` when qualified, `"name"` when not.
-    /// Updated by constructors and `set_default_schema()`.
+    /// Updated by constructors.
     catalog_key: String,
     /// True when the schema was assigned by normalization, not by the user.
     /// Used to suppress the schema prefix in user-facing messages.
@@ -342,24 +342,26 @@ impl QualifiedName {
         }
     }
 
+    /// Create an unqualified name and immediately assign the given default
+    /// schema. The schema is marked as defaulted so that `display_name()`
+    /// omits it from user-facing messages.
+    pub fn with_default_schema(name: impl Into<String>, default_schema: &str) -> Self {
+        let name = name.into();
+        let catalog_key = format!("{}.{}", default_schema, name);
+        Self {
+            schema: Some(default_schema.to_string()),
+            name,
+            catalog_key,
+            schema_is_default: true,
+        }
+    }
+
     /// Returns the pre-computed key used for catalog lookup.
     ///
-    /// Before normalization this returns just the table name for unqualified
-    /// references. After `set_default_schema()` has been called, all names
+    /// After normalization at parse time via `with_default_schema`, all names
     /// have an explicit schema and this returns `"schema.name"`.
     pub fn catalog_key(&self) -> &str {
         &self.catalog_key
-    }
-
-    /// Assign a default schema to an unqualified name and recompute the catalog key.
-    ///
-    /// If the name is already schema-qualified this is a no-op.
-    pub fn set_default_schema(&mut self, default: &str) {
-        if self.schema.is_none() {
-            self.schema = Some(default.to_string());
-            self.catalog_key = format!("{}.{}", default, self.name);
-            self.schema_is_default = true;
-        }
     }
 
     /// Returns the user-facing name: just `name` if the schema was synthesized
@@ -960,20 +962,11 @@ mod tests {
     }
 
     #[test]
-    fn test_set_default_schema_on_unqualified() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
+    fn test_with_default_schema() {
+        let name = QualifiedName::with_default_schema("orders", "public");
         assert_eq!(name.schema, Some("public".to_string()));
         assert_eq!(name.catalog_key(), "public.orders");
-    }
-
-    #[test]
-    fn test_set_default_schema_noop_on_qualified() {
-        let mut name = QualifiedName::qualified("myschema", "orders");
-        name.set_default_schema("public");
-        // Should not change — already qualified
-        assert_eq!(name.schema, Some("myschema".to_string()));
-        assert_eq!(name.catalog_key(), "myschema.orders");
+        assert_eq!(name.display_name(), "orders"); // default schema is hidden
     }
 
     #[test]
@@ -1006,10 +999,8 @@ mod tests {
     }
 
     #[test]
-    fn test_display_after_set_default_schema() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
-        // Display should now show the schema since it was set
+    fn test_display_with_default_schema() {
+        let name = QualifiedName::with_default_schema("orders", "public");
         assert_eq!(format!("{}", name), "public.orders");
     }
 
@@ -1026,9 +1017,8 @@ mod tests {
     }
 
     #[test]
-    fn test_display_name_after_set_default_schema() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
+    fn test_display_name_with_default_schema() {
+        let name = QualifiedName::with_default_schema("orders", "public");
         // display_name omits the synthetic schema
         assert_eq!(name.display_name(), "orders");
         // Display still shows the full form

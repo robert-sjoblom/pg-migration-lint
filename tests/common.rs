@@ -3,7 +3,6 @@
 
 use pg_migration_lint::LintPipeline;
 use pg_migration_lint::input::sql::SqlLoader;
-use pg_migration_lint::normalize;
 use pg_migration_lint::rules::{Finding, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
@@ -110,12 +109,10 @@ pub fn lint_fixture_inner<S: AsRef<str>>(
         .join(fixture_name)
         .join("migrations");
 
-    let loader = SqlLoader::default();
-    let mut history = loader
+    let loader = SqlLoader::new(true, default_schema);
+    let history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load fixture");
-
-    normalize::normalize_schemas(&mut history.units, default_schema);
 
     let changed: HashSet<PathBuf> = changed_filenames
         .iter()

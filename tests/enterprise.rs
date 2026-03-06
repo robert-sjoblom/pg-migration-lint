@@ -1,7 +1,7 @@
 use std::{collections::HashSet, path::PathBuf};
 
 use pg_migration_lint::{
-    Finding, LintPipeline, RuleId, input::sql::SqlLoader, normalize, suppress::parse_suppressions,
+    Finding, LintPipeline, RuleId, input::sql::SqlLoader, suppress::parse_suppressions,
 };
 use rstest::rstest;
 
@@ -154,12 +154,10 @@ fn test_enterprise_sliding_window() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/repos/enterprise/migrations");
 
-    let loader = SqlLoader::default();
-    let mut history = loader
+    let loader = SqlLoader::new(true, "public");
+    let history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load enterprise fixture");
-
-    normalize::normalize_schemas(&mut history.units, "public");
 
     let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
 

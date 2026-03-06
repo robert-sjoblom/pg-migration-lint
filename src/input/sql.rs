@@ -5,7 +5,7 @@
 //! and linting.
 
 use crate::input::{LoadError, MigrationHistory, MigrationUnit};
-use crate::parser::pg_query::parse_sql;
+use crate::parser::pg_query::parse_sql_with_schema;
 use std::path::{Path, PathBuf};
 
 /// Loader for plain SQL migration files.
@@ -17,12 +17,16 @@ use std::path::{Path, PathBuf};
 /// must end with `.down` or `_down`.
 pub struct SqlLoader {
     run_in_transaction: bool,
+    default_schema: String,
 }
 
 impl SqlLoader {
-    /// Create a new `SqlLoader` with the given default `run_in_transaction` value.
-    pub fn new(run_in_transaction: bool) -> Self {
-        Self { run_in_transaction }
+    /// Create a new `SqlLoader` with the given settings.
+    pub fn new(run_in_transaction: bool, default_schema: impl Into<String>) -> Self {
+        Self {
+            run_in_transaction,
+            default_schema: default_schema.into(),
+        }
     }
 
     /// Load migrations from the given paths.
@@ -82,7 +86,7 @@ impl SqlLoader {
             source: e,
         })?;
 
-        let statements = parse_sql(&source);
+        let statements = parse_sql_with_schema(&source, &self.default_schema);
 
         let filename = path
             .file_name()
@@ -106,6 +110,7 @@ impl Default for SqlLoader {
     fn default() -> Self {
         Self {
             run_in_transaction: true,
+            default_schema: "public".to_string(),
         }
     }
 }
@@ -381,7 +386,7 @@ mod tests {
         fs::write(&file_path, "CREATE TABLE users (id integer PRIMARY KEY);")
             .expect("Failed to write test file");
 
-        let loader = SqlLoader::new(false);
+        let loader = SqlLoader::new(false, "public");
         let unit = loader.load_file(&file_path).expect("Failed to load file");
         assert!(!unit.run_in_transaction);
     }
