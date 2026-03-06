@@ -462,14 +462,14 @@ mod tests {
     }
 
     #[test]
-    fn test_expression_partition_key_not_matched() {
+    fn test_expression_partition_key_resolved_to_base_columns() {
         // Expression-based partition key like PARTITION BY RANGE (date_trunc('month', ts))
-        // stores the whole expression as one "column" entry. The CHECK won't match
-        // the full expression string as a single token, so the finding fires.
+        // is resolved to its base column references at parse time. The CHECK on
+        // the underlying column `ts` is sufficient to suppress the finding.
         let before = CatalogBuilder::new()
             .table("events", |t| {
                 t.column("ts", "timestamptz", false)
-                    .partitioned_by(PartitionStrategy::Range, &["date_trunc('month', ts)"]);
+                    .partitioned_by(PartitionStrategy::Range, &["ts"]);
             })
             .table("events_2024", |t| {
                 t.column("ts", "timestamptz", false).check_constraint(
@@ -484,14 +484,39 @@ mod tests {
 
         let stmts = vec![attach_stmt("events", "events_2024")];
 
-        // Expression-based partition keys are stored as opaque strings that
-        // don't match simple column token checks. This is a known limitation;
-        // the finding fires even though the CHECK may be semantically correct.
+        let findings = rule_id().check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "CHECK on base column should suppress even for expression-based partition keys"
+        );
+    }
+
+    #[test]
+    fn test_expression_partition_key_fires_without_check_on_base_column() {
+        // Expression-based partition key resolved to column `ts`, but the CHECK
+        // references an unrelated column — should still fire.
+        let before = CatalogBuilder::new()
+            .table("events", |t| {
+                t.column("id", "bigint", false)
+                    .column("ts", "timestamptz", false)
+                    .partitioned_by(PartitionStrategy::Range, &["ts"]);
+            })
+            .table("events_2024", |t| {
+                t.column("id", "bigint", false)
+                    .column("ts", "timestamptz", false)
+                    .check_constraint(Some("chk_id"), "(id > 0)", false);
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![attach_stmt("events", "events_2024")];
+
         let findings = rule_id().check(&stmts, &ctx);
         assert_eq!(
             findings.len(),
             1,
-            "Expression-based partition keys cannot be matched by column-token heuristic"
+            "CHECK on unrelated column should not suppress for expression-based partition keys"
         );
     }
 }
