@@ -215,16 +215,32 @@ fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str)
         let part_columns: Vec<String> = spec
             .part_params
             .iter()
-            .filter_map(|p| match p.node.as_ref() {
+            .flat_map(|p| match p.node.as_ref() {
                 Some(NodeEnum::PartitionElem(elem)) => {
                     if !elem.name.is_empty() {
-                        Some(elem.name.clone())
+                        vec![elem.name.clone()]
                     } else {
-                        // Expression partition key — deparse the expression text.
-                        elem.expr.as_ref().map(|expr_node| deparse_node(expr_node))
+                        // Expression partition key — extract referenced column names
+                        // from the AST so that CHECK-constraint matching in PGM005
+                        // and RENAME COLUMN tracking work correctly.
+                        let refs = elem
+                            .expr
+                            .as_ref()
+                            .map(|expr_node| extract_column_refs(expr_node))
+                            .unwrap_or_default();
+                        if refs.is_empty() {
+                            // Fallback: deparse the expression text so it appears as
+                            // an unmatchable entry (preserves current firing behavior).
+                            elem.expr
+                                .as_ref()
+                                .map(|expr_node| vec![deparse_node(expr_node)])
+                                .unwrap_or_default()
+                        } else {
+                            refs
+                        }
                     }
                 }
-                _ => None,
+                _ => vec![],
             })
             .collect();
         Some(PartitionBy {

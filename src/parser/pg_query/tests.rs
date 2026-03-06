@@ -2112,15 +2112,67 @@ fn test_partition_by_expression() {
                 .as_ref()
                 .expect("partition_by should be set");
             assert_eq!(pb.strategy, PartitionStrategy::Range);
-            assert_eq!(pb.columns.len(), 1);
-            // Expression key is deparsed into SQL text
-            assert!(
-                pb.columns[0].contains("EXTRACT")
-                    || pb.columns[0].contains("extract")
-                    || pb.columns[0].contains("date_part"),
-                "Expression partition key should contain function text, got: {}",
-                pb.columns[0]
-            );
+            // Expression partition key: column refs are extracted from the AST
+            // instead of deparsing the expression text.
+            assert_eq!(pb.columns, vec!["ts".to_string()]);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_partition_by_expression_date_trunc() {
+    let nodes = parse_sql(
+        "CREATE TABLE events (id int, ts timestamptz) PARTITION BY RANGE (date_trunc('month', ts));",
+    );
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.strategy, PartitionStrategy::Range);
+            assert_eq!(pb.columns, vec!["ts".to_string()]);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_partition_by_mixed_column_and_expression() {
+    // One simple column and one expression — both should be resolved to column refs.
+    let nodes = parse_sql(
+        "CREATE TABLE events (id int, region text, ts timestamptz) PARTITION BY RANGE (region, date_trunc('month', ts));",
+    );
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.strategy, PartitionStrategy::Range);
+            assert_eq!(pb.columns, vec!["region".to_string(), "ts".to_string()]);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_partition_by_expression_arithmetic() {
+    // Expression referencing two columns: (a + b)
+    let nodes = parse_sql("CREATE TABLE data (a int, b int, c text) PARTITION BY RANGE ((a + b));");
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.strategy, PartitionStrategy::Range);
+            // extract_column_refs returns sorted, deduplicated column names
+            assert_eq!(pb.columns, vec!["a".to_string(), "b".to_string()]);
         }
         other => panic!("Expected CreateTable, got {:?}", other),
     }
