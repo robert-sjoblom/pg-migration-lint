@@ -80,6 +80,43 @@ fn test_suppressed_repo_no_findings() {
 }
 
 #[test]
+fn test_all_files_changed_fresh_repo() {
+    // All files passed as changed — no prior history to replay.
+    // catalog_before starts empty for V001. DDL-safety rules like PGM001
+    // must not fire because all tables are new.
+    let findings = common::lint_fixture(
+        "clean",
+        &["V001__create_users.sql", "V002__create_orders.sql"],
+    );
+    assert!(
+        findings.is_empty(),
+        "Fresh repo with all files changed should have 0 findings but got {}: {}",
+        findings.len(),
+        common::format_findings(&findings)
+    );
+}
+
+#[test]
+fn test_bridge_table_missing_covering_index_on_second_fk_column() {
+    // Bridge table xy has PK (x_id, y_id) and FKs to both x and y.
+    // The composite PK index covers x_id (leftmost prefix) but NOT y_id alone.
+    // PGM501 should fire for y_id only. All tables are new.
+    let findings =
+        common::lint_fixture_rules("bridge-table", &["V001__bridge_table.sql"], &["PGM501"]);
+    assert_eq!(
+        findings.len(),
+        1,
+        "Expected exactly 1 PGM501 finding (y_id), got:\n  {}",
+        common::format_findings(&findings)
+    );
+    assert!(
+        findings[0].message.contains("y_id"),
+        "PGM501 should fire for y_id, got: {}",
+        findings[0].message
+    );
+}
+
+#[test]
 fn test_only_changed_files_linted() {
     // Only V001 is "changed" -- it creates new tables, so pre-existing-table
     // rules (PGM001, PGM007, PGM008, PGM009) should NOT fire. However,
