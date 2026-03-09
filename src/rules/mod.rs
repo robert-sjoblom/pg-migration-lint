@@ -4,7 +4,7 @@
 //! Rules receive IR nodes and catalog state, returning findings with severity levels.
 
 use crate::parser::ir::{IrNode, Located, SourceSpan};
-pub use crate::rules::finding::Finding;
+pub use crate::rules::finding::{Finding, dedup_findings};
 pub use crate::rules::lint_context::LintContext;
 pub use crate::rules::rule_id::RuleId;
 pub use crate::rules::severity::Severity;
@@ -143,7 +143,7 @@ pub fn cap_for_down_migration(findings: &mut [Finding]) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::Path;
     use strum::IntoEnumIterator;
 
     use crate::rules::finding::Finding;
@@ -155,22 +155,20 @@ mod tests {
     #[test]
     fn test_cap_for_down_migration() {
         let mut findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "test".to_string(),
-                file: PathBuf::from("test.sql"),
-                start_line: 1,
-                end_line: 1,
-            },
-            Finding {
-                rule_id: RuleId::Pgm502,
-                severity: Severity::Major,
-                message: "test".to_string(),
-                file: PathBuf::from("test.sql"),
-                start_line: 2,
-                end_line: 2,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "test".to_string(),
+                Path::new("test.sql"),
+                &SourceSpan::at(1, 1),
+            ),
+            Finding::new(
+                RuleId::Pgm502,
+                Severity::Major,
+                "test".to_string(),
+                Path::new("test.sql"),
+                &SourceSpan::at(2, 2),
+            ),
         ];
 
         cap_for_down_migration(&mut findings);

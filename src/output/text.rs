@@ -78,8 +78,9 @@ impl Reporter for TextReporter {
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
+    use crate::parser::SourceSpan;
     use crate::rules::{Finding, RuleId, Severity};
-    use std::path::PathBuf;
+    use std::path::Path;
 
     #[test]
     fn single_finding_correct_format() {
@@ -94,22 +95,20 @@ mod tests {
         let reporter = TextReporter { use_stdout: false };
 
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "first finding".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 1,
-                end_line: 1,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "second finding".to_string(),
-                file: PathBuf::from("b.sql"),
-                start_line: 7,
-                end_line: 7,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "first finding".to_string(),
+                Path::new("a.sql"),
+                &SourceSpan::at(1, 1),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "second finding".to_string(),
+                Path::new("b.sql"),
+                &SourceSpan::at(7, 7),
+            ),
         ];
 
         let content = reporter.render(&findings).expect("render");
@@ -126,14 +125,13 @@ mod tests {
 
     #[test]
     fn format_finding_uses_forward_slashes() {
-        let finding = Finding {
-            rule_id: RuleId::Pgm001,
-            severity: Severity::Critical,
-            message: "test".to_string(),
-            file: PathBuf::from("db/migrations/V042__add_index.sql"),
-            start_line: 1,
-            end_line: 1,
-        };
+        let finding = Finding::new(
+            RuleId::Pgm001,
+            Severity::Critical,
+            "test".to_string(),
+            Path::new("db/migrations/V042__add_index.sql"),
+            &SourceSpan::at(1, 1),
+        );
 
         let formatted = format_finding(&finding);
         assert!(formatted.contains("db/migrations/V042__add_index.sql"));

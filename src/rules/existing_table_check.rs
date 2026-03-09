@@ -23,7 +23,10 @@ pub fn check_existing_table(
         if let Some((table_name, message)) = extract(&stmt.node)
             && ctx.is_existing_table(table_name.catalog_key())
         {
-            findings.push(rule.make_finding(message, ctx.file, &stmt.span));
+            let finding = rule
+                .make_finding(message, ctx.file, &stmt.span)
+                .with_dedup_key(table_name.catalog_key().to_string());
+            findings.push(finding);
         }
     }
     findings

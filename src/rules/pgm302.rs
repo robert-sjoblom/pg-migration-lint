@@ -112,6 +112,31 @@ mod tests {
     }
 
     #[test]
+    fn test_two_updates_same_table_emit_two_findings_with_dedup_key() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "bigint", false)
+                    .column("status", "text", true)
+                    .pk(&["id"]);
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/005.sql");
+
+        let stmts = vec![
+            located(UpdateTable::test(QualifiedName::unqualified("orders")).into()),
+            located(UpdateTable::test(QualifiedName::unqualified("orders")).into()),
+        ];
+
+        let findings = rule_id().check(&stmts, &ctx);
+        // Rule emits one finding per statement (dedup is pipeline-level)
+        assert_eq!(findings.len(), 2);
+        // Both carry the same dedup key so the pipeline can collapse them
+        assert_eq!(findings[0].dedup_key.as_deref(), Some("orders"));
+        assert_eq!(findings[1].dedup_key.as_deref(), Some("orders"));
+    }
+
+    #[test]
     fn test_update_nonexistent_table_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();

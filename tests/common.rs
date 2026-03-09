@@ -4,7 +4,7 @@
 use pg_migration_lint::LintPipeline;
 use pg_migration_lint::input::sql::SqlLoader;
 use pg_migration_lint::normalize;
-use pg_migration_lint::rules::{Finding, RuleId};
+use pg_migration_lint::rules::{Finding, RuleId, dedup_findings};
 use pg_migration_lint::suppress::parse_suppressions;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -144,6 +144,7 @@ pub fn lint_fixture_inner<S: AsRef<str>>(
                 let suppressions = parse_suppressions(&source);
                 unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
             }
+            dedup_findings(&mut unit_findings);
 
             all_findings.extend(unit_findings);
         } else {

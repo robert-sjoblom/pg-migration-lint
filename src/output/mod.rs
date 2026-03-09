@@ -132,8 +132,9 @@ pub(crate) mod text;
 mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
+    use crate::parser::SourceSpan;
     use crate::rules::{Finding, RuleId, Severity};
-    use std::path::PathBuf;
+    use std::path::Path;
 
     #[test]
     fn emit_creates_file_on_disk() {
@@ -161,24 +162,22 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let reporter = SarifReporter;
 
-        let first = vec![Finding {
-            rule_id: RuleId::Pgm001,
-            severity: Severity::Critical,
-            message: "first".to_string(),
-            file: PathBuf::from("a.sql"),
-            start_line: 1,
-            end_line: 1,
-        }];
+        let first = vec![Finding::new(
+            RuleId::Pgm001,
+            Severity::Critical,
+            "first".to_string(),
+            Path::new("a.sql"),
+            &SourceSpan::at(1, 1),
+        )];
         reporter.emit(&first, dir.path()).expect("emit first");
 
-        let second = vec![Finding {
-            rule_id: RuleId::Pgm501,
-            severity: Severity::Major,
-            message: "second".to_string(),
-            file: PathBuf::from("b.sql"),
-            start_line: 2,
-            end_line: 2,
-        }];
+        let second = vec![Finding::new(
+            RuleId::Pgm501,
+            Severity::Major,
+            "second".to_string(),
+            Path::new("b.sql"),
+            &SourceSpan::at(2, 2),
+        )];
         reporter.emit(&second, dir.path()).expect("emit second");
 
         let content = std::fs::read_to_string(dir.path().join("findings.sarif")).expect("read");
