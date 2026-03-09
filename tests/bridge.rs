@@ -475,4 +475,136 @@ mod tests {
         let findings = common::normalize_findings(findings, "liquibase-multi-schema");
         insta::assert_yaml_snapshot!(findings);
     }
+
+    // --- Fresh repo tests (all changesets changed, no prior history) ---
+
+    /// Like [`lint_loaded_units`] but matches on `source_file` path (suffix match)
+    /// instead of changeset ID, mirroring how `main.rs` determines changed files.
+    fn lint_loaded_units_by_file(
+        raw_units: Vec<RawMigrationUnit>,
+        changed_files: &[&str],
+    ) -> Vec<Finding> {
+        let mut units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
+            .into_iter()
+            .map(|r| r.into_migration_unit())
+            .collect();
+
+        normalize::normalize_schemas(&mut units, "public");
+
+        let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
+
+        let mut pipeline = LintPipeline::new();
+        let mut all_findings: Vec<Finding> = Vec::new();
+
+        for unit in &units {
+            let is_changed = changed_files.is_empty()
+                || changed_files
+                    .iter()
+                    .any(|cf| unit.source_file.ends_with(cf));
+
+            if is_changed {
+                let mut unit_findings = pipeline.lint(unit, &all_rules);
+
+                let source = std::fs::read_to_string(&unit.source_file).unwrap_or_default();
+                let suppressions = parse_suppressions(&source);
+                unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
+
+                all_findings.extend(unit_findings);
+            } else {
+                pipeline.replay(unit);
+            }
+        }
+
+        all_findings
+    }
+
+    fn load_bridge_fresh() -> Vec<RawMigrationUnit> {
+        let master_xml = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/repos/liquibase-fresh/changelog/master.xml");
+        let base_dir = master_xml.parent().unwrap();
+
+        let loader = BridgeLoader::new(bridge_jar_path());
+        let mut raw_units = loader
+            .load(&master_xml)
+            .expect("Failed to load fresh repo via bridge");
+        resolve_source_paths(&mut raw_units, base_dir);
+        raw_units
+    }
+
+    fn lint_bridge_fresh(changed_ids: &[&str]) -> Vec<Finding> {
+        lint_loaded_units(load_bridge_fresh(), changed_ids)
+    }
+
+    /// Fresh Liquibase repo where every changeset is "changed" (first PR).
+    /// The pipeline starts with an empty catalog. DDL-safety rules like PGM001
+    /// must not fire because every table is brand new.
+    ///
+    /// PGM402 (missing IF NOT EXISTS) is expected because Liquibase-generated
+    /// SQL does not include IF NOT EXISTS guards.
+    #[test]
+    fn test_bridge_fresh_repo_all_changesets_changed() {
+        let findings = lint_bridge_fresh(&["001-create-users", "001-create-orders"]);
+
+        let rule_ids: HashSet<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+
+        // DDL-safety rules must NOT fire — all tables are brand new.
+        assert!(
+            !rule_ids.contains("PGM001"),
+            "PGM001 should not fire on a fresh repo. Got:\n  {}",
+            common::format_findings(&findings)
+        );
+        assert!(
+            !rule_ids.contains("PGM002"),
+            "PGM002 should not fire on a fresh repo. Got:\n  {}",
+            common::format_findings(&findings)
+        );
+
+        // Only PGM402 (missing IF NOT EXISTS) should fire — expected for
+        // Liquibase-generated SQL.
+        let non_402: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id.as_str() != "PGM402")
+            .collect();
+        assert!(
+            non_402.is_empty(),
+            "Only PGM402 should fire on a clean fresh repo, but also got:\n  {}",
+            non_402
+                .iter()
+                .map(|f| format!("{} {} (line {})", f.rule_id, f.message, f.start_line))
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
+
+    /// master.xml in --changed-files should be a no-op: the bridge maps
+    /// every changeset to its actual XML file, not the master changelog.
+    /// Including master.xml must not cause extra findings or panics.
+    #[test]
+    fn test_bridge_fresh_repo_master_xml_in_changed_files_is_noop() {
+        let raw_units = load_bridge_fresh();
+
+        // Sanity: no unit should have master.xml as its source file.
+        assert!(
+            raw_units
+                .iter()
+                .all(|u| !u.source_file.ends_with("master.xml")),
+            "No changeset should map to master.xml, but found: {:?}",
+            raw_units
+                .iter()
+                .map(|u| u.source_file.display().to_string())
+                .collect::<Vec<_>>()
+        );
+
+        // With only master.xml as "changed", nothing should be linted.
+        let findings = lint_loaded_units_by_file(raw_units, &["master.xml"]);
+        assert!(
+            findings.is_empty(),
+            "master.xml in changed files should produce 0 findings, got:\n  {}",
+            findings
+                .iter()
+                .map(|f| format!("{} {} (line {})", f.rule_id, f.message, f.start_line))
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
 }

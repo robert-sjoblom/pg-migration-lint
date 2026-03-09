@@ -58,6 +58,10 @@ struct Args {
     /// Override exit code threshold (critical, major, minor, info, none)
     #[arg(long)]
     fail_on: Option<String>,
+
+    /// Validate configuration and check that paths and tools exist, then exit
+    #[arg(long)]
+    validate_config: bool,
 }
 
 fn main() {
@@ -98,6 +102,11 @@ fn run(args: Args) -> Result<bool> {
     // If --config is explicitly provided and the file doesn't exist, that's a tool error.
     // If using the default path and it doesn't exist, warn and use defaults.
     let config = load_config(&args.config)?;
+
+    // Handle --validate-config early exit
+    if args.validate_config {
+        return print_config_validation(&config);
+    }
 
     // Parse changed files
     let changed_files = parse_changed_files(&args)?;
@@ -385,4 +394,104 @@ fn load_migrations(config: &Config) -> Result<MigrationHistory> {
             Ok(history)
         }
     }
+}
+
+fn print_config_validation(config: &Config) -> Result<bool> {
+    use std::process::Command;
+
+    println!("pg-migration-lint: configuration validation");
+    println!("  strategy: {}", config.migrations.strategy);
+
+    if config.migrations.strategy != "liquibase" {
+        println!(
+            "\n  No Liquibase checks needed for strategy \"{}\".",
+            config.migrations.strategy
+        );
+        return Ok(false);
+    }
+
+    let lb = &config.liquibase;
+    println!("  liquibase sub-strategy: {}", lb.strategy);
+    let mut errors = Vec::new();
+
+    // Bridge JAR
+    match lb.bridge_jar_path {
+        Some(ref path) if path.exists() => {
+            println!("  bridge JAR: found ({})", path.display());
+        }
+        Some(ref path) => {
+            let msg = format!("bridge JAR not found: {}", path.display());
+            println!("  bridge JAR: NOT found ({})", path.display());
+            if lb.strategy == "bridge" {
+                errors.push(msg);
+            }
+        }
+        None if lb.strategy == "bridge" => {
+            let msg = "bridge_jar_path not configured but strategy is \"bridge\"".to_string();
+            println!("  bridge JAR: not configured");
+            errors.push(msg);
+        }
+        None => {
+            println!("  bridge JAR: not configured");
+        }
+    }
+
+    // Liquibase binary
+    match lb.binary_path {
+        Some(ref path) => {
+            let reachable = if path.components().count() == 1 {
+                Command::new(path)
+                    .arg("--version")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok()
+            } else {
+                path.exists()
+            };
+
+            if reachable {
+                println!("  liquibase binary: reachable ({})", path.display());
+            } else {
+                let msg = format!("liquibase binary not reachable: {}", path.display());
+                println!("  liquibase binary: NOT reachable ({})", path.display());
+                if lb.strategy == "update-sql" {
+                    errors.push(msg);
+                }
+            }
+        }
+        None if lb.strategy == "update-sql" => {
+            let msg = "binary_path not configured but strategy is \"update-sql\"".to_string();
+            println!("  liquibase binary: not configured");
+            errors.push(msg);
+        }
+        None => {
+            println!("  liquibase binary: not configured");
+        }
+    }
+
+    // Properties file
+    if let Some(ref path) = lb.properties_file {
+        if path.exists() {
+            println!("  properties file: found ({})", path.display());
+        } else {
+            let msg = format!("properties file not found: {}", path.display());
+            println!("  properties file: NOT found ({})", path.display());
+            errors.push(msg);
+        }
+    }
+
+    println!();
+    if errors.is_empty() {
+        println!("Validation passed.");
+        return Ok(false);
+    }
+
+    for err in &errors {
+        eprintln!("Error: {err}");
+    }
+    anyhow::bail!(
+        "configuration validation failed with {} error(s)",
+        errors.len()
+    );
 }
