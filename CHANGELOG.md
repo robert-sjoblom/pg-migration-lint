@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.5](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.4...v2.14.5) (2026-03-09)
+
+
+### Bug Fixes
+
+* **rules:** deduplicate findings per (rule, table) per migration unit ([#174](https://github.com/robert-sjoblom/pg-migration-lint/issues/174)) ([d187b82](https://github.com/robert-sjoblom/pg-migration-lint/commit/d187b82256fa3e60e79bb58be4d648b8b558e1ff))
+
 ## [2.14.4](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.3...v2.14.4) (2026-03-06)
 
 
