@@ -1,16 +1,16 @@
 //! Shared test helpers for output module tests.
 
+use crate::parser::SourceSpan;
 use crate::rules::{Finding, RuleId, Severity};
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Create a standard test finding for output format tests.
 pub fn test_finding() -> Finding {
-    Finding {
-        rule_id: RuleId::Pgm001,
-        severity: Severity::Critical,
-        message: "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.".to_string(),
-        file: PathBuf::from("db/migrations/V042__add_index.sql"),
-        start_line: 3,
-        end_line: 3,
-    }
+    Finding::new(
+        RuleId::Pgm001,
+        Severity::Critical,
+        "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.".to_string(),
+        Path::new("db/migrations/V042__add_index.sql"),
+        &SourceSpan::at(3, 3),
+    )
 }

@@ -9,7 +9,7 @@ use pg_migration_lint::catalog::builder::CatalogBuilder;
 use pg_migration_lint::parser::ir::*;
 use pg_migration_lint::rules::*;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn make_ctx<'a>(
     before: &'a Catalog,
@@ -426,30 +426,27 @@ fn test_matrix_set_not_null_on_existing() {
 #[test]
 fn test_matrix_down_migration_caps_severity() {
     let mut findings = vec![
-        Finding {
-            rule_id: RuleId::Pgm001,
-            severity: Severity::Critical,
-            message: "Missing CONCURRENTLY on CREATE INDEX".to_string(),
-            file: PathBuf::from("migrations/002.down.sql"),
-            start_line: 1,
-            end_line: 1,
-        },
-        Finding {
-            rule_id: RuleId::Pgm501,
-            severity: Severity::Major,
-            message: "FK without covering index".to_string(),
-            file: PathBuf::from("migrations/002.down.sql"),
-            start_line: 3,
-            end_line: 3,
-        },
-        Finding {
-            rule_id: RuleId::Pgm006,
-            severity: Severity::Minor,
-            message: "Volatile default on column".to_string(),
-            file: PathBuf::from("migrations/002.down.sql"),
-            start_line: 5,
-            end_line: 5,
-        },
+        Finding::new(
+            RuleId::Pgm001,
+            Severity::Critical,
+            "Missing CONCURRENTLY on CREATE INDEX".to_string(),
+            Path::new("migrations/002.down.sql"),
+            &SourceSpan::at(1, 1),
+        ),
+        Finding::new(
+            RuleId::Pgm501,
+            Severity::Major,
+            "FK without covering index".to_string(),
+            Path::new("migrations/002.down.sql"),
+            &SourceSpan::at(3, 3),
+        ),
+        Finding::new(
+            RuleId::Pgm006,
+            Severity::Minor,
+            "Volatile default on column".to_string(),
+            Path::new("migrations/002.down.sql"),
+            &SourceSpan::at(5, 5),
+        ),
     ];
 
     cap_for_down_migration(&mut findings);

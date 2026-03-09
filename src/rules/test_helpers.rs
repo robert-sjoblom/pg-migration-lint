@@ -86,13 +86,13 @@ pub(crate) use lint_ctx;
 
 /// Wrap an `IrNode` in a `Located` with a dummy span at line 1.
 pub fn located(node: IrNode) -> Located<IrNode> {
+    located_at(node, 1)
+}
+
+/// Wrap an `IrNode` in a `Located` with a dummy span at the given line.
+pub fn located_at(node: IrNode, line: usize) -> Located<IrNode> {
     Located {
         node,
-        span: SourceSpan {
-            start_line: 1,
-            end_line: 1,
-            start_offset: 0,
-            end_offset: 0,
-        },
+        span: SourceSpan::at(line, line),
     }
 }

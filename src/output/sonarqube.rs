@@ -359,8 +359,9 @@ mod tests {
     use super::*;
     use crate::output::RuleInfo;
     use crate::output::test_helpers::test_finding;
+    use crate::parser::SourceSpan;
     use crate::rules::{Finding, Rule, RuleId, Severity};
-    use std::path::PathBuf;
+    use std::path::Path;
 
     /// Helper: render findings via the reporter and return the parsed JSON.
     fn emit_and_parse(findings: &[Finding]) -> serde_json::Value {
@@ -379,22 +380,20 @@ mod tests {
     #[test]
     fn multiple_findings_all_present() {
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "first".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 1,
-                end_line: 1,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "second".to_string(),
-                file: PathBuf::from("b.sql"),
-                start_line: 5,
-                end_line: 5,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "first".to_string(),
+                Path::new("a.sql"),
+                &SourceSpan::at(1, 1),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "second".to_string(),
+                Path::new("b.sql"),
+                &SourceSpan::at(5, 5),
+            ),
         ];
 
         let parsed = emit_and_parse(&findings);
@@ -403,14 +402,13 @@ mod tests {
 
     #[test]
     fn file_paths_use_forward_slashes() {
-        let findings = vec![Finding {
-            rule_id: RuleId::Pgm001,
-            severity: Severity::Critical,
-            message: "test".to_string(),
-            file: PathBuf::from("db/migrations/V042__add_index.sql"),
-            start_line: 1,
-            end_line: 1,
-        }];
+        let findings = vec![Finding::new(
+            RuleId::Pgm001,
+            Severity::Critical,
+            "test".to_string(),
+            Path::new("db/migrations/V042__add_index.sql"),
+            &SourceSpan::at(1, 1),
+        )];
 
         let parsed = emit_and_parse(&findings);
 
@@ -424,30 +422,27 @@ mod tests {
     #[test]
     fn multi_file_findings_have_correct_file_paths() {
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "index issue in file A".to_string(),
-                file: PathBuf::from("db/migrations/V001__create_tables.sql"),
-                start_line: 5,
-                end_line: 5,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "missing FK index in file B".to_string(),
-                file: PathBuf::from("db/migrations/V002__add_fk.sql"),
-                start_line: 10,
-                end_line: 12,
-            },
-            Finding {
-                rule_id: RuleId::Pgm502,
-                severity: Severity::Major,
-                message: "no primary key in file C".to_string(),
-                file: PathBuf::from("db/changelog/003_audit.sql"),
-                start_line: 1,
-                end_line: 1,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "index issue in file A".to_string(),
+                Path::new("db/migrations/V001__create_tables.sql"),
+                &SourceSpan::at(5, 5),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "missing FK index in file B".to_string(),
+                Path::new("db/migrations/V002__add_fk.sql"),
+                &SourceSpan::at(10, 12),
+            ),
+            Finding::new(
+                RuleId::Pgm502,
+                Severity::Major,
+                "no primary key in file C".to_string(),
+                Path::new("db/changelog/003_audit.sql"),
+                &SourceSpan::at(1, 1),
+            ),
         ];
 
         let parsed = emit_and_parse(&findings);
@@ -457,14 +452,13 @@ mod tests {
     #[test]
     fn message_content_is_preserved() {
         let msg = "CREATE INDEX on existing table 'orders' should use CONCURRENTLY. This is a long message with special characters: <>, &, \"quotes\".";
-        let findings = vec![Finding {
-            rule_id: RuleId::Pgm001,
-            severity: Severity::Critical,
-            message: msg.to_string(),
-            file: PathBuf::from("a.sql"),
-            start_line: 1,
-            end_line: 1,
-        }];
+        let findings = vec![Finding::new(
+            RuleId::Pgm001,
+            Severity::Critical,
+            msg.to_string(),
+            Path::new("a.sql"),
+            &SourceSpan::at(1, 1),
+        )];
 
         let parsed = emit_and_parse(&findings);
         insta::assert_json_snapshot!(parsed);
@@ -473,30 +467,27 @@ mod tests {
     #[test]
     fn round_trip_sonarqube_all_fields_verified() {
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "CREATE INDEX on 'orders' should use CONCURRENTLY.".to_string(),
-                file: PathBuf::from("db/migrations/V042__add_index.sql"),
-                start_line: 3,
-                end_line: 3,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "FK on 'orders.customer_id' has no covering index.".to_string(),
-                file: PathBuf::from("db/migrations/V043__add_fk.sql"),
-                start_line: 10,
-                end_line: 12,
-            },
-            Finding {
-                rule_id: RuleId::Pgm503,
-                severity: Severity::Info,
-                message: "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.".to_string(),
-                file: PathBuf::from("db/migrations/V042__add_index.sql"),
-                start_line: 20,
-                end_line: 20,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "CREATE INDEX on 'orders' should use CONCURRENTLY.".to_string(),
+                Path::new("db/migrations/V042__add_index.sql"),
+                &SourceSpan::at(3, 3),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "FK on 'orders.customer_id' has no covering index.".to_string(),
+                Path::new("db/migrations/V043__add_fk.sql"),
+                &SourceSpan::at(10, 12),
+            ),
+            Finding::new(
+                RuleId::Pgm503,
+                Severity::Info,
+                "Table 'events' has UNIQUE NOT NULL but no PRIMARY KEY.".to_string(),
+                Path::new("db/migrations/V042__add_index.sql"),
+                &SourceSpan::at(20, 20),
+            ),
         ];
 
         let parsed = emit_and_parse(&findings);
@@ -528,22 +519,20 @@ mod tests {
     #[test]
     fn engine_id_is_on_rules_not_issues() {
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "first".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 1,
-                end_line: 1,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "second".to_string(),
-                file: PathBuf::from("b.sql"),
-                start_line: 2,
-                end_line: 2,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "first".to_string(),
+                Path::new("a.sql"),
+                &SourceSpan::at(1, 1),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "second".to_string(),
+                Path::new("b.sql"),
+                &SourceSpan::at(2, 2),
+            ),
         ];
 
         let parsed = emit_and_parse(&findings);
@@ -562,22 +551,20 @@ mod tests {
     #[test]
     fn line_numbers_are_correct() {
         let findings = vec![
-            Finding {
-                rule_id: RuleId::Pgm001,
-                severity: Severity::Critical,
-                message: "single line".to_string(),
-                file: PathBuf::from("a.sql"),
-                start_line: 42,
-                end_line: 42,
-            },
-            Finding {
-                rule_id: RuleId::Pgm501,
-                severity: Severity::Major,
-                message: "multi line".to_string(),
-                file: PathBuf::from("b.sql"),
-                start_line: 100,
-                end_line: 105,
-            },
+            Finding::new(
+                RuleId::Pgm001,
+                Severity::Critical,
+                "single line".to_string(),
+                Path::new("a.sql"),
+                &SourceSpan::at(42, 42),
+            ),
+            Finding::new(
+                RuleId::Pgm501,
+                Severity::Major,
+                "multi line".to_string(),
+                Path::new("b.sql"),
+                &SourceSpan::at(100, 105),
+            ),
         ];
 
         let parsed = emit_and_parse(&findings);
@@ -590,13 +577,14 @@ mod tests {
         // SonarQube metadata (cleanCodeAttribute, type, impacts, severity).
         let findings: Vec<Finding> = RuleId::lint_rules()
             .enumerate()
-            .map(|(i, id)| Finding {
-                rule_id: id,
-                severity: id.default_severity(),
-                message: format!("{}: {}", id, id.description()),
-                file: PathBuf::from("test.sql"),
-                start_line: i + 1,
-                end_line: i + 1,
+            .map(|(i, id)| {
+                Finding::new(
+                    id,
+                    id.default_severity(),
+                    format!("{}: {}", id, id.description()),
+                    Path::new("test.sql"),
+                    &SourceSpan::at(i + 1, i + 1),
+                )
             })
             .collect();
 

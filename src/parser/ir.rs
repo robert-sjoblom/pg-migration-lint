@@ -530,6 +530,20 @@ pub struct SourceSpan {
     pub end_offset: usize,
 }
 
+impl SourceSpan {
+    /// Create a span with only line numbers (offsets set to 0).
+    ///
+    /// Useful in tests where byte offsets are irrelevant.
+    pub fn at(start_line: usize, end_line: usize) -> Self {
+        Self {
+            start_line,
+            end_line,
+            start_offset: 0,
+            end_offset: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 impl ColumnDef {
     /// Minimal column: nullable, no default, not a PK, not serial.

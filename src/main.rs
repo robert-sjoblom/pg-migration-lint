@@ -19,6 +19,7 @@ use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
+use pg_migration_lint::rules::dedup_findings;
 use pg_migration_lint::rules::{Rule, RuleId};
 use pg_migration_lint::suppress::parse_suppressions;
 use pg_migration_lint::{Config, Finding, LintPipeline, Severity};
@@ -187,6 +188,7 @@ fn run(args: Args) -> Result<bool> {
             }
 
             unit_findings.retain(|f| !suppressions.is_suppressed(f.rule_id, f.start_line));
+            dedup_findings(&mut unit_findings);
 
             all_findings.append(&mut unit_findings);
         } else {
