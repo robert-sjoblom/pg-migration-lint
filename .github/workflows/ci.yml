@@ -80,7 +80,7 @@ jobs:
         run: cargo nextest archive --archive-file nextest-archive.tar.zst --features bridge-tests
 
       - name: Upload test archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nextest-archive
           path: nextest-archive.tar.zst
@@ -110,7 +110,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Upload release binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pg-migration-lint
           path: target/x86_64-unknown-linux-musl/release/pg-migration-lint
@@ -141,7 +141,7 @@ jobs:
         run: cp bridge/target/liquibase-bridge-1.0.0.jar bridge/target/liquibase-bridge.jar
 
       - name: Upload bridge JAR
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: liquibase-bridge
           path: bridge/target/liquibase-bridge.jar
@@ -274,7 +274,7 @@ jobs:
 
       - name: Upload mutants report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: mutants-report
           path: mutants.out/

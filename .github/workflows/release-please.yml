@@ -50,7 +50,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Upload release binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pg-migration-lint
           path: target/x86_64-unknown-linux-musl/release/pg-migration-lint
@@ -74,7 +74,7 @@ jobs:
             sh -c 'mvn package -q -DskipTests && cp target/liquibase-bridge-1.0.0.jar target/liquibase-bridge.jar'
 
       - name: Upload bridge JAR
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: liquibase-bridge
           path: bridge/target/liquibase-bridge.jar
