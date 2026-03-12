@@ -16,6 +16,13 @@
 
   Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
 
+## [2.14.6](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.5...v2.14.6) (2026-03-12)
+
+
+### Bug Fixes
+
+* **config:** add --validate-config as CLI argument ([87b935b](https://github.com/robert-sjoblom/pg-migration-lint/commit/87b935bd5a70aaf07bf7a5de616e519bfde88304))
+
 ## [2.14.5](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.4...v2.14.5) (2026-03-09)
 
 
