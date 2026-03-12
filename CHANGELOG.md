@@ -1,21 +1,5 @@
 # Changelog
 
-## Unreleased
-
-
-### BREAKING CHANGES
-
-* **rules:** reorganize rule IDs into category-based ranges. All rule IDs have been renumbered to reflect their category. The renumbering map:
-  - **0xx — Unsafe DDL**: PGM001 (unchanged), PGM002 (unchanged), PGM006→PGM003, PGM007→PGM006, PGM009→PGM007, PGM010→PGM008, PGM011→PGM009, PGM013→PGM010, PGM014→PGM011, PGM015→PGM012, PGM016→PGM013, PGM017→PGM014, PGM018→PGM015, PGM012→PGM016, PGM021→PGM017
-  - **1xx — Type anti-patterns**: PGM101–PGM105 (unchanged), PGM108→PGM106
-  - **2xx — Destructive operations**: PGM022→PGM201
-  - **4xx — Idempotency guards**: PGM008→PGM401, PGM023→PGM402
-  - **5xx — Schema design**: PGM003→PGM501, PGM004→PGM502, PGM005→PGM503, PGM019→PGM504, PGM020→PGM505
-  - **9xx — Meta-behavior**: PGM901 (unchanged)
-* **rules:** rename enum types: `MigrationRule`→`UnsafeDdlRule`, `TypeChoiceRule`→`TypeAntiPatternRule`. New enums: `DestructiveRule`, `IdempotencyRule`, `SchemaDesignRule`.
-
-  Users must update any `--explain`, suppression comments, and CI configurations that reference old rule IDs.
-
 ## [2.14.6](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.5...v2.14.6) (2026-03-12)
 
 
