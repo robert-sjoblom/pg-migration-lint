@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm023.rs
+expression: findings
+---
+- rule_id: PGM023
+  severity: Minor
+  message: "Table 'authors' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 1). Combine them into a single ALTER TABLE to reduce lock contention."
+  file: migrations/002.sql
+  start_line: 3
+  end_line: 3

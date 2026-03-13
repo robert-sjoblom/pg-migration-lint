@@ -57,6 +57,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
         },
+        // Combinable ALTER TABLEs: minor lock contention improvement
+        RuleId::Pgm023 => SonarQubeRuleMeta {
+            clean_code_attribute: "EFFICIENT",
+            issue_type: "CODE_SMELL",
+            software_quality: "RELIABILITY",
+            impact_severity: "LOW",
+        },
         // Attach partition without CHECK: lock contention during full table scan
         RuleId::Pgm005 => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
@@ -249,6 +256,8 @@ struct SonarQubeTextRange {
 /// Exhaustive — adding a new `RuleId` variant without handling it here is a compile error.
 fn effort_minutes(rule_id: RuleId) -> u32 {
     match rule_id {
+        // Combining ALTER TABLE statements: trivial refactor
+        RuleId::Pgm023 => 5,
         // Concurrently fixes are usually quick
         RuleId::Pgm001 | RuleId::Pgm002 | RuleId::Pgm003 | RuleId::Pgm004 => 5,
         // Index/constraint additions

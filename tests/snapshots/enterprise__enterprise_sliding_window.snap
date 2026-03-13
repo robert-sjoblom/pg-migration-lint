@@ -192,6 +192,14 @@ expression: snapshot
       rule: PGM014
       severity: Critical
     - line: 5
+      message: "Table 'users' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 4). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 7
+      message: "Table 'users' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 5). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 5
       message: "Column 'support_username' on 'users' uses varchar(100). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
       rule: PGM108
       severity: Info
@@ -205,6 +213,14 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'orders' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM014
       severity: Critical
+    - line: 5
+      message: "Table 'orders' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 4). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 7
+      message: "Table 'orders' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 5). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
     - line: 5
       message: "Column 'status_updated_at' on 'orders' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -595,6 +611,14 @@ expression: snapshot
       severity: Critical
   step: step_16_V016__add_subscription_constraints
 - findings:
+    - line: 4
+      message: "Table 'subscriptions' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 3). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 6
+      message: "Table 'orders' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 5). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
     - line: 3
       message: "Column 'referral_code' on 'subscriptions' uses varchar(50). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
       rule: PGM108
@@ -737,6 +761,16 @@ expression: snapshot
       severity: Minor
   step: step_23_V023__drop_index_no_concurrently
 - findings:
+    - line: 5
+      message: "Table 'overdue_invoices' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 4). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+  step: step_24_V024__alter_column_types
+- findings:
+    - line: 4
+      message: "Table 'subscriptions' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 3). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
     - line: 3
       message: "Column 'cancelled_at' on 'subscriptions' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time."
       rule: PGM101
@@ -875,6 +909,70 @@ expression: snapshot
       message: "ADD PRIMARY KEY on existing table 'subscription_periods' without USING INDEX on column(s) [id]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX."
       rule: PGM016
       severity: Major
+    - line: 5
+      message: "Table 'partner_reports' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 4). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 8
+      message: "Table 'client_invitations' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 7). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 11
+      message: "Table 'external_access_rights' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 10). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 14
+      message: "Table 'product_groups' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 13). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 17
+      message: "Table 'account_feature_flags' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 16). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 20
+      message: "Table 'order_invoice_references' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 19). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 23
+      message: "Table 'order_skip_actions' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 22). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 26
+      message: "Table 'overdue_invoices' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 25). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 29
+      message: "Table 'usage_event_balances' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 28). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 32
+      message: "Table 'account_locks' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 31). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 35
+      message: "Table 'subscription_locks' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 34). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 38
+      message: "Table 'usage_event_metadata' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 37). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 41
+      message: "Table 'subscription_scheduled_dates' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 40). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 44
+      message: "Table 'subscription_invoices' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 43). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 47
+      message: "Table 'reseller_orders' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 46). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
+    - line: 50
+      message: "Table 'subscription_periods' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 49). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
     - line: 4
       message: "Column 'id' on 'partner_reports' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach."
       rule: PGM105
@@ -1005,6 +1103,10 @@ expression: snapshot
       message: "Adding FOREIGN KEY constraint on existing table 'connector_articles' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate statement."
       rule: PGM014
       severity: Critical
+    - line: 16
+      message: "Table 'connector_articles' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line 15). Combine them into a single ALTER TABLE to reduce lock contention."
+      rule: PGM023
+      severity: Minor
     - line: 4
       message: "Column 'supplier_name' on 'supplier_agreements' uses varchar(200). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes."
       rule: PGM108

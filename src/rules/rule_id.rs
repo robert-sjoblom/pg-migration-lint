@@ -83,6 +83,9 @@ pub enum RuleId {
     /// `REINDEX` without `CONCURRENTLY` (ACCESS EXCLUSIVE lock).
     #[strum(serialize = "PGM022")]
     Pgm022,
+    /// Multiple `ALTER TABLE` statements on the same table can be combined.
+    #[strum(serialize = "PGM023")]
+    Pgm023,
 
     // 1xx — Type anti-patterns
     /// `timestamp` without time zone.
@@ -301,6 +304,7 @@ dispatch_rules! {
     Pgm020 => pgm020,
     Pgm021 => pgm021,
     Pgm022 => pgm022,
+    Pgm023 => pgm023,
     // 1xx — Type anti-patterns
     Pgm101 => pgm101,
     Pgm102 => pgm102,
