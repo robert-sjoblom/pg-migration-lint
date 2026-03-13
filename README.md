@@ -12,6 +12,30 @@ pg-migration-lint replays your full migration history to build an internal table
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
+## Comparison with Squawk and Eugene
+
+Three active static analyzers exist for PostgreSQL migrations. This is how their linting coverage differs:
+
+| What gets checked | pg-migration-lint | [Squawk](https://squawkhq.com/) | [Eugene](https://kaveland.no/eugene/) |
+|---|---|---|---|
+| Unsafe DDL (missing `CONCURRENTLY`, table rewrites, unsafe constraint additions) | Yes | Yes | Yes |
+| Lock safety — statements holding `AccessExclusiveLock` unnecessarily | Partial | Partial | Yes — static analysis plus dynamic lock tracing against a live Postgres instance |
+| Missing lock timeout | No | Yes (`require-timeout-settings`) | Yes (E9) |
+| Type anti-patterns (`char`, `money`, `serial`, `json`, `timestamp` without tz, `varchar(n)`, floating-point) | Yes (9 rules) | Partial (prefer-text, prefer-timestamptz, prefer-bigint, prefer-identity) | No |
+| Missing FK index | Yes — catalog-aware, detects across migration boundaries | No | Trace-only (E15) |
+| Destructive operations (`DROP TABLE`, `TRUNCATE`, `DROP SCHEMA CASCADE`) | Yes | Partial (`ban-drop-table`, `ban-truncate-cascade`) | No |
+| DML in migrations (`INSERT`/`UPDATE`/`DELETE` on existing tables) | Yes | No | No |
+| Idempotency guards (`IF EXISTS` / `IF NOT EXISTS`) | Yes | No | No |
+| Schema design (missing PK, risky renames, unlogged tables, redundant indexes, reserved-word identifiers) | Yes | No | No |
+| Catalog-aware analysis (schema state before vs. after each migration) | Yes — replays full migration history | No | No |
+| PostgreSQL version-aware rules | No | Yes (`pg_version` config suppresses rules that don't apply to your version) | No |
+
+**pg-migration-lint** replays your full migration history to build a table catalog before linting. This enables checks that require knowing prior schema state — flagging unsafe `ALTER TABLE` only on pre-existing tables, detecting a missing FK index even when the FK and the covering index live in different migration files, or warning about redundant indexes that accumulated over time.
+
+**Squawk** focuses on safety-critical DDL patterns and type preferences. It also ships a VS Code extension for live feedback while writing migrations.
+
+**Eugene** specializes in lock safety. Its `trace` mode runs your SQL against an actual Postgres instance and records exactly which locks each statement acquires, making it the most precise tool for diagnosing lock contention and verifying safe migration sequences.
+
 ## Quick Start
 
 ### Install from release
