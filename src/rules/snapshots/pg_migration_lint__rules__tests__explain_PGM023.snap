@@ -1,0 +1,33 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM023
+Severity: MINOR
+Description: Multiple ALTER TABLE statements on the same table can be combined
+
+PGM023 — Multiple ALTER TABLE statements on the same table can be combined
+
+What it detects:
+Multiple separate ALTER TABLE statements targeting the same table within
+a single migration file, where all statements operate at the same lock
+level.
+
+Why it matters:
+Each ALTER TABLE statement acquires and releases the table lock
+independently. Combining multiple actions into a single ALTER TABLE
+statement acquires the lock only once, reducing the window during which
+other sessions are blocked.
+
+Example (bad — two lock acquisitions):
+ALTER TABLE authors ALTER COLUMN name SET NOT NULL;
+ALTER TABLE authors ALTER COLUMN email SET NOT NULL;
+
+Fix (one lock acquisition):
+ALTER TABLE authors
+ALTER COLUMN name SET NOT NULL,
+ALTER COLUMN email SET NOT NULL;
+
+Note: ALTER TABLE statements with different lock levels (e.g.,
+ValidateConstraint vs SetNotNull) are tracked separately and will not
+trigger this rule across different lock levels.

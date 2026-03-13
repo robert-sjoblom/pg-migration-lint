@@ -496,6 +496,24 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Note**: `REINDEX CONCURRENTLY` cannot run inside a transaction block. See PGM003.
 - **Message**: `REINDEX {kind} '{target}' should use CONCURRENTLY to avoid holding an ACCESS EXCLUSIVE lock. Use REINDEX {kind} CONCURRENTLY '{target}' (PostgreSQL 12+).`
 
+#### PGM023 — Multiple `ALTER TABLE` statements on the same table
+
+- **Severity**: MINOR
+- **Triggers**: Two or more `ALTER TABLE` statements targeting the same pre-existing table within a single migration file, where all statements operate at the same lock level.
+- **Why**: Each separate `ALTER TABLE` statement acquires and releases the table lock independently, increasing the total lock contention window. Combining multiple actions into a single `ALTER TABLE` statement acquires the lock only once.
+- **Lock level classification**:
+  - All actions are `VALIDATE CONSTRAINT` → `SHARE UPDATE EXCLUSIVE`
+  - Any other action → `ACCESS EXCLUSIVE`
+  - Statements with different lock levels are tracked independently.
+- **Chain breaking**: Any intervening non-ALTER statement that references the same table (e.g., `CREATE INDEX`, `INSERT INTO`) breaks the chain for that table.
+- **Does not fire when**:
+  - Single `ALTER TABLE` per table
+  - Table is new (in `tables_created_in_change`)
+  - Table doesn't exist in `catalog_before`
+  - Two `ALTER TABLE` statements with different lock levels
+  - Statements on the same table are separated by a chain-breaking statement
+- **Message**: `Table '{table}' has multiple ALTER TABLE statements with the same lock level in this migration (first occurrence at line {line}). Combine them into a single ALTER TABLE to reduce lock contention.`
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
