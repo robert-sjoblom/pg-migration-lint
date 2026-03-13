@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.6...v2.15.0) (2026-03-13)
+
+
+### Features
+
+* **rules:** add PGM023 — multiple ALTER TABLE statements on same table ([da1a52b](https://github.com/robert-sjoblom/pg-migration-lint/commit/da1a52b407798c3226b9563fb860a6c2e7823471))
+
 ## [2.14.6](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.5...v2.14.6) (2026-03-12)
 
 
