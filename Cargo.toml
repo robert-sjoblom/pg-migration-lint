@@ -20,7 +20,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 pg_query = "6.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "1.0.3"
+toml = "1.0.6"
 thiserror = "2.0"
 anyhow = "1.0"
 strum = { version = "0.28.0", features = ["strum_macros"] }
