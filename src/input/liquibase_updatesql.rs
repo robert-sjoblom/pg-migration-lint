@@ -211,10 +211,8 @@ fn parse_changeset_marker(line: &str) -> Option<(String, String)> {
     // Match "-- Changeset " prefix (case-insensitive on "Changeset")
     let rest = if let Some(r) = trimmed.strip_prefix("-- Changeset ") {
         r
-    } else if let Some(r) = trimmed.strip_prefix("-- changeset ") {
-        r
     } else {
-        return None;
+        trimmed.strip_prefix("-- changeset ")?
     };
 
     // Split on "::" — format is file::id::author

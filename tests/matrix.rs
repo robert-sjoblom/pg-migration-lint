@@ -51,7 +51,7 @@ fn run_selected_rules(
             findings.extend(id.check(stmts, ctx));
         }
     }
-    findings.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+    findings.sort_by_key(|a| a.rule_id);
     findings
 }
 
@@ -452,7 +452,7 @@ fn test_matrix_down_migration_caps_severity() {
     cap_for_down_migration(&mut findings);
 
     // Sort by rule_id for stable snapshot
-    findings.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+    findings.sort_by_key(|a| a.rule_id);
     insta::assert_yaml_snapshot!(findings);
 }
 
