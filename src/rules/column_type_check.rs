@@ -38,31 +38,27 @@ pub fn check_column_types(
             IrNode::AlterTable(at) => {
                 for action in &at.actions {
                     match action {
-                        AlterTableAction::AddColumn(col) => {
-                            if predicate(&col.type_name) {
-                                findings.push(Finding::new(
-                                    rule.id(),
-                                    rule.default_severity(),
-                                    message_fn(&col.name, &at.name, &col.type_name),
-                                    ctx.file,
-                                    &stmt.span,
-                                ));
-                            }
+                        AlterTableAction::AddColumn(col) if predicate(&col.type_name) => {
+                            findings.push(Finding::new(
+                                rule.id(),
+                                rule.default_severity(),
+                                message_fn(&col.name, &at.name, &col.type_name),
+                                ctx.file,
+                                &stmt.span,
+                            ));
                         }
                         AlterTableAction::AlterColumnType {
                             column_name,
                             new_type,
                             ..
-                        } => {
-                            if predicate(new_type) {
-                                findings.push(Finding::new(
-                                    rule.id(),
-                                    rule.default_severity(),
-                                    message_fn(column_name, &at.name, new_type),
-                                    ctx.file,
-                                    &stmt.span,
-                                ));
-                            }
+                        } if predicate(new_type) => {
+                            findings.push(Finding::new(
+                                rule.id(),
+                                rule.default_severity(),
+                                message_fn(column_name, &at.name, new_type),
+                                ctx.file,
+                                &stmt.span,
+                            ));
                         }
                         _ => {}
                     }
