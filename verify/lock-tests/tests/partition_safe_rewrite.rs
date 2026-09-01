@@ -15,13 +15,23 @@
 //!   whereas `CREATE TABLE <child> PARTITION OF <parent>` blocks both directions.
 //! - That two-step recreate reaches the same end state (columns, bound, indexes,
 //!   index attachment, constraints) as `CREATE TABLE ... PARTITION OF`.
+//! - An interrupted `DETACH ... CONCURRENTLY` leaves the partition detach-pending, and
+//!   that state does not resolve itself: re-running the detach is refused outright
+//!   (55000, naming FINALIZE), so the only exits are `DETACH ... FINALIZE` and
+//!   `DROP TABLE <child>`.
+//! - Until the detach is resolved the child is still in `pg_inherits`, so its
+//!   drop still wants AccessExclusive on the parent and still loses to the same
+//!   traffic a fully detached partition's drop sails past.
 //!
 //! What this file deliberately does NOT claim: that `DETACH PARTITION ... CONCURRENTLY`
-//! is immune to live traffic. It is not, and
+//! is immune to live traffic. It is not.
 //! `detach_concurrently_waits_for_traffic_and_a_timeout_leaves_a_pending_detach`
-//! measures what really happens instead.
+//! measures what really happens.
 
-use pg_lock_tests::{TestDb, assert_lock_allows, assert_lock_blocks, expect_lock_timeout};
+use pg_lock_tests::{
+    Holder, SqlState, TestDb, assert_lock_allows, assert_lock_blocks, detail, expect_lock_timeout,
+    expect_sqlstate,
+};
 use rstest::rstest;
 
 // `DETACH PARTITION ... CONCURRENTLY` arrived in PG 14, which is the oldest version the
@@ -79,6 +89,9 @@ const MIGRATION_LOCK_TIMEOUT: &str = "250ms";
 
 /// The FROM/TO of the partition every test creates or drops.
 const Q1_BOUND: &str = "FOR VALUES FROM ('2027-01-01') TO ('2027-04-01')";
+
+/// The statement whose interruption leaves a half-detached state.
+const DETACH_Q1_CONCURRENTLY: &str = "ALTER TABLE txns DETACH PARTITION txns_q1 CONCURRENTLY";
 
 /// `DETACH PARTITION ... CONCURRENTLY` + `DROP TABLE` is not a different outcome, just a
 /// different lock profile: the catalog and the data end up where the plain `DROP TABLE`
@@ -580,5 +593,202 @@ fn detach_concurrently_waits_for_traffic_and_a_timeout_leaves_a_pending_detach(
         observer.scalar_i64("SELECT count(*)::bigint FROM txns_q1"),
         1,
         "pg{pg}: ... even though the row is still there in the partition itself"
+    );
+}
+
+/// Leaves `txns_q1` marked detach-pending, and returns with no traffic in flight.
+///
+/// Phase one of a concurrent detach commits before the waiting starts, so interrupting
+/// the wait does not undo it. Callers therefore begin from a parent that is missing a
+/// partition's rows while that partition still holds them.
+fn leave_detach_pending(db: &TestDb) {
+    drop(leave_detach_pending_under_traffic(db));
+}
+
+/// The same fixture, but the traffic that interrupted the detach is handed back still
+/// parked on the parent, for the one test that cares what the pending state costs while
+/// the parent is busy. Dropping the returned [`Holder`] releases it.
+#[must_use = "the Holder is what keeps the parent locked; dropping it immediately \
+              makes this the same as leave_detach_pending"]
+fn leave_detach_pending_under_traffic(db: &TestDb) -> Holder {
+    let traffic = db.hold("SELECT count(*) FROM txns");
+
+    let mut migration = db.session();
+    migration.set_lock_timeout(MIGRATION_LOCK_TIMEOUT);
+    expect_lock_timeout(
+        &mut migration,
+        DETACH_Q1_CONCURRENTLY,
+        "fixture: the concurrent detach has to be interrupted by traffic for these tests \
+         to have anything to assert about",
+    );
+
+    traffic
+}
+
+/// Nothing cleans this up in the background.
+///
+/// The window where the parent under-reports its rows lasts until somebody
+/// intervenes.
+#[rstest]
+fn a_pending_detach_does_not_resolve_itself(#[values(14, 15, 16, 17, 18)] pg: u32) {
+    let Some(db) = TestDb::new(pg, "psafe_pending_no_self_heal") else {
+        return;
+    };
+    db.session().run(DROP_SETUP);
+    leave_detach_pending(&db);
+
+    let mut observer = db.session();
+    // Time passes, and the parent is exercised — in case resolution were lazy and
+    // triggered by access rather than by a background worker.
+    observer.run("SELECT pg_sleep(2)");
+    observer.run("SELECT count(*) FROM txns");
+
+    // A brand new backend, in case the state were somehow local to a session.
+    let mut fresh = db.session();
+    assert!(
+        fresh.scalar_bool(
+            "SELECT inhdetachpending FROM pg_inherits
+              WHERE inhrelid = 'txns_q1'::regclass"
+        ),
+        "pg{pg}: a pending detach does not resolve itself — not once the blocking traffic \
+         has gone, not after time passes, and not after further traffic through the parent"
+    );
+    assert_eq!(
+        fresh.scalar_i64("SELECT count(*)::bigint FROM txns"),
+        1,
+        "pg{pg}: ... so the parent keeps under-reporting its rows for as long as it lasts"
+    );
+    assert_eq!(
+        fresh.scalar_i64("SELECT count(*)::bigint FROM txns_q1"),
+        1,
+        "pg{pg}: ... while the row is still sitting in the partition"
+    );
+}
+
+/// Nor can the operation simply be retried: PostgreSQL refuses and names the way out.
+#[rstest]
+fn retrying_detach_concurrently_on_a_pending_partition_is_refused(
+    #[values(14, 15, 16, 17, 18)] pg: u32,
+) {
+    let Some(db) = TestDb::new(pg, "psafe_pending_retry_refused") else {
+        return;
+    };
+    db.session().run(DROP_SETUP);
+    leave_detach_pending(&db);
+
+    let mut migration = db.session();
+    migration.set_lock_timeout(MIGRATION_LOCK_TIMEOUT);
+
+    // No traffic is holding anything now, so this is a flat refusal rather than a wait.
+    let err = expect_sqlstate(
+        &mut migration,
+        DETACH_Q1_CONCURRENTLY,
+        &SqlState::OBJECT_NOT_IN_PREREQUISITE_STATE,
+        "re-running the same DETACH ... CONCURRENTLY does not resume a pending detach; \
+         it is refused outright, so a retry-on-failure migration runner cannot recover",
+    );
+    assert!(
+        detail(&err).contains("FINALIZE"),
+        "pg{pg}: PostgreSQL should point at FINALIZE as the way out. Got: {}",
+        detail(&err)
+    );
+}
+
+#[rstest]
+fn detach_finalize_completes_a_pending_detach(#[values(14, 15, 16, 17, 18)] pg: u32) {
+    let Some(db) = TestDb::new(pg, "psafe_pending_finalize") else {
+        return;
+    };
+    db.session().run(DROP_SETUP);
+    leave_detach_pending(&db);
+
+    let mut migration = db.session();
+    migration.run("ALTER TABLE txns DETACH PARTITION txns_q1 FINALIZE");
+
+    assert_eq!(
+        migration.scalar_i64(
+            "SELECT count(*)::bigint FROM pg_inherits
+              WHERE inhrelid = 'txns_q1'::regclass"
+        ),
+        0,
+        "pg{pg}: FINALIZE completes the detach — the inheritance link is gone"
+    );
+    assert_eq!(
+        migration.scalar_i64("SELECT count(*)::bigint FROM txns_q1"),
+        1,
+        "pg{pg}: ... and the partition keeps its rows as a standalone table"
+    );
+}
+
+#[rstest]
+fn dropping_a_pending_partition_also_clears_the_pending_state(
+    #[values(14, 15, 16, 17, 18)] pg: u32,
+) {
+    let Some(db) = TestDb::new(pg, "psafe_pending_drop") else {
+        return;
+    };
+    db.session().run(DROP_SETUP);
+    leave_detach_pending(&db);
+
+    let mut migration = db.session();
+    migration.set_lock_timeout(MIGRATION_LOCK_TIMEOUT);
+    migration.run("DROP TABLE txns_q1");
+
+    assert_eq!(
+        migration.scalar_i64("SELECT count(*)::bigint FROM pg_class WHERE relname = 'txns_q1'"),
+        0,
+        "pg{pg}: DROP TABLE resolves a pending detach as well as FINALIZE does — \
+         FINALIZE is not the only exit"
+    );
+    assert_eq!(
+        migration.scalar_i64(
+            "SELECT count(*)::bigint FROM pg_inherits
+              WHERE inhparent = 'txns'::regclass"
+        ),
+        1,
+        "pg{pg}: ... leaving the parent with only its surviving partition"
+    );
+    assert_eq!(
+        migration.scalar_i64("SELECT count(*)::bigint FROM txns"),
+        1,
+        "pg{pg}: ... and the parent readable again with no pending state hanging over it"
+    );
+}
+
+/// A detach-pending partition is still a partition. It is still in `pg_inherits`, so its
+/// `DROP TABLE` still takes AccessExclusive on the parent and still loses to the
+/// traffic that caused the pending state.
+///
+/// Contrast `dropping_a_detached_partition_succeeds_while_traffic_holds_the_parent`:
+/// once the detach has actually *completed*, the identical drop ignores the identical
+/// reader. Half-detached does not buy the half of that benefit.
+#[rstest]
+fn dropping_a_pending_partition_still_loses_to_traffic_on_the_parent(
+    #[values(14, 15, 16, 17, 18)] pg: u32,
+) {
+    let Some(db) = TestDb::new(pg, "psafe_pending_drop_vs_traffic") else {
+        return;
+    };
+    db.session().run(DROP_SETUP);
+    let traffic = leave_detach_pending_under_traffic(&db);
+
+    let mut migration = db.session();
+    migration.set_lock_timeout(MIGRATION_LOCK_TIMEOUT);
+    expect_lock_timeout(
+        &mut migration,
+        "DROP TABLE txns_q1",
+        "a detach-pending partition is still attached as far as locking is concerned, so \
+         dropping it needs AccessExclusive on the parent -- 55P03 here, not the flat \
+         refusal that a retried DETACH ... CONCURRENTLY gets",
+    );
+
+    // With the holder gone the identical statement goes through.
+    drop(traffic);
+    migration.run("DROP TABLE txns_q1");
+    assert_eq!(
+        migration.scalar_i64("SELECT count(*)::bigint FROM pg_class WHERE relname = 'txns_q1'"),
+        0,
+        "pg{pg}: the same drop completes once the parent is free, which is what pins the \
+         timeout above on the parent lock rather than on the pending state"
     );
 }
