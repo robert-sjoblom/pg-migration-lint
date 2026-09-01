@@ -1,6 +1,7 @@
 /target
 /tools/liquibase-bridge.jar
 /bridge/target/
+/verify/lock-tests/target/
 /repos
 TODO.md
 *.snap.new
