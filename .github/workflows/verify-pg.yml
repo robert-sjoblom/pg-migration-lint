@@ -3,7 +3,7 @@ name: Verify PostgreSQL Behavior
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
 
 permissions:
   contents: read
@@ -18,10 +18,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Run verification suite
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verify/lock-tests
+
+      - name: Start PostgreSQL 14-18
+        run: cd verify && docker compose up -d --wait
+
+      - name: Verify single-session claims (SQL suite)
         run: |
           chmod +x verify/run.sh verify/lib/runner.sh
-          cd verify && ./run.sh --verbose
+          cd verify && ./run.sh --verbose --no-teardown
+
+      - name: Verify lock behaviour (Rust suite)
+        env:
+          PG_LOCK_TESTS_REQUIRE_ALL: "1"
+        run: cd verify/lock-tests && cargo test
+
+      - name: Stop containers
+        if: always()
+        run: cd verify && docker compose down
 
       - name: Upload results
         if: always()

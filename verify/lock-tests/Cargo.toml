@@ -1,0 +1,16 @@
+[package]
+name = "pg-lock-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "PostgreSQL lock-behavior verification tests for pg-migration-lint"
+
+# Standalone package: deliberately not part of the pg-migration-lint crate, so the
+# analyzer never gains a Postgres client (or tokio) in its dependency graph.
+[workspace]
+
+[dependencies]
+postgres = "0.19.14"
+
+[dev-dependencies]
+rstest = "0.26.1"

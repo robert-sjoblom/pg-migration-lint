@@ -35,6 +35,10 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            verify/lock-tests
 
       - name: Check formatting
         run: cargo fmt --check
@@ -44,6 +48,14 @@ jobs:
 
       - name: Check compilation
         run: cargo check
+
+      # verify/lock-tests is a standalone package to avoid dirtying the binary's dependency tree
+      # we lint these too
+      - name: Check formatting (verify/lock-tests)
+        run: cargo fmt --manifest-path verify/lock-tests/Cargo.toml --check
+
+      - name: Run Clippy (verify/lock-tests)
+        run: cargo clippy --manifest-path verify/lock-tests/Cargo.toml --all-targets -- -D warnings
 
   test:
     name: Test
@@ -130,7 +142,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
           cache: maven
           cache-dependency-path: bridge/pom.xml
 
@@ -156,7 +168,7 @@ jobs:
     if: github.event_name != 'schedule'
     strategy:
       matrix:
-        liquibase-version: ['4.31.1', '5.0.1']
+        liquibase-version: ["4.31.1", "5.0.1"]
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -165,7 +177,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
 
       - name: Install Liquibase CLI
         run: |
