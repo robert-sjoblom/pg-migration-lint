@@ -47,9 +47,6 @@ fn detach_partition_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 /// DETACH CONCURRENTLY uses a weaker lock.
-///
-/// since CONCURRENTLY cannot run inside a transaction. Instead, verify it works and
-/// that the partition is detached.
 #[rstest]
 fn detach_concurrently_detaches_partition(#[values(14, 15, 16, 17, 18)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm004_concurrently") else {

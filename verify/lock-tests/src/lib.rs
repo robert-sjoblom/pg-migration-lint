@@ -20,16 +20,19 @@
 //!
 //! # Why sessions, not dblink
 //!
-//! Lock behaviour is inherently multi-session: one session holds a lock, another
-//! discovers it cannot proceed. The harness models that with real connections, which
+//! Lock behaviour is multi-session: one session holds a lock, another discovers
+//!  it cannot proceed. The harness models that with real connections, which
 //! means an assertion can name *which* session was blocked and *which* SQLSTATE it
 //! got; here the previous plpgsql/dblink harness could only observe "the probe
 //! raised something".
 
 use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
-use postgres::error::SqlState;
 use postgres::{Client, Config, NoTls};
+
+/// Re-exported so tests can name the SQLSTATEs they expect.
+pub use postgres::error::SqlState;
 
 /// PG major versions paired with their port.
 pub const PG_VERSIONS: [(u32, u16); 5] = [
@@ -46,6 +49,12 @@ pub const PG_VERSIONS: [(u32, u16); 5] = [
 /// in-progress statement, so this value only bounds how long a blocked probe
 /// waits.
 const PROBE_LOCK_TIMEOUT: &str = "250ms";
+
+/// How often to re-check whether a spawned statement is waiting on a lock.
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// How long to wait for a spawned statement to become observably lock-blocked.
+const ENQUEUE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Host port for a given major version, or `None` if the version isn't covered.
 pub fn port_for(version: u32) -> Option<u16> {
@@ -148,21 +157,26 @@ impl TestDb {
     /// Each `Session` is its own backend, which is what makes lock conflicts
     /// observable.
     pub fn session(&self) -> Session {
-        let client = config(self.port, &self.name)
-            .connect(NoTls)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "could not connect to {} on pg{}: {}",
-                    self.name,
-                    self.version,
-                    detail(&e)
-                )
-            });
-        Session {
-            client,
-            what: self.name.clone(),
+        Session::connect(&self.conn())
+    }
+
+    /// Everything needed to open a connection later, on another thread.
+    fn conn(&self) -> ConnInfo {
+        ConnInfo {
+            port: self.port,
+            name: self.name.clone(),
+            version: self.version,
         }
     }
+}
+
+/// Connection details, detached from the `TestDb` borrow so a background thread can
+/// open its own session.
+#[derive(Clone)]
+struct ConnInfo {
+    port: u16,
+    name: String,
+    version: u32,
 }
 
 impl Drop for TestDb {
@@ -186,6 +200,23 @@ pub struct Session {
 }
 
 impl Session {
+    fn connect(info: &ConnInfo) -> Session {
+        let client = config(info.port, &info.name)
+            .connect(NoTls)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "could not connect to {} on pg{}: {}",
+                    info.name,
+                    info.version,
+                    detail(&e)
+                )
+            });
+        Session {
+            client,
+            what: info.name.clone(),
+        }
+    }
+
     /// Runs SQL, panicking on any error.
     pub fn run(&mut self, sql: &str) {
         if let Err(e) = self.client.batch_execute(sql) {
@@ -235,6 +266,21 @@ impl Session {
     /// Sets this session's `lock_timeout`.
     pub fn set_lock_timeout(&mut self, value: &str) {
         self.run(&format!("SET lock_timeout = '{value}'"));
+    }
+
+    /// How many relation locks are currently *waiting* in this database.
+    ///
+    /// Restricted to `locktype = 'relation'` and to the current database, so it counts
+    /// exactly the kind of wait a blocked DDL statement produces and nothing from a
+    /// test running concurrently against another database.
+    pub fn ungranted_relation_locks(&mut self) -> i64 {
+        self.scalar_i64(
+            "SELECT count(*)::bigint FROM pg_locks
+              WHERE NOT granted
+                AND locktype = 'relation'
+                AND database = (SELECT oid FROM pg_database
+                                 WHERE datname = current_database())",
+        )
     }
 }
 
@@ -325,6 +371,186 @@ pub fn assert_lock_allows(db: &TestDb, ddl: &str, probe_sql: &str, claim: &str) 
             oneline(ddl),
         );
     }
+}
+
+/// A session parked in an open transaction, holding whatever locks its statements
+/// took. This is how we fake "live traffic."
+///
+/// Locks are released when the `Holder` is dropped.
+pub struct Holder {
+    session: Session,
+}
+
+impl Holder {
+    /// The holding session, for running further statements in the same transaction.
+    pub fn session(&mut self) -> &mut Session {
+        &mut self.session
+    }
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        let _ = self.session.try_run("ROLLBACK");
+    }
+}
+
+/// A statement running on its own thread because it is expected to block.
+///
+/// Dropping a `Waiter` deliberately does **not** join the thread: if the lock it
+/// wants is still held, joining would hang the test. The thread instead dies when
+/// `TestDb`'s `Drop` force-drops the database and terminates its connection.
+pub struct Waiter {
+    sql: String,
+    handle: Option<std::thread::JoinHandle<Result<(), postgres::Error>>>,
+}
+
+impl Waiter {
+    /// Blocks until the statement finishes, returning its result.
+    pub fn join(mut self) -> Result<(), postgres::Error> {
+        let handle = self.handle.take().expect("waiter already joined");
+        handle
+            .join()
+            .unwrap_or_else(|_| panic!("waiter thread panicked running `{}`", oneline(&self.sql)))
+    }
+
+    /// The SQL this waiter is running.
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+}
+
+impl TestDb {
+    /// Opens a session, starts a transaction, and runs `sql` inside it.
+    ///
+    /// Whatever locks `sql` acquires stay held until the returned [`Holder`] drops.
+    pub fn hold(&self, sql: &str) -> Holder {
+        let mut session = self.session();
+        session.run("BEGIN");
+        session.run(sql);
+        Holder { session }
+    }
+
+    /// Lock modes currently granted on `relation`, in this database only.
+    ///
+    /// `pg_locks` is cluster-wide, tests run concurrently against the same
+    /// server, and they reuse table names: an unscoped query would report
+    /// another test's locks as this one's.
+    pub fn locks_on(&self, relation: &str) -> Vec<String> {
+        let mut s = self.session();
+        let rows = s
+            .client
+            .query(
+                "SELECT l.mode
+                   FROM pg_locks l
+                   JOIN pg_class c ON c.oid = l.relation
+                  WHERE l.locktype = 'relation'
+                    AND l.granted
+                    AND l.database = (SELECT oid FROM pg_database
+                                       WHERE datname = current_database())
+                    AND c.relname = $1
+                  ORDER BY l.mode",
+                &[&relation],
+            )
+            .unwrap_or_else(|e| panic!("could not read pg_locks: {}", detail(&e)));
+        rows.iter().map(|r| r.get::<_, String>(0)).collect()
+    }
+
+    /// Whether `mode` is currently granted on `relation` in this database.
+    pub fn holds_lock(&self, relation: &str, mode: &str) -> bool {
+        self.locks_on(relation).iter().any(|m| m == mode)
+    }
+
+    /// Runs `sql` on a background session, returning once it is observably waiting
+    /// for a lock.
+    ///
+    /// Panics if the statement completes, fails, or never enters the lock queue — each
+    /// of which would mean a later assertion about "what happens while this is
+    /// blocked" is testing nothing.
+    pub fn spawn_blocked(&self, sql: &str) -> Waiter {
+        let info = self.conn();
+        let owned = sql.to_string();
+        let handle = std::thread::spawn(move || {
+            let mut session = Session::connect(&info);
+            session.try_run(&owned)
+        });
+
+        let mut observer = self.session();
+        let deadline = Instant::now() + ENQUEUE_TIMEOUT;
+        let mut gave_up = None;
+
+        loop {
+            if observer.ungranted_relation_locks() > 0 {
+                break;
+            }
+            if handle.is_finished() {
+                gave_up = Some("it finished instead of blocking");
+                break;
+            }
+            if Instant::now() >= deadline {
+                gave_up = Some("it never appeared in the lock queue");
+                break;
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+
+        if let Some(why) = gave_up {
+            if handle.is_finished() {
+                let outcome = handle.join().unwrap_or_else(|_| {
+                    panic!("waiter thread panicked running `{}`", oneline(sql))
+                });
+                panic!(
+                    "expected `{}` to block on a lock, but {why}: {}",
+                    oneline(sql),
+                    match outcome {
+                        Ok(()) => "it succeeded".to_string(),
+                        Err(e) => detail(&e),
+                    }
+                );
+            }
+            panic!(
+                "expected `{}` to block on a lock, but {why} (its thread is still running)",
+                oneline(sql)
+            );
+        }
+
+        Waiter {
+            sql: sql.to_string(),
+            handle: Some(handle),
+        }
+    }
+}
+
+/// Runs `sql` expecting it to fail with SQLSTATE `expected`, returning the error.
+///
+/// Checking the specific state is the point: "it errored" and "it could not get the
+/// lock" are different claims, and only the second is about locking.
+pub fn expect_sqlstate(
+    session: &mut Session,
+    sql: &str,
+    expected: &SqlState,
+    claim: &str,
+) -> postgres::Error {
+    match session.try_run(sql) {
+        Ok(()) => panic!(
+            "{claim}\n  expected `{}` to fail with SQLSTATE {}, but it succeeded",
+            oneline(sql),
+            expected.code()
+        ),
+        Err(e) if e.code() == Some(expected) => e,
+        Err(e) => panic!(
+            "{claim}\n  expected `{}` to fail with SQLSTATE {}, but it failed with {}",
+            oneline(sql),
+            expected.code(),
+            detail(&e)
+        ),
+    }
+}
+
+/// Runs `sql` expecting it to give up waiting for a lock (SQLSTATE 55P03).
+///
+/// The session needs a `lock_timeout` set, or this waits forever.
+pub fn expect_lock_timeout(session: &mut Session, sql: &str, claim: &str) -> postgres::Error {
+    expect_sqlstate(session, sql, &SqlState::LOCK_NOT_AVAILABLE, claim)
 }
 
 /// Collapses SQL to a single line for readable panic messages.
