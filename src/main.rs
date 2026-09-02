@@ -8,9 +8,11 @@
 //! - 2: Tool error (config error, parse failure, I/O error, etc.)
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+
+mod github;
 
 use pg_migration_lint::input::MigrationHistory;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
@@ -62,10 +64,76 @@ struct Args {
     /// Validate configuration and check that paths and tools exist, then exit
     #[arg(long)]
     validate_config: bool,
+
+    /// Subcommand to run instead of the default lint flow. Absent entirely
+    /// preserves every existing flat-flag invocation unchanged.
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+/// Subcommands available alongside the default flat-flag lint flow.
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Run the GitHub Action PR-review workflow: fetch a pull request's
+    /// changed files, lint them, and post findings back as PR comments.
+    GithubReview(GithubReviewArgs),
+}
+
+/// Arguments for `pg-migration-lint github-review`.
+///
+/// This subcommand is driven by the `pg-migration-lint` GitHub Action
+/// (`action.yml` at the repo root). Every field below can be given
+/// explicitly, or falls back to a GitHub Actions-provided environment
+/// variable when omitted -- see [`ResolvedGithubReviewArgs::resolve`] for
+/// the exact fallback chain.
+///
+/// Note: there is deliberately no `--working-directory` flag here. The
+/// action invokes this subcommand after `cd`-ing into
+/// `working-directory` (matching how the superseded bash scripts did it),
+/// so `--config` and migration paths resolve relative to CWD exactly like
+/// the flat CLI mode already does. Task 6 (action.yml wiring) must keep
+/// doing that `cd`.
+#[derive(clap::Args, Debug)]
+struct GithubReviewArgs {
+    /// Pull request number. Defaults to `.pull_request.number` read from
+    /// the JSON file at `$GITHUB_EVENT_PATH` (the standard GitHub Actions
+    /// event payload for a `pull_request`-triggered workflow).
+    #[arg(long)]
+    pr: Option<u64>,
+
+    /// Repository in `owner/repo` form. Defaults to `$GITHUB_REPOSITORY`.
+    #[arg(long)]
+    repo: Option<String>,
+
+    /// GitHub token used to call the REST API. Defaults to `$GITHUB_TOKEN`,
+    /// then `$GH_TOKEN`.
+    #[arg(long)]
+    github_token: Option<String>,
+
+    /// Path to configuration file. Identical semantics to the flat CLI
+    /// mode's `--config` (see `load_config`): reused, not reimplemented.
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+
+    /// Override exit code threshold (critical, major, minor, info, none).
+    /// Identical semantics to the flat CLI mode's `--fail-on`.
+    #[arg(long)]
+    fail_on: Option<String>,
 }
 
 fn main() {
     let args = Args::parse();
+
+    if let Some(Commands::GithubReview(gh_args)) = &args.command {
+        let exit_code = match run_github_review(gh_args) {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("Error: {err:#}",);
+                2
+            }
+        };
+        std::process::exit(exit_code);
+    }
 
     match run(args) {
         Ok(has_findings_above_threshold) => {
@@ -79,6 +147,18 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// Runs the `github-review` subcommand by handing `args` off to
+/// [`github::run`] inside a dedicated `tokio` runtime -- the only place in
+/// this binary an async runtime is constructed; everything else stays
+/// synchronous.
+///
+/// Returns the process exit code (0/1/2, matching the flat CLI mode's
+/// contract) on success.
+fn run_github_review(args: &GithubReviewArgs) -> Result<i32> {
+    let runtime = tokio::runtime::Runtime::new().context("Failed to start async runtime")?;
+    runtime.block_on(github::run(args))
 }
 
 /// Run the main lint pipeline.
