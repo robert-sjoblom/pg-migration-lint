@@ -331,7 +331,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.17
+      - uses: EmbarkStudios/cargo-deny-action@v2.1.1
 
   audit:
     name: Security audit
