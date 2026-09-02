@@ -31,3 +31,8 @@ ALTER COLUMN email SET NOT NULL;
 Note: ALTER TABLE statements with different lock levels (e.g.,
 ValidateConstraint vs SetNotNull) are tracked separately and will not
 trigger this rule across different lock levels.
+
+Note: ATTACH PARTITION and DETACH PARTITION are never reported by this
+rule. PostgreSQL's grammar makes partition_cmd occupy the entire ALTER
+TABLE statement, so these actions can never be combined with anything
+else, and "combine them" is not applicable advice for this pair.

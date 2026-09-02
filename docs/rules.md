@@ -605,6 +605,8 @@ ALTER TABLE authors
 
 Chains are broken by any intervening statement that references the same table (e.g., `CREATE INDEX CONCURRENTLY`). Statements with different lock levels (e.g., `VALIDATE CONSTRAINT` vs `SET NOT NULL`) are tracked independently and do not trigger this rule against each other.
 
+`ATTACH PARTITION` and `DETACH PARTITION` are never reported by this rule. PostgreSQL's grammar makes `partition_cmd` occupy the entire `ALTER TABLE` statement, so these actions can never be combined with anything else, and "combine them" is not applicable advice for this pair.
+
 Tables created within the same set of changed files are exempt — lock contention for brand-new tables is harmless.
 
 ---
