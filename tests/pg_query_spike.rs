@@ -1207,3 +1207,60 @@ fn test_reserved_word_as_quoted_identifier() {
     };
     assert_eq!(col.colname, "select");
 }
+
+/// Investigates whether `ATTACH`/`DETACH PARTITION` can be combined with each
+/// other or with other `ALTER TABLE` actions in one comma-separated statement.
+/// PGM023 (multiple ALTER TABLE -> combine them) assumes they never can,
+/// because PostgreSQL's `partition_cmd` grammar production is a standalone
+/// alternative to `alter_table_cmds`, not a member of that list -- even
+/// though the protobuf `AlterTableType` enum lists `AT_AttachPartition` /
+/// `AT_DetachPartition` as ordinary subtypes alongside `AT_AddColumn` etc.,
+/// which could misleadingly suggest they're combinable at the AST level.
+#[test]
+fn spike_partition_cmd_is_not_combinable() {
+    let sqls = [
+        // Two partition names in one DETACH PARTITION clause.
+        "ALTER TABLE p DETACH PARTITION x, y;",
+        // Two separate DETACH PARTITION clauses, comma-joined.
+        "ALTER TABLE p DETACH PARTITION x, DETACH PARTITION y;",
+        // DETACH PARTITION followed by an ordinary alter_table_cmd.
+        "ALTER TABLE p DETACH PARTITION x, ADD COLUMN c int;",
+        // Ordinary alter_table_cmd followed by DETACH PARTITION.
+        "ALTER TABLE p ADD COLUMN c int, DETACH PARTITION x;",
+        // Two ATTACH PARTITION clauses, comma-joined.
+        "ALTER TABLE p ATTACH PARTITION x FOR VALUES FROM (1) TO (2), \
+         ATTACH PARTITION y FOR VALUES FROM (2) TO (3);",
+        // ATTACH PARTITION followed by an ordinary alter_table_cmd.
+        "ALTER TABLE p ATTACH PARTITION x FOR VALUES FROM (1) TO (2), ADD COLUMN c int;",
+        // Baseline: two ordinary alter_table_cmds do combine.
+        "ALTER TABLE p ADD COLUMN c int, ADD COLUMN d int;",
+    ];
+
+    for sql in sqls {
+        let result = pg_query::parse(sql);
+        println!("\n=== {sql} ===");
+        match result {
+            Ok(parsed) => {
+                let stmt = parsed.protobuf.stmts[0]
+                    .stmt
+                    .as_ref()
+                    .unwrap()
+                    .node
+                    .as_ref()
+                    .unwrap();
+                if let pg_query::NodeEnum::AlterTableStmt(alter) = stmt {
+                    println!("  Parsed OK, {} cmd(s):", alter.cmds.len());
+                    for cmd_node in &alter.cmds {
+                        if let Some(pg_query::NodeEnum::AlterTableCmd(cmd)) = cmd_node.node.as_ref()
+                        {
+                            println!("    subtype={:?}", cmd.subtype());
+                        }
+                    }
+                } else {
+                    println!("  Parsed OK, but not AlterTableStmt: {stmt:?}");
+                }
+            }
+            Err(e) => println!("  Parse error: {e}"),
+        }
+    }
+}

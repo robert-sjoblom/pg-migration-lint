@@ -37,7 +37,12 @@ pub(super) const EXPLAIN: &str = "PGM023 — Multiple ALTER TABLE statements on 
          \n\
          Note: ALTER TABLE statements with different lock levels (e.g.,\n\
          ValidateConstraint vs SetNotNull) are tracked separately and will not\n\
-         trigger this rule across different lock levels.";
+         trigger this rule across different lock levels.\n\
+         \n\
+         Note: ATTACH PARTITION and DETACH PARTITION are never reported by this\n\
+         rule. PostgreSQL's grammar makes partition_cmd occupy the entire ALTER\n\
+         TABLE statement, so these actions can never be combined with anything\n\
+         else, and \"combine them\" is not applicable advice for this pair.";
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
@@ -62,7 +67,9 @@ pub(super) fn check(
                     continue;
                 }
 
-                let lock = classify_lock_level(&at.actions);
+                let Some(lock) = combinable_lock_level(&at.actions) else {
+                    continue;
+                };
                 let map_key = (key.clone(), lock);
 
                 if let Some(first_span) = tracking.get_mut(&map_key) {
@@ -114,22 +121,32 @@ enum LockLevel {
     AccessExclusive,
 }
 
-/// Classify the lock level required for a set of ALTER TABLE actions.
+/// Classify the lock level required for a set of ALTER TABLE actions, or
+/// `None` if the actions can never be combined with anything else.
 ///
-/// # Known simplification
-/// `AttachPartition` actually takes `SHARE UPDATE EXCLUSIVE` in PostgreSQL, but
-/// is currently classified as `AccessExclusive` here. Consecutive ATTACH PARTITION
-/// statements on the same parent would benefit from combining but are not detected.
-/// Deferred as rare enough not to warrant the added complexity in v1.
-fn classify_lock_level(actions: &[AlterTableAction]) -> LockLevel {
-    if !actions.is_empty()
+/// # Why `AttachPartition`/`DetachPartition` return `None`
+/// PostgreSQL's grammar makes `ATTACH PARTITION`/`DETACH PARTITION` a
+/// `partition_cmd`, which occupies the *entire* `ALTER TABLE` statement. It
+/// can never appear alongside another action in a comma-separated list, so
+/// "combine them into a single ALTER TABLE" is never applicable advice for
+/// these two actions and they're excluded from combinability tracking
+/// entirely.
+fn combinable_lock_level(actions: &[AlterTableAction]) -> Option<LockLevel> {
+    if actions.iter().any(|a| {
+        matches!(
+            a,
+            AlterTableAction::AttachPartition { .. } | AlterTableAction::DetachPartition { .. }
+        )
+    }) {
+        None
+    } else if !actions.is_empty()
         && actions
             .iter()
             .all(|a| matches!(a, AlterTableAction::ValidateConstraint { .. }))
     {
-        LockLevel::ShareUpdateExclusive
+        Some(LockLevel::ShareUpdateExclusive)
     } else {
-        LockLevel::AccessExclusive
+        Some(LockLevel::AccessExclusive)
     }
 }
 
@@ -189,6 +206,25 @@ mod tests {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::SetNotNull {
                 column_name: col.to_string(),
+            }],
+        })
+    }
+
+    fn alter_attach(table: &str, child: &str) -> IrNode {
+        IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified(table),
+            actions: vec![AlterTableAction::AttachPartition {
+                child: QualifiedName::unqualified(child),
+            }],
+        })
+    }
+
+    fn alter_detach(table: &str, child: &str) -> IrNode {
+        IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified(table),
+            actions: vec![AlterTableAction::DetachPartition {
+                child: QualifiedName::unqualified(child),
+                concurrent: false,
             }],
         })
     }
@@ -423,5 +459,66 @@ mod tests {
 
         let findings = RuleId::Pgm023.check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn set_not_null_then_attach_partition_no_finding() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(alter_set_not_null("authors", "name"), 1),
+            located_at(alter_attach("authors", "authors_p1"), 3),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn two_attach_partition_no_finding() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(alter_attach("authors", "authors_p1"), 1),
+            located_at(alter_attach("authors", "authors_p2"), 3),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn detach_then_attach_no_finding() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(alter_detach("authors", "authors_p1"), 1),
+            located_at(alter_attach("authors", "authors_p1"), 3),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn chain_survives_across_attach_partition() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(alter_set_not_null("authors", "name"), 1),
+            located_at(alter_attach("authors", "authors_p1"), 3),
+            located_at(alter_set_not_null("authors", "email"), 5),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
     }
 }
