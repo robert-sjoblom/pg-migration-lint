@@ -439,16 +439,21 @@ fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
 
 /// Handle DROP TABLE: remove the table from the catalog entirely.
 ///
-/// For partitioned tables with CASCADE, recursively removes all partition
-/// children (depth-first). Without CASCADE, children keep stale `parent_table`.
+/// Dropping a partitioned parent always removes its partition subtree
+/// (depth-first), regardless of CASCADE: partitions aren't independent
+/// dependent objects the way a view or FK is, they're structurally part of
+/// the parent, so PostgreSQL drops them whether or not CASCADE is given.
+/// CASCADE still governs other dependent objects (views, FK constraints)
+/// that this catalog does not track.
 fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
     let table_key = dt.name.catalog_key().to_string();
 
-    // If table is partitioned and CASCADE, recursively remove the partition subtree.
-    if dt.cascade
-        && let Some(table) = catalog.get_table(&table_key)
-        && table.is_partitioned
-    {
+    // Only recurse into the partition subtree if the table actually exists in
+    // the catalog. This guards against `DROP TABLE <name-not-in-catalog>`
+    // accidentally sweeping up unrelated tables whose `parent_table` happens
+    // to equal that same string (see e.g. a child created via
+    // `PARTITION OF unknown_parent` before `unknown_parent` was ever created).
+    if catalog.has_table(&table_key) {
         let children_to_remove = collect_partition_subtree(catalog, &table_key);
         for child_key in children_to_remove {
             catalog.remove_table(&child_key);
@@ -480,8 +485,10 @@ fn apply_drop_schema(catalog: &mut Catalog, ds: &DropSchema) {
     }
 }
 
-/// Collect all partition children recursively (depth-first) for cascade removal.
-/// Uses a visited set to prevent cycles.
+/// Collect all partition children recursively (depth-first), for removal when
+/// dropping a partitioned parent. Returns an empty `Vec` for a table with no
+/// children, so calling this unconditionally costs nothing for non-partitioned
+/// tables. Uses a visited set to prevent cycles.
 fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut stack = vec![root_key.to_string()];

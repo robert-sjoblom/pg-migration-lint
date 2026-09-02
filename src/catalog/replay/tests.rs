@@ -1986,7 +1986,7 @@ fn test_drop_parent_cascade_recursive() {
 }
 
 #[test]
-fn test_drop_parent_no_cascade_keeps_children() {
+fn test_drop_parent_no_cascade_removes_children() {
     let mut catalog = CatalogBuilder::new()
         .table("parent", |t| {
             t.column("id", "integer", false)
@@ -2007,17 +2007,57 @@ fn test_drop_parent_no_cascade_keeps_children() {
 
     assert!(!catalog.has_table("parent"), "Parent should be removed");
     assert!(
-        catalog.has_table("child"),
-        "Child should still exist without CASCADE"
+        !catalog.has_table("child"),
+        "Child should be removed even without CASCADE, since partitions are \
+         structurally part of the parent, not independent dependents"
     );
-    // Child keeps stale parent_table — get_partition_children still finds it
-    // because parent_table is the source of truth.
-    let child = catalog.get_table("child").unwrap();
-    assert_eq!(child.parent_table.as_deref(), Some("parent"));
-    assert_eq!(
-        catalog.get_partition_children("parent"),
-        vec!["child"],
-        "Child still references parent via parent_table"
+    assert!(
+        catalog.get_partition_children("parent").is_empty(),
+        "partition_children should be cleaned up"
+    );
+}
+
+#[test]
+fn test_drop_parent_no_cascade_recursive() {
+    let mut catalog = CatalogBuilder::new()
+        .table("grandparent", |t| {
+            t.column("id", "integer", false)
+                .partitioned_by(PartitionStrategy::Range, &["id"]);
+        })
+        .table("parent", |t| {
+            t.column("id", "integer", false)
+                .partitioned_by(PartitionStrategy::Range, &["id"])
+                .partition_of("grandparent");
+        })
+        .table("child", |t| {
+            t.column("id", "integer", false).partition_of("parent");
+        })
+        .build();
+
+    let unit = make_unit(vec![
+        DropTable::test(qname("grandparent"))
+            .with_cascade(false)
+            .with_if_exists(false)
+            .into(),
+    ]);
+    apply(&mut catalog, &unit);
+
+    assert!(!catalog.has_table("grandparent"));
+    assert!(
+        !catalog.has_table("parent"),
+        "Intermediate partition level should be removed without CASCADE"
+    );
+    assert!(
+        !catalog.has_table("child"),
+        "Deepest partition level should be removed without CASCADE"
+    );
+    assert!(
+        catalog.get_partition_children("grandparent").is_empty(),
+        "partition_children for grandparent should be cleaned up"
+    );
+    assert!(
+        catalog.get_partition_children("parent").is_empty(),
+        "partition_children for parent should be cleaned up"
     );
 }
 
@@ -2043,6 +2083,47 @@ fn test_drop_child_updates_parent_children() {
     assert!(
         catalog.get_partition_children("parent").is_empty(),
         "Parent should have no children after child drop"
+    );
+}
+
+#[test]
+fn test_drop_table_unknown_parent_key_does_not_affect_unrelated_child() {
+    // "child" has `parent_table` set to "unknown_parent", a key that was
+    // never itself created in the catalog (mirrors
+    // test_create_partition_of_without_parent_in_catalog). DROP TABLE on
+    // that same never-created key must be a no-op: it must not remove or
+    // otherwise affect "child", even though "child"'s parent_table string
+    // coincidentally matches the dropped name.
+    let mut catalog = CatalogBuilder::new()
+        .table("child", |t| {
+            t.column("id", "integer", false)
+                .partition_of("unknown_parent");
+        })
+        .build();
+
+    assert!(!catalog.has_table("unknown_parent"));
+
+    let unit = make_unit(vec![
+        DropTable::test(qname("unknown_parent"))
+            .with_if_exists(true)
+            .into(),
+    ]);
+    apply(&mut catalog, &unit);
+
+    assert!(
+        catalog.has_table("child"),
+        "Unrelated child should survive a DROP TABLE on a key that was never in the catalog"
+    );
+    let child = catalog.get_table("child").unwrap();
+    assert_eq!(
+        child.parent_table.as_deref(),
+        Some("unknown_parent"),
+        "Child's parent_table should be untouched"
+    );
+    assert_eq!(
+        catalog.get_partition_children("unknown_parent"),
+        vec!["child"],
+        "Child should still be discoverable via parent_table after the no-op drop"
     );
 }
 
