@@ -1,0 +1,65 @@
+name: 'pg-migration-lint'
+description: 'Lint changed PostgreSQL migration files for safety and correctness issues, and post findings as PR comments.'
+author: 'robert-sjoblom'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to authenticate GitHub API calls this action makes (fetching
+      PR changed files, posting review comments) and to download this
+      action's own release binary via `gh`.
+    required: false
+    default: ${{ github.token }}
+  working-directory:
+    description: 'Directory to run pg-migration-lint from, relative to the consumer repository root.'
+    required: false
+    default: '.'
+  config-path:
+    description: 'Path to a pg-migration-lint config file, passed through as --config. Optional; the tool falls back to its own defaults when omitted.'
+    required: false
+    default: ''
+  report-path:
+    description: >-
+      Override for the SARIF report path. When omitted, the tool's own
+      default applies: build/reports/migration-lint/findings.sarif, relative
+      to working-directory.
+    required: false
+    default: ''
+  fail-on:
+    description: 'Severity threshold passed through as --fail-on (blocker/critical/major/minor/info/none). Optional; the tool defaults to critical when unset.'
+    required: false
+    default: ''
+
+outputs:
+  exit-code:
+    description: 'Exit code returned by the pg-migration-lint CLI (0 = clean, 1 = findings at/above threshold, 2 = tool/config error).'
+    # Placeholder — wired to the real lint step's output once it exists.
+    value: ''
+  findings-count:
+    description: 'Total number of findings reported by pg-migration-lint.'
+    # Placeholder — wired to the real parse/filter step's output once it exists.
+    value: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download pg-migration-lint binary
+      id: download-binary
+      shell: bash
+      env:
+        # github.action_repository / github.action_ref resolve to empty
+        # strings when read directly inside a composite action's `run:`
+        # shell — a confirmed runner bug (actions/runner#2525, closed as
+        # "not planned"), not a typo. The expressions only evaluate
+        # correctly here, in the step's `env:` block, so we capture them
+        # into plain environment variables and forward those into the
+        # script instead of reading `${{ github.action_repository }}` /
+        # `${{ github.action_ref }}` from inside download-binary.sh itself.
+        #
+        # This must resolve to *this action's* source repo, never the
+        # consumer's repo — `${{ github.repository }}` would silently
+        # resolve to whatever repo is running the workflow, which is wrong.
+        GITHUB_ACTION_REPOSITORY: ${{ github.action_repository }}
+        GITHUB_ACTION_REF: ${{ github.action_ref }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: ${{ github.action_path }}/scripts/download-binary.sh
