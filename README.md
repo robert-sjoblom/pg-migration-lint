@@ -89,12 +89,13 @@ jobs:
           fail-on: major
 ```
 
-Three details matter here:
+Four details matter here:
 
 - **Pin to a released tag, and bump it when you want a newer version.** Releases are tagged `vX.Y.Z` only; there is no moving `v1`/`v2` major-version alias to track. Check [the releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) for the newest tag. Pinning `@main` also works (the action falls back to the latest release when its ref isn't a release tag), but it tracks unreleased commits rather than a stable version.
 
 - **`permissions: pull-requests: write` is required.** Posting PR review comments needs this scope on `GITHUB_TOKEN`. Many orgs default `GITHUB_TOKEN` to read-only repository permissions, so omitting this block is the single most common way to get a silent 403 the first time you wire this action up.
 - **Check out the PR head commit explicitly**, via `ref: ${{ github.event.pull_request.head.sha }}`. On a `pull_request` trigger, `actions/checkout` defaults to the ephemeral merge commit rather than the PR's actual head, and this action's line numbers come from the GitHub Files API computed against head content -- checking out anything else risks mismatched line numbers on PRs with conflicts. The default (shallow) `fetch-depth: 1` is fine as-is: the action never runs `git diff` itself, it only reads whatever files are on disk plus the changed-file list from the GitHub API.
+- **Pull requests from forks cannot be commented on with the default token.** On a `pull_request` trigger, a run originating from a fork always receives a read-only `GITHUB_TOKEN`, no matter what the `permissions:` block asks for, so comment posting fails with a 403 (the action reports this explicitly rather than dumping a raw API error). GitHub's supported answer is the [`pull_request_target`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request_target) trigger, which carries real security trade-offs -- read that documentation before adopting it. Same-repository pull requests, including those from branches pushed by org members, are unaffected.
 
 ### Inputs
 

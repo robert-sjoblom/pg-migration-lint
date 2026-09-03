@@ -287,7 +287,17 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
             err.context("Failed to post PR comments")
         }
     })?;
-    eprintln!("github-review: PR #{} comments posted", resolved.pr);
+    if all_findings.is_empty() {
+        // `post_comments` deliberately posts nothing on a clean run (it
+        // only clears out any stale comments a previous run left), so
+        // claiming "comments posted" here would be a lie.
+        eprintln!(
+            "github-review: PR #{} is clean -- no comments posted",
+            resolved.pr
+        );
+    } else {
+        eprintln!("github-review: PR #{} comments posted", resolved.pr);
+    }
 
     let fail_on_str = resolved.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
     let exit_code = if crate::exceeds_fail_on_threshold(&all_findings, fail_on_str)? {
@@ -425,11 +435,11 @@ fn is_permission_error(error: &anyhow::Error) -> bool {
 /// The actionable message [`run`] attaches to a 403 from comment posting,
 /// in place of octocrab's raw error text.
 const PERMISSION_ERROR_HINT: &str = "Posting PR comments failed with a permission error (HTTP 403). \
-     Check that the workflow grants 'permissions: pull-requests: write'. \
-     If this is a pull request from a fork, note that a pull_request-triggered \
-     run always receives a read-only GITHUB_TOKEN regardless of that block -- \
-     see GitHub's documentation on pull_request_target for the supported way \
-     to comment on fork pull requests";
+      Check that the workflow grants 'permissions: pull-requests: write'. \
+      If this is a pull request from a fork, note that a pull_request-triggered \
+      run always receives a read-only GITHUB_TOKEN regardless of that block -- \
+      see GitHub's documentation on pull_request_target for the supported way \
+      to comment on fork pull requests";
 
 /// Splits an `owner/repo` string (as used by [`ResolvedGithubReviewArgs::repo`])
 /// into its two halves.
