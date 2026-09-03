@@ -59,6 +59,57 @@ chmod +x pg-migration-lint
 ./pg-migration-lint --explain PGM001
 ```
 
+## GitHub Action
+
+pg-migration-lint ships as a GitHub Action (`robert-sjoblom/pg-migration-lint@v1`) that lints only the files changed in a pull request and posts findings as inline PR review comments, using the same rule engine as the CLI. Under the hood it downloads this repo's release binary and runs `pg-migration-lint github-review` -- a Rust subcommand, not a shell script -- but that's an implementation detail; nothing on the consumer side needs to know it.
+
+Add a workflow like this:
+
+```yaml
+name: PostgreSQL Migration Lint
+
+on:
+  pull_request:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  lint-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Lint changed migrations
+        uses: robert-sjoblom/pg-migration-lint@v1
+        with:
+          fail-on: major
+```
+
+Two details matter here:
+
+- **`permissions: pull-requests: write` is required.** Posting PR review comments needs this scope on `GITHUB_TOKEN`. Many orgs default `GITHUB_TOKEN` to read-only repository permissions, so omitting this block is the single most common way to get a silent 403 the first time you wire this action up.
+- **Check out the PR head commit explicitly**, via `ref: ${{ github.event.pull_request.head.sha }}`. On a `pull_request` trigger, `actions/checkout` defaults to the ephemeral merge commit rather than the PR's actual head, and this action's line numbers come from the GitHub Files API computed against head content -- checking out anything else risks mismatched line numbers on PRs with conflicts. The default (shallow) `fetch-depth: 1` is fine as-is: the action never runs `git diff` itself, it only reads whatever files are on disk plus the changed-file list from the GitHub API.
+
+### Inputs
+
+| Input | Default | Description |
+|---|---|---|
+| `github-token` | `${{ github.token }}` | Token for GitHub API calls (fetching changed files, posting comments) and for downloading the action's own release binary. Usually fine to leave at its default. |
+| `working-directory` | `.` | Directory to run pg-migration-lint from, relative to the consumer repository root. |
+| `config-path` | _(none)_ | Path to a `pg-migration-lint.toml` config file, passed through as `--config`. Falls back to built-in defaults when omitted. |
+| `fail-on` | _(tool default: `critical`)_ | Severity threshold passed through as `--fail-on`: `blocker`, `critical`, `major`, `minor`, `info`, `none`. |
+
+### Outputs
+
+| Output | Description |
+|---|---|
+| `exit-code` | Exit code returned by the pg-migration-lint CLI (0 = clean, 1 = findings at/above threshold, 2 = tool/config error). |
+| `findings-count` | Total number of findings reported by pg-migration-lint. |
+
 ## PostgreSQL Version Support
 
 pg-migration-lint targets currently supported PostgreSQL versions (14+). Rule advice (e.g. recommending `REINDEX CONCURRENTLY` or `DETACH PARTITION CONCURRENTLY`) assumes a modern PostgreSQL release. Running against migrations intended for older, unsupported versions may produce false positives.
