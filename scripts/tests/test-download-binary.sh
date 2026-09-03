@@ -4,12 +4,17 @@
 #
 # There's no shell test framework in this repo, so this is a small
 # self-contained bash script: it shadows `gh` on PATH with gh-stub.sh (no
-# network access, no real GitHub API calls), runs download-binary.sh twice
-# (once with a ref that's already a release tag, once with a ref that isn't,
-# e.g. `main`), and asserts:
+# network access, no real GitHub API calls), runs download-binary.sh across
+# four scenarios (tag resolution x2, checksum verification x2 more), and
+# asserts:
 #   1. the script resolves the right tag in each case;
 #   2. it invokes `gh` with the right --repo / --pattern;
-#   3. it extracts the tarball and chmods the binary executable.
+#   3. it extracts the tarball and chmods the binary executable, unless
+#      checksum verification failed, in which case it must not.
+#   4. checksum verification behaves correctly: a matching .sha256 lets the
+#      install proceed, a mismatching one hard-fails before extraction, and
+#      a missing .sha256 (old release) warns and falls back to installing
+#      unverified.
 #
 # Run manually: bash scripts/tests/test-download-binary.sh
 # Not wired into CI.
@@ -48,14 +53,15 @@ assert_not_contains() {
 }
 
 # Runs download-binary.sh once, in a fresh sandbox, with the given
-# GITHUB_ACTION_REF. Leaves behind (as globals for the caller to inspect):
+# GITHUB_ACTION_REF and GH_STUB_SHA256_MODE. Leaves behind (as globals for
+# the caller to inspect):
 #   SANDBOX        sandbox root for this run
 #   GH_LOG         path to this run's gh-invocation log
 #   INSTALL_DIR    where download-binary.sh should have installed the binary
 #   GITHUB_PATH_FILE  path standing in for the runner's $GITHUB_PATH
 #   RUN_EXIT       exit code of download-binary.sh
 run_scenario() {
-  local ref="$1"
+  local ref="$1" sha256_mode="$2"
 
   SANDBOX="$(mktemp -d)"
   GH_LOG="$SANDBOX/gh-invocations.log"
@@ -73,6 +79,7 @@ run_scenario() {
     GH_STUB_LOG="$GH_LOG" \
     GH_STUB_KNOWN_TAG="v2.15.0" \
     GH_STUB_LATEST_TAG="v9.9.9" \
+    GH_STUB_SHA256_MODE="$sha256_mode" \
     GITHUB_ACTION_REPOSITORY="test-owner/test-repo" \
     GITHUB_ACTION_REF="$ref" \
     GH_TOKEN="fake-token-for-test" \
@@ -83,8 +90,8 @@ run_scenario() {
   set -e
 }
 
-echo "Scenario A: GITHUB_ACTION_REF is itself an existing release tag (v2.15.0)"
-run_scenario "v2.15.0"
+echo "Scenario A: GITHUB_ACTION_REF is itself an existing release tag (v2.15.0); no .sha256 asset published (old release)"
+run_scenario "v2.15.0" "missing"
 
 if [[ "$RUN_EXIT" -eq 0 ]]; then
   pass "script exits 0"
@@ -99,6 +106,10 @@ assert_not_contains "$GH_LOG" "--json tagName" \
   "does not query for the latest release when the pinned ref already resolved"
 assert_contains "$GH_LOG" "gh release download v2.15.0 --repo test-owner/test-repo --pattern pg-migration-lint-x86_64-linux.tar.gz --dir $INSTALL_DIR --clobber" \
   "invokes gh release download with the right tag/repo/pattern"
+assert_contains "$GH_LOG" "gh release download v2.15.0 --repo test-owner/test-repo --pattern pg-migration-lint-x86_64-linux.tar.gz.sha256 --dir $INSTALL_DIR --clobber" \
+  "invokes gh release download for the .sha256 asset too"
+assert_contains "$SANDBOX/stderr.log" "predates checksum publishing" \
+  "warns that this release predates checksum publishing"
 
 if [[ -x "$INSTALL_DIR/pg-migration-lint" ]]; then
   pass "extracted binary exists and is executable"
@@ -110,8 +121,8 @@ assert_contains "$GITHUB_PATH_FILE" "$INSTALL_DIR" \
   "adds the install directory to \$GITHUB_PATH"
 
 echo
-echo "Scenario B: GITHUB_ACTION_REF is not a release tag (main), falls back to latest"
-run_scenario "main"
+echo "Scenario B: GITHUB_ACTION_REF is not a release tag (main), falls back to latest; no .sha256 asset published (old release)"
+run_scenario "main" "missing"
 
 if [[ "$RUN_EXIT" -eq 0 ]]; then
   pass "script exits 0"
@@ -126,6 +137,8 @@ assert_contains "$GH_LOG" "gh release view --repo test-owner/test-repo --json ta
   "falls back to querying the latest release when the pinned ref isn't a tag"
 assert_contains "$GH_LOG" "gh release download v9.9.9 --repo test-owner/test-repo --pattern pg-migration-lint-x86_64-linux.tar.gz --dir $INSTALL_DIR --clobber" \
   "downloads using the resolved latest tag (v9.9.9), not the literal ref (main)"
+assert_contains "$SANDBOX/stderr.log" "predates checksum publishing" \
+  "warns that this release predates checksum publishing"
 
 if [[ -x "$INSTALL_DIR/pg-migration-lint" ]]; then
   pass "extracted binary exists and is executable"
@@ -135,6 +148,53 @@ fi
 
 assert_contains "$GITHUB_PATH_FILE" "$INSTALL_DIR" \
   "adds the install directory to \$GITHUB_PATH"
+
+echo
+echo "Scenario C: .sha256 asset present and matches (normal case going forward)"
+run_scenario "v2.15.0" "match"
+
+if [[ "$RUN_EXIT" -eq 0 ]]; then
+  pass "script exits 0"
+else
+  fail "script exits 0 (got $RUN_EXIT)"
+  sed 's/^/    stderr: /' "$SANDBOX/stderr.log"
+fi
+
+assert_contains "$GH_LOG" "gh release download v2.15.0 --repo test-owner/test-repo --pattern pg-migration-lint-x86_64-linux.tar.gz.sha256 --dir $INSTALL_DIR --clobber" \
+  "invokes gh release download for the .sha256 asset"
+assert_not_contains "$SANDBOX/stderr.log" "predates checksum publishing" \
+  "does not warn about a missing checksum when one was verified"
+
+if [[ -x "$INSTALL_DIR/pg-migration-lint" ]]; then
+  pass "extracted binary exists and is executable"
+else
+  fail "extracted binary exists and is executable (not found or not +x at $INSTALL_DIR/pg-migration-lint)"
+fi
+
+assert_contains "$GITHUB_PATH_FILE" "$INSTALL_DIR" \
+  "adds the install directory to \$GITHUB_PATH"
+
+echo
+echo "Scenario D: .sha256 asset present but does not match (tampered/corrupted download)"
+run_scenario "v2.15.0" "mismatch"
+
+if [[ "$RUN_EXIT" -ne 0 ]]; then
+  pass "script exits non-zero"
+else
+  fail "script exits non-zero (got $RUN_EXIT)"
+fi
+
+assert_contains "$SANDBOX/stderr.log" "checksum verification failed" \
+  "prints a clear checksum verification failure error"
+
+if [[ -e "$INSTALL_DIR/pg-migration-lint" ]]; then
+  fail "does not extract the binary when checksum verification fails (found $INSTALL_DIR/pg-migration-lint)"
+else
+  pass "does not extract the binary when checksum verification fails"
+fi
+
+assert_not_contains "$GITHUB_PATH_FILE" "$INSTALL_DIR" \
+  "does not add the install directory to \$GITHUB_PATH when verification fails"
 
 echo
 if [[ "$failures" -eq 0 ]]; then

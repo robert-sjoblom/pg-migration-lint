@@ -33,12 +33,14 @@
 #                             `mktemp -d` when unset (e.g. under manual
 #                             testing outside a real runner).
 #
-# Checksum verification: NONE. .github/workflows/release-please.yml does not
-# publish a .sha256 (or other digest) asset alongside
-# pg-migration-lint-x86_64-linux.tar.gz, so this script has no way to verify
-# the downloaded binary's integrity beyond `gh`'s own authenticated HTTPS
-# transport. This is a known, accepted gap — not silently treated as
-# "verified".
+# Checksum verification: .github/workflows/release-please.yml publishes a
+# `.sha256` asset alongside pg-migration-lint-x86_64-linux.tar.gz, and this
+# script downloads and verifies it (`sha256sum -c`) before extracting.
+# Releases published before this verification step was added have no
+# `.sha256` asset; when that download fails, this script warns loudly and
+# falls back to installing unverified, matching this script's original
+# behavior. A `.sha256` asset that is present but fails verification is
+# treated as fatal — the script exits before extracting anything.
 
 set -euo pipefail
 
@@ -74,6 +76,19 @@ gh release download "$tag" \
   --pattern "$ASSET_PATTERN" \
   --dir "$install_dir" \
   --clobber
+
+if ! gh release download "$tag" \
+  --repo "$GITHUB_ACTION_REPOSITORY" \
+  --pattern "$ASSET_PATTERN.sha256" \
+  --dir "$install_dir" \
+  --clobber; then
+  echo "WARNING: no ${ASSET_PATTERN}.sha256 asset found for ${tag}; this release predates checksum publishing. Installing ${BINARY_NAME} without verification." >&2
+else
+  if ! (cd "$install_dir" && sha256sum -c "$ASSET_PATTERN.sha256"); then
+    echo "ERROR: checksum verification failed for ${ASSET_PATTERN} (release ${tag}). Refusing to install." >&2
+    exit 1
+  fi
+fi
 
 tar -xzf "$install_dir/$ASSET_PATTERN" -C "$install_dir"
 chmod +x "$install_dir/$BINARY_NAME"

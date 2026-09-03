@@ -101,6 +101,7 @@ jobs:
         run: |
           chmod +x artifacts/pg-migration-lint
           tar -czf pg-migration-lint-x86_64-linux.tar.gz -C artifacts pg-migration-lint
+          sha256sum pg-migration-lint-x86_64-linux.tar.gz > pg-migration-lint-x86_64-linux.tar.gz.sha256
           cp artifacts/liquibase-bridge.jar liquibase-bridge.jar
 
       - name: Upload assets to release
@@ -109,6 +110,7 @@ jobs:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: |
             pg-migration-lint-x86_64-linux.tar.gz
+            pg-migration-lint-x86_64-linux.tar.gz.sha256
             liquibase-bridge.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

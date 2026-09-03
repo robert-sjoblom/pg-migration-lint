@@ -10,12 +10,23 @@
 #                        tag (i.e. `gh release view <that ref>` succeeds).
 #   GH_STUB_LATEST_TAG   the tag name returned as the "latest release" when
 #                        queried without a positional ref.
+#   GH_STUB_SHA256_MODE  how this stub responds to a `--pattern *.sha256`
+#                        download request:
+#                          match    - writes a correct .sha256 file for the
+#                                     tarball already written into $dir.
+#                          mismatch - writes a .sha256 file with a
+#                                     deliberately wrong digest.
+#                          missing  - exits non-zero, mirroring real gh's
+#                                     "no assets matched patterns" behavior
+#                                     for a release published before
+#                                     checksums existed.
 
 set -euo pipefail
 
 : "${GH_STUB_LOG:?}"
 : "${GH_STUB_KNOWN_TAG:?}"
 : "${GH_STUB_LATEST_TAG:?}"
+: "${GH_STUB_SHA256_MODE:?}"
 
 printf 'gh %s\n' "$*" >> "$GH_STUB_LOG"
 
@@ -49,6 +60,31 @@ case "${1:-} ${2:-}" in
     done
     : "$tag" "$repo" # asserted by the caller via the invocation log, not here
     mkdir -p "$dir"
+
+    if [[ "$pattern" == *.sha256 ]]; then
+      tarball_name="${pattern%.sha256}"
+      case "$GH_STUB_SHA256_MODE" in
+        missing)
+          exit 1
+          ;;
+        match)
+          (cd "$dir" && sha256sum "$tarball_name") > "$dir/$pattern"
+          exit 0
+          ;;
+        mismatch)
+          real_line="$(cd "$dir" && sha256sum "$tarball_name")"
+          bad_line="0${real_line:1}"
+          [[ "$bad_line" == "$real_line" ]] && bad_line="1${real_line:1}"
+          printf '%s\n' "$bad_line" > "$dir/$pattern"
+          exit 0
+          ;;
+        *)
+          echo "gh-stub: unknown GH_STUB_SHA256_MODE: $GH_STUB_SHA256_MODE" >&2
+          exit 99
+          ;;
+      esac
+    fi
+
     workdir="$(mktemp -d)"
     printf 'fake-binary-contents' > "$workdir/pg-migration-lint"
     chmod 644 "$workdir/pg-migration-lint"
