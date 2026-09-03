@@ -36,6 +36,7 @@
 
 use anyhow::Context;
 use octocrab::Octocrab;
+use pg_migration_lint::output::sarif_level;
 use pg_migration_lint::{Finding, Rule as _, RuleId};
 
 use super::filter::{InlineEntry, SeverityCounts, SummaryEntry, SummaryReason};
@@ -210,10 +211,20 @@ async fn post_inline_review(
 /// Deliberately not rich (no `--explain` text): that belongs in the summary
 /// comment instead, once per unique rule, not repeated on every inline
 /// comment that rule produces.
+///
+/// The severity badge is [`sarif_level`], not `finding.severity`'s own
+/// `Display` (which renders SonarQube's `CRITICAL`/`MAJOR`/... vocabulary,
+/// see `Severity::sonarqube_str`) -- Decided §2A is explicit that PR
+/// comments show `error`/`warning`/`note` badges derived straight from
+/// SARIF's `level`, the same mapping [`super::filter::count_by_severity`]'s
+/// aggregate table already uses, so the two never disagree on what counts
+/// as an "error".
 fn inline_comment_body(finding: &Finding) -> String {
     format!(
         "**{}** {} ({})\n\n{INLINE_MARKER}",
-        finding.severity, finding.message, finding.rule_id
+        sarif_level(&finding.severity),
+        finding.message,
+        finding.rule_id
     )
 }
 
@@ -325,7 +336,7 @@ fn summary_comment_body(
             let _ = writeln!(
                 body,
                 "- **{}** `{}` {}:{}-{} -- {} ({reason})",
-                finding.severity,
+                sarif_level(&finding.severity),
                 finding.rule_id,
                 github_path(&finding.file),
                 finding.start_line,
@@ -396,7 +407,14 @@ mod tests {
             let f = finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3);
             let body = inline_comment_body(&f);
 
-            assert!(body.contains("CRITICAL"), "must carry a severity badge");
+            assert!(
+                body.contains("error"),
+                "must carry a SARIF-level severity badge (Decided §2A)"
+            );
+            assert!(
+                !body.contains("CRITICAL"),
+                "must not use SonarQube's severity vocabulary (Decided §2A)"
+            );
             assert!(
                 body.contains("PGM001 test finding"),
                 "must carry the message"
@@ -409,6 +427,39 @@ mod tests {
             assert!(
                 !body.contains("<details>"),
                 "inline bodies are terse -- no rich --explain text (Decided §2B)"
+            );
+        }
+
+        /// Decided §2A: every per-finding severity badge in the summary
+        /// comment must use the same `error`/`warning`/`note` vocabulary as
+        /// the severity-count table above it (both keyed off
+        /// [`sarif_level`]), never SonarQube's
+        /// `CRITICAL`/`MAJOR`/`MINOR`/`INFO`/`BLOCKER`.
+        #[test]
+        fn summary_body_per_entry_badges_use_sarif_vocabulary_not_sonarqube() {
+            let summary = vec![
+                SummaryEntry {
+                    finding: finding(RuleId::Pgm001, Severity::Blocker, "a.sql", 1, 1),
+                    reason: SummaryReason::OutsideDiff,
+                },
+                SummaryEntry {
+                    finding: finding(RuleId::Pgm501, Severity::Major, "b.sql", 2, 2),
+                    reason: SummaryReason::OutsideDiff,
+                },
+                SummaryEntry {
+                    finding: finding(RuleId::Pgm101, Severity::Info, "c.sql", 3, 3),
+                    reason: SummaryReason::OutsideDiff,
+                },
+            ];
+
+            let body = summary_comment_body(&summary, SeverityCounts::default(), &[]);
+
+            assert!(body.contains("**error**"), "Blocker maps to SARIF error");
+            assert!(body.contains("**warning**"), "Major maps to SARIF warning");
+            assert!(body.contains("**note**"), "Info maps to SARIF note");
+            assert!(
+                !body.contains("BLOCKER") && !body.contains("MAJOR") && !body.contains("INFO"),
+                "must not leak SonarQube's severity vocabulary into the PR comment"
             );
         }
 
