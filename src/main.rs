@@ -201,7 +201,8 @@ fn run(args: Args) -> Result<bool> {
         None
     };
 
-    let all_findings = lint_history(&mut history, &config, changed_files_arg);
+    let mut all_findings = lint_history(&mut history, &config, changed_files_arg);
+    strip_output_prefix(&mut all_findings, &config);
 
     let formats: Vec<String> = if let Some(ref fmt) = args.format {
         vec![fmt.clone()]
@@ -237,6 +238,19 @@ fn run(args: Args) -> Result<bool> {
 /// suppression comments and per-unit dedup, warns about single-file changelogs
 /// that look suspiciously large, and strips `config.output.strip_prefix` from the
 /// result.
+/// Drives the single-pass replay+lint loop over `history`'s units, exactly
+/// matching the flat CLI mode's default flow above: normalizes schemas,
+/// replays every unit into the catalog, lints only units in `changed_files`
+/// (or every unit when `changed_files` is `None` -- the flat mode's own
+/// "lint everything" default when neither `--changed-files` nor
+/// `--changed-files-from` was given), applies suppression comments and
+/// per-unit dedup, and warns about single-file changelogs that look
+/// suspiciously large.
+///
+/// Deliberately does **not** apply `config.output.strip_prefix` -- every
+/// returned finding's `file` is the same raw path `unit.source_file` had.
+/// See [`strip_output_prefix`] for why that step lives at each caller's
+/// report-writing site instead of here.
 ///
 /// Shared between the flat CLI mode (above) and the `github-review`
 /// subcommand ([`github::run`]) so the two lint flows never drift: the only
@@ -349,16 +363,35 @@ fn lint_history(
         }
     }
 
-    // Strip path prefix (if configured)
-    if let Some(ref prefix) = config.output.strip_prefix {
-        for finding in &mut all_findings {
-            if let Ok(stripped) = finding.file.strip_prefix(prefix) {
-                finding.file = stripped.to_path_buf();
-            }
+    all_findings
+}
+
+/// Strips `config.output.strip_prefix` (if configured) from every finding's
+/// `file`, in place.
+///
+/// This is purely a report-display concern -- useful when running from a
+/// project root but a consumer (e.g. SonarQube) expects module-relative
+/// paths -- so it must only run at the point reports are actually written:
+/// the flat CLI mode's Step 5 (above, right before [`Reporter::emit`]) and,
+/// if `github::run` also writes the optional SARIF file, there too, but
+/// only *after* [`github::filter::split_findings`] has already matched
+/// findings against Task 3's `hunks` map. `hunks`' keys are GitHub's own
+/// repo-root-relative `filename`s -- never stripped -- so stripping a
+/// finding's path before that lookup makes every finding's `file` fail to
+/// match its own file's hunk entry, silently routing 100% of findings to
+/// `SummaryReason::OutsideDiff` regardless of whether they're actually
+/// inside the PR's diff. The raw (unstripped) path also matters beyond that
+/// lookup: it's what a future PR-comment-posting step would need to
+/// reference the correct file via GitHub's API.
+fn strip_output_prefix(findings: &mut [Finding], config: &Config) {
+    let Some(ref prefix) = config.output.strip_prefix else {
+        return;
+    };
+    for finding in findings {
+        if let Ok(stripped) = finding.file.strip_prefix(prefix) {
+            finding.file = stripped.to_path_buf();
         }
     }
-
-    all_findings
 }
 
 /// Parses `fail_on_str` (`"none"` or a [`Severity`] name) and reports
@@ -602,4 +635,138 @@ fn print_config_validation(config: &Config) -> Result<bool> {
         "configuration validation failed with {} error(s)",
         errors.len()
     );
+}
+
+/// Regression coverage for the strip_prefix/hunk-routing bug caught in
+/// Task 4's review: `lint_history` must never apply
+/// `config.output.strip_prefix` itself, because `github::run` needs the
+/// same raw, GitHub-comparable path every finding started with to look it
+/// up in Task 3's `hunks` map (keyed by GitHub's own repo-root-relative
+/// `filename`s, never stripped). Stripping only happens afterward, at each
+/// caller's report-writing site (see [`strip_output_prefix`]).
+#[cfg(test)]
+mod strip_prefix_hunk_routing_tests {
+    use super::*;
+    use crate::github::files::LineRange;
+    use crate::github::filter;
+    use pg_migration_lint::input::MigrationUnit;
+    use pg_migration_lint::parser::{
+        ColumnDef, CreateTable, QualifiedName, TablePersistence, TypeName,
+    };
+    use pg_migration_lint::{IrNode, Located};
+    use std::path::Path;
+
+    /// Builds a single-unit `MigrationHistory` at `source_file` containing
+    /// one brand-new `CREATE TABLE` with a `timestamp` column -- reliably
+    /// fires PGM101 ("timestamp without time zone") regardless of catalog
+    /// history, since the check runs directly against the statement's own
+    /// columns (see `column_type_check::check_column_types`), not against
+    /// pre-existing catalog state.
+    fn history_with_a_finding(source_file: &str) -> MigrationHistory {
+        let create_table = CreateTable {
+            name: QualifiedName::unqualified("events"),
+            columns: vec![ColumnDef {
+                name: "created_at".to_string(),
+                type_name: TypeName::simple("timestamp"),
+                nullable: true,
+                default_expr: None,
+                is_inline_pk: false,
+                is_serial: false,
+            }],
+            constraints: vec![],
+            persistence: TablePersistence::Permanent,
+            if_not_exists: false,
+            partition_by: None,
+            partition_of: None,
+        };
+
+        let statement = Located {
+            node: IrNode::CreateTable(create_table),
+            span: pg_migration_lint::parser::SourceSpan::at(1, 1),
+        };
+
+        MigrationHistory {
+            units: vec![MigrationUnit {
+                id: "001-create-events".to_string(),
+                statements: vec![statement],
+                source_file: PathBuf::from(source_file),
+                source_line_offset: 1,
+                run_in_transaction: true,
+                is_down: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn lint_history_never_strips_paths_even_when_configured() {
+        let mut history = history_with_a_finding("impl/migrations/001-create-events.sql");
+        let mut config = Config::default();
+        config.output.strip_prefix = Some("impl/".to_string());
+
+        let findings = lint_history(&mut history, &config, None);
+
+        assert!(
+            !findings.is_empty(),
+            "the fixture unit should produce at least one finding"
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.file == Path::new("impl/migrations/001-create-events.sql")),
+            "lint_history must never strip config.output.strip_prefix itself: {findings:?}"
+        );
+        assert!(findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
+    }
+
+    /// The core regression test: a `Config` with `output.strip_prefix` set,
+    /// findings whose raw file path carries that prefix, and `hunks` keyed
+    /// by that same raw (unstripped) path -- routing must still work
+    /// (inline here, since the hunk covers the finding's line) instead of
+    /// everything silently landing in `OutsideDiff`, which is exactly what
+    /// happened when `lint_history` stripped paths before
+    /// `filter::split_findings` ran.
+    #[test]
+    fn strip_prefix_configured_does_not_break_hunk_routing() {
+        let mut history = history_with_a_finding("impl/migrations/001-create-events.sql");
+        let mut config = Config::default();
+        config.output.strip_prefix = Some("impl/".to_string());
+
+        let mut all_findings = lint_history(&mut history, &config, None);
+        assert!(!all_findings.is_empty());
+        assert!(all_findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
+
+        // `hunks`' keys are GitHub's own repo-root-relative `filename`s --
+        // the SAME raw path `lint_history` returned, never stripped.
+        let mut hunks = HashMap::new();
+        hunks.insert(
+            PathBuf::from("impl/migrations/001-create-events.sql"),
+            vec![LineRange { start: 1, end: 1 }],
+        );
+
+        let (inline, summary) = filter::split_findings(&all_findings, &hunks);
+
+        assert_eq!(
+            inline.len(),
+            all_findings.len(),
+            "every finding on this single-line statement must route inline \
+             against the raw path, not fall through to OutsideDiff"
+        );
+        assert!(summary.is_empty());
+        assert!(
+            inline
+                .iter()
+                .any(|entry| entry.finding.rule_id == RuleId::Pgm101),
+            "the PGM101 finding specifically must be among the inline entries"
+        );
+
+        // Only now, after routing is already decided, does stripping (for
+        // report display) run -- and it should still take effect.
+        strip_output_prefix(&mut all_findings, &config);
+        assert!(
+            all_findings
+                .iter()
+                .all(|f| f.file == Path::new("migrations/001-create-events.sql")),
+            "strip_output_prefix should still strip for report-writing purposes: {all_findings:?}"
+        );
+    }
 }
