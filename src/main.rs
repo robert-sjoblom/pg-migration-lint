@@ -190,27 +190,77 @@ fn run(args: Args) -> Result<bool> {
     // --- Step 1: Load migration files ---
     let mut history = load_migrations(&config)?;
 
-    // --- Step 1b: Normalize schemas ---
+    // Selective mode: if the user passed --changed-files or --changed-files-from,
+    // we only lint the files they named even if the resulting set is empty.
+    // An empty set in selective mode means "lint nothing, but still write reports"
+    // so that CI consumers (e.g. SonarQube) always find the expected report file.
+    let selective_mode = args.changed_files.is_some() || args.changed_files_from.is_some();
+    let changed_files_arg: Option<&[PathBuf]> = if selective_mode {
+        Some(&changed_files)
+    } else {
+        None
+    };
+
+    let all_findings = lint_history(&mut history, &config, changed_files_arg);
+
+    let formats: Vec<String> = if let Some(ref fmt) = args.format {
+        vec![fmt.clone()]
+    } else {
+        config.output.formats.clone()
+    };
+
+    for format in &formats {
+        let reporter: Box<dyn Reporter> = match format.as_str() {
+            "text" => Box::new(TextReporter::new(true)),
+            "sarif" => Box::new(SarifReporter::new()),
+            "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::all())),
+            other => {
+                eprintln!("Warning: Unknown output format '{other}', skipping",);
+                continue;
+            }
+        };
+
+        reporter
+            .emit(&all_findings, &config.output.dir)
+            .context(format!("Failed to write {format} report",))?;
+    }
+
+    eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
+
+    let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
+    exceeds_fail_on_threshold(&all_findings, fail_on_str)
+}
+
+/// Lint `history`'s units, exactly matching the flat CLI mode's default flow:
+/// normalizes schemas, replays every unit into the catalog, lints only units in
+/// `changed_files` (or every unit when `changed_files` is `None`) applies
+/// suppression comments and per-unit dedup, warns about single-file changelogs
+/// that look suspiciously large, and strips `config.output.strip_prefix` from the
+/// result.
+///
+/// Shared between the flat CLI mode (above) and the `github-review`
+/// subcommand ([`github::run`]) so the two lint flows never drift: the only
+/// difference between them is which files count as "changed" -- a CLI flag
+/// here, the PR's changed-files list there.
+fn lint_history(
+    history: &mut MigrationHistory,
+    config: &Config,
+    changed_files: Option<&[PathBuf]>,
+) -> Vec<Finding> {
     // Assign the configured default schema to every unqualified QualifiedName
     // so that catalog keys are always schema-qualified.
     normalize::normalize_schemas(&mut history.units, &config.migrations.default_schema);
 
-    // --- Step 2: Build changed files set for O(1) lookup ---
-    // Convert the Vec<PathBuf> into a HashSet<PathBuf>.
-    // Canonicalize paths where possible for reliable matching.
+    // Build changed files set for O(1) lookup. Canonicalize paths where
+    // possible for reliable matching.
     let changed_files_set: HashSet<PathBuf> = changed_files
+        .unwrap_or(&[])
         .iter()
         .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
         .collect();
 
-    // Selective mode: if the user passed --changed-files or --changed-files-from,
-    // we only lint the files they named — even if the resulting set is empty.
-    // An empty set in selective mode means "lint nothing, but still write reports"
-    // so that CI consumers (e.g. SonarQube) always find the expected report file.
-    let selective_mode = args.changed_files.is_some() || args.changed_files_from.is_some();
-    let lint_all = !selective_mode;
+    let lint_all = changed_files.is_none();
 
-    // --- Step 3: Single-pass replay and lint ---
     let mut pipeline = LintPipeline::new();
 
     // Build active rules list, filtering out any disabled via config.
@@ -299,7 +349,7 @@ fn run(args: Args) -> Result<bool> {
         }
     }
 
-    // --- Step 4: Strip path prefix (if configured) ---
+    // Strip path prefix (if configured)
     if let Some(ref prefix) = config.output.strip_prefix {
         for finding in &mut all_findings {
             if let Ok(stripped) = finding.file.strip_prefix(prefix) {
@@ -308,50 +358,32 @@ fn run(args: Args) -> Result<bool> {
         }
     }
 
-    // --- Step 5: Emit reports ---
-    let formats: Vec<String> = if let Some(ref fmt) = args.format {
-        vec![fmt.clone()]
-    } else {
-        config.output.formats.clone()
-    };
+    all_findings
+}
 
-    for format in &formats {
-        let reporter: Box<dyn Reporter> = match format.as_str() {
-            "text" => Box::new(TextReporter::new(true)),
-            "sarif" => Box::new(SarifReporter::new()),
-            "sonarqube" => Box::new(SonarQubeReporter::new(RuleInfo::all())),
-            other => {
-                eprintln!("Warning: Unknown output format '{other}', skipping",);
-                continue;
-            }
-        };
-
-        reporter
-            .emit(&all_findings, &config.output.dir)
-            .context(format!("Failed to write {format} report",))?;
+/// Parses `fail_on_str` (`"none"` or a [`Severity`] name) and reports
+/// whether any finding in `findings` meets or exceeds it.
+///
+/// Shared between the flat CLI mode's `--fail-on`/`config.cli.fail_on` exit
+/// code (`Ok(true)`/`Ok(false)`, see `run`) and the `github-review`
+/// subcommand's identical `--fail-on` handling ([`github::run`], which maps
+/// the `bool` to a `0`/`1` process exit code), so the two exit-code
+/// semantics never drift.
+///
+/// # Errors
+///
+/// Returns an error if `fail_on_str` is neither `"none"` nor a valid
+/// [`Severity`] name.
+fn exceeds_fail_on_threshold(findings: &[Finding], fail_on_str: &str) -> Result<bool> {
+    if fail_on_str.eq_ignore_ascii_case("none") {
+        return Ok(false);
     }
-
-    // --- Step 6: Summary and exit code ---
-    eprintln!("pg-migration-lint: {} finding(s)", all_findings.len());
-
-    let fail_on_str = args.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
-    let fail_on = if fail_on_str.eq_ignore_ascii_case("none") {
-        None
-    } else {
-        match Severity::parse(fail_on_str) {
-            Some(s) => Some(s),
-            None => anyhow::bail!(
-                "Unknown severity '{fail_on_str}' for --fail-on. Valid values: blocker, critical, major, minor, info, none",
-            ),
-        }
-    };
-    if let Some(threshold) = fail_on
-        && all_findings.iter().any(|f| f.severity >= threshold)
-    {
-        return Ok(true);
-    }
-
-    Ok(false)
+    let threshold = Severity::parse(fail_on_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unknown severity '{fail_on_str}' for --fail-on. Valid values: blocker, critical, major, minor, info, none"
+        )
+    })?;
+    Ok(findings.iter().any(|f| f.severity >= threshold))
 }
 
 /// Load configuration from file.

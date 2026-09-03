@@ -128,6 +128,11 @@ pub(crate) mod sarif;
 pub(crate) mod sonarqube;
 pub(crate) mod text;
 
+// Re-exported so external consumers (the `pg-migration-lint` binary crate's
+// `github-review` subcommand) can reuse the exact severity-to-SARIF-level
+// mapping without reaching into the otherwise-`pub(crate)` `sarif` module.
+pub use sarif::sarif_level;
+
 #[cfg(test)]
 mod tests {
     use super::*;

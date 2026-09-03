@@ -10,17 +10,20 @@
 //! - [`comments`]: posting/updating PR review comments and the summary
 //!   comment via octocrab.
 //!
-//! [`filter`] and [`comments`] don't exist yet. [`files`] does: [`run`]
+//! [`comments`] doesn't exist yet. [`files`] and [`filter`] do: [`run`]
 //! resolves [`crate::GithubReviewArgs`] (applying environment-variable
-//! fallbacks), builds an `Octocrab` client, and fetches the PR's changed
-//! files + diff hunks -- linting them and posting comments back are added
-//! by later tasks.
+//! fallbacks), builds an `Octocrab` client, fetches the PR's changed files +
+//! diff hunks, lints those files in-process via the same
+//! [`crate::lint_history`] pipeline the flat CLI mode uses, and splits the
+//! resulting findings into inline-eligible vs. summary-only via
+//! [`filter::split_findings`] -- posting comments back is added by Task 5.
 
 pub mod comments;
 pub mod files;
 pub mod filter;
 
 use anyhow::Context;
+use pg_migration_lint::output::{Reporter, SarifReporter};
 
 use crate::GithubReviewArgs;
 
@@ -161,9 +164,17 @@ fn resolve_token(
 ///
 /// Returns an error if argument resolution fails (see
 /// [`ResolvedGithubReviewArgs::resolve`]), the `repo` string isn't in
-/// `owner/repo` form, the `Octocrab` client fails to build, or the changed
+/// `owner/repo` form, the `Octocrab` client fails to build, the changed
 /// files/diff-hunk fetch (see [`files::fetch_changed_files_and_hunks`])
-/// fails.
+/// fails, config loading fails (`--config` given-and-missing is a hard
+/// error -- see `crate::load_config`), migration loading fails, writing the
+/// SARIF report fails, or `--fail-on`/`config.cli.fail_on` names an unknown
+/// severity.
+///
+/// As of this task, posting comments back to the PR isn't wired up yet
+/// (Task 5) -- this lints the PR's changed files, splits the findings into
+/// inline-eligible vs. summary-only, writes the SARIF report, and reports a
+/// summary to stderr.
 pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let resolved = ResolvedGithubReviewArgs::resolve(args)?;
     let (owner, repo) = split_owner_repo(&resolved.repo)?;
@@ -176,16 +187,83 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let (changed_files, hunks) =
         files::fetch_changed_files_and_hunks(&octocrab, owner, repo, resolved.pr).await?;
 
-    let files_with_hunks = hunks.values().filter(|ranges| !ranges.is_empty()).count();
+    // Run the same lint pipeline the flat CLI mode uses (`crate::load_config`,
+    // `crate::load_migrations`, `crate::lint_history`), restricted to the
+    // PR's changed files instead of a `--changed-files`/`--changed-files-from`
+    // CLI value. `resolved.config` already carries the flat mode's exact
+    // `--config` semantics: given-and-missing is a hard error, omitted falls
+    // back to `./pg-migration-lint.toml` then `Config::default()`.
+    let config = crate::load_config(&resolved.config)?;
+    let mut history = crate::load_migrations(&config)?;
+    let all_findings = crate::lint_history(&mut history, &config, Some(&changed_files));
+
+    // Also write the SARIF report, at the same `config.output.dir` if people
+    // want to add Github Code Scanning
+    SarifReporter::new()
+        .emit(&all_findings, &config.output.dir)
+        .context("Failed to write SARIF report")?;
+
+    let (inline, summary) = filter::split_findings(&all_findings, &hunks);
+    let severity_counts = filter::count_by_severity(&all_findings);
+    let rule_ids = filter::unique_rule_ids(&all_findings);
+
     eprintln!(
-        "github-review: PR #{} ({owner}/{repo}) -- {} changed file(s), {} with inline-eligible diff hunks; \
-         linting and comment-posting aren't wired up yet",
+        "github-review: PR #{} ({owner}/{repo}) -- {} changed file(s), {} finding(s) \
+         ({} inline-eligible, {} summary-only); severities: {} error, {} warning, {} note; \
+         rules: [{}]; comment-posting isn't wired up yet",
         resolved.pr,
         changed_files.len(),
-        files_with_hunks,
+        all_findings.len(),
+        inline.len(),
+        summary.len(),
+        severity_counts.error,
+        severity_counts.warning,
+        severity_counts.note,
+        rule_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
     );
 
+    log_finding_routing(&inline, &summary);
+
+    let fail_on_str = resolved.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
+    if crate::exceeds_fail_on_threshold(&all_findings, fail_on_str)? {
+        return Ok(1);
+    }
+
     Ok(0)
+}
+
+/// Logs each finding's routing decision to stderr: one line per finding,
+/// tagged `inline` or `summary(<reason>)`.
+///
+/// Action logs are the only place this shows up until Task 5 turns these
+/// into actual PR review/summary comments -- this is deliberately just a
+/// diagnostic log line, not a step towards Task 5's comment-posting.
+fn log_finding_routing(inline: &[filter::InlineEntry], summary: &[filter::SummaryEntry]) {
+    for entry in inline {
+        let f = &entry.finding;
+        eprintln!(
+            "  [inline] {} {}:{}-{}",
+            f.rule_id,
+            f.file.display(),
+            f.start_line,
+            f.end_line,
+        );
+    }
+    for entry in summary {
+        let f = &entry.finding;
+        eprintln!(
+            "  [summary:{:?}] {} {}:{}-{}",
+            entry.reason,
+            f.rule_id,
+            f.file.display(),
+            f.start_line,
+            f.end_line,
+        );
+    }
 }
 
 /// Splits an `owner/repo` string (as used by [`ResolvedGithubReviewArgs::repo`])
