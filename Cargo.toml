@@ -25,7 +25,26 @@ thiserror = "2.0"
 anyhow = "1.0"
 strum = { version = "0.28.0", features = ["strum_macros"] }
 strum_macros = "0.28.0"
-octocrab = ">=0.47.0"
+# `default-features = false` + explicit `features` below reproduces
+# octocrab's own `default` feature list (see its `Cargo.toml`) except
+# swapping `jwt-rust-crypto` for `jwt-aws-lc-rs`. octocrab only needs JWT
+# signing for GitHub App authentication, which this crate never uses (see
+# `src/github/mod.rs`: auth is a plain `personal_token`). `jwt-rust-crypto`
+# enables jsonwebtoken's `rust_crypto` backend, which pulls in the `rsa`
+# crate (RUSTSEC-2023-0071, "Marvin Attack" timing sidechannel) via
+# `num-bigint-dig`. `jwt-aws-lc-rs` enables jsonwebtoken's `aws_lc_rs`
+# backend instead, avoiding `rsa` entirely while keeping the dependency
+# buildable (the JWT code path itself is dead code for us either way).
+octocrab = { version = ">=0.47.0", default-features = false, features = [
+    "follow-redirect",
+    "retry",
+    "rustls",
+    "timeout",
+    "tracing",
+    "default-client",
+    "rustls-ring",
+    "jwt-aws-lc-rs",
+] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [features]
