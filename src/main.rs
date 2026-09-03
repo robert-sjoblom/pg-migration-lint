@@ -87,12 +87,8 @@ enum Commands {
 /// variable when omitted -- see [`ResolvedGithubReviewArgs::resolve`] for
 /// the exact fallback chain.
 ///
-/// Note: there is deliberately no `--working-directory` flag here. The
-/// action invokes this subcommand after `cd`-ing into
-/// `working-directory` (matching how the superseded bash scripts did it),
-/// so `--config` and migration paths resolve relative to CWD exactly like
-/// the flat CLI mode already does. Task 6 (action.yml wiring) must keep
-/// doing that `cd`.
+/// The tool resolves `--config` and migration paths relative to CWD, matching
+/// the flat CLI mode.
 #[derive(clap::Args, Debug)]
 struct GithubReviewArgs {
     /// Pull request number. Defaults to `.pull_request.number` read from

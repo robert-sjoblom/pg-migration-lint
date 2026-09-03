@@ -41,3 +41,12 @@ insta = { version = "1.34", features = ["json", "yaml", "redactions"] }
 proptest = "1.4"
 rstest = "0.26.1"
 tempfile = "3.26"
+wiremock = "0.6.5"
+
+# `#[tokio::test]` needs the `macros` feature. Kept out of the main
+# `[dependencies]` entry above (which only needs `rt-multi-thread` for the
+# `github-review` subcommand's runtime) so a plain `cargo build` doesn't
+# pull in `tokio-macros` for production code that never uses it.
+[dev-dependencies.tokio]
+version = "1"
+features = ["macros"]

@@ -10,9 +10,11 @@
 //! - [`comments`]: posting/updating PR review comments and the summary
 //!   comment via octocrab.
 //!
-//! As of this task, none of the above exist yet -- this module only
+//! [`filter`] and [`comments`] don't exist yet. [`files`] does: [`run`]
 //! resolves [`crate::GithubReviewArgs`] (applying environment-variable
-//! fallbacks) and reports what it would do.
+//! fallbacks), builds an `Octocrab` client, and fetches the PR's changed
+//! files + diff hunks -- linting them and posting comments back are added
+//! by later tasks.
 
 pub mod comments;
 pub mod files;
@@ -35,12 +37,10 @@ pub struct ResolvedGithubReviewArgs {
     pub pr: u64,
     /// Repository in `owner/repo` form.
     pub repo: String,
-    /// GitHub token used to call the REST API. Not read anywhere yet --
-    /// this is a scaffold; a later task builds the octocrab client from
-    /// it. Deliberately excluded from the `Debug` impl below (it's a
-    /// secret, never something to print), which is also why plain field
-    /// access doesn't count as "used" for dead-code analysis.
-    #[allow(dead_code)]
+    /// GitHub token used to call the REST API, via
+    /// `Octocrab::builder().personal_token(...)` in [`run`]. Deliberately
+    /// excluded from the `Debug` impl below (it's a secret, never
+    /// something to print).
     pub github_token: String,
     /// Path to configuration file, passed through unchanged (see
     /// `main.rs`'s `load_config` for resolution semantics).
@@ -126,7 +126,7 @@ fn pr_number_from_event_json(contents: &str) -> anyhow::Result<u64> {
         .and_then(serde_json::Value::as_u64)
         .context(
             "No .pull_request.number in GITHUB_EVENT_PATH file; \
-             github-review only supports pull_request-triggered events",
+              github-review only supports pull_request-triggered events",
         )
 }
 
@@ -160,14 +160,48 @@ fn resolve_token(
 /// # Errors
 ///
 /// Returns an error if argument resolution fails (see
-/// [`ResolvedGithubReviewArgs::resolve`]). As of this task this function is
-/// a scaffold: no GitHub API calls or linting happen yet (added by later
-/// tasks) -- it only resolves arguments and reports what it would do.
+/// [`ResolvedGithubReviewArgs::resolve`]), the `repo` string isn't in
+/// `owner/repo` form, the `Octocrab` client fails to build, or the changed
+/// files/diff-hunk fetch (see [`files::fetch_changed_files_and_hunks`])
+/// fails.
 pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let resolved = ResolvedGithubReviewArgs::resolve(args)?;
-    eprintln!("github-review: scaffold only, no GitHub API calls or linting yet");
-    eprintln!("github-review: resolved arguments: {resolved:?}");
+    let (owner, repo) = split_owner_repo(&resolved.repo)?;
+
+    let octocrab = octocrab::Octocrab::builder()
+        .personal_token(resolved.github_token.clone())
+        .build()
+        .context("Failed to build the GitHub API client")?;
+
+    let (changed_files, hunks) =
+        files::fetch_changed_files_and_hunks(&octocrab, owner, repo, resolved.pr).await?;
+
+    let files_with_hunks = hunks.values().filter(|ranges| !ranges.is_empty()).count();
+    eprintln!(
+        "github-review: PR #{} ({owner}/{repo}) -- {} changed file(s), {} with inline-eligible diff hunks; \
+         linting and comment-posting aren't wired up yet",
+        resolved.pr,
+        changed_files.len(),
+        files_with_hunks,
+    );
+
     Ok(0)
+}
+
+/// Splits an `owner/repo` string (as used by [`ResolvedGithubReviewArgs::repo`])
+/// into its two halves.
+///
+/// # Errors
+///
+/// Returns an error if `repo` doesn't contain exactly one `/`, or either
+/// half would be empty.
+fn split_owner_repo(repo: &str) -> anyhow::Result<(&str, &str)> {
+    match repo.split_once('/') {
+        Some((owner, name)) if !owner.is_empty() && !name.is_empty() && !name.contains('/') => {
+            Ok((owner, name))
+        }
+        _ => anyhow::bail!("Expected repo in 'owner/repo' form, got '{repo}'"),
+    }
 }
 
 #[cfg(test)]
@@ -299,5 +333,35 @@ mod tests {
 
         assert!(!debug_output.contains("super-secret-token"));
         assert!(debug_output.contains("<redacted>"));
+    }
+
+    #[test]
+    fn split_owner_repo_splits_on_the_slash() {
+        let result = split_owner_repo("octocat/hello-world");
+        assert_eq!(result.unwrap(), ("octocat", "hello-world"));
+    }
+
+    #[test]
+    fn split_owner_repo_errors_when_there_is_no_slash() {
+        let result = split_owner_repo("no-slash-here");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn split_owner_repo_errors_on_empty_owner() {
+        let result = split_owner_repo("/repo");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn split_owner_repo_errors_on_empty_repo_name() {
+        let result = split_owner_repo("owner/");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn split_owner_repo_errors_when_there_is_more_than_one_slash() {
+        let result = split_owner_repo("owner/repo/extra");
+        assert!(result.is_err());
     }
 }
