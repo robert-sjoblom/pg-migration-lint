@@ -1,8 +1,7 @@
 //! Orchestration for the `pg-migration-lint github-review` subcommand.
 //!
 //! This is the async entry point invoked from `main.rs` inside a dedicated
-//! `tokio` runtime; the rest of the binary stays synchronous. Real logic is
-//! added incrementally across tasks:
+//! `tokio` runtime; the rest of the binary stays synchronous.
 //! - [`files`]: changed-files + diff-hunk computation via octocrab's Pull
 //!   Requests API.
 //! - [`filter`]: filtering findings into inline-eligible vs. summary-only,
@@ -10,13 +9,12 @@
 //! - [`comments`]: posting/updating PR review comments and the summary
 //!   comment via octocrab.
 //!
-//! [`comments`] doesn't exist yet. [`files`] and [`filter`] do: [`run`]
-//! resolves [`crate::GithubReviewArgs`] (applying environment-variable
-//! fallbacks), builds an `Octocrab` client, fetches the PR's changed files +
+//! [`run`] resolves [`crate::GithubReviewArgs`] (applying environment-variable fallbacks), builds an `Octocrab` client, fetches the PR's changed files +
 //! diff hunks, lints those files in-process via the same
-//! [`crate::lint_history`] pipeline the flat CLI mode uses, and splits the
+//! [`crate::lint_history`] pipeline the flat CLI mode uses, splits the
 //! resulting findings into inline-eligible vs. summary-only via
-//! [`filter::split_findings`] -- posting comments back is added by Task 5.
+//! [`filter::split_findings`], and posts/updates the PR's comments via
+//! [`comments::post_comments`].
 
 pub mod comments;
 pub mod files;
@@ -166,15 +164,12 @@ fn resolve_token(
 /// [`ResolvedGithubReviewArgs::resolve`]), the `repo` string isn't in
 /// `owner/repo` form, the `Octocrab` client fails to build, the changed
 /// files/diff-hunk fetch (see [`files::fetch_changed_files_and_hunks`])
-/// fails, config loading fails (`--config` given-and-missing is a hard
-/// error -- see `crate::load_config`), migration loading fails, writing the
-/// SARIF report fails, or `--fail-on`/`config.cli.fail_on` names an unknown
-/// severity.
-///
-/// As of this task, posting comments back to the PR isn't wired up yet
-/// (Task 5) -- this lints the PR's changed files, splits the findings into
-/// inline-eligible vs. summary-only, writes the SARIF report, and reports a
-/// summary to stderr.
+/// fails, fetching the PR itself (for its head commit SHA) fails, config
+/// loading fails (`--config` given-and-missing is a hard error -- see
+/// `crate::load_config`), migration loading fails, writing the SARIF report
+/// fails, posting/updating PR comments fails (see
+/// [`comments::post_comments`]), or `--fail-on`/`config.cli.fail_on` names
+/// an unknown severity.
 pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let resolved = ResolvedGithubReviewArgs::resolve(args)?;
     let (owner, repo) = split_owner_repo(&resolved.repo)?;
@@ -187,6 +182,20 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let (changed_files, hunks) =
         files::fetch_changed_files_and_hunks(&octocrab, owner, repo, resolved.pr).await?;
 
+    // The PR's head commit SHA -- needed as `create_review`'s `commit_id`
+    // when posting inline comments (see `comments::post_comments`).
+    // Resolved directly from octocrab's own PR-get response rather than
+    // threading another CLI/env value through, since this is the more
+    // reliable source (always matches whatever `changed_files`/`hunks`
+    // above were just computed against) and Task 3's own fetch doesn't
+    // carry it.
+    let pull_request = octocrab
+        .pulls(owner, repo)
+        .get(resolved.pr)
+        .await
+        .with_context(|| format!("Failed to fetch PR #{} for {owner}/{repo}", resolved.pr))?;
+    let commit_sha = pull_request.head.sha.clone();
+
     // Run the same lint pipeline the flat CLI mode uses (`crate::load_config`,
     // `crate::load_migrations`, `crate::lint_history`), restricted to the
     // PR's changed files instead of a `--changed-files`/`--changed-files-from`
@@ -195,22 +204,41 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     // back to `./pg-migration-lint.toml` then `Config::default()`.
     let config = crate::load_config(&resolved.config)?;
     let mut history = crate::load_migrations(&config)?;
-    let all_findings = crate::lint_history(&mut history, &config, Some(&changed_files));
+    let mut all_findings = crate::lint_history(&mut history, &config, Some(&changed_files));
 
-    // Also write the SARIF report, at the same `config.output.dir` if people
-    // want to add Github Code Scanning
-    SarifReporter::new()
-        .emit(&all_findings, &config.output.dir)
-        .context("Failed to write SARIF report")?;
-
+    // Route findings against Task 3's `hunks` map BEFORE applying any
+    // configured `output.strip_prefix` -- `hunks`' keys are GitHub's own
+    // repo-root-relative `filename`s, never stripped, and
+    // `comments::post_comments` below needs this same raw path to post PR
+    // review comments against the right file. Stripping first (as the flat
+    // CLI mode's report-writing step does) would make every finding's
+    // `file` fail to match its own hunk entry, silently routing everything
+    // to `SummaryReason::OutsideDiff` regardless of the PR's actual diff --
+    // see `crate::strip_output_prefix`.
     let (inline, summary) = filter::split_findings(&all_findings, &hunks);
     let severity_counts = filter::count_by_severity(&all_findings);
     let rule_ids = filter::unique_rule_ids(&all_findings);
 
+    // Optional (not required for the PR-comment feature, but low-cost and
+    // independently valuable): also write the SARIF report, at the same
+    // `config.output.dir` the flat CLI mode's own SARIF output already
+    // resolves to (relative paths in the config are resolved against the
+    // `--config` file's directory by `Config::from_file` itself, so no
+    // separate resolution logic is needed here). This lets consumers wire
+    // this subcommand's output into GitHub Code Scanning via
+    // `github/codeql-action/upload-sarif`, independent of whatever
+    // `config.output.formats` says for the flat CLI mode. `strip_prefix` is
+    // applied now, only for this report-display purpose, now that routing
+    // above is already decided against the raw paths.
+    crate::strip_output_prefix(&mut all_findings, &config);
+    SarifReporter::new()
+        .emit(&all_findings, &config.output.dir)
+        .context("Failed to write SARIF report")?;
+
     eprintln!(
         "github-review: PR #{} ({owner}/{repo}) -- {} changed file(s), {} finding(s) \
-         ({} inline-eligible, {} summary-only); severities: {} error, {} warning, {} note; \
-         rules: [{}]; comment-posting isn't wired up yet",
+          ({} inline-eligible, {} summary-only); severities: {} error, {} warning, {} note; \
+         rules: [{}]",
         resolved.pr,
         changed_files.len(),
         all_findings.len(),
@@ -228,6 +256,23 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
 
     log_finding_routing(&inline, &summary);
 
+    comments::post_comments(
+        &octocrab,
+        comments::PullRequestRef {
+            owner,
+            repo,
+            number: resolved.pr,
+        },
+        &commit_sha,
+        &inline,
+        &summary,
+        severity_counts,
+        &rule_ids,
+    )
+    .await
+    .context("Failed to post PR comments")?;
+    eprintln!("github-review: PR #{} comments posted", resolved.pr);
+
     let fail_on_str = resolved.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
     if crate::exceeds_fail_on_threshold(&all_findings, fail_on_str)? {
         return Ok(1);
@@ -239,9 +284,9 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
 /// Logs each finding's routing decision to stderr: one line per finding,
 /// tagged `inline` or `summary(<reason>)`.
 ///
-/// Action logs are the only place this shows up until Task 5 turns these
-/// into actual PR review/summary comments -- this is deliberately just a
-/// diagnostic log line, not a step towards Task 5's comment-posting.
+/// This is deliberately just a diagnostic Action-log line, independent of
+/// [`comments::post_comments`] turning the same `inline`/`summary` slices
+/// into actual PR review/summary comments.
 fn log_finding_routing(inline: &[filter::InlineEntry], summary: &[filter::SummaryEntry]) {
     for entry in inline {
         let f = &entry.finding;
