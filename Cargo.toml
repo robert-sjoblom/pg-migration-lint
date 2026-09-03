@@ -35,7 +35,14 @@ strum_macros = "0.28.0"
 # `num-bigint-dig`. `jwt-aws-lc-rs` enables jsonwebtoken's `aws_lc_rs`
 # backend instead, avoiding `rsa` entirely while keeping the dependency
 # buildable (the JWT code path itself is dead code for us either way).
-octocrab = { version = ">=0.47.0", default-features = false, features = [
+#
+# Pinned to the resolved minor version rather than an open `>=` bound: an
+# unbounded requirement lets a lockfile-less build (`cargo install` from
+# source, a fresh `cargo update`) resolve any future release as in-range,
+# including a semver-major one, which would silently break the
+# `github-review` subcommand's use of the API quirks documented in
+# `src/github/comments.rs`.
+octocrab = { version = "0.54", default-features = false, features = [
     "follow-redirect",
     "retry",
     "rustls",

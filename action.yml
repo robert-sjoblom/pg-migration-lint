@@ -72,11 +72,17 @@ runs:
         # so a value containing shell metacharacters can't inject into the
         # script -- same convention the download-binary step above uses
         # for its own token.
+        #
+        # GITHUB_TOKEN is deliberately passed *only* this way, never as a
+        # `--github-token` argument: `resolve_token` (src/github/mod.rs)
+        # already falls back to $GITHUB_TOKEN, and anything on the command
+        # line is world-readable via /proc/<pid>/cmdline for the lifetime
+        # of the process.
         GITHUB_TOKEN: ${{ inputs.github-token }}
         CONFIG_PATH: ${{ inputs.config-path }}
         FAIL_ON: ${{ inputs.fail-on }}
       run: |
-        args=(github-review --github-token "$GITHUB_TOKEN")
+        args=(github-review)
 
         if [[ -n "$CONFIG_PATH" ]]; then
           args+=(--config "$CONFIG_PATH")
