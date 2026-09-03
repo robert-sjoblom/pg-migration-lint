@@ -743,7 +743,8 @@ mod strip_prefix_hunk_routing_tests {
             vec![LineRange { start: 1, end: 1 }],
         );
 
-        let (inline, summary) = filter::split_findings(&all_findings, &hunks);
+        let paths = filter::PathNormalizer::new(Path::new("/workspace"), Path::new("/workspace"));
+        let (inline, summary) = filter::split_findings(&all_findings, &hunks, &paths);
 
         assert_eq!(
             inline.len(),
@@ -767,6 +768,222 @@ mod strip_prefix_hunk_routing_tests {
                 .iter()
                 .all(|f| f.file == Path::new("migrations/001-create-events.sql")),
             "strip_output_prefix should still strip for report-writing purposes: {all_findings:?}"
+        );
+    }
+}
+
+/// Regression coverage for the path-shape mismatch a whole-branch review
+/// caught: `github::filter::split_findings` looks findings up in a hunk map
+/// keyed by GitHub's own repo-root-relative filenames, but a `Finding`'s own
+/// path is whatever `Config::from_file`'s path resolution produced -- which
+/// is `./`-prefixed for the default bare-filename config lookup, and
+/// absolute for an absolute `--config`. Neither shape can ever be `Eq` to a
+/// plain GitHub path, so before `github::filter::PathNormalizer` existed
+/// every finding silently routed to `SummaryReason::OutsideDiff` for the
+/// single most common real-world setup (a config file at the repository
+/// root, `config-path` omitted).
+///
+/// These tests deliberately run the *real* config-loading path
+/// (`load_config` -> `Config::from_file` -> `Config::resolve_paths`) against
+/// an on-disk config file and real migration SQL, rather than hand-building
+/// a `MigrationHistory` -- hand-built histories are exactly why the bug went
+/// undetected.
+#[cfg(test)]
+mod config_path_hunk_routing_tests {
+    use super::*;
+    use crate::github::files::LineRange;
+    use crate::github::filter::{self, PathNormalizer};
+    use std::path::Path;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// A config whose `migrations.paths` is a plain relative directory --
+    /// the shape every consumer's config has, and the one
+    /// `Config::resolve_paths` rewrites.
+    const CONFIG_TOML: &str = "[migrations]\npaths = [\"subdir\"]\n";
+
+    /// Reliably produces findings (PGM101 for `timestamp` without time
+    /// zone, PGM502 for the missing primary key) without depending on any
+    /// catalog history.
+    const MIGRATION_SQL: &str =
+        "CREATE TABLE events (\n    id integer,\n    created_at timestamp\n);\n";
+
+    /// The path GitHub's Files API would report for the migration below:
+    /// repository-root-relative, forward slashes, no `./` prefix.
+    const GITHUB_FILENAME: &str = "subdir/001-create-events.sql";
+
+    /// Serializes the tests that have to point the process's working
+    /// directory at a fixture repository. Cargo runs a binary's tests in
+    /// parallel threads of one process, so the current directory is shared
+    /// mutable state; every test that touches it takes this lock.
+    static WORKING_DIRECTORY_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Sets the process's working directory for the duration of a test and
+    /// restores it on drop, holding [`WORKING_DIRECTORY_LOCK`] throughout.
+    struct WorkingDirectoryGuard {
+        previous: PathBuf,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl WorkingDirectoryGuard {
+        fn enter(dir: &Path) -> Self {
+            let lock = WORKING_DIRECTORY_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = std::env::current_dir().expect("a readable current directory");
+            std::env::set_current_dir(dir).expect("fixture directory should be enterable");
+
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for WorkingDirectoryGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.previous);
+        }
+    }
+
+    /// Writes a minimal but *real* consumer repository into `root`: a
+    /// config file at its root plus one migration in the subdirectory that
+    /// config points at.
+    fn write_fixture_repo(root: &Path) {
+        std::fs::write(root.join(DEFAULT_CONFIG_FILE), CONFIG_TOML)
+            .expect("config file should be writable");
+        std::fs::create_dir_all(root.join("subdir")).expect("subdir should be creatable");
+        std::fs::write(root.join(GITHUB_FILENAME), MIGRATION_SQL)
+            .expect("migration file should be writable");
+    }
+
+    /// The hunk map exactly as `github::files` builds it from GitHub's
+    /// response: keyed by the API's own `filename`, covering the whole
+    /// migration.
+    fn hunks_as_github_returns_them() -> HashMap<PathBuf, Vec<LineRange>> {
+        let mut hunks = HashMap::new();
+        hunks.insert(
+            PathBuf::from(GITHUB_FILENAME),
+            vec![LineRange { start: 1, end: 4 }],
+        );
+        hunks
+    }
+
+    /// The headline case: a config file at the repository root with
+    /// `config-path` omitted, i.e. `load_config(&None)`'s bare-filename
+    /// default lookup. `Config::from_file`'s `path.parent()` is `Some("")`
+    /// here, so it falls back to `Path::new(".")` and every migration path
+    /// comes out `./`-prefixed.
+    #[test]
+    fn default_config_lookup_findings_route_inline_against_github_paths() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        write_fixture_repo(repo.path());
+        let _cwd = WorkingDirectoryGuard::enter(repo.path());
+
+        let config = load_config(&None).expect("config should load");
+        let mut history = load_migrations(&config).expect("migrations should load");
+        let findings = lint_history(&mut history, &config, None);
+
+        assert!(
+            !findings.is_empty(),
+            "the fixture migration should produce findings"
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.file.starts_with(".") && f.file != Path::new(".")),
+            "precondition: the default config lookup really does produce \
+             './'-prefixed finding paths: {:?}",
+            findings.iter().map(|f| &f.file).collect::<Vec<_>>()
+        );
+
+        let paths = PathNormalizer::new(repo.path(), repo.path());
+        let (inline, summary) =
+            filter::split_findings(&findings, &hunks_as_github_returns_them(), &paths);
+
+        assert_eq!(
+            inline.len(),
+            findings.len(),
+            "every finding must route inline; summary buckets: {:?}",
+            summary.iter().map(|s| s.reason).collect::<Vec<_>>()
+        );
+        assert!(
+            inline.iter().all(|entry| entry.path == GITHUB_FILENAME),
+            "each inline comment must be posted against GitHub's own spelling of the path"
+        );
+    }
+
+    /// The absolute-`config-path` case: `--config
+    /// ${{ github.workspace }}/pg-migration-lint.toml`, a common Actions
+    /// idiom. `Config::resolve_paths` makes every migration path absolute,
+    /// which can never be `Eq` to a repo-relative GitHub path.
+    #[test]
+    fn absolute_config_path_findings_route_inline_against_github_paths() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        write_fixture_repo(repo.path());
+
+        let config_path = repo.path().join(DEFAULT_CONFIG_FILE);
+        let config = load_config(&Some(config_path)).expect("config should load");
+        let mut history = load_migrations(&config).expect("migrations should load");
+        let findings = lint_history(&mut history, &config, None);
+
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().all(|f| f.file.is_absolute()),
+            "precondition: an absolute --config really does produce absolute \
+             finding paths: {:?}",
+            findings.iter().map(|f| &f.file).collect::<Vec<_>>()
+        );
+
+        let paths = PathNormalizer::new(repo.path(), repo.path());
+        let (inline, summary) =
+            filter::split_findings(&findings, &hunks_as_github_returns_them(), &paths);
+
+        assert_eq!(
+            inline.len(),
+            findings.len(),
+            "every finding must route inline; summary buckets: {:?}",
+            summary.iter().map(|s| s.reason).collect::<Vec<_>>()
+        );
+        assert!(inline.iter().all(|entry| entry.path == GITHUB_FILENAME));
+    }
+
+    /// The `working-directory` case: the action runs from a subdirectory of
+    /// the repository, so findings are relative to that subdirectory while
+    /// GitHub's paths stay relative to the repository root.
+    #[test]
+    fn non_default_working_directory_findings_route_inline_against_github_paths() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let project = repo.path().join("backend");
+        std::fs::create_dir_all(&project).expect("project dir should be creatable");
+        write_fixture_repo(&project);
+        let _cwd = WorkingDirectoryGuard::enter(&project);
+
+        let config = load_config(&None).expect("config should load");
+        let mut history = load_migrations(&config).expect("migrations should load");
+        let findings = lint_history(&mut history, &config, None);
+
+        assert!(!findings.is_empty());
+
+        // GitHub reports this file relative to the *repository* root.
+        let mut hunks = HashMap::new();
+        hunks.insert(
+            PathBuf::from(format!("backend/{GITHUB_FILENAME}")),
+            vec![LineRange { start: 1, end: 4 }],
+        );
+
+        let paths = PathNormalizer::new(repo.path(), &project);
+        let (inline, summary) = filter::split_findings(&findings, &hunks, &paths);
+
+        assert_eq!(
+            inline.len(),
+            findings.len(),
+            "every finding must route inline; summary buckets: {:?}",
+            summary.iter().map(|s| s.reason).collect::<Vec<_>>()
+        );
+        assert!(
+            inline
+                .iter()
+                .all(|entry| entry.path == format!("backend/{GITHUB_FILENAME}"))
         );
     }
 }

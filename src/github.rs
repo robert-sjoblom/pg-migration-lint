@@ -217,7 +217,15 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     // `file` fail to match its own hunk entry, silently routing everything
     // to `SummaryReason::OutsideDiff` regardless of the PR's actual diff --
     // see `crate::strip_output_prefix`.
-    let (inline, summary) = filter::split_findings(&all_findings, &hunks);
+    //
+    // Both sides of that lookup are normalized through
+    // `filter::PathNormalizer` first: a finding's path is whatever
+    // `Config::resolve_paths` produced (possibly `./`-prefixed, possibly
+    // absolute, possibly relative to a non-root `working-directory`),
+    // while `hunks`' keys are always GitHub's plain repo-root-relative
+    // `filename`s -- see `PathNormalizer`'s doc comment.
+    let paths = filter::PathNormalizer::from_env();
+    let (inline, summary) = filter::split_findings(&all_findings, &hunks, &paths);
     let severity_counts = filter::count_by_severity(&all_findings);
     let rule_ids = filter::unique_rule_ids(&all_findings);
 
@@ -272,7 +280,13 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
         &rule_ids,
     )
     .await
-    .context("Failed to post PR comments")?;
+    .map_err(|err| {
+        if is_permission_error(&err) {
+            err.context(PERMISSION_ERROR_HINT)
+        } else {
+            err.context("Failed to post PR comments")
+        }
+    })?;
     eprintln!("github-review: PR #{} comments posted", resolved.pr);
 
     let fail_on_str = resolved.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
@@ -374,6 +388,48 @@ fn log_finding_routing(inline: &[filter::InlineEntry], summary: &[filter::Summar
         );
     }
 }
+
+/// Renders `path` the way GitHub's own API always does: forward slashes,
+/// even if some future caller on Windows ever built a
+/// [`pg_migration_lint::Finding`] from a backslash-separated
+/// [`std::path::PathBuf`]. Mirrors `pg_migration_lint::output`'s own
+/// `normalize_path`, which is `pub(crate)` to the lib crate and so not
+/// reachable from here (this binary-crate module lives in `main.rs`'s
+/// `mod github;`, a separate crate from the `pg_migration_lint` lib).
+///
+/// Shared by [`filter`] (which renders the path an inline comment is posted
+/// against) and [`comments`] (which renders paths in the summary comment's
+/// body) so the two can't disagree about how a path is spelled.
+pub fn github_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Reports whether `error`'s cause chain contains a GitHub API error with
+/// HTTP status 403 -- the shape a comment-posting call takes when the
+/// token it was given lacks write access to the pull request.
+///
+/// The overwhelmingly common cause is a fork pull request: a
+/// `pull_request`-triggered workflow run from a fork gets a read-only
+/// `GITHUB_TOKEN` no matter what the workflow's `permissions:` block asks
+/// for. [`run`] uses this to replace a raw octocrab error dump with an
+/// actionable message.
+fn is_permission_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<octocrab::Error>(),
+            Some(octocrab::Error::GitHub { source, .. }) if source.status_code.as_u16() == 403
+        )
+    })
+}
+
+/// The actionable message [`run`] attaches to a 403 from comment posting,
+/// in place of octocrab's raw error text.
+const PERMISSION_ERROR_HINT: &str = "Posting PR comments failed with a permission error (HTTP 403). \
+     Check that the workflow grants 'permissions: pull-requests: write'. \
+     If this is a pull request from a fork, note that a pull_request-triggered \
+     run always receives a read-only GITHUB_TOKEN regardless of that block -- \
+     see GitHub's documentation on pull_request_target for the supported way \
+     to comment on fork pull requests";
 
 /// Splits an `owner/repo` string (as used by [`ResolvedGithubReviewArgs::repo`])
 /// into its two halves.

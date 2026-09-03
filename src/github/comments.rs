@@ -40,6 +40,7 @@ use pg_migration_lint::output::sarif_level;
 use pg_migration_lint::{Finding, Rule as _, RuleId};
 
 use super::filter::{InlineEntry, SeverityCounts, SummaryEntry, SummaryReason};
+use super::github_path;
 
 /// Hidden marker embedded in every bot-posted inline PR review comment's
 /// body, used to find (and delete, before reposting) this tool's own past
@@ -79,15 +80,30 @@ impl std::fmt::Display for PullRequestRef<'_> {
 /// as a single batched review (skipped entirely if `inline` is empty), and
 /// creates-or-updates the marker-tagged PR summary comment.
 ///
+/// A run with *no findings at all* (both `inline` and `summary` empty)
+/// deliberately posts no summary comment -- otherwise every pull request in
+/// a consumer's repository, including ones touching no SQL at all, would
+/// collect a bot comment showing a table of zeros. A stale summary comment
+/// from an earlier run (when there *were* findings) is deleted instead, so
+/// a since-fixed pull request doesn't keep displaying an obsolete summary.
+/// Stale inline comments are deleted in that case too, by the same
+/// unconditional delete pass that always runs first.
+///
 /// `commit_sha` is the PR's head commit SHA -- the `commit_id` GitHub's
 /// "create a review" endpoint anchors each inline comment's `path`+`line`
 /// against.
 ///
+/// A failure to post the batched inline review is deliberately **not**
+/// fatal: it's logged and folded into the summary comment's body, and the
+/// summary is still posted. The delete pass above has already run by then,
+/// so bailing out instead would leave the pull request strictly worse off
+/// than before this run -- old comments gone, nothing posted in their
+/// place.
+///
 /// # Errors
 ///
-/// Returns an error if any of the underlying GitHub API calls fail
-/// (listing, deleting, or creating/updating comments; creating the batched
-/// review).
+/// Returns an error if listing or deleting existing comments fails, or if
+/// creating/updating/deleting the summary comment fails.
 pub async fn post_comments(
     octocrab: &Octocrab,
     pr: PullRequestRef<'_>,
@@ -98,9 +114,21 @@ pub async fn post_comments(
     rule_ids: &[RuleId],
 ) -> anyhow::Result<()> {
     delete_marker_review_comments(octocrab, pr).await?;
-    post_inline_review(octocrab, pr, commit_sha, inline).await?;
 
-    let body = summary_comment_body(summary, severity_counts, rule_ids);
+    if inline.is_empty() && summary.is_empty() {
+        return delete_summary_comment(octocrab, pr).await;
+    }
+
+    let inline_error = match post_inline_review(octocrab, pr, commit_sha, inline).await {
+        Ok(()) => None,
+        Err(err) => {
+            let rendered = format!("{err:#}");
+            eprintln!("Warning: failed to post inline review comments on {pr}: {rendered}");
+            Some(rendered)
+        }
+    };
+
+    let body = summary_comment_body(summary, severity_counts, rule_ids, inline_error.as_deref());
     upsert_summary_comment(octocrab, pr, &body).await?;
 
     Ok(())
@@ -165,15 +193,21 @@ async fn post_inline_review(
         return Ok(());
     }
 
+    // `path` and `line` both come from the entry, not from
+    // `entry.finding` -- see `InlineEntry`'s field docs. The path is
+    // GitHub's own spelling of the file (the finding's own path may be
+    // `./`-prefixed or absolute), and the line is clamped into the hunk
+    // this finding matched. Posting `finding.end_line` instead would
+    // sometimes name a line outside the diff, which makes GitHub reject
+    // this entire batched review with a 422.
     let comments: Vec<serde_json::Value> = inline
         .iter()
         .map(|entry| {
-            let finding = &entry.finding;
             serde_json::json!({
-                "path": github_path(&finding.file),
-                "line": finding.end_line,
+                "path": entry.path,
+                "line": entry.anchor_line,
                 "side": "RIGHT",
-                "body": inline_comment_body(finding),
+                "body": inline_comment_body(&entry.finding),
             })
         })
         .collect();
@@ -264,6 +298,26 @@ async fn upsert_summary_comment(
     Ok(())
 }
 
+/// Deletes `pr`'s summary comment if one exists, and does nothing if it
+/// doesn't.
+///
+/// Called on a clean (zero-finding) run: this run has nothing to say, but a
+/// previous run's summary comment may still be sitting on the pull request
+/// claiming otherwise.
+async fn delete_summary_comment(octocrab: &Octocrab, pr: PullRequestRef<'_>) -> anyhow::Result<()> {
+    let Some(comment_id) = find_summary_comment_id(octocrab, pr).await? else {
+        return Ok(());
+    };
+
+    octocrab
+        .issues(pr.owner, pr.repo)
+        .delete_comment(comment_id)
+        .await
+        .with_context(|| format!("Failed to delete the stale summary comment on {pr}"))?;
+
+    Ok(())
+}
+
 /// Finds the id of `pr`'s existing summary comment (the one whose body
 /// contains [`SUMMARY_MARKER`]), if any, by walking every issue comment on
 /// the PR.
@@ -301,10 +355,17 @@ async fn find_summary_comment_id(
 /// (Decided §2B) -- `rule_ids` is Task 4's already-deduped list, so
 /// `.explain()` is called exactly once per rule here regardless of how many
 /// findings that rule produced.
+///
+/// `inline_error`, when present, is the rendered error from a failed
+/// batched-inline-review post (see [`post_comments`]): it's surfaced in the
+/// body so a reader of the pull request learns that the findings which
+/// *should* have been inline are missing, rather than silently seeing
+/// fewer comments than the severity table implies.
 fn summary_comment_body(
     summary: &[SummaryEntry],
     severity_counts: SeverityCounts,
     rule_ids: &[RuleId],
+    inline_error: Option<&str>,
 ) -> String {
     use std::fmt::Write as _;
 
@@ -315,6 +376,15 @@ fn summary_comment_body(
     let _ = writeln!(body, "| Warning | {} |", severity_counts.warning);
     let _ = writeln!(body, "| Note | {} |", severity_counts.note);
     body.push('\n');
+
+    if let Some(error) = inline_error {
+        let _ = writeln!(
+            body,
+            "> [!WARNING]\n\
+             > Inline review comments could not be posted, so findings inside this \
+             pull request's diff are missing from the files view: `{error}`\n",
+        );
+    }
 
     if summary.is_empty() {
         body.push_str(
@@ -365,17 +435,6 @@ fn summary_comment_body(
     body
 }
 
-/// Renders `path` the way GitHub's own API always does: forward slashes,
-/// even if some future caller on Windows ever built a [`Finding`] from a
-/// backslash-separated [`std::path::PathBuf`]. Mirrors
-/// `pg_migration_lint::output`'s own `normalize_path`, which is
-/// `pub(crate)` to the lib crate and so not reachable from here (this
-/// binary-crate module lives in `main.rs`'s `mod github;`, a separate
-/// crate from the `pg_migration_lint` lib).
-fn github_path(path: &std::path::Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +456,17 @@ mod tests {
             Path::new(file),
             &SourceSpan::at(start, end),
         )
+    }
+
+    /// Builds an [`InlineEntry`] the way [`super::super::filter::split_findings`]
+    /// would: with the GitHub-spelled `path` and the hunk-clamped
+    /// `anchor_line` carried explicitly, not re-derived from the finding.
+    fn inline_entry(finding: Finding, path: &str, anchor_line: usize) -> InlineEntry {
+        InlineEntry {
+            finding,
+            path: path.to_string(),
+            anchor_line,
+        }
     }
 
     mod pure_body_tests {
@@ -452,7 +522,7 @@ mod tests {
                 },
             ];
 
-            let body = summary_comment_body(&summary, SeverityCounts::default(), &[]);
+            let body = summary_comment_body(&summary, SeverityCounts::default(), &[], None);
 
             assert!(body.contains("**error**"), "Blocker maps to SARIF error");
             assert!(body.contains("**warning**"), "Major maps to SARIF warning");
@@ -465,7 +535,7 @@ mod tests {
 
         #[test]
         fn summary_body_reports_zero_severity_counts_correctly() {
-            let body = summary_comment_body(&[], SeverityCounts::default(), &[]);
+            let body = summary_comment_body(&[], SeverityCounts::default(), &[], None);
 
             assert!(body.contains("| Error | 0 |"));
             assert!(body.contains("| Warning | 0 |"));
@@ -486,7 +556,7 @@ mod tests {
                 },
             ];
 
-            let body = summary_comment_body(&summary, SeverityCounts::default(), &[]);
+            let body = summary_comment_body(&summary, SeverityCounts::default(), &[], None);
 
             assert!(body.contains("PGM101"));
             assert!(body.contains("outside this pull request's diff"));
@@ -496,7 +566,7 @@ mod tests {
 
         #[test]
         fn summary_body_says_everything_landed_inline_when_summary_is_empty() {
-            let body = summary_comment_body(&[], SeverityCounts::default(), &[]);
+            let body = summary_comment_body(&[], SeverityCounts::default(), &[], None);
             assert!(body.contains("landed inline"));
         }
 
@@ -528,7 +598,7 @@ mod tests {
             // though PGM501 fired three times above.
             let rule_ids = [RuleId::Pgm501];
 
-            let body = summary_comment_body(&summary, SeverityCounts::default(), &rule_ids);
+            let body = summary_comment_body(&summary, SeverityCounts::default(), &rule_ids, None);
 
             assert_eq!(
                 body.matches("<details>").count(),
@@ -541,7 +611,7 @@ mod tests {
         #[test]
         fn summary_body_has_one_details_block_per_distinct_rule() {
             let rule_ids = [RuleId::Pgm001, RuleId::Pgm501];
-            let body = summary_comment_body(&[], SeverityCounts::default(), &rule_ids);
+            let body = summary_comment_body(&[], SeverityCounts::default(), &rule_ids, None);
 
             assert_eq!(body.matches("<details>").count(), 2);
             assert!(body.contains(RuleId::Pgm001.explain()));
@@ -669,9 +739,11 @@ mod tests {
                 .await;
 
             let client = test_client(&mock_server.uri());
-            let inline = vec![InlineEntry {
-                finding: finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3),
-            }];
+            let inline = vec![inline_entry(
+                finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3),
+                "a.sql",
+                3,
+            )];
 
             delete_marker_review_comments(&client, pr_ref())
                 .await
@@ -732,15 +804,21 @@ mod tests {
 
             let client = test_client(&mock_server.uri());
             let inline = vec![
-                InlineEntry {
-                    finding: finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3),
-                },
-                InlineEntry {
-                    finding: finding(RuleId::Pgm501, Severity::Major, "b.sql", 8, 8),
-                },
-                InlineEntry {
-                    finding: finding(RuleId::Pgm201, Severity::Blocker, "c.sql", 1, 1),
-                },
+                inline_entry(
+                    finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3),
+                    "a.sql",
+                    3,
+                ),
+                inline_entry(
+                    finding(RuleId::Pgm501, Severity::Major, "b.sql", 8, 8),
+                    "b.sql",
+                    8,
+                ),
+                inline_entry(
+                    finding(RuleId::Pgm201, Severity::Blocker, "c.sql", 1, 1),
+                    "c.sql",
+                    1,
+                ),
             ];
 
             post_inline_review(&client, pr_ref(), "deadbeef", &inline)
@@ -766,6 +844,238 @@ mod tests {
                 3,
                 "all three inline comments must ride in the one batched call"
             );
+        }
+
+        /// Mounts the two `GET` list endpoints [`post_comments`] always
+        /// hits first, each returning `comments`.
+        async fn mount_comment_listings(
+            mock_server: &MockServer,
+            review_comments: serde_json::Value,
+            issue_comments: serde_json::Value,
+        ) {
+            Mock::given(method("GET"))
+                .and(path("/repos/o/r/pulls/1/comments"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(review_comments))
+                .mount(mock_server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/repos/o/r/issues/1/comments"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(issue_comments))
+                .mount(mock_server)
+                .await;
+        }
+
+        /// A failed inline-review post must not stop the summary comment
+        /// from landing. The delete pass has already run by then, so
+        /// bailing out would leave the pull request with neither its old
+        /// comments nor any new ones -- strictly worse than before the run.
+        #[tokio::test]
+        async fn inline_review_failure_still_posts_the_summary_comment() {
+            let mock_server = MockServer::start().await;
+            mount_comment_listings(&mock_server, serde_json::json!([]), serde_json::json!([]))
+                .await;
+
+            // The exact failure this guards against: GitHub rejecting the
+            // whole batched review.
+            Mock::given(method("POST"))
+                .and(path("/repos/o/r/pulls/1/reviews"))
+                .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
+                    "message": "Unprocessable Entity",
+                    "documentation_url": "https://docs.github.com/rest",
+                })))
+                .mount(&mock_server)
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path("/repos/o/r/issues/1/comments"))
+                .respond_with(
+                    ResponseTemplate::new(201).set_body_json(issue_comment_json(99, "summary")),
+                )
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let client = test_client(&mock_server.uri());
+            let inline = vec![inline_entry(
+                finding(RuleId::Pgm001, Severity::Critical, "a.sql", 3, 3),
+                "a.sql",
+                3,
+            )];
+
+            post_comments(
+                &client,
+                pr_ref(),
+                "deadbeef",
+                &inline,
+                &[],
+                SeverityCounts::default(),
+                &[],
+            )
+            .await
+            .expect("a failed inline post must not fail the whole run");
+
+            let requests = mock_server
+                .received_requests()
+                .await
+                .expect("request recording should be enabled");
+            let summary_request = requests
+                .iter()
+                .find(|r| {
+                    r.method.as_str() == "POST" && r.url.path().ends_with("/issues/1/comments")
+                })
+                .expect("the summary comment must still have been posted");
+            let sent_body: serde_json::Value = summary_request
+                .body_json()
+                .expect("request body should be JSON");
+            let body = sent_body["body"].as_str().unwrap_or_default();
+            assert!(
+                body.contains("Inline review comments could not be posted"),
+                "the summary must say the inline comments are missing: {body}"
+            );
+        }
+
+        /// A clean run posts no summary comment at all -- otherwise every
+        /// pull request in a consumer's repository collects a bot comment
+        /// showing a table of zeros.
+        #[tokio::test]
+        async fn clean_run_posts_no_summary_comment() {
+            let mock_server = MockServer::start().await;
+            mount_comment_listings(
+                &mock_server,
+                serde_json::json!([]),
+                serde_json::json!([issue_comment_json(7, "an unrelated human comment")]),
+            )
+            .await;
+            // Deliberately no POST/PATCH/DELETE mocks -- any write would
+            // 404 and surface as an `Err` below.
+
+            let client = test_client(&mock_server.uri());
+
+            post_comments(
+                &client,
+                pr_ref(),
+                "deadbeef",
+                &[],
+                &[],
+                SeverityCounts::default(),
+                &[],
+            )
+            .await
+            .expect("a clean run must not write anything");
+
+            let requests = mock_server
+                .received_requests()
+                .await
+                .expect("request recording should be enabled");
+            assert!(
+                requests.iter().all(|r| r.method.as_str() == "GET"),
+                "a clean run must only read, never write"
+            );
+        }
+
+        /// ...but a stale summary comment from an earlier run (when there
+        /// *were* findings) must be deleted, so a since-fixed pull request
+        /// stops displaying an obsolete summary.
+        #[tokio::test]
+        async fn clean_run_deletes_a_stale_summary_comment() {
+            let mock_server = MockServer::start().await;
+            mount_comment_listings(
+                &mock_server,
+                serde_json::json!([]),
+                serde_json::json!([issue_comment_json(
+                    42,
+                    &format!("old summary\n\n{SUMMARY_MARKER}")
+                )]),
+            )
+            .await;
+
+            Mock::given(method("DELETE"))
+                .and(path("/repos/o/r/issues/comments/42"))
+                .respond_with(ResponseTemplate::new(204))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let client = test_client(&mock_server.uri());
+
+            post_comments(
+                &client,
+                pr_ref(),
+                "deadbeef",
+                &[],
+                &[],
+                SeverityCounts::default(),
+                &[],
+            )
+            .await
+            .expect("deleting the stale summary should succeed");
+        }
+
+        /// A 403 from any comment-posting call must be recognizable as a
+        /// permission problem, so `super::super::run` can replace octocrab's
+        /// raw error with an actionable message (most often: this is a fork
+        /// pull request, whose GITHUB_TOKEN is read-only).
+        #[tokio::test]
+        async fn a_403_from_comment_posting_is_classified_as_a_permission_error() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("GET"))
+                .and(path("/repos/o/r/pulls/1/comments"))
+                .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                    "message": "Resource not accessible by integration",
+                    "documentation_url": "https://docs.github.com/rest",
+                })))
+                .mount(&mock_server)
+                .await;
+
+            let client = test_client(&mock_server.uri());
+
+            let error = post_comments(
+                &client,
+                pr_ref(),
+                "deadbeef",
+                &[],
+                &[],
+                SeverityCounts::default(),
+                &[],
+            )
+            .await
+            .expect_err("a 403 must surface as an error");
+
+            assert!(
+                crate::github::is_permission_error(&error),
+                "a 403 must be classified as a permission error: {error:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_422_is_not_classified_as_a_permission_error() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("GET"))
+                .and(path("/repos/o/r/pulls/1/comments"))
+                .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
+                    "message": "Unprocessable Entity",
+                    "documentation_url": "https://docs.github.com/rest",
+                })))
+                .mount(&mock_server)
+                .await;
+
+            let client = test_client(&mock_server.uri());
+
+            let error = post_comments(
+                &client,
+                pr_ref(),
+                "deadbeef",
+                &[],
+                &[],
+                SeverityCounts::default(),
+                &[],
+            )
+            .await
+            .expect_err("a 422 must surface as an error");
+
+            assert!(!crate::github::is_permission_error(&error));
         }
 
         #[tokio::test]
