@@ -42,7 +42,7 @@ strum_macros = "0.28.0"
 # including a semver-major one, which would silently break the
 # `github-review` subcommand's use of the API quirks documented in
 # `src/github/comments.rs`.
-octocrab = { version = "0.54", default-features = false, features = [
+octocrab = { version = "0.54", default-features = false, optional = true, features = [
     "follow-redirect",
     "retry",
     "rustls",
@@ -52,11 +52,21 @@ octocrab = { version = "0.54", default-features = false, features = [
     "rustls-ring",
     "jwt-aws-lc-rs",
 ] }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
 [features]
+default = ["github-review"]
 bridge-tests = []
 docgen = ["dep:minijinja"]
+# The `github-review` subcommand (`src/github/`, driven by `action.yml`)
+# and its dependency stack: octocrab, tokio, and transitively hyper,
+# rustls and aws-lc-sys. On by default, so `cargo build`/`cargo install`
+# for the binary behave exactly as before. Cargo has no bin-only
+# dependencies within a package, and this package also exposes a `[lib]`
+# target, so this feature is what lets a library consumer of
+# `pg_migration_lint` opt the whole stack out with
+# `default-features = false`.
+github-review = ["dep:octocrab", "dep:tokio"]
 
 [dependencies.minijinja]
 version = "2"

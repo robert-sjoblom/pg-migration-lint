@@ -8,10 +8,19 @@
 //! - 2: Tool error (config error, parse failure, I/O error, etc.)
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+/// The `github-review` subcommand, behind the default-on `github-review`
+/// Cargo feature. Gating it here (rather than compiling it unconditionally)
+/// is what lets a library consumer of the `pg_migration_lint` lib target
+/// build with `default-features = false` and avoid octocrab, tokio, hyper,
+/// rustls and aws-lc-sys entirely -- Cargo has no bin-only dependencies
+/// within a package, so a feature is the only lever available. The binary's
+/// own `cargo build`/`cargo install` are unaffected: the feature is in
+/// `default`.
+#[cfg(feature = "github-review")]
 mod github;
 
 use pg_migration_lint::input::MigrationHistory;
@@ -67,12 +76,14 @@ struct Args {
 
     /// Subcommand to run instead of the default lint flow. Absent entirely
     /// preserves every existing flat-flag invocation unchanged.
+    #[cfg(feature = "github-review")]
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
 /// Subcommands available alongside the default flat-flag lint flow.
-#[derive(Subcommand, Debug)]
+#[cfg(feature = "github-review")]
+#[derive(clap::Subcommand, Debug)]
 enum Commands {
     /// Run the GitHub Action PR-review workflow: fetch a pull request's
     /// changed files, lint them, and post findings back as PR comments.
@@ -87,8 +98,13 @@ enum Commands {
 /// variable when omitted -- see [`ResolvedGithubReviewArgs::resolve`] for
 /// the exact fallback chain.
 ///
-/// The tool resolves `--config` and migration paths relative to CWD, matching
-/// the flat CLI mode.
+/// Note: there is deliberately no `--working-directory` flag here. The
+/// action invokes this subcommand after `cd`-ing into
+/// `working-directory` (matching how the superseded bash scripts did it),
+/// so `--config` and migration paths resolve relative to CWD exactly like
+/// the flat CLI mode already does. Task 6 (action.yml wiring) must keep
+/// doing that `cd`.
+#[cfg(feature = "github-review")]
 #[derive(clap::Args, Debug)]
 struct GithubReviewArgs {
     /// Pull request number. Defaults to `.pull_request.number` read from
@@ -120,6 +136,7 @@ struct GithubReviewArgs {
 fn main() {
     let args = Args::parse();
 
+    #[cfg(feature = "github-review")]
     if let Some(Commands::GithubReview(gh_args)) = &args.command {
         let exit_code = match run_github_review(gh_args) {
             Ok(code) => code,
@@ -152,6 +169,7 @@ fn main() {
 ///
 /// Returns the process exit code (0/1/2, matching the flat CLI mode's
 /// contract) on success.
+#[cfg(feature = "github-review")]
 fn run_github_review(args: &GithubReviewArgs) -> Result<i32> {
     let runtime = tokio::runtime::Runtime::new().context("Failed to start async runtime")?;
     runtime.block_on(github::run(args))
@@ -644,7 +662,7 @@ fn print_config_validation(config: &Config) -> Result<bool> {
 /// up in Task 3's `hunks` map (keyed by GitHub's own repo-root-relative
 /// `filename`s, never stripped). Stripping only happens afterward, at each
 /// caller's report-writing site (see [`strip_output_prefix`]).
-#[cfg(test)]
+#[cfg(all(test, feature = "github-review"))]
 mod strip_prefix_hunk_routing_tests {
     use super::*;
     use crate::github::files::LineRange;
@@ -788,7 +806,7 @@ mod strip_prefix_hunk_routing_tests {
 /// an on-disk config file and real migration SQL, rather than hand-building
 /// a `MigrationHistory` -- hand-built histories are exactly why the bug went
 /// undetected.
-#[cfg(test)]
+#[cfg(all(test, feature = "github-review"))]
 mod config_path_hunk_routing_tests {
     use super::*;
     use crate::github::files::LineRange;
