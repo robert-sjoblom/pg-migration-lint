@@ -9,7 +9,8 @@
 //! - [`comments`]: posting/updating PR review comments and the summary
 //!   comment via octocrab.
 //!
-//! [`run`] resolves [`crate::GithubReviewArgs`] (applying environment-variable fallbacks), builds an `Octocrab` client, fetches the PR's changed files +
+//! [`run`] resolves [`crate::GithubReviewArgs`] (applying environment-variable
+//! fallbacks), builds an `Octocrab` client, fetches the PR's changed files +
 //! diff hunks, lints those files in-process via the same
 //! [`crate::lint_history`] pipeline the flat CLI mode uses, splits the
 //! resulting findings into inline-eligible vs. summary-only via
@@ -168,8 +169,9 @@ fn resolve_token(
 /// loading fails (`--config` given-and-missing is a hard error -- see
 /// `crate::load_config`), migration loading fails, writing the SARIF report
 /// fails, posting/updating PR comments fails (see
-/// [`comments::post_comments`]), or `--fail-on`/`config.cli.fail_on` names
-/// an unknown severity.
+/// [`comments::post_comments`]), `--fail-on`/`config.cli.fail_on` names
+/// an unknown severity, or writing this action's `exit-code`/`findings-count`
+/// outputs to `$GITHUB_OUTPUT` fails (see [`write_outputs`]).
 pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let resolved = ResolvedGithubReviewArgs::resolve(args)?;
     let (owner, repo) = split_owner_repo(&resolved.repo)?;
@@ -238,7 +240,7 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     eprintln!(
         "github-review: PR #{} ({owner}/{repo}) -- {} changed file(s), {} finding(s) \
           ({} inline-eligible, {} summary-only); severities: {} error, {} warning, {} note; \
-         rules: [{}]",
+          rules: [{}]",
         resolved.pr,
         changed_files.len(),
         all_findings.len(),
@@ -274,11 +276,73 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     eprintln!("github-review: PR #{} comments posted", resolved.pr);
 
     let fail_on_str = resolved.fail_on.as_deref().unwrap_or(&config.cli.fail_on);
-    if crate::exceeds_fail_on_threshold(&all_findings, fail_on_str)? {
-        return Ok(1);
-    }
+    let exit_code = if crate::exceeds_fail_on_threshold(&all_findings, fail_on_str)? {
+        1
+    } else {
+        0
+    };
 
-    Ok(0)
+    write_outputs(exit_code, all_findings.len())?;
+
+    Ok(exit_code)
+}
+
+/// Writes this action's public `exit-code` and `findings-count` outputs to
+/// the file at `$GITHUB_OUTPUT`, in the `key=value` line format the GitHub
+/// Actions runner expects.
+///
+/// Resolves the path from the process environment and delegates to
+/// [`write_outputs_to`], which takes the path as a plain parameter so tests
+/// can point it at a tempfile instead of mutating `$GITHUB_OUTPUT` itself
+/// (the same explicit-parameter-over-env-read split [`resolve_pr`],
+/// [`resolve_repo`], and [`resolve_token`] already use).
+///
+/// # Errors
+///
+/// Returns an error if `$GITHUB_OUTPUT` is not set. A real Actions run
+/// always sets it; this is a hard error (matching the same-required
+/// convention the now-removed `parse-and-filter.sh` used for the same
+/// variable) rather than a silent no-op, since silently dropping the
+/// action's declared outputs would be a confusing footgun.
+fn write_outputs(exit_code: i32, findings_count: usize) -> anyhow::Result<()> {
+    let path = std::env::var("GITHUB_OUTPUT")
+        .context("GITHUB_OUTPUT is required (normally set by the GitHub Actions runner)")?;
+    write_outputs_to(std::path::Path::new(&path), exit_code, findings_count)
+}
+
+/// Appends `exit-code` and `findings-count` lines to the `$GITHUB_OUTPUT`
+/// file at `path`, in the `key=value` format documented at
+/// <https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#setting-an-output-parameter>.
+///
+/// Opens `path` in append mode (creating it if missing) rather than
+/// truncating -- `$GITHUB_OUTPUT` is a single file shared across every step
+/// in a job, and other steps' own output lines (this action's
+/// `download-binary` step writes none today, but the convention holds
+/// generally) must never be clobbered.
+///
+/// # Errors
+///
+/// Returns an error if `path` can't be opened for appending or written to.
+fn write_outputs_to(
+    path: &std::path::Path,
+    exit_code: i32,
+    findings_count: usize,
+) -> anyhow::Result<()> {
+    use std::io::Write as _;
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("Failed to open GITHUB_OUTPUT file '{}'", path.display()))?;
+
+    write!(
+        file,
+        "exit-code={exit_code}\nfindings-count={findings_count}\n"
+    )
+    .with_context(|| format!("Failed to write to GITHUB_OUTPUT file '{}'", path.display()))?;
+
+    Ok(())
 }
 
 /// Logs each finding's routing decision to stderr: one line per finding,
@@ -486,5 +550,57 @@ mod tests {
     fn split_owner_repo_errors_when_there_is_more_than_one_slash() {
         let result = split_owner_repo("owner/repo/extra");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_outputs_to_appends_exit_code_and_findings_count_lines() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+
+        write_outputs_to(file.path(), 1, 42).unwrap();
+
+        let contents = std::fs::read_to_string(file.path()).unwrap();
+        assert_eq!(contents, "exit-code=1\nfindings-count=42\n");
+    }
+
+    #[test]
+    fn write_outputs_to_appends_rather_than_truncates_existing_content() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), "some-other-output=already-here\n").unwrap();
+
+        write_outputs_to(file.path(), 0, 0).unwrap();
+
+        let contents = std::fs::read_to_string(file.path()).unwrap();
+        assert_eq!(
+            contents,
+            "some-other-output=already-here\nexit-code=0\nfindings-count=0\n"
+        );
+    }
+
+    #[test]
+    fn write_outputs_to_errors_when_path_is_unwritable() {
+        let result = write_outputs_to(
+            std::path::Path::new("/nonexistent-directory/github-output"),
+            0,
+            0,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_outputs_errors_when_github_output_env_is_unset() {
+        // SAFETY: no other test in this process reads or writes
+        // `GITHUB_OUTPUT`, so removing it here can't race with another
+        // test's expectations. Cargo test binaries run each test in its
+        // own thread within one process, so mutating process-global env
+        // state is only safe when no other test touches the same key --
+        // this is that key's only test.
+        unsafe {
+            std::env::remove_var("GITHUB_OUTPUT");
+        }
+
+        let result = write_outputs(0, 0);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("GITHUB_OUTPUT"));
     }
 }
