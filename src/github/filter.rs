@@ -12,9 +12,11 @@
 //! summary comment.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use pg_migration_lint::{Finding, RuleId};
+
+use crate::paths::without_curdir_components;
 
 use super::files::LineRange;
 
@@ -144,25 +146,6 @@ impl PathNormalizer {
 /// canonicalized (it doesn't exist yet, or the process can't stat it).
 fn canonicalize_or_keep(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// Drops a leading `./` from `path` (a real [`Component::CurDir`], which
-/// `Path`'s `Eq`/`Hash` treat as significant) -- [`Path::components`]
-/// already normalizes away interior `.` components, so this only ever
-/// matters for a leading one.
-fn without_curdir_components(path: &Path) -> PathBuf {
-    let mut cleaned = PathBuf::new();
-    for component in path.components() {
-        if component != Component::CurDir {
-            cleaned.push(component);
-        }
-    }
-
-    if cleaned.as_os_str().is_empty() {
-        PathBuf::from(".")
-    } else {
-        cleaned
-    }
 }
 
 /// A finding that can't be posted as an inline PR review comment, tagged
