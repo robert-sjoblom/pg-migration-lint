@@ -213,10 +213,9 @@ mod hunk_parsing_tests {
 
     #[test]
     fn pure_deletion_hunk_mixed_with_normal_hunk_keeps_only_the_normal_one() {
-        // The exact regression case that caused a fix round in the deleted
-        // bash implementation: a patch containing both a pure-deletion hunk
-        // (dropped) and a normal hunk (kept), not just the file boundary
-        // case (no ranges at all vs. some ranges).
+        // A patch containing both a pure-deletion hunk (dropped) and a
+        // normal hunk (kept) -- not just the file-boundary case (no ranges
+        // at all vs. some ranges).
         let patch = "@@ -5,3 +10,0 @@ SELECT 3;\n-a\n-b\n-c\n@@ -20,2 +20,4 @@ SELECT 4;\n context\n+new1\n+new2\n context2";
         let ranges = hunk_ranges_from_patch(patch);
         assert_eq!(ranges, vec![LineRange { start: 20, end: 23 }]);

@@ -67,8 +67,8 @@ impl std::fmt::Debug for ResolvedGithubReviewArgs {
 }
 
 impl ResolvedGithubReviewArgs {
-    /// Resolves `args` against the process environment, applying the same
-    /// fallbacks the (now-removed) `compute-changed-files.sh` used:
+    /// Resolves `args` against the process environment, applying GitHub
+    /// Actions' own conventions for each value:
     /// - `--pr` falls back to `.pull_request.number` read from the JSON
     ///   file at `$GITHUB_EVENT_PATH`.
     /// - `--repo` falls back to `$GITHUB_REPOSITORY`.
@@ -115,9 +115,6 @@ fn resolve_pr(explicit: Option<u64>, event_path: Option<String>) -> anyhow::Resu
 }
 
 /// Parses `.pull_request.number` out of a GitHub Actions event payload.
-///
-/// This is the same fallback the (now-removed) `compute-changed-files.sh`
-/// used, ported from `jq -r '.pull_request.number // empty'`.
 fn pr_number_from_event_json(contents: &str) -> anyhow::Result<u64> {
     let value: serde_json::Value =
         serde_json::from_str(contents).context("Failed to parse GITHUB_EVENT_PATH file as JSON")?;
@@ -324,10 +321,9 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
 /// # Errors
 ///
 /// Returns an error if `$GITHUB_OUTPUT` is not set. A real Actions run
-/// always sets it; this is a hard error (matching the same-required
-/// convention the now-removed `parse-and-filter.sh` used for the same
-/// variable) rather than a silent no-op, since silently dropping the
-/// action's declared outputs would be a confusing footgun.
+/// always sets it; this is a hard error rather than a silent no-op, since
+/// silently dropping the action's declared outputs would be a confusing
+/// footgun.
 fn write_outputs(exit_code: i32, findings_count: usize) -> anyhow::Result<()> {
     let path = std::env::var("GITHUB_OUTPUT")
         .context("GITHUB_OUTPUT is required (normally set by the GitHub Actions runner)")?;
@@ -339,10 +335,10 @@ fn write_outputs(exit_code: i32, findings_count: usize) -> anyhow::Result<()> {
 /// <https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#setting-an-output-parameter>.
 ///
 /// Opens `path` in append mode (creating it if missing) rather than
-/// truncating -- `$GITHUB_OUTPUT` is a single file shared across every step
-/// in a job, and other steps' own output lines (this action's
-/// `download-binary` step writes none today, but the convention holds
-/// generally) must never be clobbered.
+/// truncating, matching GitHub's own documented convention
+/// (`echo "name=value" >> "$GITHUB_OUTPUT"`) -- this never destroys
+/// anything this step may already have written to its own output file
+/// before this call.
 ///
 /// # Errors
 ///
