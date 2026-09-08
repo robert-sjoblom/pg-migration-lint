@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.16.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.15.0...v2.16.0) (2026-09-08)
+
+
+### Features
+
+* add github action ([#223](https://github.com/robert-sjoblom/pg-migration-lint/issues/223)) ([0fad886](https://github.com/robert-sjoblom/pg-migration-lint/commit/0fad886c2226bb93f342a5ef6af861f005a19a52))
+
+
+### Bug Fixes
+
+* reword pgm004 to be more explicit about child partitions ([2e97836](https://github.com/robert-sjoblom/pg-migration-lint/commit/2e97836311bae5e2622334fa19116428aaa5d079))
+* update anyhow ([ed69dc7](https://github.com/robert-sjoblom/pg-migration-lint/commit/ed69dc7e0c5ae0b9a0d557713cf6e91cf8d3c197))
+* update wording on pgm023 ([#220](https://github.com/robert-sjoblom/pg-migration-lint/issues/220)) ([20eb37c](https://github.com/robert-sjoblom/pg-migration-lint/commit/20eb37c5a1040e13b85ecd22677e9f939eac4c0b))
+
 ## [2.15.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.14.6...v2.15.0) (2026-03-13)
 
 

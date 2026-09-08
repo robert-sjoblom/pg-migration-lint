@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "pg-migration-lint"
-version = "2.15.0"
+version = "2.16.0"
 dependencies = [
  "anyhow",
  "clap",
