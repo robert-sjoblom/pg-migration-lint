@@ -22,6 +22,7 @@ use std::path::PathBuf;
 /// `default`.
 #[cfg(feature = "github-review")]
 mod github;
+mod paths;
 
 use pg_migration_lint::input::MigrationHistory;
 use pg_migration_lint::input::liquibase_bridge::load_liquibase;
@@ -273,11 +274,22 @@ fn lint_history(
     normalize::normalize_schemas(&mut history.units, &config.migrations.default_schema);
 
     // Build changed files set for O(1) lookup. Canonicalize paths where
-    // possible for reliable matching.
+    // possible for reliable matching, and strip any leading `./` -- a
+    // canonicalization failure (the common case for `github-review`, whose
+    // changed-files list is repo-root-relative while the process's CWD may
+    // be a `working-directory`-selected subdirectory) leaves the raw path
+    // in place, and a raw path can itself be `./`-prefixed. Without this,
+    // `Path`'s `Eq`/`ends_with` (both used below) treat that leading `./`
+    // as a real, significant component and silently refuse to match an
+    // otherwise-identical path -- see `paths::without_curdir_components`.
     let changed_files_set: HashSet<PathBuf> = changed_files
         .unwrap_or(&[])
         .iter()
-        .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        .map(|p| {
+            paths::without_curdir_components(
+                &std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()),
+            )
+        })
         .collect();
 
     let lint_all = changed_files.is_none();
@@ -299,15 +311,23 @@ fn lint_history(
         let is_changed = if lint_all {
             true
         } else {
-            let canonical = std::fs::canonicalize(&unit.source_file)
-                .unwrap_or_else(|_| unit.source_file.clone());
+            // Normalize both the canonicalized and raw forms of
+            // `unit.source_file` the same way `changed_files_set` was built
+            // above -- a leading `./` (e.g. from the default bare-filename
+            // config lookup) must never be the reason a real match is
+            // missed, in either the exact-match or suffix-match branches.
+            let canonical = paths::without_curdir_components(
+                &std::fs::canonicalize(&unit.source_file)
+                    .unwrap_or_else(|_| unit.source_file.clone()),
+            );
+            let raw = paths::without_curdir_components(&unit.source_file);
             changed_files_set.contains(&canonical)
-                || changed_files_set.contains(&unit.source_file)
+                || changed_files_set.contains(&raw)
                 || changed_files_set.iter().any(|cf| {
                     // Only allow suffix matching when the shorter path includes a directory
                     // component, to prevent bare filenames from matching across directories.
-                    (cf.ends_with(&unit.source_file) && unit.source_file.components().count() > 1)
-                        || (unit.source_file.ends_with(cf) && cf.components().count() > 1)
+                    (cf.ends_with(&raw) && raw.components().count() > 1)
+                        || (raw.ends_with(cf) && cf.components().count() > 1)
                 })
         };
 
@@ -960,5 +980,64 @@ mod config_path_hunk_routing_tests {
                 .iter()
                 .all(|entry| entry.path == format!("backend/{GITHUB_FILENAME}"))
         );
+    }
+
+    /// Regression test for the confirmed live bug: `github-review`'s
+    /// changed-files list is repo-root-relative (GitHub's own `filename`
+    /// spelling), while a `working-directory` that `cd`s into a
+    /// subdirectory of the repo combined with the default bare-filename
+    /// config lookup makes `unit.source_file` come out `./`-prefixed
+    /// (`Config::resolve_paths` falling back to `config_dir =
+    /// Path::new(".")`). Before the fix, `lint_history`'s `is_changed`
+    /// check compared these two shapes directly: the exact-match checks
+    /// never agreed (one side canonicalizes to an absolute path that
+    /// doesn't exist under the other's base; the raw forms differ by the
+    /// `backend/` prefix), and the suffix `ends_with` fallback -- meant to
+    /// handle exactly this kind of base mismatch -- silently failed too,
+    /// because `Path::ends_with` treats a leading `./` as a real
+    /// `Component::CurDir` that never lines up with `backend`. The result
+    /// was `is_changed == false` for every unit, so `lint_history` reported
+    /// zero findings despite the file genuinely being changed.
+    #[test]
+    fn changed_files_matching_survives_leading_dot_slash_after_working_directory_cd() {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let project = repo.path().join("backend");
+        std::fs::create_dir_all(&project).expect("project dir should be creatable");
+        write_fixture_repo(&project);
+        let _cwd = WorkingDirectoryGuard::enter(&project);
+
+        let config = load_config(&None).expect("config should load");
+        let mut history = load_migrations(&config).expect("migrations should load");
+
+        assert!(
+            history
+                .units
+                .iter()
+                .all(|u| u.source_file.starts_with(".") && u.source_file != Path::new(".")),
+            "precondition: the default config lookup really does produce \
+             './'-prefixed unit.source_file values: {:?}",
+            history
+                .units
+                .iter()
+                .map(|u| &u.source_file)
+                .collect::<Vec<_>>()
+        );
+
+        // What `github-review` passes as its changed-files list: GitHub's
+        // own repo-root-relative spelling, which includes the
+        // `working-directory` segment (`backend/`) the process's CWD is
+        // already inside of -- so it neither canonicalizes (the joined
+        // path doesn't exist under the CWD) nor exact- or suffix-matches
+        // `unit.source_file` without stripping the leading `./` first.
+        let changed_files = vec![PathBuf::from(format!("backend/{GITHUB_FILENAME}"))];
+
+        let findings = lint_history(&mut history, &config, Some(&changed_files));
+
+        assert!(
+            !findings.is_empty(),
+            "the fixture migration is in the changed-files list and should \
+             produce findings; got zero, meaning is_changed matching failed"
+        );
+        assert!(findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
     }
 }

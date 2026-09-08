@@ -317,38 +317,6 @@ fn anchor_line_uses_the_first_overlapping_hunk() {
 }
 
 #[test]
-fn without_curdir_components_strips_a_leading_dot_slash() {
-    assert_eq!(
-        without_curdir_components(Path::new("./db/001.sql")),
-        PathBuf::from("db/001.sql")
-    );
-}
-
-#[test]
-fn without_curdir_components_leaves_a_plain_relative_path_alone() {
-    assert_eq!(
-        without_curdir_components(Path::new("db/001.sql")),
-        PathBuf::from("db/001.sql")
-    );
-}
-
-#[test]
-fn without_curdir_components_leaves_an_absolute_path_absolute() {
-    assert_eq!(
-        without_curdir_components(Path::new("/repo/db/001.sql")),
-        PathBuf::from("/repo/db/001.sql")
-    );
-}
-
-#[test]
-fn without_curdir_components_of_a_bare_dot_stays_a_dot() {
-    assert_eq!(
-        without_curdir_components(Path::new(".")),
-        PathBuf::from(".")
-    );
-}
-
-#[test]
 fn from_env_values_uses_github_workspace_as_the_repo_root() {
     let paths = PathNormalizer::from_env_values(
         Some(PathBuf::from("/repo/backend")),
