@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.0...v2.16.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **action:** stop naming the action-repo/ref capture vars GITHUB_* ([be259c3](https://github.com/robert-sjoblom/pg-migration-lint/commit/be259c3b19f67f622a13df3ab8955e386b6573ad))
+
 ## [2.16.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.15.0...v2.16.0) (2026-09-08)
 
 
