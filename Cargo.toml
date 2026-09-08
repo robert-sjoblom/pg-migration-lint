@@ -29,7 +29,7 @@ strum_macros = "0.28.0"
 # octocrab's own `default` feature list (see its `Cargo.toml`) except
 # swapping `jwt-rust-crypto` for `jwt-aws-lc-rs`. octocrab only needs JWT
 # signing for GitHub App authentication, which this crate never uses (see
-# `src/github/mod.rs`: auth is a plain `personal_token`). `jwt-rust-crypto`
+# `src/github.rs`: auth is a plain `personal_token`). `jwt-rust-crypto`
 # enables jsonwebtoken's `rust_crypto` backend, which pulls in the `rsa`
 # crate (RUSTSEC-2023-0071, "Marvin Attack" timing sidechannel) via
 # `num-bigint-dig`. `jwt-aws-lc-rs` enables jsonwebtoken's `aws_lc_rs`

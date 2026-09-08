@@ -34,11 +34,11 @@ mod pure_body_tests {
 
         assert!(
             body.contains("error"),
-            "must carry a SARIF-level severity badge (Decided §2A)"
+            "must carry a SARIF-level severity badge"
         );
         assert!(
             !body.contains("CRITICAL"),
-            "must not use SonarQube's severity vocabulary (Decided §2A)"
+            "must not use SonarQube's severity vocabulary"
         );
         assert!(
             body.contains("PGM001 test finding"),
@@ -51,15 +51,10 @@ mod pure_body_tests {
         );
         assert!(
             !body.contains("<details>"),
-            "inline bodies are terse -- no rich --explain text (Decided §2B)"
+            "inline bodies are terse -- no rich --explain text"
         );
     }
 
-    /// Decided §2A: every per-finding severity badge in the summary
-    /// comment must use the same `error`/`warning`/`note` vocabulary as
-    /// the severity-count table above it (both keyed off
-    /// [`sarif_level`]), never SonarQube's
-    /// `CRITICAL`/`MAJOR`/`MINOR`/`INFO`/`BLOCKER`.
     #[test]
     fn summary_body_per_entry_badges_use_sarif_vocabulary_not_sonarqube() {
         let summary = vec![
@@ -125,14 +120,6 @@ mod pure_body_tests {
         assert!(body.contains("landed inline"));
     }
 
-    /// The exact scenario the brief calls out: a rule with multiple
-    /// findings must still only get one `<details>` block, since
-    /// `.explain()` is driven off the already-deduped `rule_ids` slice
-    /// (Task 4's `unique_rule_ids`), not off `summary`'s findings
-    /// directly. This is "verify the counting logic directly" per the
-    /// brief -- `.explain()` itself is a pure static-str return with no
-    /// side effect to spy on, so the assertion is on the rendered
-    /// output's shape instead.
     #[test]
     fn summary_body_has_one_details_block_per_unique_rule_even_with_duplicate_findings() {
         let summary = vec![
@@ -149,8 +136,6 @@ mod pure_body_tests {
                 reason: SummaryReason::OutsideDiff,
             },
         ];
-        // Task 4's `unique_rule_ids` already dedups -- one entry even
-        // though PGM501 fired three times above.
         let rule_ids = [RuleId::Pgm501];
 
         let body = summary_comment_body(&summary, SeverityCounts::default(), &rule_ids, None);
@@ -182,10 +167,6 @@ mod pure_body_tests {
     }
 }
 
-/// Exercises the real async paths against a mock HTTP server
-/// (`wiremock`, matching Task 3's `files.rs` precedent). See
-/// `MockServer::received_requests` for the delete-before-repost
-/// ordering assertion below.
 mod http_tests {
     use super::*;
     use wiremock::matchers::{method, path};
@@ -266,8 +247,6 @@ mod http_tests {
     async fn stale_marker_comments_are_deleted_before_the_new_review_is_posted() {
         let mock_server = MockServer::start().await;
 
-        // One stale marker-tagged comment (must be deleted) and one
-        // unrelated human comment (must be left alone).
         Mock::given(method("GET"))
             .and(path("/repos/o/r/pulls/1/comments"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
@@ -420,18 +399,11 @@ mod http_tests {
             .await;
     }
 
-    /// A failed inline-review post must not stop the summary comment
-    /// from landing. The delete pass has already run by then, so
-    /// bailing out would leave the pull request with neither its old
-    /// comments nor any new ones -- strictly worse than before the run.
     #[tokio::test]
     async fn inline_review_failure_still_posts_the_summary_comment() {
         let mock_server = MockServer::start().await;
-        mount_comment_listings(&mock_server, serde_json::json!([]), serde_json::json!([]))
-            .await;
+        mount_comment_listings(&mock_server, serde_json::json!([]), serde_json::json!([])).await;
 
-        // The exact failure this guards against: GitHub rejecting the
-        // whole batched review.
         Mock::given(method("POST"))
             .and(path("/repos/o/r/pulls/1/reviews"))
             .respond_with(ResponseTemplate::new(422).set_body_json(serde_json::json!({
@@ -475,9 +447,7 @@ mod http_tests {
             .expect("request recording should be enabled");
         let summary_request = requests
             .iter()
-            .find(|r| {
-                r.method.as_str() == "POST" && r.url.path().ends_with("/issues/1/comments")
-            })
+            .find(|r| r.method.as_str() == "POST" && r.url.path().ends_with("/issues/1/comments"))
             .expect("the summary comment must still have been posted");
         let sent_body: serde_json::Value = summary_request
             .body_json()
@@ -489,9 +459,6 @@ mod http_tests {
         );
     }
 
-    /// A clean run posts no summary comment at all -- otherwise every
-    /// pull request in a consumer's repository collects a bot comment
-    /// showing a table of zeros.
     #[tokio::test]
     async fn clean_run_posts_no_summary_comment() {
         let mock_server = MockServer::start().await;
@@ -528,9 +495,6 @@ mod http_tests {
         );
     }
 
-    /// ...but a stale summary comment from an earlier run (when there
-    /// *were* findings) must be deleted, so a since-fixed pull request
-    /// stops displaying an obsolete summary.
     #[tokio::test]
     async fn clean_run_deletes_a_stale_summary_comment() {
         let mock_server = MockServer::start().await;
@@ -566,10 +530,6 @@ mod http_tests {
         .expect("deleting the stale summary should succeed");
     }
 
-    /// A 403 from any comment-posting call must be recognizable as a
-    /// permission problem, so `super::super::run` can replace octocrab's
-    /// raw error with an actionable message (most often: this is a fork
-    /// pull request, whose GITHUB_TOKEN is read-only).
     #[tokio::test]
     async fn a_403_from_comment_posting_is_classified_as_a_permission_error() {
         let mock_server = MockServer::start().await;

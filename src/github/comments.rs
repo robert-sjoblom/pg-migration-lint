@@ -19,13 +19,10 @@
 //! call site rather than only here:
 //! - [`octocrab::models::pulls::ReviewComment`] (the type
 //!   `PullRequestHandler::reviews().create_review`'s `comments` parameter
-//!   wants) is `#[non_exhaustive]` with 20+ fields shaped for *responses*
-//!   (`id`, `node_id`, `diff_hunk`, `commit_id`, `created_at`, `_links`,
-//!   ...), not requests, and has no public constructor -- so it can't
-//!   actually be constructed from outside the `octocrab` crate. Posting the
-//!   batched review below builds the exact same request body
-//!   `create_review` would, via `Octocrab::post`'s lower-level generic
-//!   escape hatch, instead.
+//!   wants) is `#[non_exhaustive]` with no public constructor, so it can't
+//!   be built from outside the `octocrab` crate. Posting the batched
+//!   review below builds the same request body `create_review` would, via
+//!   `Octocrab::post`'s lower-level generic escape hatch, instead.
 //! - `IssueHandler::update_comment` sends its request via
 //!   `Octocrab::post` (i.e. an HTTP `POST`) to
 //!   `/repos/{owner}/{repo}/issues/comments/{comment_id}`, a route GitHub
@@ -80,27 +77,21 @@ impl std::fmt::Display for PullRequestRef<'_> {
 /// Posts (or updates) this run's PR comments: deletes any marker-tagged
 /// inline review comments left over from a previous run, posts fresh ones
 /// as a single batched review (skipped entirely if `inline` is empty), and
-/// creates-or-updates the marker-tagged PR summary comment.
+/// creates/updates/deletes the marker-tagged PR summary comment.
 ///
-/// A run with *no findings at all* (both `inline` and `summary` empty)
-/// deliberately posts no summary comment -- otherwise every pull request in
-/// a consumer's repository, including ones touching no SQL at all, would
-/// collect a bot comment showing a table of zeros. A stale summary comment
-/// from an earlier run (when there *were* findings) is deleted instead, so
-/// a since-fixed pull request doesn't keep displaying an obsolete summary.
-/// Stale inline comments are deleted in that case too, by the same
-/// unconditional delete pass that always runs first.
+/// A run with no findings at all deletes the summary comment instead of
+/// posting one, so a since-fixed pull request doesn't keep displaying an
+/// obsolete summary -- but the stale-inline-comment delete pass above
+/// always runs regardless.
 ///
 /// `commit_sha` is the PR's head commit SHA -- the `commit_id` GitHub's
 /// "create a review" endpoint anchors each inline comment's `path`+`line`
 /// against.
 ///
 /// A failure to post the batched inline review is deliberately **not**
-/// fatal: it's logged and folded into the summary comment's body, and the
-/// summary is still posted. The delete pass above has already run by then,
-/// so bailing out instead would leave the pull request strictly worse off
-/// than before this run -- old comments gone, nothing posted in their
-/// place.
+/// fatal: it's folded into the summary comment's body instead, since the
+/// delete pass above has already run and bailing out would leave the pull
+/// request worse off than before this run.
 ///
 /// # Errors
 ///
@@ -195,13 +186,8 @@ async fn post_inline_review(
         return Ok(());
     }
 
-    // `path` and `line` both come from the entry, not from
-    // `entry.finding` -- see `InlineEntry`'s field docs. The path is
-    // GitHub's own spelling of the file (the finding's own path may be
-    // `./`-prefixed or absolute), and the line is clamped into the hunk
-    // this finding matched. Posting `finding.end_line` instead would
-    // sometimes name a line outside the diff, which makes GitHub reject
-    // this entire batched review with a 422.
+    // `path` and `line` both come from the entry, not `entry.finding` --
+    // see `InlineEntry`'s field docs for why.
     let comments: Vec<serde_json::Value> = inline
         .iter()
         .map(|entry| {
@@ -241,20 +227,17 @@ async fn post_inline_review(
     Ok(())
 }
 
-/// Builds one inline review comment's body: terse by design (Decided
-/// §2B) -- a severity badge, the finding's message, and its rule id, plus
-/// the trailing [`INLINE_MARKER`] this tool searches for on the next run.
-/// Deliberately not rich (no `--explain` text): that belongs in the summary
-/// comment instead, once per unique rule, not repeated on every inline
-/// comment that rule produces.
+/// Builds one inline review comment's body: a severity badge, the
+/// finding's message, its rule id, and the trailing [`INLINE_MARKER`] this
+/// tool searches for on the next run. Deliberately terse -- no `--explain`
+/// text, that belongs in the summary comment instead, once per unique
+/// rule.
 ///
 /// The severity badge is [`sarif_level`], not `finding.severity`'s own
-/// `Display` (which renders SonarQube's `CRITICAL`/`MAJOR`/... vocabulary,
-/// see `Severity::sonarqube_str`) -- Decided §2A is explicit that PR
-/// comments show `error`/`warning`/`note` badges derived straight from
-/// SARIF's `level`, the same mapping [`super::filter::count_by_severity`]'s
-/// aggregate table already uses, so the two never disagree on what counts
-/// as an "error".
+/// `Display` (SonarQube's `CRITICAL`/`MAJOR`/... vocabulary) -- PR comments
+/// must show the same `error`/`warning`/`note` badges
+/// [`super::filter::count_by_severity`]'s aggregate table uses, so the two
+/// never disagree on what counts as an "error".
 fn inline_comment_body(finding: &Finding) -> String {
     format!(
         "**{}** {} ({})\n\n{INLINE_MARKER}",
@@ -352,17 +335,15 @@ async fn find_summary_comment_id(
 
 /// Builds the summary comment's body: a severity-count table, then (if
 /// non-empty) a list of every `summary`-routed finding with its
-/// [`SummaryReason`] so a human reading the PR understands why each one
-/// isn't inline, then one `<details>` block per *unique* triggered rule
-/// (Decided §2B) -- `rule_ids` is Task 4's already-deduped list, so
-/// `.explain()` is called exactly once per rule here regardless of how many
-/// findings that rule produced.
+/// [`SummaryReason`], then one `<details>` block per *unique* triggered
+/// rule (`rule_ids` is already deduped, so `.explain()` runs once per rule
+/// regardless of how many findings it produced).
 ///
 /// `inline_error`, when present, is the rendered error from a failed
-/// batched-inline-review post (see [`post_comments`]): it's surfaced in the
-/// body so a reader of the pull request learns that the findings which
-/// *should* have been inline are missing, rather than silently seeing
-/// fewer comments than the severity table implies.
+/// batched-inline-review post (see [`post_comments`]): surfaced in the
+/// body so a reader learns the findings that should have been inline are
+/// missing, rather than silently seeing fewer comments than the severity
+/// table implies.
 fn summary_comment_body(
     summary: &[SummaryEntry],
     severity_counts: SeverityCounts,
@@ -436,4 +417,3 @@ fn summary_comment_body(
 
     body
 }
-

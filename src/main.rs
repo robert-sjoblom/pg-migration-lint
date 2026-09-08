@@ -248,20 +248,11 @@ fn run(args: Args) -> Result<bool> {
     exceeds_fail_on_threshold(&all_findings, fail_on_str)
 }
 
-/// Lint `history`'s units, exactly matching the flat CLI mode's default flow:
-/// normalizes schemas, replays every unit into the catalog, lints only units in
-/// `changed_files` (or every unit when `changed_files` is `None`) applies
-/// suppression comments and per-unit dedup, warns about single-file changelogs
-/// that look suspiciously large, and strips `config.output.strip_prefix` from the
-/// result.
-/// Drives the single-pass replay+lint loop over `history`'s units, exactly
-/// matching the flat CLI mode's default flow above: normalizes schemas,
-/// replays every unit into the catalog, lints only units in `changed_files`
-/// (or every unit when `changed_files` is `None` -- the flat mode's own
-/// "lint everything" default when neither `--changed-files` nor
-/// `--changed-files-from` was given), applies suppression comments and
-/// per-unit dedup, and warns about single-file changelogs that look
-/// suspiciously large.
+/// Drives the single-pass replay+lint loop over `history`'s units: normalizes
+/// schemas, replays every unit into the catalog, lints only units in
+/// `changed_files` (or every unit when `changed_files` is `None`), applies
+/// suppression comments and per-unit dedup, and warns about single-file
+/// changelogs that look suspiciously large.
 ///
 /// Deliberately does **not** apply `config.output.strip_prefix` -- every
 /// returned finding's `file` is the same raw path `unit.source_file` had.
@@ -387,18 +378,11 @@ fn lint_history(
 ///
 /// This is purely a report-display concern -- useful when running from a
 /// project root but a consumer (e.g. SonarQube) expects module-relative
-/// paths -- so it must only run at the point reports are actually written:
-/// the flat CLI mode's Step 5 (above, right before [`Reporter::emit`]) and,
-/// if `github::run` also writes the optional SARIF file, there too, but
-/// only *after* [`github::filter::split_findings`] has already matched
-/// findings against Task 3's `hunks` map. `hunks`' keys are GitHub's own
-/// repo-root-relative `filename`s -- never stripped -- so stripping a
-/// finding's path before that lookup makes every finding's `file` fail to
-/// match its own file's hunk entry, silently routing 100% of findings to
-/// `SummaryReason::OutsideDiff` regardless of whether they're actually
-/// inside the PR's diff. The raw (unstripped) path also matters beyond that
-/// lookup: it's what a future PR-comment-posting step would need to
-/// reference the correct file via GitHub's API.
+/// paths -- so it must only run at the point reports are actually written
+/// (the flat CLI mode's report-emission step, and `github::run`'s optional
+/// SARIF write), never before. `github::run` in particular must call this
+/// only after matching findings against its `hunks` map and posting PR
+/// comments: both need the raw, unstripped path GitHub's own API uses.
 fn strip_output_prefix(findings: &mut [Finding], config: &Config) {
     let Some(ref prefix) = config.output.strip_prefix else {
         return;
@@ -734,13 +718,6 @@ mod strip_prefix_hunk_routing_tests {
         assert!(findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
     }
 
-    /// The core regression test: a `Config` with `output.strip_prefix` set,
-    /// findings whose raw file path carries that prefix, and `hunks` keyed
-    /// by that same raw (unstripped) path -- routing must still work
-    /// (inline here, since the hunk covers the finding's line) instead of
-    /// everything silently landing in `OutsideDiff`, which is exactly what
-    /// happened when `lint_history` stripped paths before
-    /// `filter::split_findings` ran.
     #[test]
     fn strip_prefix_configured_does_not_break_hunk_routing() {
         let mut history = history_with_a_finding("impl/migrations/001-create-events.sql");
@@ -751,8 +728,6 @@ mod strip_prefix_hunk_routing_tests {
         assert!(!all_findings.is_empty());
         assert!(all_findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
 
-        // `hunks`' keys are GitHub's own repo-root-relative `filename`s --
-        // the SAME raw path `lint_history` returned, never stripped.
         let mut hunks = HashMap::new();
         hunks.insert(
             PathBuf::from("impl/migrations/001-create-events.sql"),
@@ -776,8 +751,6 @@ mod strip_prefix_hunk_routing_tests {
             "the PGM101 finding specifically must be among the inline entries"
         );
 
-        // Only now, after routing is already decided, does stripping (for
-        // report display) run -- and it should still take effect.
         strip_output_prefix(&mut all_findings, &config);
         assert!(
             all_findings
@@ -788,16 +761,15 @@ mod strip_prefix_hunk_routing_tests {
     }
 }
 
-/// Regression coverage for the path-shape mismatch a whole-branch review
-/// caught: `github::filter::split_findings` looks findings up in a hunk map
-/// keyed by GitHub's own repo-root-relative filenames, but a `Finding`'s own
-/// path is whatever `Config::from_file`'s path resolution produced -- which
-/// is `./`-prefixed for the default bare-filename config lookup, and
-/// absolute for an absolute `--config`. Neither shape can ever be `Eq` to a
-/// plain GitHub path, so before `github::filter::PathNormalizer` existed
-/// every finding silently routed to `SummaryReason::OutsideDiff` for the
-/// single most common real-world setup (a config file at the repository
-/// root, `config-path` omitted).
+/// Regression coverage for a path-shape mismatch: `github::filter::split_findings`
+/// looks findings up in a hunk map keyed by GitHub's own repo-root-relative
+/// filenames, but a `Finding`'s own path is whatever `Config::from_file`'s
+/// path resolution produced -- `./`-prefixed for the default bare-filename
+/// config lookup, absolute for an absolute `--config`. Neither shape can
+/// ever be `Eq` to a plain GitHub path, so before `PathNormalizer` existed
+/// every finding silently routed to `OutsideDiff` for the single most
+/// common real-world setup (a config file at the repository root,
+/// `config-path` omitted).
 ///
 /// These tests deliberately run the *real* config-loading path
 /// (`load_config` -> `Config::from_file` -> `Config::resolve_paths`) against
@@ -884,11 +856,6 @@ mod config_path_hunk_routing_tests {
         hunks
     }
 
-    /// The headline case: a config file at the repository root with
-    /// `config-path` omitted, i.e. `load_config(&None)`'s bare-filename
-    /// default lookup. `Config::from_file`'s `path.parent()` is `Some("")`
-    /// here, so it falls back to `Path::new(".")` and every migration path
-    /// comes out `./`-prefixed.
     #[test]
     fn default_config_lookup_findings_route_inline_against_github_paths() {
         let repo = tempfile::tempdir().expect("tempdir");
@@ -928,10 +895,6 @@ mod config_path_hunk_routing_tests {
         );
     }
 
-    /// The absolute-`config-path` case: `--config
-    /// ${{ github.workspace }}/pg-migration-lint.toml`, a common Actions
-    /// idiom. `Config::resolve_paths` makes every migration path absolute,
-    /// which can never be `Eq` to a repo-relative GitHub path.
     #[test]
     fn absolute_config_path_findings_route_inline_against_github_paths() {
         let repo = tempfile::tempdir().expect("tempdir");
@@ -963,9 +926,6 @@ mod config_path_hunk_routing_tests {
         assert!(inline.iter().all(|entry| entry.path == GITHUB_FILENAME));
     }
 
-    /// The `working-directory` case: the action runs from a subdirectory of
-    /// the repository, so findings are relative to that subdirectory while
-    /// GitHub's paths stay relative to the repository root.
     #[test]
     fn non_default_working_directory_findings_route_inline_against_github_paths() {
         let repo = tempfile::tempdir().expect("tempdir");
@@ -980,7 +940,6 @@ mod config_path_hunk_routing_tests {
 
         assert!(!findings.is_empty());
 
-        // GitHub reports this file relative to the *repository* root.
         let mut hunks = HashMap::new();
         hunks.insert(
             PathBuf::from(format!("backend/{GITHUB_FILENAME}")),

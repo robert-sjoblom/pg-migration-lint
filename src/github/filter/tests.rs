@@ -30,11 +30,7 @@ fn hunks_for(file: &str, ranges: Vec<LineRange>) -> HashMap<PathBuf, Vec<LineRan
     hunks
 }
 
-/// A normalizer whose repository root and working directory are the
-/// same (non-existent, so canonicalization is a no-op) directory --
-/// i.e. the default `working-directory: .` shape, where a relative
-/// finding path and a relative GitHub path resolve identically.
-fn test_paths() -> PathNormalizer {
+fn default_working_directory_paths() -> PathNormalizer {
     PathNormalizer::new(Path::new("/repo"), Path::new("/repo"))
 }
 
@@ -43,7 +39,7 @@ fn finding_in_file_with_no_hunk_entry_is_outside_diff() {
     let findings = vec![finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 5)];
     let hunks: HashMap<PathBuf, Vec<LineRange>> = HashMap::new();
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert!(inline.is_empty());
     assert_eq!(summary.len(), 1);
@@ -55,7 +51,7 @@ fn finding_in_file_with_empty_hunk_list_is_patch_too_large() {
     let findings = vec![finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 5)];
     let hunks = hunks_for("a.sql", vec![]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert!(inline.is_empty());
     assert_eq!(summary.len(), 1);
@@ -67,7 +63,7 @@ fn single_line_finding_inside_a_hunk_is_inline() {
     let findings = vec![finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 12)];
     let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert!(summary.is_empty());
@@ -79,59 +75,46 @@ fn single_line_finding_outside_every_hunk_is_outside_diff() {
     let findings = vec![finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 50)];
     let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert!(inline.is_empty());
     assert_eq!(summary.len(), 1);
     assert_eq!(summary[0].reason, SummaryReason::OutsideDiff);
 }
 
-/// The multi-line interval-overlap case the brief calls out explicitly:
-/// a PGM503-shaped finding spanning lines 30-39, checked against a hunk
-/// covering lines 38-45. Naive `start_line`-only matching would miss
-/// this (30 isn't in 38..=45), but the finding's *end* (39) falls
-/// inside the hunk, so it must still be inline-eligible.
 #[test]
 fn multi_line_finding_whose_end_overlaps_a_hunk_is_inline() {
     let findings = vec![finding_spanning(RuleId::Pgm503, "b.sql", 30, 39)];
     let hunks = hunks_for("b.sql", vec![LineRange { start: 38, end: 45 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1, "end-of-span overlap must count as inline");
     assert!(summary.is_empty());
 }
 
-/// Mirror case: the finding's *start* overlaps a hunk but its end
-/// extends past it -- also must be inline, for the same
-/// interval-overlap reason.
 #[test]
 fn multi_line_finding_whose_start_overlaps_a_hunk_is_inline() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "c.sql", 10, 20)];
     let hunks = hunks_for("c.sql", vec![LineRange { start: 5, end: 12 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert!(summary.is_empty());
 }
 
-/// A multi-line finding that fully contains a hunk (hunk nested inside
-/// the finding's span) must also overlap.
 #[test]
 fn multi_line_finding_fully_containing_a_hunk_is_inline() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "d.sql", 1, 100)];
     let hunks = hunks_for("d.sql", vec![LineRange { start: 40, end: 41 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert!(summary.is_empty());
 }
 
-/// A multi-line finding entirely between two hunks (touching neither)
-/// must not be inline, even though the file has non-empty hunks
-/// elsewhere.
 #[test]
 fn multi_line_finding_between_two_hunks_is_outside_diff() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "e.sql", 20, 25)];
@@ -143,21 +126,15 @@ fn multi_line_finding_between_two_hunks_is_outside_diff() {
         ],
     );
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert!(inline.is_empty());
     assert_eq!(summary.len(), 1);
     assert_eq!(summary[0].reason, SummaryReason::OutsideDiff);
 }
 
-/// The named regression scenario: a changelog file (shaped like
-/// `tests/fixtures/repos/liquibase-multi-schema/changelog/003-same-name-ops.xml`)
-/// carries several pre-existing findings the PR didn't touch, plus one
-/// new finding on a line the PR's diff actually added. Only the new
-/// in-range finding should be inline; the rest must land in the
-/// summary as outside-diff, not silently vanish or wrongly go inline.
 #[test]
-fn named_regression_pre_existing_findings_summary_new_finding_inline() {
+fn pre_existing_findings_go_to_summary_new_finding_in_diff_goes_inline() {
     let file = "changelog/003-same-name-ops.xml";
     let findings = vec![
         finding_at(RuleId::Pgm101, RuleId::Pgm101.default_severity(), file, 12),
@@ -165,11 +142,9 @@ fn named_regression_pre_existing_findings_summary_new_finding_inline() {
         finding_at(RuleId::Pgm402, RuleId::Pgm402.default_severity(), file, 26),
         finding_at(RuleId::Pgm402, RuleId::Pgm402.default_severity(), file, 33),
     ];
-    // The PR's diff only touches lines 30-35 (the new changeset that
-    // introduces the line-33 finding).
     let hunks = hunks_for(file, vec![LineRange { start: 30, end: 35 }]);
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1, "only the line-33 finding is in the diff");
     assert_eq!(inline[0].finding.start_line, 33);
@@ -190,13 +165,6 @@ fn named_regression_pre_existing_findings_summary_new_finding_inline() {
     );
 }
 
-/// The C1 regression, at unit level: a finding whose path carries the
-/// `./` prefix `Config::from_file` produces for the default
-/// bare-filename config lookup must still match the plain,
-/// never-`./`-prefixed key GitHub's Files API uses. Before
-/// [`PathNormalizer`], `Path`'s `Eq`/`Hash` judged these two unequal
-/// (a leading `./` is a real `Component::CurDir`) and every finding
-/// silently fell through to `OutsideDiff`.
 #[test]
 fn dot_slash_prefixed_finding_path_matches_its_github_hunk_entry() {
     let findings = vec![finding_at(
@@ -210,7 +178,7 @@ fn dot_slash_prefixed_finding_path_matches_its_github_hunk_entry() {
         vec![LineRange { start: 1, end: 9 }],
     );
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1, "a './' prefix must not defeat the lookup");
     assert!(summary.is_empty());
@@ -220,10 +188,6 @@ fn dot_slash_prefixed_finding_path_matches_its_github_hunk_entry() {
     );
 }
 
-/// The absolute-`--config` variant of the same bug: with
-/// `--config /abs/pg-migration-lint.toml` (the `${{ github.workspace }}`
-/// Actions idiom), `Config::resolve_paths` makes every migration path
-/// absolute, and an absolute path can never equal a repo-relative one.
 #[test]
 fn absolute_finding_path_matches_its_repo_relative_github_hunk_entry() {
     let findings = vec![finding_at(
@@ -237,17 +201,13 @@ fn absolute_finding_path_matches_its_repo_relative_github_hunk_entry() {
         vec![LineRange { start: 1, end: 9 }],
     );
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert!(summary.is_empty());
     assert_eq!(inline[0].path, "db/migrations/001.sql");
 }
 
-/// The `working-directory` variant: the process runs from a
-/// subdirectory of the repository, so a finding's path is relative to
-/// that subdirectory while GitHub's path stays relative to the
-/// repository root.
 #[test]
 fn finding_under_a_non_default_working_directory_matches_its_github_hunk_entry() {
     let paths = PathNormalizer::new(Path::new("/repo"), Path::new("/repo/backend"));
@@ -266,9 +226,6 @@ fn finding_under_a_non_default_working_directory_matches_its_github_hunk_entry()
     assert_eq!(inline[0].path, "backend/db/001.sql");
 }
 
-/// A finding in a genuinely different file must still not match, even
-/// though both sides now go through the normalizer -- normalization
-/// must not make unrelated paths collide.
 #[test]
 fn normalization_does_not_make_different_files_match() {
     let findings = vec![finding_at(
@@ -282,27 +239,20 @@ fn normalization_does_not_make_different_files_match() {
         vec![LineRange { start: 1, end: 9 }],
     );
 
-    let (inline, summary) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert!(inline.is_empty());
     assert_eq!(summary.len(), 1);
     assert_eq!(summary[0].reason, SummaryReason::OutsideDiff);
 }
 
-/// The C2 regression, in the exact shape
-/// `multi_line_finding_whose_start_overlaps_a_hunk_is_inline` already
-/// encoded: the finding spans 10-20, the hunk covers 5-12, so the two
-/// overlap (at 10-12) and the finding is inline-eligible -- but its
-/// `end_line` (20) is outside every hunk. Posting there would make
-/// GitHub reject the whole batched review with a 422; the carried
-/// anchor must be inside the hunk instead.
 #[test]
 fn anchor_line_of_a_finding_ending_past_its_hunk_is_inside_the_hunk() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "c.sql", 10, 20)];
     let hunk = LineRange { start: 5, end: 12 };
     let hunks = hunks_for("c.sql", vec![hunk]);
 
-    let (inline, _) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     let anchor = inline[0].anchor_line;
@@ -317,49 +267,39 @@ fn anchor_line_of_a_finding_ending_past_its_hunk_is_inside_the_hunk() {
     );
 }
 
-/// Mirror case: the finding *starts* before the hunk and ends inside
-/// it, so its `start_line` is the unpostable end. The anchor clamps up
-/// to the hunk's first line.
 #[test]
 fn anchor_line_of_a_finding_starting_before_its_hunk_is_inside_the_hunk() {
     let findings = vec![finding_spanning(RuleId::Pgm503, "b.sql", 30, 39)];
     let hunk = LineRange { start: 38, end: 45 };
     let hunks = hunks_for("b.sql", vec![hunk]);
 
-    let (inline, _) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert_eq!(inline[0].anchor_line, 38);
 }
 
-/// A finding that fully contains a small hunk: neither endpoint is
-/// inside it, so the anchor has to clamp from both sides.
 #[test]
 fn anchor_line_of_a_finding_containing_its_hunk_is_inside_the_hunk() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "d.sql", 1, 100)];
     let hunks = hunks_for("d.sql", vec![LineRange { start: 40, end: 41 }]);
 
-    let (inline, _) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline.len(), 1);
     assert_eq!(inline[0].anchor_line, 40);
 }
 
-/// A single-line finding inside a hunk anchors at its own line -- the
-/// clamp must be a no-op for the common case.
 #[test]
 fn anchor_line_of_a_single_line_finding_is_its_own_line() {
     let findings = vec![finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 12)];
     let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
 
-    let (inline, _) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline[0].anchor_line, 12);
 }
 
-/// With several hunks in a file, the first overlapping one wins -- the
-/// same hunk the eligibility check itself stops at -- and the anchor
-/// lands in *that* hunk.
 #[test]
 fn anchor_line_uses_the_first_overlapping_hunk() {
     let findings = vec![finding_spanning(RuleId::Pgm501, "e.sql", 1, 100)];
@@ -371,7 +311,7 @@ fn anchor_line_uses_the_first_overlapping_hunk() {
         ],
     );
 
-    let (inline, _) = split_findings(&findings, &hunks, &test_paths());
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
 
     assert_eq!(inline[0].anchor_line, 20);
 }
@@ -451,9 +391,9 @@ fn severity_counts_match_sarif_level_mapping() {
     assert_eq!(
         counts,
         SeverityCounts {
-            error: 2,   // Blocker + Critical
-            warning: 1, // Major
-            note: 2,    // Minor + Info
+            error: 2,
+            warning: 1,
+            note: 2,
         }
     );
 }

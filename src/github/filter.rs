@@ -1,17 +1,15 @@
 //! Finding filtering for the `github-review` subcommand.
 //!
-//! [`split_findings`] takes the lint pipeline's `Vec<Finding>` (see
-//! [`super::run`]) and [`super::files`]'s per-file diff-hunk ranges, and
-//! splits findings into inline-eligible (the finding's line range overlaps a
-//! diff hunk for that file, so it can be posted as an inline PR review
-//! comment) versus summary-only (everything else, tagged with why -- see
-//! [`SummaryReason`]). It also computes the severity-count table and unique
-//! rule-id list Task 5's summary comment needs.
+//! [`split_findings`] takes the lint pipeline's `Vec<Finding>` and
+//! [`super::files`]'s per-file diff-hunk ranges, and splits findings into
+//! inline-eligible (posted as an inline PR review comment) versus
+//! summary-only (tagged with why -- see [`SummaryReason`]). Also computes
+//! the severity-count table and unique rule-id list the summary comment
+//! needs.
 //!
-//! This is deliberately pure (no I/O, no async) so it's the most
-//! straightforwardly testable part of the `github-review` subcommand --
-//! correctness here directly determines which findings a PR author sees
-//! inline vs. buried in a summary comment.
+//! Deliberately pure (no I/O, no async): correctness here directly
+//! determines which findings a PR author sees inline vs. buried in a
+//! summary comment.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
@@ -30,57 +28,35 @@ pub struct InlineEntry {
     /// The finding to post inline.
     pub finding: Finding,
     /// The path to post the comment against: GitHub's own repo-root-relative
-    /// `filename` for the hunk this finding matched, carried verbatim from
-    /// the `hunks` map's key rather than re-derived from `finding.file`.
-    ///
-    /// `finding.file` can be `./`-prefixed or absolute (see
-    /// [`PathNormalizer`]); GitHub's "create a review" endpoint only accepts
-    /// a comment `path` that exactly matches a file in the PR's diff, so
-    /// posting anything but the API's own spelling of the path would 422.
+    /// spelling, carried verbatim from the `hunks` key rather than
+    /// re-derived from `finding.file` (which can be `./`-prefixed or
+    /// absolute, see [`PathNormalizer`] -- GitHub's review endpoint 422s on
+    /// anything but its own spelling).
     pub path: String,
-    /// The line to anchor the inline comment at, clamped into the diff hunk
-    /// this finding matched.
-    ///
-    /// Inline-eligibility is decided by *interval overlap* (any part of the
-    /// finding's `start_line..=end_line` span touching any part of a hunk),
-    /// but GitHub anchors a review comment at a single line, and rejects the
-    /// entire batched review with a 422 if that line falls outside the diff.
-    /// A finding spanning lines 10-20 against a hunk covering 5-12 is
-    /// legitimately inline-eligible, yet neither its `start_line` (10, fine
-    /// here) nor its `end_line` (20, outside every hunk) is guaranteed to be
-    /// postable -- so the anchor is computed as
-    /// `start_line.max(hunk.start).min(hunk.end)`, which is always inside
-    /// the matched hunk.
+    /// The line to anchor the inline comment at, clamped into the matched
+    /// diff hunk. See [`split_findings`] for why neither `start_line` nor
+    /// `end_line` alone is guaranteed to be postable.
     pub anchor_line: usize,
 }
 
-/// Maps the two differently-shaped path vocabularies this subcommand has to
-/// reconcile onto one comparable form.
+/// Reconciles the two differently-shaped path vocabularies
+/// [`split_findings`] has to compare.
 ///
-/// A [`Finding`]'s `file` comes from `unit.source_file`, i.e. from
-/// `config.migrations.paths` after `Config::resolve_paths` has joined each
-/// entry onto the config file's own directory. That makes it relative to the
-/// process's working directory, and it can additionally be:
-/// - `./`-prefixed -- `Config::from_file` falls back to `Path::new(".")`
-///   whenever the config path's `parent()` is empty, which is exactly what
-///   the default bare `pg-migration-lint.toml` lookup (and any bare
-///   `config-path` input) produces, so `db/migrations` becomes
-///   `./db/migrations`;
-/// - absolute -- `--config /abs/path/pg-migration-lint.toml`, the common
-///   `${{ github.workspace }}/...` GitHub Actions idiom.
+/// A [`Finding`]'s `file` (from `config.migrations.paths` after
+/// `Config::resolve_paths`) is relative to the process's working
+/// directory, and can be `./`-prefixed (the default bare
+/// `pg-migration-lint.toml` lookup produces this) or absolute (an
+/// explicit `--config /abs/path`). The `hunks` map's keys, GitHub's own
+/// `filename`s, are always repo-root-relative, never `./`-prefixed or
+/// absolute. `Path`'s `Eq`/`Hash` treat a leading `./` as a real
+/// [`Component::CurDir`], so these two forms of the same path compare
+/// unequal without help.
 ///
-/// The `hunks` map's keys, by contrast, are GitHub's own `filename`s: always
-/// repo-root-relative, never `./`-prefixed, never absolute.
-///
-/// `Path`'s `Eq`/`Hash` treat a leading `./` as a real [`Component::CurDir`],
-/// so `./db/001.sql != db/001.sql`, and an absolute path can never equal a
-/// repo-relative one. Both sides of [`split_findings`]'s lookup therefore go
-/// through this type, which resolves each to one absolute path: finding
-/// paths against the working directory, GitHub paths against the repository
-/// root. Resolving (rather than stripping to a common relative form) is what
-/// also makes a non-default `working-directory` work -- there, the process's
-/// CWD is a subdirectory of the repository root, and only re-anchoring both
-/// sides at their own base lines the two up.
+/// Both sides are resolved to one absolute path: finding paths against the
+/// working directory, GitHub paths against the repository root. Resolving
+/// (rather than stripping to a common relative form) is what also makes a
+/// non-default `working-directory` work, since the process's CWD is then a
+/// subdirectory of the repository root.
 #[derive(Debug, Clone)]
 pub struct PathNormalizer {
     /// Repository root, i.e. the directory GitHub's API paths are relative
@@ -111,9 +87,7 @@ impl PathNormalizer {
 
     /// [`Self::from_env`]'s logic with the two environment reads passed in
     /// as plain parameters, so tests can exercise both branches without
-    /// mutating process-global state -- the same split
-    /// [`super::resolve_pr`], [`super::resolve_repo`], and
-    /// [`super::resolve_token`] already use.
+    /// mutating process-global state.
     fn from_env_values(current_dir: Option<PathBuf>, github_workspace: Option<String>) -> Self {
         let working_dir = current_dir.unwrap_or_else(|| PathBuf::from("."));
         let repo_root = github_workspace
@@ -148,16 +122,12 @@ impl PathNormalizer {
 
     /// Shared core of the two `normalize_*` methods: drops `./`
     /// components, resolves a relative path against `base`, and
-    /// canonicalizes the result when the file exists.
-    ///
-    /// Canonicalizing the *result* (not just the bases) matters because a
-    /// finding's path can already be absolute -- spelled however the
-    /// `--config` value that produced it was spelled -- while the GitHub
-    /// side is always built from `base`. Both sides name the same file on
-    /// disk, so resolving both to its real path is what makes them
-    /// comparable. A path that can't be canonicalized (a file deleted by
-    /// the pull request, say) keeps its resolved form, which still matches
-    /// as long as both sides share a base.
+    /// canonicalizes the result -- needed since a finding's path can
+    /// already be absolute while the GitHub side is always built from
+    /// `base`, and canonicalizing both is what makes them comparable. A
+    /// path that can't be canonicalized (deleted by the pull request, say)
+    /// keeps its resolved form, which still matches as long as both sides
+    /// share a base.
     fn resolve_against(&self, path: &Path, base: &Path) -> PathBuf {
         let cleaned = without_curdir_components(path);
         let resolved = if cleaned.is_absolute() {
@@ -176,16 +146,10 @@ fn canonicalize_or_keep(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Drops every [`Component::CurDir`] from `path`, turning `./db/001.sql`
-/// into `db/001.sql` while leaving everything else (including a leading
-/// `/`) untouched.
-///
-/// [`Path::components`] already normalizes away *interior* `.` components,
-/// so in practice this only ever removes a leading one. It also covers the
-/// `.\`-prefixed spelling for free on Windows, where the standard library
-/// treats `\` as a separator and so yields the same [`Component::CurDir`];
-/// on Unix `.\foo` is a single, genuinely-named component and is
-/// deliberately left alone.
+/// Drops a leading `./` from `path` (a real [`Component::CurDir`], which
+/// `Path`'s `Eq`/`Hash` treat as significant) -- [`Path::components`]
+/// already normalizes away interior `.` components, so this only ever
+/// matters for a leading one.
 fn without_curdir_components(path: &Path) -> PathBuf {
     let mut cleaned = PathBuf::new();
     for component in path.components() {
@@ -238,41 +202,22 @@ pub enum SummaryReason {
 }
 
 /// Splits `findings` into inline-eligible and summary-only buckets using
-/// `hunks` (Task 3's per-file diff-hunk ranges, see
-/// [`super::files::fetch_changed_files_and_hunks`]).
+/// `hunks` (see [`super::files::fetch_changed_files_and_hunks`]).
 ///
-/// For each finding, its file is looked up in `hunks` -- both sides of that
-/// lookup normalized through `paths` first, since the two come from
-/// different path vocabularies that `Path`'s `Eq`/`Hash` would otherwise
-/// (silently, for every finding) judge unequal; see [`PathNormalizer`]:
-/// - No entry for that file, or an entry whose ranges don't overlap the
-///   finding's line span -> [`SummaryReason::OutsideDiff`].
-/// - An entry present but empty (`[]`) -> [`SummaryReason::PatchTooLarge`].
-/// - An entry with at least one range overlapping the finding's line span
-///   -> inline, carrying that hunk's own GitHub path and an anchor line
-///   clamped into it (see [`InlineEntry`]).
-///
-/// Overlap is checked as an **interval overlap**, not naive
-/// `start_line`-only matching: a finding spanning multiple lines
-/// (`start_line..=end_line`) is inline-eligible if *any* hunk range
-/// overlaps *any part* of that span (`hunk.start <= finding.end_line &&
-/// hunk.end >= finding.start_line`). This matters because a multi-line
-/// finding whose start is outside a hunk but whose end is inside it must
-/// still land inline -- e.g. a PGM503-shaped finding spanning lines 30-39
-/// against a hunk covering lines 38-45 overlaps (at lines 38-39) and is
-/// inline-eligible, even though `finding.start_line` (30) itself falls
-/// outside the hunk. When several hunks overlap the same finding, the first
-/// one in the file's hunk list wins -- the same hunk the eligibility check
-/// itself stops at.
+/// Both sides of the `hunks` lookup are normalized through `paths` first
+/// (see [`PathNormalizer`]) before matching by file. A finding is
+/// inline-eligible if any hunk range overlaps any part of its
+/// `start_line..=end_line` span (interval overlap, not naive
+/// `start_line`-only matching -- a finding spanning 30-39 against a hunk
+/// covering 38-45 must still count as inline). When several hunks overlap,
+/// the first one in the file's hunk list wins.
 pub fn split_findings(
     findings: &[Finding],
     hunks: &HashMap<PathBuf, Vec<LineRange>>,
     paths: &PathNormalizer,
 ) -> (Vec<InlineEntry>, Vec<SummaryEntry>) {
-    // Key every hunk entry by its normalized path once, keeping the original
-    // GitHub key alongside it: that key is what an inline comment has to be
-    // posted against, and it's the one spelling of the path GitHub is
-    // guaranteed to accept.
+    // Keep the original GitHub-spelled key alongside the normalized one --
+    // that's the spelling a comment must be posted against.
     let by_normalized_path: HashMap<PathBuf, (&PathBuf, &Vec<LineRange>)> = hunks
         .iter()
         .map(|(github_path, ranges)| {
@@ -354,8 +299,7 @@ pub fn count_by_severity(findings: &[Finding]) -> SeverityCounts {
 
 /// Returns the unique [`RuleId`]s that fired across `findings` (inline and
 /// summary alike), sorted by declaration order (via `RuleId`'s derived
-/// `Ord`). Used for Task 5's `--explain` lookup, now a direct function call
-/// instead of a subprocess.
+/// `Ord`).
 pub fn unique_rule_ids(findings: &[Finding]) -> Vec<RuleId> {
     findings
         .iter()

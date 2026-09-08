@@ -74,10 +74,10 @@ runs:
         # for its own token.
         #
         # GITHUB_TOKEN is deliberately passed *only* this way, never as a
-        # `--github-token` argument: `resolve_token` (src/github/mod.rs)
-        # already falls back to $GITHUB_TOKEN, and anything on the command
-        # line is world-readable via /proc/<pid>/cmdline for the lifetime
-        # of the process.
+        # `--github-token` argument: `resolve_token` (src/github.rs) already
+        # falls back to $GITHUB_TOKEN, and anything on the command line is
+        # world-readable via /proc/<pid>/cmdline for the lifetime of the
+        # process.
         GITHUB_TOKEN: ${{ inputs.github-token }}
         CONFIG_PATH: ${{ inputs.config-path }}
         FAIL_ON: ${{ inputs.fail-on }}

@@ -40,9 +40,7 @@ pub struct ResolvedGithubReviewArgs {
     /// Repository in `owner/repo` form.
     pub repo: String,
     /// GitHub token used to call the REST API, via
-    /// `Octocrab::builder().personal_token(...)` in [`run`]. Deliberately
-    /// excluded from the `Debug` impl below (it's a secret, never
-    /// something to print).
+    /// `Octocrab::builder().personal_token(...)` in [`run`].
     pub github_token: String,
     /// Path to configuration file, passed through unchanged (see
     /// `main.rs`'s `load_config` for resolution semantics).
@@ -158,17 +156,8 @@ fn resolve_token(
 ///
 /// # Errors
 ///
-/// Returns an error if argument resolution fails (see
-/// [`ResolvedGithubReviewArgs::resolve`]), the `repo` string isn't in
-/// `owner/repo` form, the `Octocrab` client fails to build, the changed
-/// files/diff-hunk fetch (see [`files::fetch_changed_files_and_hunks`])
-/// fails, fetching the PR itself (for its head commit SHA) fails, config
-/// loading fails (`--config` given-and-missing is a hard error -- see
-/// `crate::load_config`), migration loading fails, writing the SARIF report
-/// fails, posting/updating PR comments fails (see
-/// [`comments::post_comments`]), `--fail-on`/`config.cli.fail_on` names
-/// an unknown severity, or writing this action's `exit-code`/`findings-count`
-/// outputs to `$GITHUB_OUTPUT` fails (see [`write_outputs`]).
+/// Returns an error if any step fails: argument resolution, the GitHub
+/// API calls, config/migration loading, or posting PR comments.
 pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let resolved = ResolvedGithubReviewArgs::resolve(args)?;
     let (owner, repo) = split_owner_repo(&resolved.repo)?;
@@ -181,13 +170,7 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     let (changed_files, hunks) =
         files::fetch_changed_files_and_hunks(&octocrab, owner, repo, resolved.pr).await?;
 
-    // The PR's head commit SHA -- needed as `create_review`'s `commit_id`
-    // when posting inline comments (see `comments::post_comments`).
-    // Resolved directly from octocrab's own PR-get response rather than
-    // threading another CLI/env value through, since this is the more
-    // reliable source (always matches whatever `changed_files`/`hunks`
-    // above were just computed against) and Task 3's own fetch doesn't
-    // carry it.
+    // Needed as `create_review`'s `commit_id` when posting inline comments.
     let pull_request = octocrab
         .pulls(owner, repo)
         .get(resolved.pr)
@@ -195,48 +178,23 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
         .with_context(|| format!("Failed to fetch PR #{} for {owner}/{repo}", resolved.pr))?;
     let commit_sha = pull_request.head.sha.clone();
 
-    // Run the same lint pipeline the flat CLI mode uses (`crate::load_config`,
-    // `crate::load_migrations`, `crate::lint_history`), restricted to the
-    // PR's changed files instead of a `--changed-files`/`--changed-files-from`
-    // CLI value. `resolved.config` already carries the flat mode's exact
-    // `--config` semantics: given-and-missing is a hard error, omitted falls
-    // back to `./pg-migration-lint.toml` then `Config::default()`.
+    // Same lint pipeline the flat CLI mode uses, restricted to the PR's
+    // changed files instead of a `--changed-files` CLI value.
     let config = crate::load_config(&resolved.config)?;
     let mut history = crate::load_migrations(&config)?;
     let mut all_findings = crate::lint_history(&mut history, &config, Some(&changed_files));
 
-    // Route findings against Task 3's `hunks` map BEFORE applying any
-    // configured `output.strip_prefix` -- `hunks`' keys are GitHub's own
-    // repo-root-relative `filename`s, never stripped, and
-    // `comments::post_comments` below needs this same raw path to post PR
-    // review comments against the right file. Stripping first (as the flat
-    // CLI mode's report-writing step does) would make every finding's
-    // `file` fail to match its own hunk entry, silently routing everything
-    // to `SummaryReason::OutsideDiff` regardless of the PR's actual diff --
-    // see `crate::strip_output_prefix`.
-    //
-    // Both sides of that lookup are normalized through
-    // `filter::PathNormalizer` first: a finding's path is whatever
-    // `Config::resolve_paths` produced (possibly `./`-prefixed, possibly
-    // absolute, possibly relative to a non-root `working-directory`),
-    // while `hunks`' keys are always GitHub's plain repo-root-relative
-    // `filename`s -- see `PathNormalizer`'s doc comment.
+    // Must route findings against `hunks` before `crate::strip_output_prefix`
+    // runs below -- `hunks`' keys are never stripped.
     let paths = filter::PathNormalizer::from_env();
     let (inline, summary) = filter::split_findings(&all_findings, &hunks, &paths);
     let severity_counts = filter::count_by_severity(&all_findings);
     let rule_ids = filter::unique_rule_ids(&all_findings);
 
-    // Optional (not required for the PR-comment feature, but low-cost and
-    // independently valuable): also write the SARIF report, at the same
-    // `config.output.dir` the flat CLI mode's own SARIF output already
-    // resolves to (relative paths in the config are resolved against the
-    // `--config` file's directory by `Config::from_file` itself, so no
-    // separate resolution logic is needed here). This lets consumers wire
-    // this subcommand's output into GitHub Code Scanning via
-    // `github/codeql-action/upload-sarif`, independent of whatever
-    // `config.output.formats` says for the flat CLI mode. `strip_prefix` is
-    // applied now, only for this report-display purpose, now that routing
-    // above is already decided against the raw paths.
+    // Also write the SARIF report (not required for the PR-comment
+    // feature, but lets consumers wire this into GitHub Code Scanning).
+    // `strip_prefix` is applied now, for report display, since routing is
+    // already decided.
     crate::strip_output_prefix(&mut all_findings, &config);
     SarifReporter::new()
         .emit(&all_findings, &config.output.dir)
@@ -396,16 +354,8 @@ fn log_finding_routing(inline: &[filter::InlineEntry], summary: &[filter::Summar
 }
 
 /// Renders `path` the way GitHub's own API always does: forward slashes,
-/// even if some future caller on Windows ever built a
-/// [`pg_migration_lint::Finding`] from a backslash-separated
-/// [`std::path::PathBuf`]. Mirrors `pg_migration_lint::output`'s own
-/// `normalize_path`, which is `pub(crate)` to the lib crate and so not
-/// reachable from here (this binary-crate module lives in `main.rs`'s
-/// `mod github;`, a separate crate from the `pg_migration_lint` lib).
-///
-/// Shared by [`filter`] (which renders the path an inline comment is posted
-/// against) and [`comments`] (which renders paths in the summary comment's
-/// body) so the two can't disagree about how a path is spelled.
+/// never backslashes. Shared by [`filter`] and [`comments`] so the two
+/// can't disagree about how a path is spelled.
 pub fn github_path(path: &std::path::Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
@@ -651,11 +601,7 @@ mod tests {
     #[test]
     fn write_outputs_errors_when_github_output_env_is_unset() {
         // SAFETY: no other test in this process reads or writes
-        // `GITHUB_OUTPUT`, so removing it here can't race with another
-        // test's expectations. Cargo test binaries run each test in its
-        // own thread within one process, so mutating process-global env
-        // state is only safe when no other test touches the same key --
-        // this is that key's only test.
+        // `GITHUB_OUTPUT`, so this can't race with another test.
         unsafe {
             std::env::remove_var("GITHUB_OUTPUT");
         }
