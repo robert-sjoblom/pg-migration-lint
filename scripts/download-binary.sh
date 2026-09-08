@@ -6,27 +6,40 @@
 # `pg-migration-lint` directly.
 #
 # Required environment:
-#   GITHUB_ACTION_REPOSITORY  owner/repo hosting *this action* (NOT the
-#                             consumer repo that invokes it). Must be
-#                             forwarded explicitly by the calling step's
-#                             `env:` block from `${{ github.action_repository }}`.
-#                             Reading `${{ github.action_repository }}` (or
-#                             the ambient $GITHUB_ACTION_REPOSITORY) directly
-#                             inside a composite action's `run:` shell
-#                             resolves to an empty string — this is a known,
-#                             confirmed-not-fixed runner bug
-#                             (actions/runner#2525, closed as "not planned").
-#                             The expression only evaluates correctly when
-#                             assigned in `env:`, so action.yml captures it
-#                             there and this script just reads the env var.
-#   GITHUB_ACTION_REF         Same caveat as above, for
-#                             `${{ github.action_ref }}`. This is the ref the
-#                             consumer pinned the action to (a released tag
-#                             like `v1.2.3`, or a branch like `main`).
-#   GH_TOKEN                  Token for `gh` CLI API auth (forwarded from
-#                             this action's `github-token` input).
-#   GITHUB_PATH               Runner-provided file; appended to so the
-#                             extracted binary's directory ends up on PATH.
+#   ACTION_REPOSITORY  owner/repo hosting *this action* (NOT the consumer
+#                      repo that invokes it). Must be forwarded explicitly
+#                      by the calling step's `env:` block from
+#                      `${{ github.action_repository }}`.
+#
+#                      Two gotchas stack up here:
+#                        1. Reading `${{ github.action_repository }}`
+#                           directly inside a composite action's `run:`
+#                           shell resolves to an empty string — a known,
+#                           confirmed-not-fixed runner bug
+#                           (actions/runner#2525, closed as "not planned").
+#                           The expression only evaluates correctly when
+#                           assigned in a step's `env:` block, so
+#                           action.yml captures it there instead.
+#                        2. The captured env var must NOT be named
+#                           `GITHUB_ACTION_REPOSITORY` (or anything else
+#                           starting with `GITHUB_`/`RUNNER_`): those
+#                           prefixes are reserved for the runner's own
+#                           variables, and GitHub's docs state that a
+#                           step's `env:` assignment to a reserved name is
+#                           silently ignored in favor of the runner's own
+#                           value for that name --
+#                           https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables
+#                           Using a reserved name here would silently
+#                           reproduce bug #1, just one level removed. Hence
+#                           the unprefixed `ACTION_REPOSITORY` name.
+#   ACTION_REF         Same two caveats as above, for
+#                      `${{ github.action_ref }}`. This is the ref the
+#                      consumer pinned the action to (a released tag like
+#                      `v1.2.3`, or a branch like `main`).
+#   GH_TOKEN           Token for `gh` CLI API auth (forwarded from this
+#                      action's `github-token` input).
+#   GITHUB_PATH        Runner-provided file; appended to so the extracted
+#                      binary's directory ends up on PATH.
 #
 # Optional environment:
 #   RUNNER_TEMP               Preferred scratch directory. Falls back to
@@ -47,8 +60,8 @@ set -euo pipefail
 readonly ASSET_PATTERN='pg-migration-lint-x86_64-linux.tar.gz'
 readonly BINARY_NAME='pg-migration-lint'
 
-: "${GITHUB_ACTION_REPOSITORY:?GITHUB_ACTION_REPOSITORY is required — see header comment}"
-: "${GITHUB_ACTION_REF:?GITHUB_ACTION_REF is required — see header comment}"
+: "${ACTION_REPOSITORY:?ACTION_REPOSITORY is required — see header comment}"
+: "${ACTION_REF:?ACTION_REF is required — see header comment}"
 : "${GITHUB_PATH:?GITHUB_PATH is required (normally set by the GitHub Actions runner)}"
 
 # Resolve the release tag to download. Prefer the ref the action itself was
@@ -66,19 +79,19 @@ resolve_tag() {
   gh release view --repo "$repo" --json tagName -q .tagName
 }
 
-tag="$(resolve_tag "$GITHUB_ACTION_REPOSITORY" "$GITHUB_ACTION_REF")"
+tag="$(resolve_tag "$ACTION_REPOSITORY" "$ACTION_REF")"
 
 install_dir="${RUNNER_TEMP:-$(mktemp -d)}/pg-migration-lint-bin"
 mkdir -p "$install_dir"
 
 gh release download "$tag" \
-  --repo "$GITHUB_ACTION_REPOSITORY" \
+  --repo "$ACTION_REPOSITORY" \
   --pattern "$ASSET_PATTERN" \
   --dir "$install_dir" \
   --clobber
 
 if ! gh release download "$tag" \
-  --repo "$GITHUB_ACTION_REPOSITORY" \
+  --repo "$ACTION_REPOSITORY" \
   --pattern "$ASSET_PATTERN.sha256" \
   --dir "$install_dir" \
   --clobber; then

@@ -47,11 +47,21 @@ runs:
         # script instead of reading `${{ github.action_repository }}` /
         # `${{ github.action_ref }}` from inside download-binary.sh itself.
         #
+        # The captured names must NOT start with `GITHUB_` or `RUNNER_`:
+        # those prefixes are reserved for the runner's own variables, and
+        # per GitHub's docs, a step's `env:` assignment to a reserved name
+        # is silently ignored in favor of the runner's own value --
+        # https://docs.github.com/en/actions/reference/workflows-and-actions/variables#default-environment-variables
+        # `GITHUB_ACTION_REPOSITORY`/`GITHUB_ACTION_REF` are exactly such
+        # reserved names (the plain-env-var form of the same broken
+        # context values), so naming the captures that way just reproduces
+        # the actions/runner#2525 bug one level removed.
+        #
         # This must resolve to *this action's* source repo, never the
         # consumer's repo — `${{ github.repository }}` would silently
         # resolve to whatever repo is running the workflow, which is wrong.
-        GITHUB_ACTION_REPOSITORY: ${{ github.action_repository }}
-        GITHUB_ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: ${{ github.action_path }}/scripts/download-binary.sh
 

@@ -53,7 +53,7 @@ assert_not_contains() {
 }
 
 # Runs download-binary.sh once, in a fresh sandbox, with the given
-# GITHUB_ACTION_REF and GH_STUB_SHA256_MODE. Leaves behind (as globals for
+# ACTION_REF and GH_STUB_SHA256_MODE. Leaves behind (as globals for
 # the caller to inspect):
 #   SANDBOX        sandbox root for this run
 #   GH_LOG         path to this run's gh-invocation log
@@ -80,8 +80,8 @@ run_scenario() {
     GH_STUB_KNOWN_TAG="v2.15.0" \
     GH_STUB_LATEST_TAG="v9.9.9" \
     GH_STUB_SHA256_MODE="$sha256_mode" \
-    GITHUB_ACTION_REPOSITORY="test-owner/test-repo" \
-    GITHUB_ACTION_REF="$ref" \
+    ACTION_REPOSITORY="test-owner/test-repo" \
+    ACTION_REF="$ref" \
     GH_TOKEN="fake-token-for-test" \
     GITHUB_PATH="$GITHUB_PATH_FILE" \
     RUNNER_TEMP="$SANDBOX/runner-temp" \
@@ -90,7 +90,7 @@ run_scenario() {
   set -e
 }
 
-echo "Scenario A: GITHUB_ACTION_REF is itself an existing release tag (v2.15.0); no .sha256 asset published (old release)"
+echo "Scenario A: ACTION_REF is itself an existing release tag (v2.15.0); no .sha256 asset published (old release)"
 run_scenario "v2.15.0" "missing"
 
 if [[ "$RUN_EXIT" -eq 0 ]]; then
@@ -121,7 +121,7 @@ assert_contains "$GITHUB_PATH_FILE" "$INSTALL_DIR" \
   "adds the install directory to \$GITHUB_PATH"
 
 echo
-echo "Scenario B: GITHUB_ACTION_REF is not a release tag (main), falls back to latest; no .sha256 asset published (old release)"
+echo "Scenario B: ACTION_REF is not a release tag (main), falls back to latest; no .sha256 asset published (old release)"
 run_scenario "main" "missing"
 
 if [[ "$RUN_EXIT" -eq 0 ]]; then
