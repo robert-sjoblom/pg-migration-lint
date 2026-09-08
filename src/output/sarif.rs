@@ -100,8 +100,8 @@ struct SarifRegion {
     end_line: usize,
 }
 
-/// Map a finding severity to a SARIF level string.
-fn sarif_level(severity: &Severity) -> &'static str {
+/// Maps a finding severity to a SARIF `level` string.
+pub fn sarif_level(severity: &Severity) -> &'static str {
     match severity {
         Severity::Blocker | Severity::Critical => "error",
         Severity::Major => "warning",

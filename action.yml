@@ -1,0 +1,98 @@
+name: 'pg-migration-lint'
+description: 'Lint changed PostgreSQL migration files for safety and correctness issues, and post findings as PR comments.'
+author: 'robert-sjoblom'
+
+inputs:
+  github-token:
+    description: >-
+      Token used to authenticate GitHub API calls this action makes (fetching
+      PR changed files, posting review comments) and to download this
+      action's own release binary via `gh`.
+    required: false
+    default: ${{ github.token }}
+  working-directory:
+    description: 'Directory to run pg-migration-lint from, relative to the consumer repository root.'
+    required: false
+    default: '.'
+  config-path:
+    description: 'Path to a pg-migration-lint config file, passed through as --config. Optional; the tool falls back to its own defaults when omitted.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Severity threshold passed through as --fail-on (blocker/critical/major/minor/info/none). Optional; the tool defaults to critical when unset.'
+    required: false
+    default: ''
+
+outputs:
+  exit-code:
+    description: 'Exit code returned by the pg-migration-lint CLI (0 = clean, 1 = findings at/above threshold, 2 = tool/config error).'
+    value: ${{ steps.github-review.outputs.exit-code }}
+  findings-count:
+    description: 'Total number of findings reported by pg-migration-lint.'
+    value: ${{ steps.github-review.outputs.findings-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download pg-migration-lint binary
+      id: download-binary
+      shell: bash
+      env:
+        # github.action_repository / github.action_ref resolve to empty
+        # strings when read directly inside a composite action's `run:`
+        # shell — a confirmed runner bug (actions/runner#2525, closed as
+        # "not planned"), not a typo. The expressions only evaluate
+        # correctly here, in the step's `env:` block, so we capture them
+        # into plain environment variables and forward those into the
+        # script instead of reading `${{ github.action_repository }}` /
+        # `${{ github.action_ref }}` from inside download-binary.sh itself.
+        #
+        # This must resolve to *this action's* source repo, never the
+        # consumer's repo — `${{ github.repository }}` would silently
+        # resolve to whatever repo is running the workflow, which is wrong.
+        GITHUB_ACTION_REPOSITORY: ${{ github.action_repository }}
+        GITHUB_ACTION_REF: ${{ github.action_ref }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: ${{ github.action_path }}/scripts/download-binary.sh
+
+    - name: Run pg-migration-lint github-review
+      id: github-review
+      shell: bash
+      # Runs the subcommand with the consumer repository's
+      # working-directory as CWD, so --config and migration paths resolve
+      # relative to it exactly like the flat CLI mode does.
+      # `GithubReviewArgs` deliberately has no `--working-directory` flag
+      # of its own -- see its doc comment in src/main.rs -- so this step
+      # does the equivalent of a `cd` via the composite step's own
+      # `working-directory:` key instead.
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        # Piped through as plain environment variables (rather than
+        # interpolating `${{ inputs.* }}` directly into the script body)
+        # so a value containing shell metacharacters can't inject into the
+        # script -- same convention the download-binary step above uses
+        # for its own token.
+        #
+        # GITHUB_TOKEN is deliberately passed *only* this way, never as a
+        # `--github-token` argument: `resolve_token` (src/github.rs) already
+        # falls back to $GITHUB_TOKEN, and anything on the command line is
+        # world-readable via /proc/<pid>/cmdline for the lifetime of the
+        # process.
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        CONFIG_PATH: ${{ inputs.config-path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        args=(github-review)
+
+        if [[ -n "$CONFIG_PATH" ]]; then
+          args+=(--config "$CONFIG_PATH")
+        fi
+
+        if [[ -n "$FAIL_ON" ]]; then
+          args+=(--fail-on "$FAIL_ON")
+        fi
+
+        # pg-migration-lint itself writes exit-code/findings-count to
+        # $GITHUB_OUTPUT before returning, and its own 0/1/2 exit code is
+        # this step's exit code -- no separate capture/recapture needed.
+        pg-migration-lint "${args[@]}"
