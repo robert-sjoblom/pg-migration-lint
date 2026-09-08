@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.1...v2.16.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **main:** normalize leading ./ ([#226](https://github.com/robert-sjoblom/pg-migration-lint/issues/226)) ([335eafa](https://github.com/robert-sjoblom/pg-migration-lint/commit/335eafa384046621bab820f4b4578348d3f2148c))
+
 ## [2.16.1](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.0...v2.16.1) (2026-09-08)
 
 
