@@ -169,8 +169,14 @@ impl TableState {
             .any(|c| matches!(c, ConstraintState::PrimaryKey { .. }));
     }
 
-    /// Check if any index on this table covers the given columns as a prefix.
-    /// Column order matters: [a, b] is covered by [a, b, c] but not [b, a].
+    /// Check if any usable index on this table indexes at least one of the
+    /// given FK columns, in any position. An index covering only some of the
+    /// FK columns still lets PostgreSQL avoid a genuine sequential scan
+    /// (Index Scan with a Filter on the uncovered columns, or Bitmap Heap
+    /// Scan with a Recheck), so it counts as coverage even though a fully
+    /// covering index performs better. Column order and position do not
+    /// matter here -- contrast with PGM508's `is_prefix`, which does care
+    /// about order.
     ///
     /// Skipped indexes:
     /// - Partial indexes — they only index a subset of rows.
@@ -178,20 +184,15 @@ impl TableState {
     /// - Non-B-tree indexes (GIN, GiST, BRIN, hash) — only B-tree indexes
     ///   support the ordered lookups PostgreSQL uses for FK enforcement.
     ///
-    /// An expression entry at position N stops prefix matching, since
-    /// expressions cannot match an FK column name (e.g. FK `(a, b)` is NOT
-    /// covered by index `(a, lower(b))`).
-    pub fn has_covering_index(&self, fk_columns: &[String]) -> bool {
+    /// Expression entries never match, since an expression cannot equal a
+    /// plain FK column name.
+    pub fn has_indexed_fk_column(&self, fk_columns: &[String]) -> bool {
         self.indexes.iter().any(|idx| {
             if idx.is_partial() || idx.only || !idx.is_btree() {
                 return false;
             }
-            idx.entries.len() >= fk_columns.len()
-                && idx
-                    .entries
-                    .iter()
-                    .zip(fk_columns)
-                    .all(|(entry, fc)| matches!(entry, IndexColumn::Column(name) if name == fc))
+            idx.column_names()
+                .any(|name| fk_columns.iter().any(|fc| fc == name))
         })
     }
 

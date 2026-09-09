@@ -3241,7 +3241,7 @@ fn test_gin_index_does_not_cover_fk() {
 
     let orders = catalog.get_table("orders").unwrap();
     assert!(
-        !orders.has_covering_index(&["tags".to_string()]),
+        !orders.has_indexed_fk_column(&["tags".to_string()]),
         "GIN index should NOT satisfy FK coverage"
     );
 }
@@ -3260,7 +3260,7 @@ fn test_btree_index_covers_fk() {
 
     let orders = catalog.get_table("orders").unwrap();
     assert!(
-        orders.has_covering_index(&["customer_id".to_string()]),
+        orders.has_indexed_fk_column(&["customer_id".to_string()]),
         "btree index should satisfy FK coverage"
     );
 }

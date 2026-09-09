@@ -97,22 +97,21 @@ fn test_all_files_changed_fresh_repo() {
 }
 
 #[test]
-fn test_bridge_table_missing_covering_index_on_second_fk_column() {
+fn test_bridge_table_shared_composite_index_no_finding() {
     // Bridge table xy has PK (x_id, y_id) and FKs to both x and y.
-    // The composite PK index covers x_id (leftmost prefix) but NOT y_id alone.
-    // PGM501 should fire for y_id only. All tables are new.
+    // The composite PK index covers x_id as a leading column, and contains
+    // y_id too (just not in leading position). PGM501's predicate only
+    // requires that a usable index contain at least one of the FK columns,
+    // in any position — an index covering only some of the FK columns
+    // still lets PostgreSQL avoid a genuine sequential scan. So neither FK
+    // should fire here. All tables are new.
     let findings =
         common::lint_fixture_rules("bridge-table", &["V001__bridge_table.sql"], &["PGM501"]);
-    assert_eq!(
-        findings.len(),
-        1,
-        "Expected exactly 1 PGM501 finding (y_id), got:\n  {}",
-        common::format_findings(&findings)
-    );
     assert!(
-        findings[0].message.contains("y_id"),
-        "PGM501 should fire for y_id, got: {}",
-        findings[0].message
+        findings.is_empty(),
+        "PK index (x_id, y_id) covers both FKs — x_id as a leading column, y_id at a \
+         non-leading position — so PGM501 should not fire. Got:\n  {}",
+        common::format_findings(&findings)
     );
 }
 

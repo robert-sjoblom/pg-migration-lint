@@ -99,7 +99,7 @@ pub struct TableState {
 
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
-- `has_covering_index(&self, fk_columns: &[String]) -> bool` - btree prefix matching for PGM501 (skips non-btree, partial, ONLY indexes)
+- `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (skips non-btree, partial, ONLY indexes); used by PGM501
 - `has_unique_not_null(&self) -> bool` - for PGM503 detection (btree-only, skips partial/expression indexes)
 
 The catalog tracks:
@@ -237,7 +237,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 
 - No `unwrap()` or `expect()` in library code - use `thiserror` for error handling
 - All public functions require doc comments
-- Index column order must be preserved (affects FK covering index checks via `has_covering_index()`)
+- Index column order must be preserved (affects PGM508's prefix-based redundant-index detection via `is_prefix()`)
 - `pg_query` uses libpg_query bindings - use the pg_query_spike.rs test file to figure out the AST.
 - Down migrations (`.down.sql` / `_down.sql` suffix) always get INFO severity cap (PGM901)
 - Error paths: config errors exit 2, parse failures on individual files warn and continue
