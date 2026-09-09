@@ -88,13 +88,13 @@ expression: findings
   end_line: 1
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'billing.invoices(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'billing.invoices(user_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
   start_line: 1
   end_line: 3
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'orders(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'orders(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
   start_line: 1
   end_line: 3

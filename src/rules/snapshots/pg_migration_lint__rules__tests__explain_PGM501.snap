@@ -13,12 +13,15 @@ A FOREIGN KEY constraint where the referencing table has no usable
 index containing any of the FK columns.
 
 Why it's dangerous:
-When a row is deleted or updated in the referenced (parent) table,
-PostgreSQL must check that no rows in the referencing (child) table
-still reference the old value. Without an index on the FK columns,
-this check performs a sequential scan of the entire child table —
-once per affected parent row. This can cause severe performance
-degradation and lock contention.
+Any query that joins or filters on these columns has no index to
+seek through, so it falls back to a sequential scan of the entire
+child table — this is usually the more frequent cost. Referential
+integrity checks add another: when a row in the referenced (parent)
+table is deleted, or its key columns are updated, PostgreSQL must
+confirm no row in the referencing (child) table still references
+the old value, and without an index that check is also a full scan
+of the child table — once per affected parent row. Either path can
+cause severe performance degradation and lock contention.
 
 Example (bad):
 ALTER TABLE order_items
@@ -51,3 +54,15 @@ child indexes are attached via ALTER INDEX ... ATTACH PARTITION.
 
 For partition children, the check first looks for an index on the
 child itself, then delegates to the parent's indexes.
+
+Known limitations:
+This check is index-shape-based only; it has no column statistics.
+An index on a low-cardinality FK column (e.g. 10 distinct values
+over a million rows) satisfies this check but can still degrade to
+a Bitmap Heap Scan touching a large fraction of the table — a real
+performance risk this rule cannot see, since a low-cardinality
+index and a selective one look identical in the catalog. Requiring
+the covering index to also be UNIQUE would not rescue this: the
+false-negative case is not unique in the referencing table either,
+so that heuristic would just reintroduce the false positive on the
+common, benign case.
