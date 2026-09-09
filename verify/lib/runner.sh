@@ -61,6 +61,19 @@ else
     cat "$TEST_FILE" | run_psql "$DB_NAME" > /dev/null 2>&1
 fi
 
+# A sibling <test>.check.sh, if present, runs after the .sql file against the same
+# container/db and feeds its own pass/fail rows into _verify_results (for assertions
+# that need shell-level orchestration — e.g. diffing `docker logs` — rather than
+# anything expressible as a plain SQL assert_* call).
+CHECK_SCRIPT="${TEST_FILE%.sql}.check.sh"
+if [ -f "$CHECK_SCRIPT" ]; then
+    if [ -n "$VERBOSE" ]; then
+        bash "$CHECK_SCRIPT" "$CONTAINER" "$DB_NAME"
+    else
+        bash "$CHECK_SCRIPT" "$CONTAINER" "$DB_NAME" > /dev/null 2>&1
+    fi
+fi
+
 # Collect results
 RESULTS=$(run_psql "$DB_NAME" -t -A -F '|' -c "SELECT label, passed, detail FROM _verify_results ORDER BY id;")
 

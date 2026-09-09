@@ -1,5 +1,12 @@
--- @claim: DELETE/UPDATE on referenced table causes seq scan on referencing table without index (PGM501)
--- @claim: Prefix matching: FK(a,b) covered by idx(a,b,c) but NOT by idx(b,a) or idx(a)
+-- @claim: A plain filtering lookup on an FK column uses Seq Scan without a covering
+--   index and Index Scan with one (the lookup-path proxy for the RI check's cost —
+--   the real enforcement-path DELETE/UPDATE claim is verified separately, in
+--   pgm501_fk_seqscan_without_index.check.sh, since the RI trigger's own query is
+--   invisible to plain EXPLAIN).
+-- @claim: Column order/position is irrelevant for FK(a,b): idx(a,b), idx(a,b,c),
+--   idx(b,a) (reversed), and idx(a) (selective subset) all avoid Seq Scan, since
+--   every FK column is equality-constrained. Only the complete absence of any of
+--   these shapes falls back to Seq Scan.
 -- @min_version: 14
 
 -- Setup
@@ -68,6 +75,31 @@ SELECT assert_explain_contains(
 );
 
 DROP INDEX idx_abc;
+
+-- idx(b, a) — reversed column order still covers FK(a, b): column order is
+-- irrelevant when all FK columns are equality-constrained
+CREATE INDEX idx_ba ON child_comp(b, a);
+ANALYZE child_comp;
+
+SELECT assert_explain_contains(
+    'SELECT 1 FROM child_comp WHERE a = 1 AND b = 1',
+    'Index',
+    'idx(b,a) reversed order still covers FK(a,b) — uses Index Scan'
+);
+
+DROP INDEX idx_ba;
+
+-- idx(a) — a selective subset of the FK columns also avoids Seq Scan
+CREATE INDEX idx_a ON child_comp(a);
+ANALYZE child_comp;
+
+SELECT assert_explain_contains(
+    'SELECT 1 FROM child_comp WHERE a = 1 AND b = 1',
+    'Index',
+    'idx(a) selective subset of FK(a,b) — uses Index Scan'
+);
+
+DROP INDEX idx_a;
 
 -- Without any index, reverts to Seq Scan
 ANALYZE child_comp;
