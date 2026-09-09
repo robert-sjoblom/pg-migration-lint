@@ -394,25 +394,25 @@ expression: findings
   end_line: 12
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'orders(user_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: 005-add-fk.xml
   start_line: 13
   end_line: 13
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: 006-table-no-pk.xml
   start_line: 28
   end_line: 28
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'price_plan_products(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'price_plan_products(price_plan_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: 007-volatile-defaults.xml
   start_line: 41
   end_line: 41
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'price_plan_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'price_plan_products(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: 007-volatile-defaults.xml
   start_line: 42
   end_line: 42

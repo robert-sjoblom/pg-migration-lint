@@ -4,7 +4,7 @@ expression: findings
 ---
 - rule_id: PGM501
   severity: Major
-  message: "Foreign key on 'orders(customer_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+  message: "Foreign key on 'orders(customer_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
   file: migrations/002.sql
   start_line: 1
   end_line: 1

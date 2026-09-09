@@ -1,9 +1,10 @@
 //! PGM501 — Foreign key without covering index
 //!
 //! Detects foreign key constraints where the referencing table has no usable
-//! index containing any of the FK columns. Without such an index,
-//! deletes and updates on the referenced table cause sequential scans on
-//! the referencing table, leading to severe performance degradation.
+//! index containing any of the FK columns. Without such an index, any query
+//! joining or filtering on those columns forces a sequential scan on the
+//! referencing table — and so does a referential integrity check when a
+//! referenced row is deleted or its key columns are updated.
 
 use crate::parser::ir::{IrNode, Located, SourceSpan, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity};
@@ -17,12 +18,15 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
          index containing any of the FK columns.\n\
          \n\
          Why it's dangerous:\n\
-         When a row is deleted or updated in the referenced (parent) table,\n\
-         PostgreSQL must check that no rows in the referencing (child) table\n\
-         still reference the old value. Without an index on the FK columns,\n\
-         this check performs a sequential scan of the entire child table —\n\
-         once per affected parent row. This can cause severe performance\n\
-         degradation and lock contention.\n\
+         Any query that joins or filters on these columns has no index to\n\
+         seek through, so it falls back to a sequential scan of the entire\n\
+         child table — this is usually the more frequent cost. Referential\n\
+         integrity checks add another: when a row in the referenced (parent)\n\
+         table is deleted, or its key columns are updated, PostgreSQL must\n\
+         confirm no row in the referencing (child) table still references\n\
+         the old value, and without an index that check is also a full scan\n\
+         of the child table — once per affected parent row. Either path can\n\
+         cause severe performance degradation and lock contention.\n\
          \n\
          Example (bad):\n\
            ALTER TABLE order_items\n\
@@ -54,7 +58,19 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
          child indexes are attached via ALTER INDEX ... ATTACH PARTITION.\n\
          \n\
          For partition children, the check first looks for an index on the\n\
-         child itself, then delegates to the parent's indexes.";
+         child itself, then delegates to the parent's indexes.\n\
+         \n\
+         Known limitations:\n\
+         This check is index-shape-based only; it has no column statistics.\n\
+         An index on a low-cardinality FK column (e.g. 10 distinct values\n\
+         over a million rows) satisfies this check but can still degrade to\n\
+         a Bitmap Heap Scan touching a large fraction of the table — a real\n\
+         performance risk this rule cannot see, since a low-cardinality\n\
+         index and a selective one look identical in the catalog. Requiring\n\
+         the covering index to also be UNIQUE would not rescue this: the\n\
+         false-negative case is not unique in the referencing table either,\n\
+         so that heuristic would just reintroduce the false positive on the\n\
+         common, benign case.";
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 
@@ -132,9 +148,9 @@ pub(super) fn check(
             let cols_display = fk.columns.join(", ");
             findings.push(rule.make_finding(
                 format!(
-                    "Foreign key on '{table}({cols})' has no covering index. \
-                         Sequential scans on the referencing table during deletes/updates \
-                         on the referenced table will cause performance issues.",
+                    "Foreign key on '{table}({cols})' has no covering index. Queries \
+                         joining or filtering on these columns, and referential integrity \
+                         checks, cause sequential scans on the referencing table.",
                     table = fk.display_name,
                     cols = cols_display,
                 ),
@@ -206,6 +222,44 @@ mod tests {
 
         let findings = RuleId::Pgm501.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_fk_no_index_message_leads_with_query_cost_and_narrows_update_clause() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("child", |t| {
+                t.column("pid", "integer", false)
+                    .fk("fk_parent", &["pid"], "parent", &["id"]);
+            })
+            .build();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("child"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_parent".to_string()),
+                    columns: vec!["pid".to_string()],
+                    ref_table: QualifiedName::unqualified("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
+        let message = &findings[0].message;
+        assert!(
+            message.contains("joining or filtering"),
+            "message should name query joins/filters as a seq-scan cause, \
+             the more frequent one, not just constraint enforcement: {message:?}"
+        );
+        assert!(
+            !message.contains("deletes/updates on the referenced table"),
+            "message must not imply any UPDATE on the referenced table triggers \
+             the check — only deletes or updates to the referenced key do: {message:?}"
+        );
     }
 
     #[test]

@@ -102,15 +102,15 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 3
-      message: "Foreign key on 'orders(user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'orders(user_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 15
-      message: "Foreign key on 'internal_orders(approved_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'internal_orders(approved_by)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 29
-      message: "Foreign key on 'order_actions(performed_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'order_actions(performed_by)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_02_V002__create_orders
@@ -156,11 +156,11 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 24
-      message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'subscription_invoices(subscription_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 24
-      message: "Foreign key on 'subscription_invoices(payer_subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'subscription_invoices(payer_subscription_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 24
@@ -204,7 +204,7 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 7
-      message: "Foreign key on 'users(support_user_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'users(support_user_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_05_V005__add_support_user_fields
@@ -226,7 +226,7 @@ expression: snapshot
       rule: PGM101
       severity: Minor
     - line: 7
-      message: "Foreign key on 'orders(status_updated_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'orders(status_updated_by)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_06_V006__add_order_status_columns
@@ -330,7 +330,7 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 14
-      message: "Foreign key on 'promotion_products(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'promotion_products(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_10_V010__create_promotion_tables
@@ -390,11 +390,11 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 10
-      message: "Foreign key on 'price_plan_items(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'price_plan_items(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 19
-      message: "Foreign key on 'subscription_price_plan(price_plan_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'subscription_price_plan(price_plan_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_12_V012__create_price_plans
@@ -686,15 +686,15 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 10
-      message: "Foreign key on 'connector_requests(connector_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'connector_requests(connector_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 19
-      message: "Foreign key on 'connector_articles(connector_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'connector_articles(connector_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 19
-      message: "Foreign key on 'connector_articles(product_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'connector_articles(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_18_V018__create_connector_tables
@@ -718,7 +718,7 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 4
-      message: "Foreign key on 'reseller_orders(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'reseller_orders(order_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 4
@@ -736,7 +736,7 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 4
-      message: "Foreign key on 'subscription_periods(subscription_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'subscription_periods(subscription_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 4
@@ -1060,11 +1060,11 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 3
-      message: "Foreign key on 'cancellation_feedback(order_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'cancellation_feedback(order_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
     - line: 3
-      message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'cancellation_feedback(submitted_by)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_27_V027__create_cancellation_tables
@@ -1124,7 +1124,7 @@ expression: snapshot
       rule: PGM402
       severity: Minor
     - line: 16
-      message: "Foreign key on 'connector_articles(supplier_agreement_id)' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues."
+      message: "Foreign key on 'connector_articles(supplier_agreement_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
       rule: PGM501
       severity: Major
   step: step_29_V029__add_supplier_agreements

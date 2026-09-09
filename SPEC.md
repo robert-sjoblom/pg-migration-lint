@@ -639,7 +639,8 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - **Partitioned parent tables**: Checks `has_indexed_fk_column` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
   - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).
   - `ALTER INDEX ... ATTACH PARTITION` flips `only` to `false`, so after all children are attached, the parent index correctly satisfies FK coverage.
-- **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`
+- **Message**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Accepted false negative**: an FK whose only indexed column is low-cardinality (e.g. 10 distinct values over 1M rows) produces no warning, even though the RI check still degrades to a Bitmap Heap Scan touching a large fraction of the table. This cannot be distinguished from a genuinely selective index using shape alone — the catalog has no column statistics, and requiring the covering index to also be UNIQUE does not rescue it, since the false-negative case is not unique in the referencing table either.
 
 #### PGM502 — Table without primary key
 
