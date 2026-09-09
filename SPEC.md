@@ -631,12 +631,12 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM501 — Foreign key without index on referencing columns
 
 - **Severity**: MAJOR
-- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no index exists on the referencing table with `cols` as a prefix of the index columns.
-- **Prefix matching**: FK columns `(a, b)` are covered by index `(a, b)` or `(a, b, c)` but NOT by `(b, a)` or `(a)`. Column order matters.
+- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+- **Column matching**: FK columns `(a, b)` are covered by any usable index containing at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some FK columns still avoids a genuine sequential scan (Index Scan with a Filter, or Bitmap Heap Scan with a Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here (contrast with PGM508's prefix-based redundant-index check, which does care about order).
 - **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
 - **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage.
 - **Partition behavior**:
-  - **Partitioned parent tables**: Checks `has_covering_index` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
+  - **Partitioned parent tables**: Checks `has_indexed_fk_column` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
   - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).
   - `ALTER INDEX ... ATTACH PARTITION` flips `only` to `false`, so after all children are attached, the parent index correctly satisfies FK coverage.
 - **Message**: `Foreign key on '{table}({cols})' has no covering index. Sequential scans on the referencing table during deletes/updates on the referenced table will cause performance issues.`

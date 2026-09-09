@@ -1,7 +1,7 @@
 //! PGM501 — Foreign key without covering index
 //!
-//! Detects foreign key constraints where the referencing table has no index
-//! whose leading columns match the FK columns. Without such an index,
+//! Detects foreign key constraints where the referencing table has no usable
+//! index containing any of the FK columns. Without such an index,
 //! deletes and updates on the referenced table cause sequential scans on
 //! the referencing table, leading to severe performance degradation.
 
@@ -13,8 +13,8 @@ pub(super) const DESCRIPTION: &str = "Foreign key without covering index on refe
 pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\n\
          \n\
          What it detects:\n\
-         A FOREIGN KEY constraint where the referencing table has no index\n\
-         whose leading columns match the FK columns in order.\n\
+         A FOREIGN KEY constraint where the referencing table has no usable\n\
+         index containing any of the FK columns.\n\
          \n\
          Why it's dangerous:\n\
          When a row is deleted or updated in the referenced (parent) table,\n\
@@ -37,8 +37,12 @@ pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\
              ADD CONSTRAINT fk_order\n\
              FOREIGN KEY (order_id) REFERENCES orders(id);\n\
          \n\
-         Prefix matching: FK columns (a, b) are covered by index (a, b) or\n\
-         (a, b, c) but NOT by (b, a) or (a). Column order matters.\n\
+         Column matching: FK columns (a, b) are covered by any usable index\n\
+         that contains at least one of a or b, in any position — e.g.\n\
+         (a, b), (b, a), (a), or (c, b) all count. An index covering only\n\
+         some of the FK columns still avoids a sequential scan (via a\n\
+         Filter or Recheck), so it counts as coverage even though a fully\n\
+         covering index performs better. Column order does not matter here.\n\
          \n\
          The check uses the catalog state AFTER the entire file is processed,\n\
          so creating the index later in the same file avoids a false positive.\n\
@@ -99,14 +103,14 @@ pub(super) fn check(
     }
 
     // Post-file check: for each FK, check catalog_after for a covering index.
-    // For partitioned tables, has_covering_index already excludes ON ONLY indexes.
+    // For partitioned tables, has_indexed_fk_column already excludes ON ONLY indexes.
     // For partition children, delegate to the parent's indexes if the child has none.
     let mut findings = Vec::new();
     for fk in &fks {
         let has_index = match ctx.catalog_after.get_table(&fk.table_name) {
-            Some(table) if table.is_partitioned => table.has_covering_index(&fk.columns),
+            Some(table) if table.is_partitioned => table.has_indexed_fk_column(&fk.columns),
             Some(table) if table.parent_table.is_some() => {
-                if table.has_covering_index(&fk.columns) {
+                if table.has_indexed_fk_column(&fk.columns) {
                     true
                 } else {
                     // Delegate to parent — a recursive parent index covers all children.
@@ -115,12 +119,12 @@ pub(super) fn check(
                         .as_ref()
                         .and_then(|k| ctx.catalog_after.get_table(k))
                     {
-                        Some(parent) => parent.has_covering_index(&fk.columns),
+                        Some(parent) => parent.has_indexed_fk_column(&fk.columns),
                         None => continue, // parent not in catalog: suppress conservatively
                     }
                 }
             }
-            Some(table) => table.has_covering_index(&fk.columns),
+            Some(table) => table.has_indexed_fk_column(&fk.columns),
             None => false,
         };
 
@@ -249,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fk_wrong_index_order_fires() {
+    fn test_fk_reversed_index_order_no_finding() {
         let before = Catalog::new();
         // After: child has composite FK (a, b) but index is (b, a)
         let after = CatalogBuilder::new()
@@ -278,7 +282,10 @@ mod tests {
         ))];
 
         let findings = RuleId::Pgm501.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        assert!(
+            findings.is_empty(),
+            "Reversed-order index (b, a) still fully covers FK (a, b) — column order doesn't matter for an equality-only lookup"
+        );
     }
 
     #[test]
@@ -530,6 +537,52 @@ mod tests {
         assert!(
             findings.is_empty(),
             "Recursive index on partitioned table should satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_fk_partial_coverage_on_partitioned_table_no_finding() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("ref_table", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .table("postings", |t| {
+                t.column("transaction_id", "integer", false)
+                    .column("partition_key", "integer", false)
+                    .fk(
+                        "fk_txn",
+                        &["transaction_id", "partition_key"],
+                        "ref_table",
+                        &["id"],
+                    )
+                    .index("idx_txn", &["transaction_id"], false)
+                    .partitioned_by(
+                        crate::parser::ir::PartitionStrategy::Range,
+                        &["partition_key"],
+                    );
+            })
+            .build();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("postings"),
+            actions: vec![AlterTableAction::AddConstraint(
+                TableConstraint::ForeignKey {
+                    name: Some("fk_txn".to_string()),
+                    columns: vec!["transaction_id".to_string(), "partition_key".to_string()],
+                    ref_table: QualifiedName::unqualified("ref_table"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            )],
+        }))];
+
+        let findings = RuleId::Pgm501.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "Index on only one FK column still avoids a seq scan (Index Scan + Filter), \
+             so PGM501 should not fire — this is the real production false positive"
         );
     }
 

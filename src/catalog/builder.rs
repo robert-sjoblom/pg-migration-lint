@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_covering_index() {
+    fn test_has_indexed_fk_column_exact_match_and_leading_subset() {
         let catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("customer_id", "integer", false)
@@ -424,13 +424,91 @@ mod tests {
         let orders = catalog.get_table("orders").unwrap();
 
         // Exact match
-        assert!(orders.has_covering_index(&["customer_id".to_string(), "product_id".to_string()]));
+        assert!(
+            orders.has_indexed_fk_column(&["customer_id".to_string(), "product_id".to_string()])
+        );
 
-        // Prefix match
-        assert!(orders.has_covering_index(&["customer_id".to_string()]));
+        // Leading single-column subset
+        assert!(orders.has_indexed_fk_column(&["customer_id".to_string()]));
+    }
 
-        // Wrong order - should not match
-        assert!(!orders.has_covering_index(&["product_id".to_string(), "customer_id".to_string()]));
+    #[test]
+    fn test_has_indexed_fk_column_reversed_order() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("customer_id", "integer", false)
+                    .column("product_id", "integer", false)
+                    .index(
+                        "idx_customer_product",
+                        &["customer_id", "product_id"],
+                        false,
+                    );
+            })
+            .build();
+
+        let orders = catalog.get_table("orders").unwrap();
+
+        assert!(
+            orders.has_indexed_fk_column(&["product_id".to_string(), "customer_id".to_string()]),
+            "Reversed order still fully covers -- column order doesn't matter for equality lookups"
+        );
+    }
+
+    #[test]
+    fn test_has_indexed_fk_column_superset_any_order() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("customer_id", "integer", false)
+                    .column("product_id", "integer", false)
+                    .column("status", "text", false)
+                    .index("idx_multi", &["customer_id", "product_id", "status"], false);
+            })
+            .build();
+
+        let orders = catalog.get_table("orders").unwrap();
+
+        assert!(
+            orders.has_indexed_fk_column(&["product_id".to_string(), "customer_id".to_string()]),
+            "FK columns present as a subset of a longer index, in reversed order relative to the index, still counts as coverage"
+        );
+    }
+
+    #[test]
+    fn test_has_indexed_fk_column_single_column_subset_non_leading() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("status", "text", false)
+                    .column("product_id", "integer", false)
+                    .index("idx_status_product", &["status", "product_id"], false);
+            })
+            .build();
+
+        let orders = catalog.get_table("orders").unwrap();
+
+        assert!(
+            orders.has_indexed_fk_column(&["customer_id".to_string(), "product_id".to_string()]),
+            "customer_id isn't even a column on this table/index, but product_id matches at a non-leading index position -- this is the shape of the real production bug"
+        );
+    }
+
+    #[test]
+    fn test_has_indexed_fk_column_no_overlap() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("a", "integer", false)
+                    .column("b", "integer", false)
+                    .column("x", "integer", false)
+                    .column("y", "integer", false)
+                    .index("idx_xy", &["x", "y"], false);
+            })
+            .build();
+
+        let orders = catalog.get_table("orders").unwrap();
+
+        assert!(
+            !orders.has_indexed_fk_column(&["a".to_string(), "b".to_string()]),
+            "An index exists on the table, but shares no column with the FK at all, so this must still fire -- the genuine tier-3 seq-scan case"
+        );
     }
 
     #[test]
@@ -460,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_covering_index_skips_partial_index() {
+    fn test_has_indexed_fk_column_skips_partial_index() {
         let catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("status", "text", false).partial_index(
@@ -473,13 +551,13 @@ mod tests {
             .build();
         let orders = catalog.get_table("orders").unwrap();
         assert!(
-            !orders.has_covering_index(&["status".to_string()]),
+            !orders.has_indexed_fk_column(&["status".to_string()]),
             "Partial index should NOT satisfy FK coverage"
         );
     }
 
     #[test]
-    fn test_has_covering_index_skips_only_index() {
+    fn test_has_indexed_fk_column_skips_only_index() {
         let catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("ref_id", "integer", false)
@@ -488,13 +566,13 @@ mod tests {
             .build();
         let orders = catalog.get_table("orders").unwrap();
         assert!(
-            !orders.has_covering_index(&["ref_id".to_string()]),
+            !orders.has_indexed_fk_column(&["ref_id".to_string()]),
             "ON ONLY index should NOT satisfy FK coverage"
         );
     }
 
     #[test]
-    fn test_has_covering_index_skips_non_btree() {
+    fn test_has_indexed_fk_column_skips_non_btree() {
         let catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("customer_id", "integer", false).index_with_method(
@@ -507,13 +585,13 @@ mod tests {
             .build();
         let orders = catalog.get_table("orders").unwrap();
         assert!(
-            !orders.has_covering_index(&["customer_id".to_string()]),
+            !orders.has_indexed_fk_column(&["customer_id".to_string()]),
             "Non-btree (hash) index should NOT satisfy FK coverage"
         );
     }
 
     #[test]
-    fn test_has_covering_index_skips_expression_prefix() {
+    fn test_has_indexed_fk_column_skips_expression_only() {
         let catalog = CatalogBuilder::new()
             .table("users", |t| {
                 t.column("email", "text", false).expression_index(
@@ -525,13 +603,13 @@ mod tests {
             .build();
         let users = catalog.get_table("users").unwrap();
         assert!(
-            !users.has_covering_index(&["email".to_string()]),
+            !users.has_indexed_fk_column(&["email".to_string()]),
             "Expression index should NOT satisfy FK coverage for column 'email'"
         );
     }
 
     #[test]
-    fn test_has_covering_index_column_before_expression_prefix_matches() {
+    fn test_has_indexed_fk_column_column_before_expression() {
         let catalog = CatalogBuilder::new()
             .table("items", |t| {
                 t.column("tenant_id", "integer", false)
@@ -544,15 +622,16 @@ mod tests {
             })
             .build();
         let items = catalog.get_table("items").unwrap();
-        // FK (tenant_id) is covered by index (tenant_id, lower(email)) — first entry is a plain column match.
+        // FK (tenant_id) is covered by index (tenant_id, lower(email)) -- first entry is a plain column match.
         assert!(
-            items.has_covering_index(&["tenant_id".to_string()]),
+            items.has_indexed_fk_column(&["tenant_id".to_string()]),
             "FK (tenant_id) should be covered by index (tenant_id, lower(email))"
         );
-        // FK (tenant_id, email) is NOT covered — second entry is an expression, not a column.
+        // FK (tenant_id, email) is still covered -- tenant_id is a plain-column match,
+        // even though email only appears via an expression.
         assert!(
-            !items.has_covering_index(&["tenant_id".to_string(), "email".to_string()]),
-            "FK (tenant_id, email) should NOT be covered by index (tenant_id, lower(email))"
+            items.has_indexed_fk_column(&["tenant_id".to_string(), "email".to_string()]),
+            "FK (tenant_id, email) is still covered -- tenant_id is a plain-column match, even though email only appears via an expression"
         );
     }
 

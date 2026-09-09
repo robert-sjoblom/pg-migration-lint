@@ -9,8 +9,8 @@ Description: Foreign key without covering index on referencing columns
 PGM501 — Foreign key without covering index
 
 What it detects:
-A FOREIGN KEY constraint where the referencing table has no index
-whose leading columns match the FK columns in order.
+A FOREIGN KEY constraint where the referencing table has no usable
+index containing any of the FK columns.
 
 Why it's dangerous:
 When a row is deleted or updated in the referenced (parent) table,
@@ -33,8 +33,12 @@ ALTER TABLE order_items
 ADD CONSTRAINT fk_order
 FOREIGN KEY (order_id) REFERENCES orders(id);
 
-Prefix matching: FK columns (a, b) are covered by index (a, b) or
-(a, b, c) but NOT by (b, a) or (a). Column order matters.
+Column matching: FK columns (a, b) are covered by any usable index
+that contains at least one of a or b, in any position — e.g.
+(a, b), (b, a), (a), or (c, b) all count. An index covering only
+some of the FK columns still avoids a sequential scan (via a
+Filter or Recheck), so it counts as coverage even though a fully
+covering index performs better. Column order does not matter here.
 
 The check uses the catalog state AFTER the entire file is processed,
 so creating the index later in the same file avoids a false positive.

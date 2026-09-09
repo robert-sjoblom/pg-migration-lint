@@ -170,7 +170,7 @@ Provided to every rule's `check()` function:
 `TableState` query methods:
 
 - `table.get_column(name)` — look up a column by name
-- `table.has_covering_index(fk_columns)` — prefix-matching for FK covering index checks (PGM501)
+- `table.has_indexed_fk_column(fk_columns)` — true if any usable index contains at least one FK column, in any position (PGM501)
 - `table.has_unique_not_null()` — detect UNIQUE NOT NULL substitute for PK (PGM503)
 - `table.constraints_involving_column(name)` — find constraints that reference a column
 - `table.indexes_involving_column(name)` — find indexes that reference a column
