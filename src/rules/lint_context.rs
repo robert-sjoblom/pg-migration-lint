@@ -83,6 +83,24 @@ impl<'a> LintContext<'a> {
         false
     }
 
+    /// Resolves the display name of `table_key`'s parent partition table from
+    /// `catalog_before`. Returns `None` when `table_key` is not a partition
+    /// child (no `parent_table` recorded). Falls back to the parent's raw
+    /// catalog key when the parent itself is not tracked in the catalog.
+    pub fn parent_display_name(&self, table_key: &str) -> Option<String> {
+        let parent_key = self
+            .catalog_before
+            .get_table(table_key)?
+            .parent_table
+            .as_ref()?;
+        Some(
+            self.catalog_before
+                .get_table(parent_key)
+                .map(|p| p.display_name.clone())
+                .unwrap_or_else(|| parent_key.clone()),
+        )
+    }
+
     /// Look up an index by name, checking `catalog_before` first, then
     /// falling back to `catalog_after`. This covers indexes created in the
     /// same migration unit (present only in `catalog_after`).
@@ -98,5 +116,71 @@ impl<'a> LintContext<'a> {
             TableScope::ExcludeCreatedInChange => self.is_existing_table(table_key),
             TableScope::AnyPreExisting => self.catalog_before.has_table(table_key),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::builder::CatalogBuilder;
+    use crate::rules::test_helpers::lint_ctx;
+
+    #[test]
+    fn test_parent_display_name_resolves_tracked_parent() {
+        let before = CatalogBuilder::new()
+            .table("measurements", |t| {
+                t.column("id", "bigint", false)
+                    .display_name("Measurements")
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .table("measurements_2024", |t| {
+                t.column("id", "bigint", false).partition_of("measurements");
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/test.sql");
+
+        assert_eq!(
+            ctx.parent_display_name("measurements_2024"),
+            Some("Measurements".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parent_display_name_falls_back_to_key_when_parent_untracked() {
+        let before = CatalogBuilder::new()
+            .table("measurements_2024", |t| {
+                t.column("id", "bigint", false).partition_of("ghost_parent");
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/test.sql");
+
+        assert_eq!(
+            ctx.parent_display_name("measurements_2024"),
+            Some("ghost_parent".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parent_display_name_none_for_standalone_table() {
+        let before = CatalogBuilder::new()
+            .table("measurements", |t| {
+                t.column("id", "bigint", false);
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/test.sql");
+
+        assert_eq!(ctx.parent_display_name("measurements"), None);
+    }
+
+    #[test]
+    fn test_parent_display_name_none_when_table_missing() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/test.sql");
+
+        assert_eq!(ctx.parent_display_name("nonexistent"), None);
     }
 }
