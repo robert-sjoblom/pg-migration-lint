@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm024.rs
+expression: findings
+---
+- rule_id: PGM024
+  severity: Critical
+  message: "CREATE TABLE 'measurements_2025' PARTITION OF 'measurements' acquires ACCESS EXCLUSIVE on 'measurements' for the duration, blocking all reads and writes routed through it until commit. Create 'measurements_2025' as a standalone table and ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE EXCLUSIVE on the parent."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

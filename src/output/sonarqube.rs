@@ -51,7 +51,8 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
         | RuleId::Pgm018
         | RuleId::Pgm019
         | RuleId::Pgm021
-        | RuleId::Pgm022 => SonarQubeRuleMeta {
+        | RuleId::Pgm022
+        | RuleId::Pgm024 => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
             issue_type: "BUG",
             software_quality: "RELIABILITY",
@@ -299,6 +300,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm107
         | RuleId::Pgm108
         | RuleId::Pgm109 => 10,
+        // Detach-then-drop, or standalone-create-then-attach: a real rewrite, not a keyword add
+        RuleId::Pgm024 => 15,
         // Meta-behavior
         RuleId::Pgm901 => 10,
     }
