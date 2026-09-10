@@ -50,6 +50,7 @@ mod pgm020;
 mod pgm021;
 mod pgm022;
 mod pgm023;
+mod pgm024;
 
 // 1xx — Type anti-patterns
 mod pgm101;
@@ -243,7 +244,7 @@ mod tests {
             assert_eq!(id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        assert_eq!(RuleId::iter().count(), 53);
+        assert_eq!(RuleId::iter().count(), 54);
     }
 
     #[test]

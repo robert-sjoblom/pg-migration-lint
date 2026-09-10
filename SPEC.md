@@ -514,6 +514,25 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Statements on the same table are separated by a chain-breaking statement
 - **Message**: `Table '{table}' has multiple ALTER TABLE statements with the same lock level in this migration (first occurrence at line {line}). Combine them into a single ALTER TABLE to reduce lock contention.`
 
+#### PGM024 — `DROP TABLE` or `CREATE TABLE ... PARTITION OF` locks the parent
+
+- **Severity**: CRITICAL
+- **Triggers**: Either of two shapes, where in both cases the parent exists in `catalog_before` and is not created in the same set of changed files:
+  1. `DROP TABLE child`, where `child` is a partition of the parent (per the catalog's `parent_table`).
+  2. `CREATE TABLE child PARTITION OF parent`.
+- **Why**: Both statements acquire `ACCESS EXCLUSIVE` on the parent partitioned table, not just the child, and hold it until commit — blocking all reads and writes routed through the parent (and therefore every sibling partition) for the duration. A reader or writer already holding the parent does not make either statement fail outright: it queues behind them, and a merely queued `ACCESS EXCLUSIVE` request already blocks new readers the current holder would have let through. `DROP TABLE` additionally destroys the child's data irreversibly and has no `CONCURRENTLY` variant at all.
+- **Safe alternative (`DROP TABLE`)**: `DETACH PARTITION child CONCURRENTLY` (PostgreSQL 14+) first — see PGM004 — then drop the now-standalone table.
+- **Safe alternative (`CREATE TABLE ... PARTITION OF`)**: There is no `CONCURRENTLY` form of this statement. Create the table standalone, then `ATTACH PARTITION` it — see PGM005 for the pre-validated `CHECK` constraint that avoids a full scan of the child during attach. `ATTACH PARTITION` takes only `SHARE UPDATE EXCLUSIVE` on the parent.
+- **Does not fire when**:
+  - The dropped table has no `parent_table` recorded (not a partition child)
+  - The parent is created in the same set of changed files
+  - The parent does not exist in `catalog_before`
+  - `CREATE TABLE` does not use `PARTITION OF` (a plain standalone table)
+  - The same migration unit `DETACH`es the child before dropping it (the safe pattern PGM004 recommends — see "Known limitation" below)
+- **Known limitation**: a same-unit `ATTACH PARTITION child` immediately followed by `DROP TABLE child` is not specially detected either way — this rule (like PGM201) reads `catalog_before`, which is fixed before the whole unit is replayed, so it cannot see a same-unit `ATTACH`'s effect on its own catalog state. This is a narrow, unusual shape.
+- **Message (`DROP TABLE`)**: `DROP TABLE '{child}' is a partition of '{parent}': this acquires ACCESS EXCLUSIVE on '{parent}' for the duration, blocking all reads and writes routed through it until commit — and the data is permanently lost. DETACH PARTITION '{child}' CONCURRENTLY first, then drop the now-standalone table.`
+- **Message (`CREATE TABLE ... PARTITION OF`)**: `CREATE TABLE '{child}' PARTITION OF '{parent}' acquires ACCESS EXCLUSIVE on '{parent}' for the duration, blocking all reads and writes routed through it until commit. Create '{child}' as a standalone table and ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE EXCLUSIVE on the parent.`
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
@@ -1083,3 +1102,4 @@ pg-migration-lint/
 | 1.16    | 2026-02-27 | Added PGM020 (DISABLE TRIGGER on table, MINOR/INFO). Added PGM205 (DROP SCHEMA CASCADE, CRITICAL). New `DropSchema` IR node mapped from `DropStmt(OBJECT_SCHEMA)`. Catalog replay removes all tables with matching schema prefix on CASCADE. Rule always fires on CASCADE regardless of catalog state — lists known affected tables for context. |
 | 1.17    | 2026-03-02 | Added PGM021 (VACUUM FULL on existing table, CRITICAL) and PGM022 (REINDEX without CONCURRENTLY, CRITICAL). New IR nodes: `VacuumFull`, `Reindex`. |
 | 1.18    | 2026-03-02 | Spec sync with implementation. Added PGM107 (integer PK, MAJOR), PGM108 (prefer text over varchar(n), INFO), PGM109 (floating-point type, MINOR) — promoted from deferred "Don't Do This" rules. Added PGM507 (DROP NOT NULL, INFO), PGM508 (duplicate/redundant index, INFO), PGM509 (mixed-case identifiers or reserved words, INFO). Updated PGM016 definition to match implementation (USING INDEX focused, with nullable-column and non-btree checks). Updated IR table: `CreateIndex` gains `index_name`, `if_not_exists`, `where_clause`, `access_method`; `DropIndex` gains `if_exists`; `DropTable` gains `if_exists`, `cascade`. Added `access_method` to `IndexState`. Added missing `AlterTableAction` variants: `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`. Removed stale XML fallback reference from pipeline diagram. Removed "(Proposed)" from §11 heading. Total: 52 rules. |
+| 1.19    | 2026-09-10 | Added PGM024 (DROP TABLE or CREATE TABLE PARTITION OF locking a pre-existing partition parent, CRITICAL). No IR or catalog changes required — reads the existing `parent_table`/`partition_of` fields. Added `LintContext::parent_display_name` helper. |

@@ -86,6 +86,9 @@ pub enum RuleId {
     /// Multiple `ALTER TABLE` statements on the same table can be combined.
     #[strum(serialize = "PGM023")]
     Pgm023,
+    /// `DROP TABLE` or `CREATE TABLE ... PARTITION OF` locking a pre-existing parent.
+    #[strum(serialize = "PGM024")]
+    Pgm024,
 
     // 1xx — Type anti-patterns
     /// `timestamp` without time zone.
@@ -305,6 +308,7 @@ dispatch_rules! {
     Pgm021 => pgm021,
     Pgm022 => pgm022,
     Pgm023 => pgm023,
+    Pgm024 => pgm024,
     // 1xx — Type anti-patterns
     Pgm101 => pgm101,
     Pgm102 => pgm102,

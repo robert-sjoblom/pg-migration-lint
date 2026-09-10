@@ -1,0 +1,71 @@
+---
+source: src/rules/mod.rs
+expression: output
+---
+Rule: PGM024
+Severity: CRITICAL
+Description: DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table
+
+PGM024 — DROP TABLE or CREATE TABLE PARTITION OF locks the parent
+
+What it detects:
+  Two statement shapes that both acquire ACCESS EXCLUSIVE on a
+  pre-existing partitioned parent table:
+    1. DROP TABLE child, where child is a partition of a parent that
+       already existed before this change.
+    2. CREATE TABLE child PARTITION OF parent, where parent already
+       existed before this change.
+
+Why it's dangerous:
+  Both statements lock the parent, not just the child, and hold that
+  lock until commit — blocking every reader and writer routed through
+  the parent (and therefore every sibling partition) for the duration.
+  A reader or writer already holding the parent does not make either
+  statement fail outright: it queues behind them, and while queued it
+  blocks new readers the current holder would have allowed. DROP TABLE
+  also destroys the child's data irreversibly, with no CONCURRENTLY
+  variant at all.
+
+Safe alternative (DROP TABLE):
+  DETACH PARTITION child CONCURRENTLY (PostgreSQL 14+) first — this
+  takes only SHARE UPDATE EXCLUSIVE on the parent — then DROP the
+  now-standalone table. See PGM004.
+
+Safe alternative (CREATE TABLE ... PARTITION OF):
+  There is no CONCURRENTLY form of CREATE TABLE ... PARTITION OF.
+  Instead, create the table standalone, then ATTACH PARTITION it:
+  ATTACH takes only SHARE UPDATE EXCLUSIVE on the parent (plus a brief
+  ACCESS EXCLUSIVE on the new table itself, which nothing is using
+  yet, so it is uncontended). See PGM005 for the CHECK constraint that
+  lets the attach skip a full table scan of the child.
+
+Example (bad):
+  DROP TABLE measurements_2023;
+  CREATE TABLE measurements_2025 PARTITION OF measurements
+    FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+
+Fix (safe):
+  ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
+  DROP TABLE measurements_2023;
+
+  CREATE TABLE measurements_2025 (LIKE measurements INCLUDING ALL);
+  ALTER TABLE measurements_2025 ADD CONSTRAINT measurements_2025_bound
+    CHECK (ts >= '2025-01-01' AND ts < '2026-01-01') NOT VALID;
+  ALTER TABLE measurements_2025 VALIDATE CONSTRAINT measurements_2025_bound;
+  ALTER TABLE measurements ATTACH PARTITION measurements_2025
+    FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+
+Known limitation:
+  If the same migration unit both DETACHes a child and then DROPs it,
+  this rule does not fire on the DROP — the DETACH already removes the
+  lock hazard this rule exists to catch, so suppressing there avoids a
+  false positive on the exact fix this rule recommends. The reverse
+  order (ATTACH then immediately DROP the same child, in the same
+  unit) is not specially detected either way; this is a narrow,
+  unusual shape and the rule falls back to whatever catalog_before
+  already recorded.
+
+See also: PGM004 (DETACH PARTITION without CONCURRENTLY), PGM005
+(ATTACH PARTITION without pre-validated CHECK), PGM201 (DROP TABLE —
+covers data loss on any table; this rule owns the lock hazard for
+partition children specifically).

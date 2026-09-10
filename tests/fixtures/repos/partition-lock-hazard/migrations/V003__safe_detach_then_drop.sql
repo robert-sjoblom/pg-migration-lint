@@ -1,0 +1,2 @@
+ALTER TABLE transactions DETACH PARTITION transactions_y2027 CONCURRENTLY;
+DROP TABLE transactions_y2027;
