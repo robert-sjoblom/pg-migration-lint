@@ -281,7 +281,7 @@ expression: parsed
       "ruleId": "PGM023"
     },
     {
-      "effortMinutes": 15,
+      "effortMinutes": 30,
       "primaryLocation": {
         "filePath": "test.sql",
         "message": "PGM024: DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table",

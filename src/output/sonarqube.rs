@@ -274,7 +274,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm018
         | RuleId::Pgm019
         | RuleId::Pgm021
-        | RuleId::Pgm022 => 30,
+        | RuleId::Pgm022
+        | RuleId::Pgm024 => 30,
         // Schema quality / side-effect warnings
         RuleId::Pgm009 | RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 => 10,
         RuleId::Pgm502
@@ -300,8 +301,6 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm107
         | RuleId::Pgm108
         | RuleId::Pgm109 => 10,
-        // Detach-then-drop, or standalone-create-then-attach: a real rewrite, not a keyword add
-        RuleId::Pgm024 => 15,
         // Meta-behavior
         RuleId::Pgm901 => 10,
     }
