@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.17.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.2...v2.17.0) (2026-09-10)
+
+
+### Features
+
+* **pgm024:** add PGM024 rule for partition lock hazard ([#233](https://github.com/robert-sjoblom/pg-migration-lint/issues/233)) ([ab5590d](https://github.com/robert-sjoblom/pg-migration-lint/commit/ab5590dfc3712e1bf14d5211ba149b57b272302d))
+
+
+### Bug Fixes
+
+* **pgm501:** stop flagging FK partial index coverage as seq scan ([#228](https://github.com/robert-sjoblom/pg-migration-lint/issues/228)) ([bef33e2](https://github.com/robert-sjoblom/pg-migration-lint/commit/bef33e291a885c5fda20d9f1e4ee8479f1615ad1))
+* **pgm501:** tighten and correct the no-covering index message ([#230](https://github.com/robert-sjoblom/pg-migration-lint/issues/230)) ([2ff2f2b](https://github.com/robert-sjoblom/pg-migration-lint/commit/2ff2f2bf4e0e2a9a8f7b8ad0679de81deb16bf14))
+
 ## [2.16.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.1...v2.16.2) (2026-09-08)
 
 
