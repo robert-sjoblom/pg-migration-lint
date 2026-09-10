@@ -6,7 +6,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 52 lint rules across seven categories:
+`pg-migration-lint` ships with 53 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001–PGM020) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
@@ -608,6 +608,40 @@ Chains are broken by any intervening statement that references the same table (e
 `ATTACH PARTITION` and `DETACH PARTITION` are never reported by this rule. PostgreSQL's grammar makes `partition_cmd` occupy the entire `ALTER TABLE` statement, so these actions can never be combined with anything else, and "combine them" is not applicable advice for this pair.
 
 Tables created within the same set of changed files are exempt — lock contention for brand-new tables is harmless.
+
+---
+
+### PGM024 — DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table
+{: #pgm024}
+
+**Severity**: Critical
+
+Detects two statement shapes that both take ACCESS EXCLUSIVE on a pre-existing partitioned parent table: dropping a live partition child with `DROP TABLE`, and creating a new child directly with `CREATE TABLE ... PARTITION OF`. Both lock the parent, not just the child, and hold that lock until commit — blocking every reader and writer routed through the parent, and therefore every sibling partition, for the duration. A reader or writer already holding the parent does not make either statement fail outright: it queues behind them, and a merely queued lock request already blocks new readers the current holder would have allowed. `DROP TABLE` additionally destroys the child's data irreversibly and has no `CONCURRENTLY` variant at all.
+
+For `DROP TABLE`, the safe alternative is `DETACH PARTITION ... CONCURRENTLY` (PostgreSQL 14+) first, then dropping the now-standalone table — see PGM004.
+
+For `CREATE TABLE ... PARTITION OF`, there is no `CONCURRENTLY` form. Instead, create the table standalone and `ATTACH PARTITION` it: `ATTACH` takes only `SHARE UPDATE EXCLUSIVE` on the parent, plus a brief `ACCESS EXCLUSIVE` on the new table itself, which nothing is using yet and so is uncontended. See PGM005 for the `CHECK` constraint that lets the attach skip a full scan of the child.
+
+**Example**:
+```sql
+DROP TABLE measurements_2023;
+
+CREATE TABLE measurements_2025 PARTITION OF measurements
+    FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+```
+
+**Fix**:
+```sql
+ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY;
+DROP TABLE measurements_2023;
+
+CREATE TABLE measurements_2025 (LIKE measurements INCLUDING ALL);
+ALTER TABLE measurements_2025 ADD CONSTRAINT measurements_2025_bound
+    CHECK (ts >= '2025-01-01' AND ts < '2026-01-01') NOT VALID;
+ALTER TABLE measurements_2025 VALIDATE CONSTRAINT measurements_2025_bound;
+ALTER TABLE measurements ATTACH PARTITION measurements_2025
+    FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+```
 
 ---
 
@@ -1320,6 +1354,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM021](#pgm021) | Critical | VACUUM FULL on existing table |
 | [PGM022](#pgm022) | Critical | Missing CONCURRENTLY on REINDEX |
 | [PGM023](#pgm023) | Minor | Multiple ALTER TABLE statements on the same table can be combined |
+| [PGM024](#pgm024) | Critical | DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |
