@@ -360,6 +360,12 @@ impl TableBuilder {
         self
     }
 
+    /// Override the display name shown in finding messages (defaults to the catalog key).
+    pub fn display_name(&mut self, name: &str) -> &mut Self {
+        self.state.display_name = name.to_string();
+        self
+    }
+
     pub fn build(self) -> TableState {
         self.state
     }

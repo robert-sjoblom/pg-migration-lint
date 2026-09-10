@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm024.rs
+expression: findings
+---
+- rule_id: PGM024
+  severity: Critical
+  message: "DROP TABLE 'measurements_2023' is a partition of 'measurements': this acquires ACCESS EXCLUSIVE on 'measurements' for the duration, blocking all reads and writes routed through it until commit — and the data is permanently lost. DETACH PARTITION 'measurements_2023' CONCURRENTLY first, then drop the now-standalone table."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1
