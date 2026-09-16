@@ -8,12 +8,12 @@ title: Rule Reference
 
 `pg-migration-lint` ships with 53 lint rules across seven categories:
 
-- **Unsafe DDL** (PGM001–PGM024) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
-- **Type Anti-patterns** (PGM101–PGM106) — flag column types that should be avoided per PostgreSQL best practice.
-- **Destructive Operations** (PGM201–PGM204) — flag data-loss operations.
-- **DML in Migrations** (PGM301–PGM303) — flag data manipulation statements on existing tables.
-- **Idempotency Guards** (PGM401–PGM403) — detect missing IF EXISTS / IF NOT EXISTS guards.
-- **Schema Design** (PGM501–PGM506) — schema quality and informational findings.
+- **Unsafe DDL** (PGM001-PGM024) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Type Anti-patterns** (PGM101-PGM106) — flag column types that should be avoided per PostgreSQL best practice.
+- **Destructive Operations** (PGM201-PGM204) — flag data-loss operations.
+- **DML in Migrations** (PGM301-PGM303) — flag data manipulation statements on existing tables.
+- **Idempotency Guards** (PGM401-PGM403) — detect missing IF EXISTS / IF NOT EXISTS guards.
+- **Schema Design** (PGM501-PGM506) — schema quality and informational findings.
 - **Meta-behavior** (PGM901) — cross-cutting behavior modifiers (not standalone lint rules).
 
 ## How to use
@@ -93,7 +93,7 @@ See also [PGM003](#pgm003).
 
 **Severity**: Critical
 
-Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migration unit that runs in a transaction. PostgreSQL does not allow concurrent index operations inside a transaction block — the command will fail at runtime.
+Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a migration unit that runs in a transaction. PostgreSQL does not allow any of these CONCURRENTLY operations inside a transaction block — the command will fail at runtime.
 
 **Example** (bad — Liquibase changeset with default `runInTransaction`):
 ```xml
@@ -109,7 +109,7 @@ Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migrat
 </changeSet>
 ```
 
-See also [PGM001](#pgm001) and [PGM002](#pgm002).
+See also [PGM001](#pgm001), [PGM002](#pgm002), and [PGM022](#pgm022).
 
 ---
 
@@ -122,7 +122,7 @@ Detects `ALTER TABLE ... DETACH PARTITION` on a pre-existing partitioned table w
 
 Two things to plan for with `CONCURRENTLY`:
 
-1. It cannot run inside a transaction block, so the statement must be issued on its own (`runInTransaction="false"` for Liquibase, the equivalent setting elsewhere). PGM003 does not currently detect this: it only checks `CREATE`/`DROP INDEX CONCURRENTLY`.
+1. It cannot run inside a transaction block, so the statement must be issued on its own (`runInTransaction="false"` for Liquibase, the equivalent setting elsewhere). PGM003 flags this.
 2. It still waits for conflicting traffic on the parent, and an interrupted wait does not roll back. The first phase has already committed, so the child is left pending-detach in `pg_inherits` (`inhdetachpending`). Queries routed through the parent already skip the partition's rows while the rows remain in it, and the state does not self-resolve. A retry of the same `DETACH ... CONCURRENTLY` fails with SQLSTATE `55000` (hint: `FINALIZE`). Recovery is `DETACH PARTITION ... FINALIZE` or `DROP TABLE` on the child. While pending, that `DROP TABLE` still takes ACCESS EXCLUSIVE on the parent. It can lose to the same traffic that caused the interruption.
 
 **Example**:

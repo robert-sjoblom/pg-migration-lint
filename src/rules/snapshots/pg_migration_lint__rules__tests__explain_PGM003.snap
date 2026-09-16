@@ -9,8 +9,10 @@ Description: CONCURRENTLY inside transaction
 PGM003 — CONCURRENTLY inside transaction
 
 What it detects:
-A CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement
-inside a migration unit that runs in a transaction.
+A CREATE INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY,
+ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY, or
+REINDEX ... CONCURRENTLY statement inside a migration unit that
+runs in a transaction.
 
 Why it's dangerous:
 PostgreSQL does not allow CONCURRENTLY operations inside a
@@ -31,4 +33,4 @@ Fix:
 For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to
 the migration file header.
 
-See also: PGM001, PGM002.
+See also: PGM001, PGM002, PGM022.
