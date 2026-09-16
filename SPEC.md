@@ -845,8 +845,6 @@ The following rules are specified but deferred until per-rule enable/disable con
 
 - Don't use `INHERITS` for partitioning (MINOR). Requires IR extension to detect `CREATE TABLE ... INHERITS`.
 
-See `docs/dont-do-this-rules.md` for full specifications of deferred rules.
-
 ### 4.4 `--explain PGMnnn`
 
 Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. Exits 0. No file scanning.
