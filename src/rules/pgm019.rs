@@ -86,6 +86,7 @@ mod tests {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
+                elements: vec![],
             })],
         }))
     }
@@ -156,6 +157,7 @@ mod tests {
                 ])
                 .with_constraints(vec![TableConstraint::Exclude {
                     name: Some("excl_orders".to_string()),
+                    elements: vec![],
                 }]),
         ))];
 
@@ -178,6 +180,7 @@ mod tests {
             name: QualifiedName::qualified("myschema", "orders"),
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
+                elements: vec![],
             })],
         }))];
 
@@ -208,6 +211,7 @@ mod tests {
                 AlterTableAction::AddColumn(ColumnDef::test("extra", "text")),
                 AlterTableAction::AddConstraint(TableConstraint::Exclude {
                     name: Some("excl_orders".to_string()),
+                    elements: vec![],
                 }),
             ],
         }))];

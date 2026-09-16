@@ -330,10 +330,27 @@ impl TableBuilder {
         self
     }
 
-    /// Add an EXCLUDE constraint
-    pub fn exclude_constraint(&mut self, name: Option<&str>) -> &mut Self {
+    /// Add an EXCLUDE constraint.
+    ///
+    /// Entries prefixed with `"expr:"` are treated as expressions; all others
+    /// are plain column names — same convention as [`Self::expression_index`].
+    pub fn exclude_constraint(&mut self, name: Option<&str>, elements_spec: &[&str]) -> &mut Self {
+        let elements: Vec<IndexColumn> = elements_spec
+            .iter()
+            .map(|s| {
+                if let Some(expr) = s.strip_prefix("expr:") {
+                    IndexColumn::Expression {
+                        text: expr.to_string(),
+                        referenced_columns: extract_column_refs_from_expr_text(expr),
+                    }
+                } else {
+                    IndexColumn::Column(s.to_string())
+                }
+            })
+            .collect();
         self.state.constraints.push(ConstraintState::Exclude {
             name: name.map(|s| s.to_string()),
+            elements,
         });
         self
     }

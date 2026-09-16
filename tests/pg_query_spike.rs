@@ -1264,3 +1264,41 @@ fn spike_partition_cmd_is_not_combinable() {
         }
     }
 }
+
+/// Inspect the `exclusions` field on an EXCLUDE `Constraint` node — does each
+/// element come through as a `List` pairing an `IndexElem` with an operator
+/// name list, and how do plain-column vs. expression elements differ?
+#[test]
+fn spike_exclude_constraint_exclusions_shape() {
+    let sqls = [
+        "CREATE TABLE t (room int4range, period tsrange, \
+         EXCLUDE USING gist (room WITH =, period WITH &&));",
+        "CREATE TABLE t (name text, \
+         EXCLUDE USING gist (lower(name) WITH =));",
+    ];
+
+    for sql in sqls {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        println!("\n=== {sql} ===");
+        if let pg_query::NodeEnum::CreateStmt(create) = stmt {
+            for elt in &create.table_elts {
+                if let Some(pg_query::NodeEnum::Constraint(con)) = elt.node.as_ref() {
+                    println!("contype={:?}", con.contype());
+                    println!("exclusions ({} entries):", con.exclusions.len());
+                    for excl in &con.exclusions {
+                        println!("{:#?}", excl);
+                    }
+                }
+            }
+        } else {
+            println!("  Parsed OK, but not CreateStmt: {stmt:?}");
+        }
+    }
+}

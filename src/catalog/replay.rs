@@ -590,24 +590,7 @@ fn apply_rename_column(
     // Expression *text* is left as-is (it becomes stale after rename, but nothing
     // in the codebase matches on expression text content).
     for idx in &mut table.indexes {
-        for entry in &mut idx.entries {
-            match entry {
-                IndexColumn::Column(col) => {
-                    if *col == old_name {
-                        *col = new_name.to_string();
-                    }
-                }
-                IndexColumn::Expression {
-                    referenced_columns, ..
-                } => {
-                    for col in referenced_columns {
-                        if *col == old_name {
-                            *col = new_name.to_string();
-                        }
-                    }
-                }
-            }
-        }
+        rename_in_index_columns(&mut idx.entries, old_name, new_name);
     }
 
     // Update constraints that reference the old column name.
@@ -645,9 +628,37 @@ fn apply_rename_column(
             ConstraintState::Check { expression, .. } => {
                 *expression = replace_column_in_expression(expression, old_name, new_name);
             }
-            // TODO: EXCLUDE constraints reference columns (e.g. `room WITH =`),
-            // but the IR does not capture them — no column list to rename.
-            ConstraintState::Exclude { .. } => {}
+            ConstraintState::Exclude { elements, .. } => {
+                rename_in_index_columns(elements, old_name, new_name);
+            }
+        }
+    }
+}
+
+/// Rename a column within a list of `IndexColumn` entries, in place.
+///
+/// Handles both plain column entries and expression `referenced_columns`.
+/// Shared by index entries and EXCLUDE constraint elements, which use the
+/// same `IndexColumn` representation. Expression *text* is left as-is (it
+/// becomes stale after rename, but nothing in the codebase matches on
+/// expression text content).
+fn rename_in_index_columns(entries: &mut [IndexColumn], old_name: &str, new_name: &str) {
+    for entry in entries {
+        match entry {
+            IndexColumn::Column(col) => {
+                if col == old_name {
+                    *col = new_name.to_string();
+                }
+            }
+            IndexColumn::Expression {
+                referenced_columns, ..
+            } => {
+                for col in referenced_columns {
+                    if col == old_name {
+                        *col = new_name.to_string();
+                    }
+                }
+            }
         }
     }
 }
@@ -842,10 +853,11 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 not_valid: *not_valid,
             });
         }
-        TableConstraint::Exclude { name } => {
-            table
-                .constraints
-                .push(ConstraintState::Exclude { name: name.clone() });
+        TableConstraint::Exclude { name, elements } => {
+            table.constraints.push(ConstraintState::Exclude {
+                name: name.clone(),
+                elements: elements.clone(),
+            });
         }
     }
 }

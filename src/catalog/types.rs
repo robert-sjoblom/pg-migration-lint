@@ -155,11 +155,9 @@ impl TableState {
             ConstraintState::Check { expression, .. } => {
                 !expression_mentions_column(expression, name)
             }
-            // TODO: EXCLUDE constraints do reference columns (e.g. `room WITH =`),
-            // but the IR does not capture them. PostgreSQL drops EXCLUDE constraints
-            // on column drop, so this `true` makes the catalog diverge. Fix when
-            // the IR is expanded to track EXCLUDE element columns.
-            ConstraintState::Exclude { .. } => true,
+            ConstraintState::Exclude { elements, .. } => {
+                !elements.iter().any(|e| e.references_column(name))
+            }
         });
 
         // Recalculate has_primary_key in case the PK was removed.
@@ -369,6 +367,7 @@ pub enum ConstraintState {
     },
     Exclude {
         name: Option<String>,
+        elements: Vec<IndexColumn>,
     },
 }
 
@@ -382,7 +381,9 @@ impl ConstraintState {
             ConstraintState::Check { expression, .. } => {
                 expression_mentions_column(expression, col)
             }
-            ConstraintState::Exclude { .. } => false,
+            ConstraintState::Exclude { elements, .. } => {
+                elements.iter().any(|e| e.references_column(col))
+            }
         }
     }
 }
@@ -471,6 +472,73 @@ mod tests {
             constraint.involves_column(col),
             expected,
             "CHECK constraint with expression '(amount > 0)' involves_column(\"{col}\") should be {expected}"
+        );
+    }
+
+    #[rstest]
+    #[case::matches("room", true)]
+    #[case::no_match("id", false)]
+    fn test_involves_column_exclude_constraint(#[case] col: &str, #[case] expected: bool) {
+        let constraint = ConstraintState::Exclude {
+            name: Some("excl_rooms".to_string()),
+            elements: vec![
+                IndexColumn::Column("room".to_string()),
+                IndexColumn::Column("period".to_string()),
+            ],
+        };
+        assert_eq!(
+            constraint.involves_column(col),
+            expected,
+            "EXCLUDE constraint over (room, period) involves_column(\"{col}\") should be {expected}"
+        );
+    }
+
+    #[test]
+    fn test_remove_column_drops_exclude_referencing_column() {
+        let catalog = CatalogBuilder::new()
+            .table("rooms", |t| {
+                t.column("id", "integer", false)
+                    .column("room", "int4range", false)
+                    .column("period", "tsrange", false)
+                    .exclude_constraint(Some("excl_rooms"), &["room", "period"]);
+            })
+            .build();
+
+        let mut table = catalog.get_table("rooms").unwrap().clone();
+        assert_eq!(
+            table.constraints.len(),
+            1,
+            "should start with one EXCLUDE constraint"
+        );
+
+        table.remove_column("room");
+
+        assert!(
+            table.constraints.is_empty(),
+            "EXCLUDE constraint referencing 'room' should be removed after dropping 'room'"
+        );
+    }
+
+    #[test]
+    fn test_remove_column_keeps_unrelated_exclude() {
+        let catalog = CatalogBuilder::new()
+            .table("rooms", |t| {
+                t.column("id", "integer", false)
+                    .column("room", "int4range", false)
+                    .column("period", "tsrange", false)
+                    .column("extra", "text", true)
+                    .exclude_constraint(Some("excl_rooms"), &["room", "period"]);
+            })
+            .build();
+
+        let mut table = catalog.get_table("rooms").unwrap().clone();
+
+        table.remove_column("extra");
+
+        assert_eq!(
+            table.constraints.len(),
+            1,
+            "EXCLUDE constraint should be preserved after dropping unrelated 'extra'"
         );
     }
 
