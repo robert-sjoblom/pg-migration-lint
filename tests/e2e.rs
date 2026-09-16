@@ -689,6 +689,136 @@ fn test_list_rules_invalid_filter_exits_2() {
     );
 }
 
+/// Finds the `--list-rules` output line for `rule_id`, if listed.
+fn list_rules_line<'a>(stdout: &'a str, rule_id: &str) -> Option<&'a str> {
+    stdout.lines().find(|l| l.starts_with(rule_id))
+}
+
+#[test]
+fn test_list_rules_config_reflects_enabled_override() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("clean").join("migrations");
+    let output_dir = tmp.path().join("output");
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "critical",
+    );
+    // PGM401 is disabled by default.
+    append_to_config(&config_path, "\n[rules]\nenabled = [\"PGM401\"]\n");
+
+    let output = run_lint(&["--list-rules", "--config", &config_path.to_string_lossy()]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--list-rules --config should exit 0. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = list_rules_line(&stdout, "PGM401")
+        .unwrap_or_else(|| panic!("PGM401 missing from output. stdout: {}", stdout));
+    assert!(
+        line.split_whitespace().nth(2) == Some("enabled"),
+        "PGM401 should show enabled once the config enables it. line: {}",
+        line
+    );
+}
+
+#[test]
+fn test_list_rules_config_reflects_disabled_override() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("clean").join("migrations");
+    let output_dir = tmp.path().join("output");
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "critical",
+    );
+    // PGM001 is enabled by default.
+    append_to_config(&config_path, "\n[rules]\ndisabled = [\"PGM001\"]\n");
+
+    let output = run_lint(&["--list-rules", "--config", &config_path.to_string_lossy()]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--list-rules --config should exit 0. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = list_rules_line(&stdout, "PGM001")
+        .unwrap_or_else(|| panic!("PGM001 missing from output. stdout: {}", stdout));
+    assert!(
+        line.split_whitespace().nth(2) == Some("disabled"),
+        "PGM001 should show disabled once the config disables it. line: {}",
+        line
+    );
+}
+
+#[test]
+fn test_list_rules_enabled_filter_respects_config() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("clean").join("migrations");
+    let output_dir = tmp.path().join("output");
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "critical",
+    );
+    append_to_config(
+        &config_path,
+        "\n[rules]\nenabled = [\"PGM401\"]\ndisabled = [\"PGM001\"]\n",
+    );
+
+    let output = run_lint(&[
+        "--list-rules",
+        "enabled",
+        "--config",
+        &config_path.to_string_lossy(),
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--list-rules enabled --config should exit 0. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        list_rules_line(&stdout, "PGM401").is_some(),
+        "PGM401 should be listed under 'enabled' once the config enables it. stdout: {}",
+        stdout
+    );
+    assert!(
+        list_rules_line(&stdout, "PGM001").is_none(),
+        "PGM001 should be excluded from 'enabled' once the config disables it. stdout: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_list_rules_missing_config_file_exits_2() {
+    let output = run_lint(&[
+        "--list-rules",
+        "--config",
+        "/nonexistent/pg-migration-lint.toml",
+    ]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--list-rules --config <missing file> should exit 2, not silently fall back to \
+         defaults. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn test_no_config_falls_back_to_defaults() {
     // Run from a temp dir without any config file but WITH a db/migrations dir

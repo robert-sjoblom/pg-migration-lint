@@ -170,6 +170,19 @@ pub struct RulesConfig {
     pub enabled: Vec<crate::rules::RuleId>,
 }
 
+impl RulesConfig {
+    /// Whether `id` is active under this configuration.
+    ///
+    /// Applies the same disabled/enabled/`default_enabled()` precedence used
+    /// by the main lint flow's `active_rules` computation, so `--list-rules
+    /// --config` reports the same effective state a real lint run would use.
+    /// `Config::validate` rejects a rule listed in both `enabled` and
+    /// `disabled`, so the two checks below never conflict.
+    pub fn is_enabled(&self, id: crate::rules::RuleId) -> bool {
+        !self.disabled.contains(&id) && (id.default_enabled() || self.enabled.contains(&id))
+    }
+}
+
 fn default_schema() -> String {
     "public".to_string()
 }
@@ -496,6 +509,32 @@ mod tests {
     fn test_disjoint_enabled_and_disabled_is_valid() {
         let toml = "[rules]\nenabled = [\"PGM401\"]\ndisabled = [\"PGM501\"]";
         assert!(parse_and_validate(toml).is_ok());
+    }
+
+    #[test]
+    fn test_is_enabled_true_for_default_enabled_rule() {
+        let config = Config::default();
+        assert!(config.rules.is_enabled("PGM001".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_is_enabled_false_for_default_disabled_rule() {
+        let config = Config::default();
+        assert!(!config.rules.is_enabled("PGM401".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_is_enabled_true_when_explicitly_enabled() {
+        let toml = "[rules]\nenabled = [\"PGM401\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert!(config.rules.is_enabled("PGM401".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_is_enabled_false_when_explicitly_disabled() {
+        let toml = "[rules]\ndisabled = [\"PGM001\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert!(!config.rules.is_enabled("PGM001".parse().unwrap()));
     }
 
     #[test]

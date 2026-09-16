@@ -207,9 +207,17 @@ fn run(args: Args) -> Result<bool> {
         return Ok(false);
     }
 
-    // Handle --list-rules early exit
+    // Handle --list-rules early exit. Config is only loaded here when
+    // --config was actually passed, so the no-config path behaves exactly
+    // as it always has (bare `default_enabled()`), and a missing/invalid
+    // --config file is a hard error (exit 2) rather than a silent fallback
+    // to defaults.
     if let Some(filter) = args.list_rules {
-        list_rules(filter);
+        let config = match &args.config {
+            Some(_) => Some(load_config(&args.config)?),
+            None => None,
+        };
+        list_rules(filter, config.as_ref());
         return Ok(false);
     }
 
@@ -318,15 +326,10 @@ fn lint_history(
 
     let mut pipeline = LintPipeline::new();
 
-    // Build active rules list: drop anything explicitly disabled, and drop
-    // anything whose `default_enabled()` is false unless explicitly
-    // enabled. `Config::validate` already rejects a rule listed in both
-    // `disabled` and `enabled`, so the two filters below never conflict.
-    let disabled: HashSet<RuleId> = config.rules.disabled.iter().copied().collect();
-    let enabled: HashSet<RuleId> = config.rules.enabled.iter().copied().collect();
+    // Build active rules list, applying the same disabled/enabled/
+    // `default_enabled()` precedence `--list-rules --config` reports.
     let active_rules: Vec<RuleId> = RuleId::lint_rules()
-        .filter(|r| !disabled.contains(r))
-        .filter(|r| r.default_enabled() || enabled.contains(r))
+        .filter(|r| config.rules.is_enabled(*r))
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
@@ -513,10 +516,18 @@ fn explain_rule(rule_id: &str) -> Result<()> {
 }
 
 /// List all non-meta rules with their ID, default severity, and
-/// enabled-by-default status, narrowed by `filter`.
-fn list_rules(filter: RuleListFilter) {
+/// enabled/disabled status, narrowed by `filter`.
+///
+/// When `config` is `None`, the enabled/disabled column shows each rule's
+/// bare `default_enabled()`. When `Some`, it shows the effective state after
+/// applying that config's `rules.enabled`/`rules.disabled` (see
+/// `RulesConfig::is_enabled`), i.e. what would actually run against it.
+fn list_rules(filter: RuleListFilter, config: Option<&pg_migration_lint::Config>) {
     for id in RuleId::lint_rules() {
-        let enabled = id.default_enabled();
+        let enabled = match config {
+            Some(cfg) => cfg.rules.is_enabled(id),
+            None => id.default_enabled(),
+        };
         let included = match filter {
             RuleListFilter::All => true,
             RuleListFilter::Enabled => enabled,
