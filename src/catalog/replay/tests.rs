@@ -1326,6 +1326,177 @@ fn test_add_unique_using_index_resolves_columns_from_index() {
 }
 
 #[test]
+fn test_add_unique_constraint_creates_named_backing_index() {
+    let mut catalog = Catalog::new();
+
+    let unit = make_unit(vec![
+        CreateTable::test(qname("users"))
+            .with_columns(vec![col("email", "text", false)])
+            .into(),
+        AlterTable {
+            name: qname("users"),
+            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                name: Some("uq_users_email".to_string()),
+                columns: vec!["email".to_string()],
+                using_index: None,
+            })],
+        }
+        .into(),
+    ]);
+
+    apply(&mut catalog, &unit);
+
+    let table = catalog.get_table("users").expect("table exists");
+    let idx = table
+        .indexes
+        .iter()
+        .find(|i| i.name == "uq_users_email")
+        .expect("backing index for named UNIQUE constraint should exist");
+    assert_eq!(idx.column_names().collect::<Vec<_>>(), vec!["email"]);
+    assert!(idx.unique, "backing index should be unique");
+    assert_eq!(idx.where_clause, None);
+    assert_eq!(idx.access_method, IndexState::DEFAULT_ACCESS_METHOD);
+    assert_eq!(
+        catalog.table_for_index("uq_users_email"),
+        Some("users"),
+        "backing index should be registered in the reverse map"
+    );
+}
+
+#[test]
+fn test_add_unique_constraint_unnamed_uses_default_index_name() {
+    let mut catalog = Catalog::new();
+
+    let unit = make_unit(vec![
+        CreateTable::test(qname("orders"))
+            .with_columns(vec![
+                col("customer_id", "integer", false),
+                col("external_ref", "text", false),
+            ])
+            .into(),
+        AlterTable {
+            name: qname("orders"),
+            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                name: None,
+                columns: vec!["customer_id".to_string(), "external_ref".to_string()],
+                using_index: None,
+            })],
+        }
+        .into(),
+    ]);
+
+    apply(&mut catalog, &unit);
+
+    let table = catalog.get_table("orders").expect("table exists");
+    assert!(
+        table
+            .indexes
+            .iter()
+            .any(|i| i.name == "orders_customer_id_external_ref_key"),
+        "unnamed UNIQUE constraint should get PostgreSQL's default index name, got {:?}",
+        table.indexes.iter().map(|i| &i.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_add_unique_using_index_does_not_create_second_index() {
+    let mut catalog = CatalogBuilder::new()
+        .table("orders", |t| {
+            t.column("email", "text", false)
+                .index("idx_orders_email", &["email"], true);
+        })
+        .build();
+
+    let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("orders"),
+        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            name: Some("uq_orders_email".to_string()),
+            columns: vec![],
+            using_index: Some("idx_orders_email".to_string()),
+        })],
+    })]);
+
+    apply(&mut catalog, &unit);
+
+    let table = catalog.get_table("orders").expect("table exists");
+    assert_eq!(
+        table.indexes.len(),
+        1,
+        "USING INDEX must not create a second backing index, got {:?}",
+        table.indexes.iter().map(|i| &i.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_drop_unique_constraint_added_without_using_index_removes_backing_index() {
+    let mut catalog = Catalog::new();
+
+    let unit1 = make_unit(vec![
+        CreateTable::test(qname("users"))
+            .with_columns(vec![col("email", "text", false)])
+            .with_constraints(vec![TableConstraint::Unique {
+                name: Some("uq_users_email".to_string()),
+                columns: vec!["email".to_string()],
+                using_index: None,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit1);
+
+    assert!(
+        catalog
+            .get_table("users")
+            .unwrap()
+            .indexes
+            .iter()
+            .any(|i| i.name == "uq_users_email"),
+        "backing index should exist before drop"
+    );
+
+    let unit2 = make_unit(vec![IrNode::AlterTable(AlterTable {
+        name: qname("users"),
+        actions: vec![AlterTableAction::DropConstraint {
+            constraint_name: "uq_users_email".to_string(),
+        }],
+    })]);
+    apply(&mut catalog, &unit2);
+
+    let table = catalog.get_table("users").unwrap();
+    assert!(
+        !table.indexes.iter().any(|i| i.name == "uq_users_email"),
+        "backing index should be removed after DROP CONSTRAINT"
+    );
+    assert!(
+        catalog.table_for_index("uq_users_email").is_none(),
+        "reverse map entry should be removed after DROP CONSTRAINT"
+    );
+}
+
+#[test]
+fn test_create_table_unique_constraint_registers_backing_index_in_reverse_map() {
+    let mut catalog = Catalog::new();
+
+    let unit = make_unit(vec![
+        CreateTable::test(qname("users"))
+            .with_columns(vec![col("email", "text", false)])
+            .with_constraints(vec![TableConstraint::Unique {
+                name: Some("uq_users_email".to_string()),
+                columns: vec!["email".to_string()],
+                using_index: None,
+            }])
+            .into(),
+    ]);
+    apply(&mut catalog, &unit);
+
+    assert_eq!(
+        catalog.table_for_index("uq_users_email"),
+        Some("users"),
+        "CREATE TABLE's UNIQUE constraint backing index should be in the reverse map \
+         with no extra registration code"
+    );
+}
+
+#[test]
 fn test_drop_unique_using_index_removes_backing_index() {
     // When a UNIQUE constraint was created via USING INDEX with a name that
     // differs from the constraint, dropping the constraint must also remove

@@ -5,6 +5,7 @@
 //! PostgreSQL automatically drops any index or constraint that depends on the
 //! column, silently removing uniqueness guarantees.
 
+use crate::catalog::replay::unique_backing_index_name;
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
@@ -46,13 +47,17 @@ pub(super) fn check(
         ctx,
         |name, at, table, stmt, ctx| {
             let mut findings = Vec::new();
+            // Backing index names of UNIQUE constraints already reported below —
+            // PostgreSQL drops a constraint and its backing index as one atomic
+            // action, so the index loop must not report the same removal again.
+            let mut backing_index_names: Vec<String> = Vec::new();
 
             // Check UNIQUE constraints that include this column.
             for constraint in table.constraints_involving_column(name) {
                 if let ConstraintState::Unique {
                     name: constraint_name,
                     columns,
-                    ..
+                    using_index,
                 } = constraint
                 {
                     let constraint_description = match constraint_name {
@@ -71,13 +76,24 @@ pub(super) fn check(
                         ctx.file,
                         &stmt.span,
                     ));
+                    backing_index_names.push(unique_backing_index_name(
+                        &table.name,
+                        constraint_name,
+                        columns,
+                        using_index,
+                    ));
                 }
             }
 
             // Check unique indexes that include this column.
-            // Skip PK indexes (named *_pkey) since PGM011 handles those.
+            // Skip PK indexes (named *_pkey) since PGM011 handles those, and
+            // skip any index already reported above as a UNIQUE constraint's
+            // own backing index.
             for idx in table.indexes_involving_column(name) {
-                if idx.unique && !idx.name.ends_with("_pkey") {
+                if idx.unique
+                    && !idx.name.ends_with("_pkey")
+                    && !backing_index_names.contains(&idx.name)
+                {
                     findings.push(rule.make_finding(
                         format!(
                             "Dropping column '{col}' from table '{table}' silently \
@@ -272,6 +288,69 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_column_with_plain_unique_constraint_fires_once() {
+        // A UNIQUE constraint added without USING INDEX has a synthetic
+        // backing index in the catalog (see catalog::replay). PostgreSQL
+        // drops the constraint and its backing index as one atomic action,
+        // so PGM010 must report one finding, not one per (constraint, index)
+        // pair — otherwise every plain UNIQUE constraint drop double-counts.
+        use crate::catalog::replay::apply;
+        use crate::input::MigrationUnit;
+        use std::path::PathBuf;
+
+        let mut catalog = CatalogBuilder::new()
+            .table("users", |t| {
+                t.column("id", "integer", false)
+                    .column("email", "text", false)
+                    .pk(&["id"]);
+            })
+            .build();
+
+        let unit = MigrationUnit {
+            id: "add_unique".to_string(),
+            statements: vec![Located {
+                node: IrNode::AlterTable(AlterTable {
+                    name: QualifiedName::unqualified("users"),
+                    actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                        name: Some("uq_users_email".to_string()),
+                        columns: vec!["email".to_string()],
+                        using_index: None,
+                    })],
+                }),
+                span: SourceSpan {
+                    start_line: 1,
+                    end_line: 1,
+                    start_offset: 0,
+                    end_offset: 0,
+                },
+            }],
+            source_file: PathBuf::from("migrations/001.sql"),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down: false,
+        };
+        apply(&mut catalog, &unit);
+
+        let before = catalog;
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("users"),
+            actions: vec![AlterTableAction::DropColumn {
+                name: "email".to_string(),
+            }],
+        }))];
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert_eq!(
+            findings.len(),
+            1,
+            "constraint and its own backing index are one event, not two"
+        );
+    }
+
+    #[test]
     fn test_drop_unique_column_created_via_using_index_fires() {
         // UNIQUE constraint was created via ADD UNIQUE USING INDEX — replay resolves
         // the index columns into the constraint so DROP COLUMN detects it.
@@ -327,11 +406,11 @@ mod tests {
         }))];
 
         let findings = RuleId::Pgm010.check(&stmts, &ctx);
-        // Fires twice: once for the UNIQUE constraint (resolved columns), once for
-        // the backing unique index — both involve the dropped column.
+        // Fires once: the constraint and its USING INDEX-attached backing
+        // index are the same PostgreSQL object, not two independent ones.
         assert_eq!(
             findings.len(),
-            2,
+            1,
             "Should detect unique constraint removal even when created via USING INDEX"
         );
     }

@@ -324,6 +324,43 @@ mod tests {
     }
 
     #[test]
+    fn test_new_plain_index_prefix_of_unique_backed_index_fires() {
+        // A UNIQUE constraint's backing index is unique but that must not stop
+        // it from being the *covering* side — only from being flagged redundant.
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("a", "integer", false)
+                    .column("b", "integer", false)
+                    .index("uq_orders_a_b", &["a", "b"], true) // UNIQUE-backed
+                    .index("idx_a", &["a"], false);
+            })
+            .build();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![create_index_stmt("idx_a", "orders", &["a"])];
+        let findings = RuleId::Pgm508.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_new_plain_index_exact_duplicate_of_unique_backed_index_fires() {
+        let before = Catalog::new();
+        let after = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("email", "text", false)
+                    .index("uq_orders_email", &["email"], true) // UNIQUE-backed
+                    .index("idx_email", &["email"], false);
+            })
+            .build();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![create_index_stmt("idx_email", "orders", &["email"])];
+        let findings = RuleId::Pgm508.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
     fn test_no_overlap_no_finding() {
         let before = Catalog::new();
         let after = CatalogBuilder::new()
