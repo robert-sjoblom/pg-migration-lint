@@ -9,11 +9,11 @@ title: Rule Reference
 `pg-migration-lint` ships with 53 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001-PGM024) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
-- **Type Anti-patterns** (PGM101-PGM106) — flag column types that should be avoided per PostgreSQL best practice.
-- **Destructive Operations** (PGM201-PGM204) — flag data-loss operations.
+- **Type Anti-patterns** (PGM101-PGM109) — flag column types that should be avoided per PostgreSQL best practice.
+- **Destructive Operations** (PGM201-PGM205) — flag data-loss operations.
 - **DML in Migrations** (PGM301-PGM303) — flag data manipulation statements on existing tables.
 - **Idempotency Guards** (PGM401-PGM403) — detect missing IF EXISTS / IF NOT EXISTS guards.
-- **Schema Design** (PGM501-PGM506) — schema quality and informational findings.
+- **Schema Design** (PGM501-PGM509) — schema quality and informational findings.
 - **Meta-behavior** (PGM901) — cross-cutting behavior modifiers (not standalone lint rules).
 
 ## How to use

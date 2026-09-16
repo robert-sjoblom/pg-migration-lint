@@ -32,7 +32,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM022, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM024, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -143,14 +143,16 @@ pub struct LintContext<'a> {
 Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM501/502/503). The two-catalog approach enables single-pass replay without needing separate replay runs.
 
 #### Rule Severities
+Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical < Blocker`:
+- **BLOCKER**: Reserved for user severity overrides; no rule defaults to it.
 - **CRITICAL**: Causes downtime or data corruption (e.g., missing `CONCURRENTLY`)
 - **MAJOR**: Performance issues or schema problems (e.g., missing FK index, no primary key)
-- **WARNING**: Potentially unintended behavior
+- **MINOR**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules (52 total)
+#### Rules (53 total)
 
-**0xx — Unsafe DDL** (PGM001–PGM022): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
+**0xx — Unsafe DDL** (PGM001–PGM024): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
 **1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
 **2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
 **3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.

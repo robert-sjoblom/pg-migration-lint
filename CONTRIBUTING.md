@@ -16,7 +16,7 @@ Each migration unit is processed through the pipeline. For changed files, the en
 
 ### 1. Create the rule file
 
-Create `src/rules/pgmXXX.rs` with two constants and a `check` function:
+Create `src/rules/pgmXXX.rs` with three constants and a `check` function:
 
 ```rust
 pub(super) const DESCRIPTION: &str = "Short one-line description";
@@ -35,6 +35,8 @@ pub(super) const EXPLAIN: &str = "PGMXXX — Title\n\
     Fix:\n\
       ...";
 
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major; // Info, Minor, Major, Critical, or Blocker
+
 pub(super) fn check(
     rule: impl Rule,
     statements: &[Located<IrNode>],
@@ -44,7 +46,7 @@ pub(super) fn check(
 }
 ```
 
-The `EXPLAIN` text must reference the rule's own ID (e.g., `"PGMXXX"`) — this is verified by tests.
+The `EXPLAIN` text should reference the rule's own ID (e.g., `"PGMXXX"`) as a review convention — `src/rules/mod.rs` only asserts a minimum length on `DESCRIPTION`/`EXPLAIN`, it does not check that `EXPLAIN` names the rule.
 
 ### 2. Add the enum variant
 
@@ -56,20 +58,14 @@ In `src/rules/rule_id.rs`, add a variant to the flat `RuleId` enum in the approp
 PgmXXX,
 ```
 
-Then wire up the four dispatch match arms in `impl Rule for RuleId` (also in `src/rules/rule_id.rs`):
+Then add one line to the `dispatch_rules!` macro invocation (also in `src/rules/rule_id.rs`), which generates all four `Rule` trait methods (`default_severity`, `description`, `explain`, `check`) from this single mapping:
 
 ```rust
-// In default_severity()
-Self::PgmXXX => Severity::Critical, // or Major, Warning, Info
-
-// In description()
-Self::PgmXXX => pgmXXX::DESCRIPTION,
-
-// In explain()
-Self::PgmXXX => pgmXXX::EXPLAIN,
-
-// In check()
-Self::PgmXXX => pgmXXX::check(self, statements, ctx),
+dispatch_rules! {
+    // ...
+    PgmXXX => pgmXXX,
+    // ...
+}
 ```
 
 The `#[strum(serialize)]` attribute handles `as_str()`, `FromStr`, and `Display` automatically via strum derives.
