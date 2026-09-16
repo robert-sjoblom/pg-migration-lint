@@ -237,7 +237,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 #### PGM003 — `CONCURRENTLY` inside transaction
 
 - **Severity**: CRITICAL
-- **Triggers**: `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a context that implies transactional execution:
+- **Triggers**: `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a context that implies transactional execution:
   - Liquibase changeset without `runInTransaction="false"`
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`

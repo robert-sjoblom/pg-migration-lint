@@ -1,11 +1,13 @@
 //! PGM003 — `CONCURRENTLY` inside transaction
 //!
-//! Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside
-//! a migration unit that runs in a transaction. PostgreSQL does not allow
-//! concurrent index operations inside a transaction block; the command
-//! will fail at runtime.
+//! Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`,
+//! `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or
+//! `REINDEX ... CONCURRENTLY` inside a migration unit that runs in a
+//! transaction. PostgreSQL does not allow any of these CONCURRENTLY
+//! operations inside a transaction block; the command will fail at
+//! runtime.
 
-use crate::parser::ir::{IrNode, Located};
+use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
@@ -13,8 +15,10 @@ pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
 pub(super) const EXPLAIN: &str = "PGM003 — CONCURRENTLY inside transaction\n\
          \n\
          What it detects:\n\
-         A CREATE INDEX CONCURRENTLY or DROP INDEX CONCURRENTLY statement\n\
-         inside a migration unit that runs in a transaction.\n\
+         A CREATE INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY,\n\
+         ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY, or\n\
+         REINDEX ... CONCURRENTLY statement inside a migration unit that\n\
+         runs in a transaction.\n\
          \n\
          Why it's dangerous:\n\
          PostgreSQL does not allow CONCURRENTLY operations inside a\n\
@@ -35,7 +39,7 @@ pub(super) const EXPLAIN: &str = "PGM003 — CONCURRENTLY inside transaction\n\
          For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\n\
          the migration file header.\n\
          \n\
-         See also: PGM001, PGM002.";
+         See also: PGM001, PGM002, PGM022.";
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
@@ -54,6 +58,16 @@ pub(super) fn check(
         let is_concurrent = match &stmt.node {
             IrNode::CreateIndex(ci) => ci.concurrent,
             IrNode::DropIndex(di) => di.concurrent,
+            IrNode::AlterTable(at) => at.actions.iter().any(|action| {
+                matches!(
+                    action,
+                    AlterTableAction::DetachPartition {
+                        concurrent: true,
+                        ..
+                    }
+                )
+            }),
+            IrNode::Reindex(r) => r.concurrent,
             _ => false,
         };
 
@@ -152,5 +166,69 @@ mod tests {
 
         let findings = RuleId::Pgm003.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_detach_partition_concurrent_in_transaction_fires() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("measurements"),
+            actions: vec![AlterTableAction::DetachPartition {
+                child: QualifiedName::unqualified("measurements_2023"),
+                concurrent: true,
+            }],
+        }))];
+
+        let findings = RuleId::Pgm003.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_detach_partition_no_concurrent_in_transaction_no_finding() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
+
+        let stmts = vec![located(IrNode::AlterTable(AlterTable {
+            name: QualifiedName::unqualified("measurements"),
+            actions: vec![AlterTableAction::DetachPartition {
+                child: QualifiedName::unqualified("measurements_2023"),
+                concurrent: false,
+            }],
+        }))];
+
+        let findings = RuleId::Pgm003.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_reindex_concurrent_in_transaction_fires() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
+
+        let stmts = vec![located(IrNode::Reindex(
+            Reindex::test_table(QualifiedName::unqualified("orders")).with_concurrent(),
+        ))];
+
+        let findings = RuleId::Pgm003.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn test_reindex_no_concurrent_in_transaction_no_finding() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
+
+        let stmts = vec![located(IrNode::Reindex(Reindex::test_table(
+            QualifiedName::unqualified("orders"),
+        )))];
+
+        let findings = RuleId::Pgm003.check(&stmts, &ctx);
+        assert!(findings.is_empty());
     }
 }

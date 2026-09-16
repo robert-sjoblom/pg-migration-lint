@@ -1,4 +1,4 @@
-Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migration unit that runs in a transaction. PostgreSQL does not allow concurrent index operations inside a transaction block — the command will fail at runtime.
+Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a migration unit that runs in a transaction. PostgreSQL does not allow any of these CONCURRENTLY operations inside a transaction block — the command will fail at runtime.
 
 **Example** (bad — Liquibase changeset with default `runInTransaction`):
 ```xml
@@ -14,4 +14,4 @@ Detects `CREATE INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY` inside a migrat
 </changeSet>
 ```
 
-See also [PGM001](#pgm001) and [PGM002](#pgm002).
+See also [PGM001](#pgm001), [PGM002](#pgm002), and [PGM022](#pgm022).

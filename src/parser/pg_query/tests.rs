@@ -2054,6 +2054,54 @@ fn test_detach_partition() {
     }
 }
 
+#[rstest]
+#[case::table("REINDEX TABLE orders;", ReindexObjectKind::Table, false)]
+#[case::table_concurrently("REINDEX TABLE CONCURRENTLY orders;", ReindexObjectKind::Table, true)]
+#[case::index("REINDEX INDEX idx_orders_status;", ReindexObjectKind::Index, false)]
+#[case::index_concurrently(
+    "REINDEX INDEX CONCURRENTLY idx_orders_status;",
+    ReindexObjectKind::Index,
+    true
+)]
+#[case::schema("REINDEX SCHEMA public;", ReindexObjectKind::Schema, false)]
+#[case::schema_concurrently("REINDEX SCHEMA CONCURRENTLY public;", ReindexObjectKind::Schema, true)]
+#[case::database("REINDEX DATABASE mydb;", ReindexObjectKind::Database, false)]
+#[case::database_concurrently(
+    "REINDEX DATABASE CONCURRENTLY mydb;",
+    ReindexObjectKind::Database,
+    true
+)]
+#[case::system("REINDEX SYSTEM mydb;", ReindexObjectKind::System, false)]
+#[case::system_concurrently("REINDEX SYSTEM CONCURRENTLY mydb;", ReindexObjectKind::System, true)]
+fn test_parse_reindex_kinds_and_concurrent(
+    #[case] sql: &str,
+    #[case] expected_kind: ReindexObjectKind,
+    #[case] concurrent: bool,
+) {
+    let nodes = parse_sql(sql);
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::Reindex(r) => {
+            assert_eq!(r.kind, expected_kind, "kind mismatch for: {sql}");
+            assert_eq!(r.concurrent, concurrent, "concurrent mismatch for: {sql}");
+        }
+        other => panic!("Expected Reindex for `{sql}`, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_reindex_table_relation_name() {
+    let nodes = parse_sql("REINDEX TABLE myschema.orders;");
+    assert_eq!(nodes.len(), 1);
+    match &nodes[0].node {
+        IrNode::Reindex(r) => match &r.target {
+            ReindexTarget::Relation(name) => assert_eq!(name.name, "orders"),
+            other => panic!("Expected Relation target, got {:?}", other),
+        },
+        other => panic!("Expected Reindex, got: {:?}", other),
+    }
+}
+
 #[test]
 fn test_detach_partition_concurrently() {
     let nodes =
