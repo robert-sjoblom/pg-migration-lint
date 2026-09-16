@@ -211,6 +211,35 @@ impl RuleId {
     pub fn lint_rules() -> impl Iterator<Item = Self> {
         Self::iter().filter(|r| !r.is_meta())
     }
+
+    /// Whether this rule runs without an explicit opt-in.
+    ///
+    /// Most rules default to enabled. A rule returns `false` here when it
+    /// fires often enough in practice to drown out other findings, and
+    /// should only run when a user opts in via `rules.enabled` in the
+    /// config -- see the match arms below, or a rule's `--explain` output,
+    /// for which rules that currently applies to.
+    pub fn default_enabled(&self) -> bool {
+        !matches!(self, Self::Pgm401 | Self::Pgm402 | Self::Pgm403)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_idempotency_rules_default_disabled() {
+        assert!(!RuleId::Pgm401.default_enabled());
+        assert!(!RuleId::Pgm402.default_enabled());
+        assert!(!RuleId::Pgm403.default_enabled());
+    }
+
+    #[test]
+    fn test_other_rules_default_enabled() {
+        assert!(RuleId::Pgm001.default_enabled());
+        assert!(RuleId::Pgm501.default_enabled());
+    }
 }
 
 impl std::fmt::Display for RuleId {

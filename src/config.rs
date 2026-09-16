@@ -158,6 +158,16 @@ pub struct RulesConfig {
     /// Invalid rule IDs cause a config-load error (exit 2).
     #[serde(default)]
     pub disabled: Vec<crate::rules::RuleId>,
+
+    /// Rule IDs to force-enable, overriding a rule's `default_enabled()`.
+    /// Some rules default to disabled because they fire often enough in
+    /// practice to drown out other findings -- run `--list-rules disabled`
+    /// to see which ones. Listing a rule here that is already enabled by
+    /// default has no effect.
+    /// Invalid rule IDs cause a config-load error (exit 2), as does listing
+    /// the same rule in both `enabled` and `disabled`.
+    #[serde(default)]
+    pub enabled: Vec<crate::rules::RuleId>,
 }
 
 fn default_schema() -> String {
@@ -298,6 +308,14 @@ const SECTION_RULES: &str = "\
     Example: [\"PGM006\", \"PGM101\"]
     Type: list of strings
     Default: []
+
+  enabled = []
+    Rule IDs to force-enable. Some rules are opt-in and only run when
+    listed here -- run `--list-rules disabled` to see which ones. Listing
+    an already-default-on rule has no effect. Listing the same rule in
+    both enabled and disabled is a config error.
+    Type: list of strings (same syntax as disabled above)
+    Default: []
 ";
 
 /// Print configuration reference for a specific section, or all sections.
@@ -407,6 +425,24 @@ impl Config {
                 fail_on
             )));
         }
+
+        let enabled: std::collections::HashSet<_> = self.rules.enabled.iter().collect();
+        let mut conflicting: Vec<String> = self
+            .rules
+            .disabled
+            .iter()
+            .filter(|r| enabled.contains(r))
+            .map(|r| r.to_string())
+            .collect();
+        if !conflicting.is_empty() {
+            conflicting.sort();
+            return Err(ConfigError::Validation(format!(
+                "rule(s) {} appear in both rules.enabled and rules.disabled -- \
+                 remove each from one of the two lists",
+                conflicting.join(", ")
+            )));
+        }
+
         Ok(())
     }
 }
@@ -446,6 +482,23 @@ mod tests {
     }
 
     #[test]
+    fn test_rule_in_both_enabled_and_disabled_rejected() {
+        let toml = "[rules]\nenabled = [\"PGM401\"]\ndisabled = [\"PGM401\"]";
+        let err = parse_and_validate(toml).unwrap_err();
+        assert!(
+            err.to_string().contains("PGM401"),
+            "Expected error naming the conflicting rule, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_disjoint_enabled_and_disabled_is_valid() {
+        let toml = "[rules]\nenabled = [\"PGM401\"]\ndisabled = [\"PGM501\"]";
+        assert!(parse_and_validate(toml).is_ok());
+    }
+
+    #[test]
     fn test_default_fail_on_is_valid() {
         let config = Config::default();
         assert!(config.validate().is_ok());
@@ -468,6 +521,7 @@ mod tests {
     fn test_rules_section_defaults_to_empty() {
         let config = Config::default();
         assert!(config.rules.disabled.is_empty());
+        assert!(config.rules.enabled.is_empty());
     }
 
     #[test]
@@ -475,6 +529,20 @@ mod tests {
         let toml = "[cli]\nfail_on = \"critical\"";
         let config = parse_and_validate(toml).unwrap();
         assert!(config.rules.disabled.is_empty());
+        assert!(config.rules.enabled.is_empty());
+    }
+
+    #[test]
+    fn test_rules_enabled_deserialization() {
+        let toml = "[rules]\nenabled = [\"PGM401\", \"PGM402\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(
+            config.rules.enabled,
+            vec![
+                "PGM401".parse::<crate::rules::RuleId>().unwrap(),
+                "PGM402".parse::<crate::rules::RuleId>().unwrap(),
+            ]
+        );
     }
 
     #[test]
@@ -689,6 +757,10 @@ mod tests {
         assert!(
             config.rules.disabled.is_empty(),
             "rules.disabled should be empty"
+        );
+        assert!(
+            config.rules.enabled.is_empty(),
+            "rules.enabled should be empty"
         );
     }
 

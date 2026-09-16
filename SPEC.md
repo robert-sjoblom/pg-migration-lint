@@ -849,6 +849,10 @@ The following rules are specified but deferred until per-rule enable/disable con
 
 Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. Exits 0. No file scanning.
 
+### 4.5 `--list-rules [enabled|disabled]`
+
+Lists every non-meta rule with its ID, default severity, and enabled-by-default status, one per line. Omit the filter to list all rules; `enabled`/`disabled` narrow the listing to rules matching that `default_enabled()` state. Exits 0. An unrecognized filter value is a CLI parse error (exit 2). No file scanning.
+
 ---
 
 ## 5. Suppression
@@ -914,7 +918,17 @@ properties_file = "liquibase.properties"
 strategy = "auto"
 
 [rules]
-# Severity overrides (future, not v1 — included for schema stability)
+# Rule IDs to disable globally. Findings from disabled rules are not emitted.
+# Invalid rule IDs cause a config-load error (exit 2).
+disabled = []
+
+# Rule IDs to force-enable, overriding a rule's default-enabled state.
+# Some rules are opt-in and only run when listed here -- run
+# `--explain <RULE>` to check whether a given rule is enabled by default.
+# Listing the same rule in both `enabled` and `disabled` is a config error.
+enabled = []
+
+# Per-rule severity overrides (future, not v1 — included for schema stability)
 # [rules.PGM001]
 # severity = "MAJOR"
 

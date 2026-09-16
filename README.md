@@ -236,6 +236,13 @@ dir = "build/reports/migration-lint"
 # Default: []
 disabled = []
 
+# Rule IDs to force-enable. Some rules are opt-in and only run when listed
+# here -- run `--explain <RULE>` to check whether a given rule is enabled
+# by default. Listing the same rule in both `enabled` and `disabled` is a
+# config error.
+# Default: []
+enabled = []
+
 [cli]
 # Exit non-zero if any finding meets or exceeds this severity.
 # One of: "blocker", "critical", "major", "minor", "info", "none"
@@ -306,6 +313,9 @@ OPTIONS:
   --explain-config [section]       Print configuration reference and exit.
                                    Omit section to print all; valid sections:
                                    migrations, liquibase, output, cli, rules
+  --list-rules [filter]            List rules with severity and enabled-by-
+                                   default status, and exit. Omit filter to
+                                   list all; valid filters: enabled, disabled
   -V, --version                    Print version and exit
   -h, --help                       Print help
 ```
