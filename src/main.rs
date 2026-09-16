@@ -67,6 +67,11 @@ struct Args {
     #[arg(long, num_args = 0..=1, default_missing_value = "all")]
     explain_config: Option<String>,
 
+    /// List all rules with severity and enabled-by-default status.
+    /// Optionally filter to "enabled" or "disabled" only.
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "all")]
+    list_rules: Option<RuleListFilter>,
+
     /// Override exit code threshold (critical, major, minor, info, none)
     #[arg(long)]
     fail_on: Option<String>,
@@ -80,6 +85,17 @@ struct Args {
     #[cfg(feature = "github-review")]
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+/// Filter for `--list-rules`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum RuleListFilter {
+    /// Every non-meta rule.
+    All,
+    /// Only rules whose `default_enabled()` is `true`.
+    Enabled,
+    /// Only rules whose `default_enabled()` is `false`.
+    Disabled,
 }
 
 /// Subcommands available alongside the default flat-flag lint flow.
@@ -191,6 +207,12 @@ fn run(args: Args) -> Result<bool> {
         return Ok(false);
     }
 
+    // Handle --list-rules early exit
+    if let Some(filter) = args.list_rules {
+        list_rules(filter);
+        return Ok(false);
+    }
+
     // Load configuration.
     // If --config is explicitly provided and the file doesn't exist, that's a tool error.
     // If using the default path and it doesn't exist, warn and use defaults.
@@ -296,10 +318,15 @@ fn lint_history(
 
     let mut pipeline = LintPipeline::new();
 
-    // Build active rules list, filtering out any disabled via config.
+    // Build active rules list: drop anything explicitly disabled, and drop
+    // anything whose `default_enabled()` is false unless explicitly
+    // enabled. `Config::validate` already rejects a rule listed in both
+    // `disabled` and `enabled`, so the two filters below never conflict.
     let disabled: HashSet<RuleId> = config.rules.disabled.iter().copied().collect();
+    let enabled: HashSet<RuleId> = config.rules.enabled.iter().copied().collect();
     let active_rules: Vec<RuleId> = RuleId::lint_rules()
         .filter(|r| !disabled.contains(r))
+        .filter(|r| r.default_enabled() || enabled.contains(r))
         .collect();
 
     let mut all_findings: Vec<Finding> = Vec::new();
@@ -477,11 +504,35 @@ fn explain_rule(rule_id: &str) -> Result<()> {
 
     println!("Rule: {}", parsed);
     println!("Severity: {}", parsed.default_severity());
+    println!("Enabled by default: {}", parsed.default_enabled());
     println!("Description: {}", parsed.description());
     println!();
     println!("{}", parsed.explain());
 
     Ok(())
+}
+
+/// List all non-meta rules with their ID, default severity, and
+/// enabled-by-default status, narrowed by `filter`.
+fn list_rules(filter: RuleListFilter) {
+    for id in RuleId::lint_rules() {
+        let enabled = id.default_enabled();
+        let included = match filter {
+            RuleListFilter::All => true,
+            RuleListFilter::Enabled => enabled,
+            RuleListFilter::Disabled => !enabled,
+        };
+        if !included {
+            continue;
+        }
+        println!(
+            "{:<6}  {:<8}  {:<8}  {}",
+            id.as_str(),
+            id.default_severity(),
+            if enabled { "enabled" } else { "disabled" },
+            id.description()
+        );
+    }
 }
 
 fn parse_changed_files(args: &Args) -> Result<Vec<PathBuf>> {

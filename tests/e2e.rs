@@ -65,6 +65,19 @@ fail_on = "{}"
     config_path
 }
 
+/// Append raw TOML to an existing config file written by `write_temp_config`.
+/// Used to add a `[rules]` section without changing `write_temp_config`'s
+/// signature (it has many call sites that don't care about rule selection).
+fn append_to_config(config_path: &Path, extra_toml: &str) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(config_path)
+        .expect("open config for append");
+    file.write_all(extra_toml.as_bytes())
+        .expect("append to config");
+}
+
 /// Collect all .sql file paths in the migrations dir of a fixture, as absolute paths.
 fn all_migration_files(fixture_name: &str) -> Vec<PathBuf> {
     let migrations_dir = fixture_path(fixture_name).join("migrations");
@@ -407,6 +420,127 @@ fn test_text_output_to_stdout() {
     );
 }
 
+#[test]
+fn test_idempotency_rules_disabled_by_default() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+
+    let changed = comma_join(&changed_migration_files("all-rules"));
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        &changed,
+        "--format",
+        "text",
+    ]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for id in ["PGM401", "PGM402", "PGM403"] {
+        assert!(
+            !stdout.contains(id),
+            "{id} should be disabled by default. stdout: {}",
+            stdout
+        );
+    }
+}
+
+#[test]
+fn test_idempotency_rules_enabled_via_config() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+    append_to_config(
+        &config_path,
+        "\n[rules]\nenabled = [\"PGM401\", \"PGM402\", \"PGM403\"]\n",
+    );
+
+    let changed = comma_join(&changed_migration_files("all-rules"));
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        &changed,
+        "--format",
+        "text",
+    ]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for id in ["PGM401", "PGM402", "PGM403"] {
+        assert!(
+            stdout.contains(id),
+            "{id} should fire once explicitly enabled. stdout: {}",
+            stdout
+        );
+    }
+}
+
+#[test]
+fn test_rule_in_both_enabled_and_disabled_rejected() {
+    // A rule cannot be listed in both `rules.enabled` and `rules.disabled` --
+    // that's a self-contradictory config (there's no config layering here to
+    // justify one silently overriding the other), so it's a load-time error
+    // rather than an arbitrary precedence rule.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+    append_to_config(
+        &config_path,
+        "\n[rules]\nenabled = [\"PGM401\"]\ndisabled = [\"PGM401\"]\n",
+    );
+
+    let changed = comma_join(&changed_migration_files("all-rules"));
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        &changed,
+        "--format",
+        "text",
+    ]);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Rule in both enabled and disabled should exit 2. stderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("PGM401"),
+        "stderr should name the conflicting rule. stderr: {}",
+        stderr
+    );
+}
+
 // ===========================================================================
 // CLI behavior tests
 // ===========================================================================
@@ -474,6 +608,83 @@ fn test_explain_unknown_rule() {
     assert!(
         stderr.contains("Unknown rule"),
         "--explain PGM999 should say 'Unknown rule'. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_list_rules_all() {
+    let output = run_lint(&["--list-rules"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--list-rules should exit 0. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for id in RuleId::lint_rules() {
+        assert!(
+            stdout.contains(id.as_str()),
+            "--list-rules should list every rule, missing {}. stdout: {}",
+            id,
+            stdout
+        );
+    }
+    assert!(stdout.contains("enabled"), "stdout: {}", stdout);
+    assert!(stdout.contains("disabled"), "stdout: {}", stdout);
+}
+
+#[test]
+fn test_list_rules_enabled_filter() {
+    let output = run_lint(&["--list-rules", "enabled"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for id in RuleId::lint_rules() {
+        let present = stdout.contains(id.as_str());
+        assert_eq!(
+            present,
+            id.default_enabled(),
+            "--list-rules enabled: {} presence should match default_enabled(). stdout: {}",
+            id,
+            stdout
+        );
+    }
+}
+
+#[test]
+fn test_list_rules_disabled_filter() {
+    let output = run_lint(&["--list-rules", "disabled"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for id in RuleId::lint_rules() {
+        let present = stdout.contains(id.as_str());
+        assert_eq!(
+            present,
+            !id.default_enabled(),
+            "--list-rules disabled: {} presence should match !default_enabled(). stdout: {}",
+            id,
+            stdout
+        );
+    }
+}
+
+#[test]
+fn test_list_rules_invalid_filter_exits_2() {
+    let output = run_lint(&["--list-rules", "garbage"]);
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--list-rules garbage should exit 2. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("possible values"),
+        "stderr should list valid filters. stderr: {}",
         stderr
     );
 }
@@ -640,6 +851,18 @@ fn test_full_pipeline_with_findings() {
         &output_dir.to_string_lossy(),
         &["sarif", "sonarqube"],
         "info",
+    );
+    // Some rules are opt-in by default (see
+    // test_idempotency_rules_disabled_by_default), but this test asserts
+    // every registered rule fires, so force all of them on rather than
+    // hardcoding which ones currently default to off.
+    let all_rules = RuleId::lint_rules()
+        .map(|r| format!("\"{}\"", r.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    append_to_config(
+        &config_path,
+        &format!("\n[rules]\nenabled = [{all_rules}]\n"),
     );
 
     let changed = comma_join(&changed_migration_files("all-rules"));
