@@ -664,6 +664,7 @@ fn test_add_constraint_via_alter_table() {
                 }),
                 AlterTableAction::AddConstraint(TableConstraint::Exclude {
                     name: Some("excl_email".to_string()),
+                    elements: vec![],
                 }),
             ],
         }
@@ -680,10 +681,9 @@ fn test_add_constraint_via_alter_table() {
         "Should have PK, Unique, Check, and Exclude constraints"
     );
     assert!(
-        table
-            .constraints
-            .iter()
-            .any(|c| matches!(c, ConstraintState::Exclude { name: Some(n) } if n == "excl_email")),
+        table.constraints.iter().any(
+            |c| matches!(c, ConstraintState::Exclude { name: Some(n), .. } if n == "excl_email")
+        ),
         "Exclude constraint should be present with correct name"
     );
     assert_eq!(
@@ -1167,6 +1167,50 @@ fn test_apply_rename_column_updates_constraints() {
             );
         }
         other => panic!("Expected ForeignKey constraint, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_apply_rename_column_updates_exclude_elements() {
+    let mut catalog = CatalogBuilder::new()
+        .table("public.rooms", |t| {
+            t.column("id", "integer", false)
+                .column("room", "int4range", false)
+                .column("period", "tsrange", false)
+                .exclude_constraint(Some("excl_rooms"), &["room", "period"]);
+        })
+        .build();
+
+    let unit = make_unit(vec![IrNode::RenameColumn {
+        table: QualifiedName::qualified("public", "rooms"),
+        old_name: "room".to_string(),
+        new_name: "occupied_room".to_string(),
+    }]);
+
+    apply(&mut catalog, &unit);
+
+    let table = catalog
+        .get_table("public.rooms")
+        .expect("table should exist");
+
+    let exclude = table
+        .constraints
+        .iter()
+        .find(|c| matches!(c, ConstraintState::Exclude { .. }))
+        .expect("EXCLUDE constraint should exist");
+
+    match exclude {
+        ConstraintState::Exclude { elements, .. } => {
+            assert_eq!(
+                elements,
+                &[
+                    IndexColumn::Column("occupied_room".to_string()),
+                    IndexColumn::Column("period".to_string()),
+                ],
+                "EXCLUDE elements should reference the renamed column"
+            );
+        }
+        other => panic!("Expected Exclude constraint, got {:?}", other),
     }
 }
 
@@ -2794,6 +2838,7 @@ fn drop_constraint_setup_exclude() -> (Catalog, &'static str, &'static str) {
             ])
             .with_constraints(vec![TableConstraint::Exclude {
                 name: Some("excl_room_overlap".to_string()),
+                elements: vec![],
             }])
             .into(),
     ]);

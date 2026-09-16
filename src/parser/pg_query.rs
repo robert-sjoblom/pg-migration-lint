@@ -834,9 +834,49 @@ fn convert_table_constraint(
                 not_valid: con.skip_validation,
             })
         }
-        pg_query::protobuf::ConstrType::ConstrExclusion => Some(TableConstraint::Exclude { name }),
+        pg_query::protobuf::ConstrType::ConstrExclusion => Some(TableConstraint::Exclude {
+            name,
+            elements: extract_exclusion_elements(&con.exclusions),
+        }),
         _ => None,
     }
+}
+
+/// Convert a pg_query `IndexElem` into an IR `IndexColumn`.
+///
+/// Shared by `CREATE INDEX` column lists and EXCLUDE constraint elements,
+/// which use the identical `IndexElem` node shape.
+fn index_elem_to_column(elem: &pg_query::protobuf::IndexElem) -> Option<IndexColumn> {
+    if !elem.name.is_empty() {
+        // Simple column reference.
+        Some(IndexColumn::Column(elem.name.clone()))
+    } else {
+        // Expression element — deparse the expression and extract column
+        // references for DROP/RENAME tracking.
+        elem.expr.as_ref().map(|expr_node| IndexColumn::Expression {
+            text: deparse_node(expr_node),
+            referenced_columns: extract_column_refs(expr_node),
+        })
+    }
+}
+
+/// Extract the element list from an EXCLUDE constraint's `exclusions` field.
+///
+/// Each entry is a `List` pairing an `IndexElem` with its operator name list
+/// (the operator itself is not tracked). See `spike_exclude_constraint_exclusions_shape`
+/// in `tests/pg_query_spike.rs` for the confirmed AST shape.
+fn extract_exclusion_elements(exclusions: &[pg_query::protobuf::Node]) -> Vec<IndexColumn> {
+    exclusions
+        .iter()
+        .filter_map(|n| match n.node.as_ref() {
+            Some(NodeEnum::List(list)) => list.items.first(),
+            _ => None,
+        })
+        .filter_map(|n| match n.node.as_ref() {
+            Some(NodeEnum::IndexElem(elem)) => index_elem_to_column(elem),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Convert a pg_query `IndexStmt` to `IrNode::CreateIndex`.
@@ -853,19 +893,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         .index_params
         .iter()
         .filter_map(|p| match p.node.as_ref() {
-            Some(NodeEnum::IndexElem(elem)) => {
-                if !elem.name.is_empty() {
-                    // Simple column reference.
-                    Some(IndexColumn::Column(elem.name.clone()))
-                } else {
-                    // Expression index element — deparse the expression and extract
-                    // column references for DROP/RENAME tracking.
-                    elem.expr.as_ref().map(|expr_node| IndexColumn::Expression {
-                        text: deparse_node(expr_node),
-                        referenced_columns: extract_column_refs(expr_node),
-                    })
-                }
-            }
+            Some(NodeEnum::IndexElem(elem)) => index_elem_to_column(elem),
             _ => None,
         })
         .collect();

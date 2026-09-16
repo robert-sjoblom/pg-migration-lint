@@ -763,6 +763,65 @@ fn test_parse_check_constraint() {
 }
 
 #[test]
+fn test_parse_exclude_constraint_plain_columns() {
+    let sql = "CREATE TABLE t (room int4range, period tsrange, \
+               EXCLUDE USING gist (room WITH =, period WITH &&));";
+    let nodes = parse_sql(sql);
+    match &nodes[0].node {
+        IrNode::CreateTable(ct) => {
+            let exclude = ct
+                .constraints
+                .iter()
+                .find(|c| matches!(c, TableConstraint::Exclude { .. }))
+                .expect("Expected EXCLUDE constraint");
+            match exclude {
+                TableConstraint::Exclude { elements, .. } => {
+                    assert_eq!(
+                        elements,
+                        &[
+                            IndexColumn::Column("room".to_string()),
+                            IndexColumn::Column("period".to_string()),
+                        ]
+                    );
+                }
+                other => panic!("Expected Exclude, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected CreateTable, got: {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_exclude_constraint_expression_element() {
+    let sql = "CREATE TABLE t (name text, EXCLUDE USING gist (lower(name) WITH =));";
+    let nodes = parse_sql(sql);
+    match &nodes[0].node {
+        IrNode::CreateTable(ct) => {
+            let exclude = ct
+                .constraints
+                .iter()
+                .find(|c| matches!(c, TableConstraint::Exclude { .. }))
+                .expect("Expected EXCLUDE constraint");
+            match exclude {
+                TableConstraint::Exclude { elements, .. } => {
+                    assert_eq!(elements.len(), 1);
+                    match &elements[0] {
+                        IndexColumn::Expression {
+                            referenced_columns, ..
+                        } => {
+                            assert_eq!(referenced_columns, &["name".to_string()]);
+                        }
+                        other => panic!("Expected Expression element, got: {:?}", other),
+                    }
+                }
+                other => panic!("Expected Exclude, got: {:?}", other),
+            }
+        }
+        other => panic!("Expected CreateTable, got: {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_alter_add_column_serial() {
     let sql = "ALTER TABLE t ADD COLUMN seq_id serial;";
     let nodes = parse_sql(sql);
