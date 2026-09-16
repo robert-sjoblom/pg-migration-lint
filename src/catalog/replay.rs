@@ -186,16 +186,27 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                     table.remove_column(name);
                 }
                 AlterTableAction::AddConstraint(constraint) => {
-                    // Track synthetic PK indexes created by apply_table_constraint.
+                    // Track synthetic PK/UNIQUE indexes created by apply_table_constraint.
                     // Only when there's no USING INDEX (with USING INDEX the index already exists).
-                    if matches!(
-                        constraint,
+                    match constraint {
                         TableConstraint::PrimaryKey {
-                            using_index: None,
-                            ..
+                            using_index: None, ..
+                        } => {
+                            indexes_to_register.push(format!("{}_pkey", table.name));
                         }
-                    ) {
-                        indexes_to_register.push(format!("{}_pkey", table.name));
+                        TableConstraint::Unique {
+                            name,
+                            columns,
+                            using_index: None,
+                        } => {
+                            indexes_to_register.push(unique_backing_index_name(
+                                &table.name,
+                                name,
+                                columns,
+                                &None,
+                            ));
+                        }
+                        _ => {}
                     }
                     apply_table_constraint(table, constraint);
                 }
@@ -696,6 +707,23 @@ fn column_def_to_state(col: &ColumnDef) -> ColumnState {
     }
 }
 
+/// Name PostgreSQL gives a UNIQUE constraint's backing index: the `USING
+/// INDEX` name when attached to an existing index, the constraint's own
+/// name when given, otherwise the default `<table>_<col1>_..._key`
+/// convention. Shared with `rules::pgm010`, which needs it to recognize an
+/// index as a constraint's own backing index rather than a separate object.
+pub(crate) fn unique_backing_index_name(
+    table_name: &str,
+    name: &Option<String>,
+    columns: &[String],
+    using_index: &Option<String>,
+) -> String {
+    using_index.clone().unwrap_or_else(|| {
+        name.clone()
+            .unwrap_or_else(|| format!("{table_name}_{}_key", columns.join("_")))
+    })
+}
+
 /// Apply a table constraint to the table state, updating constraints list
 /// and has_primary_key flag as needed.
 fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) {
@@ -787,6 +815,21 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
                 columns: resolved_columns,
                 using_index: using_index.clone(),
             });
+            // Only create a synthetic backing index when there's no USING INDEX.
+            // With USING INDEX, the referenced index already exists in the catalog.
+            if using_index.is_none() {
+                table.indexes.push(IndexState {
+                    name: unique_backing_index_name(&table.name, name, columns, using_index),
+                    entries: columns
+                        .iter()
+                        .map(|c| IndexColumn::Column(c.clone()))
+                        .collect(),
+                    unique: true,
+                    where_clause: None,
+                    only: false,
+                    access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
+                });
+            }
         }
         TableConstraint::Check {
             name,

@@ -416,18 +416,6 @@ expression: findings
   file: 006-table-no-pk.xml
   start_line: 2
   end_line: 2
-- rule_id: PGM501
-  severity: Major
-  message: "Foreign key on 'price_plan_products(price_plan_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
-  file: 007-volatile-defaults.xml
-  start_line: 2
-  end_line: 2
-- rule_id: PGM501
-  severity: Major
-  message: "Foreign key on 'price_plan_products(product_id)' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
-  file: 007-volatile-defaults.xml
-  start_line: 3
-  end_line: 3
 - rule_id: PGM502
   severity: Major
   message: "Table 'subscription_invoices' has no primary key."
