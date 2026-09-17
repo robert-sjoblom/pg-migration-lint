@@ -1,12 +1,12 @@
 //! Verification harness for PostgreSQL lock behaviour.
 //!
 //! These tests exist to check the factual claims made in `pg-migration-lint` rule
-//! explanations against real PostgreSQL servers (14–18). They are deliberately a
+//! explanations against real PostgreSQL servers (14–19). They are deliberately a
 //! separate package from the analyzer so that `pg-migration-lint` itself never gains
 //! a Postgres client in its dependency graph.
 //!
-//! Servers come from `verify/docker-compose.yml`, which maps PG 14–18 to ports
-//! 54314–54318 on the loopback interface:
+//! Servers come from `verify/docker-compose.yml`, which maps PG 14–19 to ports
+//! 54314–54319 on the loopback interface:
 //!
 //! ```text
 //! cd verify && docker compose up -d
@@ -35,12 +35,13 @@ use postgres::{Client, Config, NoTls};
 pub use postgres::error::SqlState;
 
 /// PG major versions paired with their port.
-pub const PG_VERSIONS: [(u32, u16); 5] = [
+pub const PG_VERSIONS: [(u32, u16); 6] = [
     (14, 54314),
     (15, 54315),
     (16, 54316),
     (17, 54317),
     (18, 54318),
+    (19, 54319),
 ];
 
 /// How long a probe waits for a lock before giving up.

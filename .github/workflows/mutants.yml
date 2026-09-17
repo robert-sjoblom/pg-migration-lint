@@ -1,0 +1,53 @@
+name: Mutation testing
+
+# On demand only. cargo-mutants exits non-zero whenever any mutant survives,
+# so a scheduled run is red by default and tells nobody anything new. Run it
+# from the Actions tab when you want the report; it is uploaded as an artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The ubuntu-latest runner has clang-18 + libclang pre-installed;
+  # point bindgen at it so we can skip apt-get install libclang-dev.
+  LIBCLANG_PATH: /usr/lib/llvm-18/lib
+
+jobs:
+  mutants:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-mutants
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-mutants
+          locked: true
+
+      - name: Install cargo-nextest
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-nextest
+          locked: true
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run mutation tests
+        run: cargo mutants --test-tool nextest --output mutants.out
+
+      - name: Upload mutants report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants-report
+          path: mutants.out/
+          retention-days: 30

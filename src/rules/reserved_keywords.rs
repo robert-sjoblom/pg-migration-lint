@@ -3,8 +3,7 @@
 //! DO NOT EDIT BY HAND. Regenerate with:
 //!   ./verify/gen-reserved-keywords.sh
 //!
-//! Source: PostgreSQL 18.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
-//! Generated: 2026-04-26
+//! Source: PostgreSQL 18.6
 
 /// Sorted array of PostgreSQL reserved keywords (catcode 'R' and 'T').
 ///

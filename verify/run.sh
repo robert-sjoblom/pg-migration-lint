@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run.sh: PostgreSQL behavior verification test runner.
 #
-# Runs SQL test files against real PostgreSQL instances (14–18) via Docker Compose
+# Runs SQL test files against real PostgreSQL instances (14–19) via Docker Compose
 # to verify the factual claims made in pg-migration-lint rule explanations.
 #
 # Usage:
@@ -56,6 +56,7 @@ declare -A PG_PORTS=(
     [16]=54316
     [17]=54317
     [18]=54318
+    [19]=54319
 )
 
 # Filter PG versions if requested
@@ -66,7 +67,7 @@ if [ -n "$PG_FILTER" ]; then
     fi
     VERSIONS=("$PG_FILTER")
 else
-    VERSIONS=(14 15 16 17 18)
+    VERSIONS=(14 15 16 17 18 19)
 fi
 
 # Collect test files
@@ -101,7 +102,7 @@ for ver in "${VERSIONS[@]}"; do
         exit 1
     fi
     for i in $(seq 1 30); do
-        if docker exec "$container" pg_isready -U postgres > /dev/null 2>&1; then
+        if docker exec "$container" pg_isready -U postgres -h 127.0.0.1 > /dev/null 2>&1; then
             break
         fi
         if [ "$i" -eq 30 ]; then

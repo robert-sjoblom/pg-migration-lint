@@ -18,7 +18,7 @@ const SETUP: &str = "
 const INSERT_INVALID_ROW: &str = "INSERT INTO test_child VALUES (999, 99999)";
 
 #[rstest]
-fn add_fk_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_fk_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_fk_blocks_insert") else {
         return;
     };
@@ -33,7 +33,7 @@ fn add_fk_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn add_fk_allows_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_fk_allows_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_fk_allows_select") else {
         return;
     };
@@ -48,7 +48,7 @@ fn add_fk_allows_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn add_fk_not_valid_succeeds_with_invalid_data(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_fk_not_valid_succeeds_with_invalid_data(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_fk_nv_succeeds") else {
         return;
     };
@@ -69,7 +69,7 @@ fn add_fk_not_valid_succeeds_with_invalid_data(#[values(14, 15, 16, 17, 18)] pg:
 }
 
 #[rstest]
-fn not_valid_fk_is_marked_unvalidated(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn not_valid_fk_is_marked_unvalidated(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_fk_nv_unvalidated") else {
         return;
     };

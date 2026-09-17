@@ -23,7 +23,7 @@
 //!   ACCESS EXCLUSIVE on that parent and keeps it for the rest of the transaction,
 //!   rather than releasing it between statements.
 //!
-//! Relied on (already measured on 14–18, not re-derived here): `DROP TABLE <child>`
+//! Relied on (already measured on 14–19, not re-derived here): `DROP TABLE <child>`
 //! and `CREATE TABLE <child> PARTITION OF <parent>` both take
 //! `AccessExclusiveLock` on the *parent*.
 //!
@@ -88,7 +88,7 @@ const AEL: &str = "AccessExclusiveLock";
 /// held at ACCESS EXCLUSIVE simultaneously — and a read through the first parent is
 /// refused while the transaction is still busy with the second.
 #[rstest]
-fn one_transaction_holds_every_parent_it_has_touched(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn one_transaction_holds_every_parent_it_has_touched(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pmulti_two_parents_txn") else {
         return;
     };
@@ -185,7 +185,7 @@ fn one_transaction_holds_every_parent_it_has_touched(#[values(14, 15, 16, 17, 18
 /// already-processed parent goes through while the migration is still running.
 #[rstest]
 fn autocommit_releases_each_parent_when_its_statement_returns(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pmulti_autocommit_release") else {
         return;
@@ -261,7 +261,7 @@ fn autocommit_releases_each_parent_when_its_statement_returns(
 /// transaction; it is not released between statements.
 #[rstest]
 fn same_parent_stays_locked_across_statements_in_one_transaction(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pmulti_same_parent_txn") else {
         return;
@@ -323,7 +323,7 @@ fn same_parent_stays_locked_across_statements_in_one_transaction(
 /// Control for claim 3: the same two drops of the same parent, in autocommit. The
 /// parent is free between statements, so a read gets in mid-migration.
 #[rstest]
-fn autocommit_frees_the_same_parent_between_statements(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn autocommit_frees_the_same_parent_between_statements(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pmulti_same_parent_autocommit") else {
         return;
     };

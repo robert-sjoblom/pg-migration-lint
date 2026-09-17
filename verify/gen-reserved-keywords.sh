@@ -47,7 +47,7 @@ fi
 
 echo -n "Waiting for PG 18..." >&2
 for i in $(seq 1 30); do
-    if docker exec "$CONTAINER" pg_isready -U postgres > /dev/null 2>&1; then
+    if docker exec "$CONTAINER" pg_isready -U postgres -h 127.0.0.1 > /dev/null 2>&1; then
         break
     fi
     if [ "$i" -eq 30 ]; then
@@ -82,9 +82,11 @@ done <<< "$RAW"
 
 echo "Found ${#KEYWORDS[@]} reserved keywords." >&2
 
-# Get PG version for the header comment
-PG_VERSION=$(docker exec "$CONTAINER" psql -U postgres -t -A -c "SELECT version();" | head -1)
-GEN_DATE=$(date -u +%Y-%m-%d)
+# Get the PG version for the header comment. Version number only: the full
+# version() string embeds the compiler and platform, which change when the image
+# is rebuilt on a new Alpine base even though pg_get_keywords() does not. --check
+# compares this line too, so bumping the pg18 image tag without regenerating fails.
+PG_VERSION=$(docker exec "$CONTAINER" psql -U postgres -t -A -c "SELECT split_part(current_setting('server_version'), ' ', 1);" | head -1)
 
 # Generate Rust file
 generate() {
@@ -95,8 +97,7 @@ generate() {
 //!   ./verify/gen-reserved-keywords.sh
 //!
 HEADER
-    echo "//! Source: $PG_VERSION"
-    echo "//! Generated: $GEN_DATE"
+    echo "//! Source: PostgreSQL $PG_VERSION"
     cat <<'BODY'
 
 /// Sorted array of PostgreSQL reserved keywords (catcode 'R' and 'T').

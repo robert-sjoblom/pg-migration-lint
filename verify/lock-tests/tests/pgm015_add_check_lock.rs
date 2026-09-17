@@ -14,7 +14,7 @@ const SETUP: &str = "
 const VIOLATING_ROW: &str = "INSERT INTO test_chk VALUES (9999, -1)";
 
 #[rstest]
-fn add_check_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_check_blocks_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm015_blocks_select") else {
         return;
     };
@@ -29,7 +29,7 @@ fn add_check_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn add_check_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_check_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm015_blocks_insert") else {
         return;
     };
@@ -45,7 +45,7 @@ fn add_check_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 
 /// `NOT VALID` skips the scan, so existing violating rows do not block the DDL.
 #[rstest]
-fn add_check_not_valid_succeeds_with_violating_data(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_check_not_valid_succeeds_with_violating_data(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm015_not_valid_ok") else {
         return;
     };
@@ -63,7 +63,7 @@ fn add_check_not_valid_succeeds_with_violating_data(#[values(14, 15, 16, 17, 18)
 }
 
 #[rstest]
-fn not_valid_check_is_marked_unvalidated(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn not_valid_check_is_marked_unvalidated(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm015_not_valid_flag") else {
         return;
     };

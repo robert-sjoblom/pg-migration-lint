@@ -29,7 +29,7 @@ const SETUP: &str = "
 const MIGRATION_LOCK_TIMEOUT: &str = "250ms";
 
 #[rstest]
-fn reader_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn reader_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "partdrop_reader_blocks") else {
         return;
     };
@@ -52,7 +52,7 @@ fn reader_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18)] pg
 }
 
 #[rstest]
-fn writer_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn writer_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "partdrop_writer_blocks") else {
         return;
     };
@@ -75,7 +75,7 @@ fn writer_on_parent_blocks_dropping_a_partition(#[values(14, 15, 16, 17, 18)] pg
 /// The compounding factor: one wrapping transaction means one blocked statement
 /// throws away everything before it.
 #[rstest]
-fn one_blocked_drop_discards_the_whole_transaction(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn one_blocked_drop_discards_the_whole_transaction(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "partdrop_discards_txn") else {
         return;
     };
@@ -120,7 +120,7 @@ fn one_blocked_drop_discards_the_whole_transaction(#[values(14, 15, 16, 17, 18)]
 
 /// Control: nothing about the drop is inherently slow or blocked.
 #[rstest]
-fn dropping_a_partition_succeeds_without_traffic(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn dropping_a_partition_succeeds_without_traffic(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "partdrop_no_traffic") else {
         return;
     };
@@ -142,7 +142,7 @@ fn dropping_a_partition_succeeds_without_traffic(#[values(14, 15, 16, 17, 18)] p
 /// Isolates the cause: it is the lock on the *parent* that the migration cannot get,
 /// not a lock on the partition being dropped.
 #[rstest]
-fn traffic_on_a_sibling_partition_does_not_block(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn traffic_on_a_sibling_partition_does_not_block(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "partdrop_sibling_ok") else {
         return;
     };

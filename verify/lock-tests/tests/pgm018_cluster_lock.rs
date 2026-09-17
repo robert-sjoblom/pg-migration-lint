@@ -12,7 +12,7 @@ const SETUP: &str = "
 ";
 
 #[rstest]
-fn cluster_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn cluster_blocks_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm018_blocks_select") else {
         return;
     };
@@ -27,7 +27,7 @@ fn cluster_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn cluster_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn cluster_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm018_blocks_insert") else {
         return;
     };

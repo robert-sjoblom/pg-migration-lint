@@ -84,7 +84,7 @@ fn modes_while_running(db: &TestDb, ddl: &str, relation: &str) -> Vec<String> {
 }
 
 #[rstest]
-fn drop_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn drop_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_drop_child_parent_mode") else {
         return;
     };
@@ -101,7 +101,7 @@ fn drop_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18)]
 }
 
 #[rstest]
-fn create_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_create_child_parent_mode") else {
         return;
     };
@@ -119,7 +119,9 @@ fn create_child_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18
 }
 
 #[rstest]
-fn detach_partition_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_partition_takes_access_exclusive_on_the_parent(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "pdlm_detach_parent_mode") else {
         return;
     };
@@ -136,7 +138,7 @@ fn detach_partition_takes_access_exclusive_on_the_parent(#[values(14, 15, 16, 17
 
 #[rstest]
 fn attach_partition_takes_only_share_update_exclusive_on_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pdlm_attach_parent_mode") else {
         return;
@@ -163,7 +165,7 @@ fn attach_partition_takes_only_share_update_exclusive_on_the_parent(
 /// ATTACH is not lock-free; the AccessExclusive moves to the table being attached.
 #[rstest]
 fn attach_takes_access_exclusive_on_the_table_being_attached(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pdlm_attach_child_mode") else {
         return;
@@ -189,7 +191,7 @@ fn attach_takes_access_exclusive_on_the_table_being_attached(
 }
 
 #[rstest]
-fn drop_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn drop_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_drop_child_blocks_parent") else {
         return;
     };
@@ -212,7 +214,7 @@ fn drop_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg
 }
 
 #[rstest]
-fn create_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_create_child_blocks_parent") else {
         return;
     };
@@ -234,7 +236,7 @@ fn create_child_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] 
 }
 
 #[rstest]
-fn detach_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_detach_blocks_parent") else {
         return;
     };
@@ -255,7 +257,7 @@ fn detach_blocks_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u3
 }
 
 #[rstest]
-fn attach_allows_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn attach_allows_traffic_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pdlm_attach_allows_parent") else {
         return;
     };
@@ -280,7 +282,7 @@ fn attach_allows_traffic_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u3
 /// The cost ATTACH does impose, so the safe path is not oversold.
 #[rstest]
 fn attach_blocks_traffic_addressed_at_the_table_being_attached(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pdlm_attach_blocks_child") else {
         return;
@@ -300,7 +302,9 @@ fn attach_blocks_traffic_addressed_at_the_table_being_attached(
 /// Control for every `assert_lock_blocks` above: the probes are not inherently
 /// failing. With an idle transaction holding nothing relevant, both succeed.
 #[rstest]
-fn parent_traffic_succeeds_when_no_partition_ddl_is_running(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn parent_traffic_succeeds_when_no_partition_ddl_is_running(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "pdlm_control_no_ddl") else {
         return;
     };
@@ -328,7 +332,7 @@ fn parent_traffic_succeeds_when_no_partition_ddl_is_running(#[values(14, 15, 16,
 /// rather than merely being polite to it.
 #[rstest]
 fn attach_commits_while_a_reader_and_a_writer_hold_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "pdlm_attach_under_traffic") else {
         return;

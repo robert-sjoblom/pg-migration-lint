@@ -3,8 +3,7 @@
 //! DO NOT EDIT BY HAND. Regenerate with:
 //!   ./verify/gen-fn-volatility.sh
 //!
-//! Source: PostgreSQL 18.2 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
-//! Generated: 2026-03-01
+//! Source: PostgreSQL 18.6
 
 /// PostgreSQL function volatility classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,7 +405,6 @@ const STABLE: &[&str] = &[
     "json_object_agg_unique_transfn",
     "json_populate_record",
     "json_populate_recordset",
-    "json_strip_nulls",
     "json_to_record",
     "json_to_recordset",
     "json_to_tsvector",
@@ -428,7 +426,6 @@ const STABLE: &[&str] = &[
     "jsonb_populate_record",
     "jsonb_populate_record_valid",
     "jsonb_populate_recordset",
-    "jsonb_strip_nulls",
     "jsonb_to_record",
     "jsonb_to_recordset",
     "jsonb_to_tsvector",
@@ -1798,6 +1795,7 @@ const IMMUTABLE: &[&str] = &[
     "json_out",
     "json_recv",
     "json_send",
+    "json_strip_nulls",
     "json_typeof",
     "jsonb_array_element",
     "jsonb_array_element_text",
@@ -1844,6 +1842,7 @@ const IMMUTABLE: &[&str] = &[
     "jsonb_send",
     "jsonb_set",
     "jsonb_set_lax",
+    "jsonb_strip_nulls",
     "jsonb_subscript_handler",
     "jsonb_typeof",
     "jsonpath_in",

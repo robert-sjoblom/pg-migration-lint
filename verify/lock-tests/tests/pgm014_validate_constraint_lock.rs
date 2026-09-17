@@ -18,7 +18,7 @@ const SETUP: &str = "
 ";
 
 #[rstest]
-fn validate_constraint_allows_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn validate_constraint_allows_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_validate_allows_insert") else {
         return;
     };
@@ -33,7 +33,7 @@ fn validate_constraint_allows_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn validate_constraint_allows_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn validate_constraint_allows_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm014_validate_allows_select") else {
         return;
     };

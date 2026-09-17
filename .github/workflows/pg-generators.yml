@@ -1,0 +1,54 @@
+name: Generated PG catalogs
+
+# src/rules/fn_volatility.rs and src/rules/reserved_keywords.rs are generated from
+# a live PostgreSQL server: the pg18 service in verify/docker-compose.yml, pinned to
+# a minor. Each generator's --check mode regenerates and diffs against the committed
+# file, header included, so a Dependabot bump of the image tag goes red until the
+# files are regenerated. The weekly run is a backstop.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - verify/docker-compose.yml
+      - verify/gen-fn-volatility.sh
+      - verify/gen-reserved-keywords.sh
+      - src/rules/fn_volatility.rs
+      - src/rules/reserved_keywords.rs
+      - .github/workflows/pg-generators.yml
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fn-volatility-check:
+    name: Check fn_volatility.rs is up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Verify fn_volatility.rs matches pg_proc
+        run: ./verify/gen-fn-volatility.sh --check
+
+  reserved-keywords-check:
+    name: Check reserved_keywords.rs is up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Verify reserved_keywords.rs matches pg_get_keywords()
+        run: ./verify/gen-reserved-keywords.sh --check
