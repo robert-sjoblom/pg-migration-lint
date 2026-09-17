@@ -1,39 +1,11 @@
-//! PGM506 — `CREATE UNLOGGED TABLE`
-//!
-//! Detects `CREATE UNLOGGED TABLE` statements. Unlogged tables are not
-//! written to the write-ahead log, which makes them faster for write-heavy
-//! workloads but means they are truncated after a crash and are not
-//! replicated to standby servers.
+#![doc = include_str!("docs/pgm506.md")]
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CREATE UNLOGGED TABLE";
 
-pub(super) const EXPLAIN: &str = "PGM506 — CREATE UNLOGGED TABLE\n\
-         \n\
-         What it detects:\n\
-         A CREATE TABLE statement that uses the UNLOGGED keyword.\n\
-         \n\
-         Why it matters:\n\
-         Unlogged tables offer better write performance because they skip\n\
-         the write-ahead log, but come with significant trade-offs:\n\
-         - Data is TRUNCATED after a crash or unclean shutdown.\n\
-         - The table is NOT replicated to standby servers.\n\
-         - They cannot participate in logical replication.\n\
-         These characteristics make unlogged tables unsuitable for any\n\
-         data that must survive a crash or be available on replicas.\n\
-         \n\
-         Example (flagged):\n\
-           CREATE UNLOGGED TABLE scratch_data (id int, payload text);\n\
-         \n\
-         When unlogged tables are appropriate:\n\
-         - Ephemeral staging/import data that can be re-derived.\n\
-         - Materialised caches where the source of truth lives elsewhere.\n\
-         - ETL scratch space within a batch job.\n\
-         \n\
-         This rule is INFO severity — it flags the table for review rather\n\
-         than treating it as a defect.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm506.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

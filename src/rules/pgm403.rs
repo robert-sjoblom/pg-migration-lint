@@ -1,9 +1,4 @@
-//! PGM403 — `CREATE TABLE IF NOT EXISTS` for already-existing table
-//!
-//! Detects `CREATE TABLE IF NOT EXISTS` where the table already exists in the
-//! migration history. The statement is a silent no-op in PostgreSQL, meaning
-//! the column definitions in this statement are ignored. If they differ from
-//! the actual table state, the migration chain is ambiguous and misleading.
+#![doc = include_str!("docs/pgm403.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
@@ -11,36 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 pub(super) const DESCRIPTION: &str =
     "CREATE TABLE IF NOT EXISTS for already-existing table is a misleading no-op";
 
-pub(super) const EXPLAIN: &str = "PGM403 — CREATE TABLE IF NOT EXISTS for already-existing table\n\
-         \n\
-         What it detects:\n\
-         A CREATE TABLE IF NOT EXISTS statement targeting a table that already\n\
-         exists in the migration history (i.e. was created by an earlier migration).\n\
-         \n\
-         Why it matters:\n\
-         IF NOT EXISTS makes the statement a silent no-op when the table already exists.\n\
-         If the column definitions in the CREATE TABLE differ from the actual table state\n\
-         (built up from the original CREATE TABLE plus subsequent ALTER TABLE statements),\n\
-         the migration author may believe the table has the shape described in this\n\
-         statement, when in reality PostgreSQL ignores it entirely. The migration chain\n\
-         is ambiguous — two competing definitions of the same table exist in the history,\n\
-         and only the first one (plus its alterations) is truth.\n\
-         \n\
-         Example:\n\
-           -- V001: original table\n\
-           CREATE TABLE orders (id bigint PRIMARY KEY);\n\
-           ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\
-           \n\
-           -- V010: redundant re-creation (silently ignored)\n\
-           CREATE TABLE IF NOT EXISTS orders (\n\
-               id bigint PRIMARY KEY,\n\
-               status text NOT NULL DEFAULT 'pending',\n\
-               created_at timestamptz DEFAULT now()  -- this column will NOT be added\n\
-           );\n\
-         \n\
-         Recommended fix:\n\
-           Remove the redundant CREATE TABLE IF NOT EXISTS. If the intent is to\n\
-           add columns, use ALTER TABLE ... ADD COLUMN instead.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm403.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

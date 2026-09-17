@@ -510,7 +510,7 @@ fn explain_rule(rule_id: &str) -> Result<()> {
     println!("Enabled by default: {}", parsed.default_enabled());
     println!("Description: {}", parsed.description());
     println!();
-    println!("{}", parsed.explain());
+    print!("{}", parsed.explain());
 
     Ok(())
 }

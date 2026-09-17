@@ -1,9 +1,4 @@
-//! PGM012 — `DROP COLUMN` silently removes foreign key
-//!
-//! Detects `ALTER TABLE ... DROP COLUMN col` where `col` participates in a
-//! `FOREIGN KEY` constraint on the table in `catalog_before`. Dropping a
-//! column that is part of a foreign key (with `CASCADE`) silently removes
-//! the FK constraint. The referential integrity guarantee is lost.
+#![doc = include_str!("docs/pgm012.md")]
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
@@ -11,26 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes foreign key";
 
-pub(super) const EXPLAIN: &str = "PGM012 — DROP COLUMN silently removes foreign key\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
-         in a FOREIGN KEY constraint on the table.\n\
-         \n\
-         Why it matters:\n\
-         Dropping a column that is part of a foreign key (with CASCADE)\n\
-         silently removes the FK constraint. The referential integrity\n\
-         guarantee is lost. This can lead to orphaned rows and data\n\
-         inconsistency without any error or warning from PostgreSQL.\n\
-         \n\
-         Example (bad):\n\
-           -- Table has FOREIGN KEY (customer_id) REFERENCES customers(id)\n\
-           ALTER TABLE orders DROP COLUMN customer_id;\n\
-           -- The foreign key constraint is silently removed.\n\
-         \n\
-         Fix:\n\
-         Verify that the referential integrity guarantee provided by the\n\
-         foreign key is no longer needed before dropping the column.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm012.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

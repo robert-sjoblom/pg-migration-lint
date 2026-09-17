@@ -1,10 +1,4 @@
-//! PGM109 — Floating-point column type
-//!
-//! IEEE 754 floating-point types (`real`/`float4`, `double precision`/`float8`)
-//! suffer from precision issues (`0.1 + 0.2 ≠ 0.3`). For money, quantities,
-//! measurements, or any domain requiring exact decimal values, `numeric` is the
-//! correct choice. Floating-point errors compound in aggregations and can cause
-//! silent data corruption.
+#![doc = include_str!("docs/pgm109.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -12,24 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses floating-point type instead of numeric";
 
-pub(super) const EXPLAIN: &str = "PGM109 — Floating-point column type\n\
-         \n\
-         What it detects:\n\
-         A column declared as `real`, `float4`, `double precision`, `float8`, or\n\
-         `float` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\
-         \n\
-         Why it's problematic:\n\
-         IEEE 754 floating-point types suffer from precision issues — for example,\n\
-         `0.1 + 0.2 ≠ 0.3`. For money, quantities, measurements, or any domain\n\
-         where exact decimal values matter, `numeric`/`decimal` is correct.\n\
-         Floating-point errors compound in aggregations and can cause silent data\n\
-         corruption.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE products (price double precision NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE products (price numeric(10,2) NOT NULL);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm109.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

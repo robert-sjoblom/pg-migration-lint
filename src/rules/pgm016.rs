@@ -1,53 +1,11 @@
-//! PGM016 — `ADD PRIMARY KEY` on existing table without `USING INDEX`
-//!
-//! Detects `ALTER TABLE ... ADD PRIMARY KEY` on existing tables that doesn't
-//! use `USING INDEX` to reference a pre-built unique index. Even if a matching
-//! unique index already exists, PostgreSQL will build a **new** index under
-//! ACCESS EXCLUSIVE lock unless `USING INDEX` is explicit.
-//!
-//! Additionally, even with `USING INDEX`, if any PK columns are nullable,
-//! PostgreSQL implicitly runs `SET NOT NULL` under ACCESS EXCLUSIVE lock.
+#![doc = include_str!("docs/pgm016.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD PRIMARY KEY on existing table without USING INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM016 — ADD PRIMARY KEY on existing table without USING INDEX\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD PRIMARY KEY on an existing table that does not\n\
-         use USING INDEX, or where the referenced index does not exist, is\n\
-         not UNIQUE, or covers nullable columns.\n\
-         \n\
-         Why it's dangerous:\n\
-         Without USING INDEX, PostgreSQL always builds a new unique index\n\
-         inline under an ACCESS EXCLUSIVE lock, even if a matching unique\n\
-         index already exists. For large tables this causes extended downtime.\n\
-         \n\
-         Even with USING INDEX, if any of the PK columns are nullable,\n\
-         PostgreSQL implicitly runs ALTER COLUMN SET NOT NULL which requires\n\
-         a full table scan under ACCESS EXCLUSIVE lock.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ADD PRIMARY KEY (id);\n\
-         \n\
-         Fix (safe pattern — build unique index concurrently first):\n\
-           CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
-           ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;\n\
-         \n\
-         If the PK columns are nullable, USING INDEX alone is not enough —\n\
-         PostgreSQL will still run an implicit SET NOT NULL (full table scan\n\
-         under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe\n\
-         CHECK-constraint pattern from PGM013:\n\
-           ALTER TABLE orders ADD CONSTRAINT orders_id_nn\n\
-             CHECK (id IS NOT NULL) NOT VALID;\n\
-           ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;\n\
-           ALTER TABLE orders ALTER COLUMN id SET NOT NULL;\n\
-           ALTER TABLE orders DROP CONSTRAINT orders_id_nn;\n\
-           -- Now USING INDEX is truly instant:\n\
-           CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);\n\
-           ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm016.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

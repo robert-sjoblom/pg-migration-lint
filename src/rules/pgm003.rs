@@ -1,45 +1,11 @@
-//! PGM003 — `CONCURRENTLY` inside transaction
-//!
-//! Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`,
-//! `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or
-//! `REINDEX ... CONCURRENTLY` inside a migration unit that runs in a
-//! transaction. PostgreSQL does not allow any of these CONCURRENTLY
-//! operations inside a transaction block; the command will fail at
-//! runtime.
+#![doc = include_str!("docs/pgm003.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
 
-pub(super) const EXPLAIN: &str = "PGM003 — CONCURRENTLY inside transaction\n\
-         \n\
-         What it detects:\n\
-         A CREATE INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY,\n\
-         ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY, or\n\
-         REINDEX ... CONCURRENTLY statement inside a migration unit that\n\
-         runs in a transaction.\n\
-         \n\
-         Why it's dangerous:\n\
-         PostgreSQL does not allow CONCURRENTLY operations inside a\n\
-         transaction block. The command will fail with:\n\
-           ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block\n\
-         This means the migration will fail at deploy time.\n\
-         \n\
-         Example (bad — Liquibase changeset with default runInTransaction):\n\
-           <changeSet id=\"1\" author=\"dev\">\n\
-             <sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n\
-           </changeSet>\n\
-         \n\
-         Fix:\n\
-           <changeSet id=\"1\" author=\"dev\" runInTransaction=\"false\">\n\
-             <sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>\n\
-           </changeSet>\n\
-         \n\
-         For go-migrate, add `-- +goose NO TRANSACTION` or equivalent to\n\
-         the migration file header.\n\
-         \n\
-         See also: PGM001, PGM002, PGM022.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm003.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

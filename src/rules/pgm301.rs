@@ -1,37 +1,11 @@
-//! PGM301 — `INSERT INTO` existing table in migration
-//!
-//! Detects `INSERT INTO` statements targeting tables that already exist in
-//! the database. Seed data in migrations is common but should be bounded
-//! in volume and clearly intentional.
+#![doc = include_str!("docs/pgm301.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "INSERT INTO existing table in migration";
 
-pub(super) const EXPLAIN: &str = "PGM301 — INSERT INTO existing table in migration\n\
-         \n\
-         What it detects:\n\
-         An INSERT INTO statement targeting a table that already exists in the\n\
-         database (i.e., not created in the same set of changed files).\n\
-         \n\
-         Why it matters:\n\
-         INSERT statements in migrations are sometimes used for seed data,\n\
-         lookup table population, or data backfill. While these are valid\n\
-         use cases, they deserve human review because:\n\
-         - Large inserts can cause lock contention and WAL pressure.\n\
-         - Unbounded inserts may time out under migration tool timeouts.\n\
-         - Seed data should be idempotent (check for duplicates).\n\
-         \n\
-         Example (flagged):\n\
-           INSERT INTO config (key, value) VALUES ('feature_x', 'enabled');\n\
-         \n\
-         Not flagged:\n\
-         - INSERT into a table created in the same migration file\n\
-           (populating a brand-new table is expected).\n\
-         \n\
-         This rule is INFO severity — it flags the DML for awareness rather\n\
-         than treating it as a defect.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm301.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

@@ -1,10 +1,4 @@
-//! PGM011 — `DROP COLUMN` silently removes primary key
-//!
-//! Detects `ALTER TABLE ... DROP COLUMN col` where `col` participates in the
-//! table's primary key (in `catalog_before`). Dropping a PK column (with
-//! `CASCADE`) silently removes the primary key constraint. The table loses its
-//! row identity, which affects replication, ORMs, query planning, and data
-//! integrity.
+#![doc = include_str!("docs/pgm011.md")]
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
@@ -12,26 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes primary key";
 
-pub(super) const EXPLAIN: &str = "PGM011 — DROP COLUMN silently removes primary key\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
-         in the table's primary key constraint.\n\
-         \n\
-         Why it matters:\n\
-         Dropping a PK column (with CASCADE) silently removes the primary key\n\
-         constraint. The table loses its row identity, which affects replication,\n\
-         ORMs, query planning, and data integrity.\n\
-         \n\
-         Example (bad):\n\
-           -- Table has PRIMARY KEY (id)\n\
-           ALTER TABLE orders DROP COLUMN id;\n\
-           -- The primary key constraint is silently removed.\n\
-         \n\
-         Fix:\n\
-         Add a new primary key on the remaining columns before or after\n\
-         dropping the column, or reconsider whether the column drop is\n\
-         necessary.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm011.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

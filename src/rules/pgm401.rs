@@ -1,34 +1,11 @@
-//! PGM401 — Missing `IF EXISTS` on `DROP TABLE` / `DROP INDEX`
-//!
-//! Detects `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
-//! Without `IF EXISTS`, the statement fails if the object does not exist.
-//! In migration pipelines that may be re-run, this causes hard failures.
+#![doc = include_str!("docs/pgm401.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF EXISTS on DROP TABLE / DROP INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM401 — Missing IF EXISTS on DROP TABLE / DROP INDEX\n\
-         \n\
-         What it detects:\n\
-         A DROP TABLE or DROP INDEX statement that does not include the\n\
-         IF EXISTS clause.\n\
-         \n\
-         Why it matters:\n\
-         Without IF EXISTS, the statement fails if the object does not exist.\n\
-         In migration pipelines that may be re-run (e.g., idempotent migrations,\n\
-         manual re-execution after partial failure), this causes hard failures.\n\
-         Adding IF EXISTS makes the statement idempotent.\n\
-         \n\
-         Example:\n\
-           -- Fails if 'orders' does not exist:\n\
-           DROP TABLE orders;\n\
-           DROP INDEX idx_orders_status;\n\
-         \n\
-         Recommended fix:\n\
-           DROP TABLE IF EXISTS orders;\n\
-           DROP INDEX IF EXISTS idx_orders_status;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm401.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

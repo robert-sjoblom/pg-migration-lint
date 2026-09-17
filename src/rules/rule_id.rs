@@ -285,16 +285,14 @@ macro_rules! dispatch_rules {
             fn description(&self) -> &'static str {
                 match self {
                     $( Self::$variant => super::$module::DESCRIPTION, )+
-                    Self::Pgm901 => {
-                        "Meta rules alter the behavior of other rules, they are not rules themselves"
-                    }
+                    Self::Pgm901 => "Down migration severity cap",
                 }
             }
 
             fn explain(&self) -> &'static str {
                 match self {
                     $( Self::$variant => super::$module::EXPLAIN, )+
-                    Self::Pgm901 => "This rule caps severity of triggered rules to INFO (not in SonarQube)",
+                    Self::Pgm901 => include_str!("docs/pgm901.md"),
                 }
             }
 

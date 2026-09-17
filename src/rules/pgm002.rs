@@ -1,48 +1,11 @@
-//! PGM002 — Missing `CONCURRENTLY` on `DROP INDEX`
-//!
-//! Detects `DROP INDEX` statements that do not use the `CONCURRENTLY` option.
-//! Without `CONCURRENTLY`, PostgreSQL acquires an `ACCESS EXCLUSIVE` lock on
-//! the table the index belongs to, blocking all reads and writes.
+#![doc = include_str!("docs/pgm002.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on DROP INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM002 — Missing CONCURRENTLY on DROP INDEX\n\
-         \n\
-         What it detects:\n\
-         A DROP INDEX statement that does not use the CONCURRENTLY option,\n\
-         where the index belongs to a table that already exists in the database.\n\
-         \n\
-         Why it's dangerous:\n\
-         Without CONCURRENTLY, PostgreSQL acquires an ACCESS EXCLUSIVE lock on\n\
-         the table associated with the index for the duration of the drop\n\
-         operation. This blocks ALL queries — reads and writes — on the table.\n\
-         While DROP INDEX is usually fast, it still briefly blocks concurrent\n\
-         access and can queue behind long-running queries, amplifying the impact.\n\
-         \n\
-         Example (bad):\n\
-           DROP INDEX idx_orders_status;\n\
-         \n\
-         Fix:\n\
-           DROP INDEX CONCURRENTLY idx_orders_status;\n\
-         \n\
-         Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
-         framework wraps each file in a transaction, you must disable that.\n\
-         See PGM003.\n\
-         \n\
-         Partitioned tables:\n\
-         PostgreSQL does NOT support DROP INDEX CONCURRENTLY on partitioned\n\
-         parent indexes. Dropping a partitioned parent index acquires locks on\n\
-         all partitions. However, dropping an ON ONLY index (before child\n\
-         indexes are attached) is safe — it only affects the invalid parent stub.\n\
-         \n\
-         Safe pattern for partitioned indexes:\n\
-           1. CREATE INDEX ON ONLY parent_table (col);     -- parent stub\n\
-           2. CREATE INDEX CONCURRENTLY ON child (col);    -- per-child\n\
-           3. ALTER INDEX idx_parent ATTACH PARTITION idx_child;\n\
-           -- To remove: reverse the process before dropping the parent.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm002.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

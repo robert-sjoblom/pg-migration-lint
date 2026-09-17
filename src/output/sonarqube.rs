@@ -5,12 +5,9 @@
 //! See: <https://docs.sonarsource.com/sonarqube-server/10.3/analyzing-source-code/importing-external-issues/generic-issue-import-format/>
 
 use crate::output::{ReportError, Reporter, SonarQubeReporter};
-use crate::rules::{Finding, RuleId};
+use crate::rules::{DOCS_BASE_URL, Finding, RuleId};
 use serde::Serialize;
 use std::collections::HashSet;
-
-/// Base URL for the hosted rule documentation (GitHub Pages).
-const DOCS_BASE_URL: &str = "https://robert-sjoblom.github.io/pg-migration-lint/rules";
 
 /// Build a concise SonarQube rule description with a link to full documentation.
 ///

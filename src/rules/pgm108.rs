@@ -1,11 +1,4 @@
-//! PGM108 — Prefer `text` over `varchar(n)`
-//!
-//! In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — they
-//! share identical `varlena` storage. The length constraint adds an artificial
-//! limit that may require future schema changes (and a table rewrite on older
-//! PostgreSQL versions). Use `text` with a `CHECK` constraint if validation is
-//! needed — `CHECK` constraints can be added `NOT VALID` and validated without
-//! a rewrite.
+#![doc = include_str!("docs/pgm108.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -13,26 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses varchar(n) instead of text";
 
-pub(super) const EXPLAIN: &str = "PGM108 — Prefer `text` over `varchar(n)`\n\
-         \n\
-         What it detects:\n\
-         A column declared as `varchar(n)` (with a length modifier) in CREATE TABLE,\n\
-         ADD COLUMN, or ALTER COLUMN TYPE. Bare `varchar` without a length is not flagged.\n\
-         \n\
-         Why it's problematic:\n\
-         In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — they\n\
-         share identical `varlena` storage. The length constraint adds an artificial\n\
-         limit that may require future schema changes. Changing the limit requires\n\
-         an ACCESS EXCLUSIVE lock and full table rewrite on PostgreSQL < 14 (or when\n\
-         decreasing the limit on 14+). Use `text` with a CHECK constraint if validation\n\
-         is needed — CHECK constraints can be added NOT VALID and validated without\n\
-         a rewrite.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE users (name varchar(100) NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE users (name text NOT NULL);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm108.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

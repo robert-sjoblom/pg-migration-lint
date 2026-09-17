@@ -1,49 +1,11 @@
-//! PGM007 — `ALTER COLUMN TYPE` on existing table
-//!
-//! Detects `ALTER TABLE ... ALTER COLUMN ... TYPE ...` on tables that already
-//! exist in the catalog. Most type changes require a full table rewrite under
-//! an `ACCESS EXCLUSIVE` lock. A hardcoded allowlist of safe (binary-coercible)
-//! casts suppresses the finding for known safe conversions.
+#![doc = include_str!("docs/pgm007.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ALTER COLUMN TYPE on existing table causes table rewrite";
 
-pub(super) const EXPLAIN: &str = "PGM007 — ALTER COLUMN TYPE on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ALTER COLUMN ... TYPE ... on a table that already\n\
-         exists in the database (not created in the same set of changed files).\n\
-         \n\
-         Why it's dangerous:\n\
-         Most type changes require a full table rewrite and an ACCESS EXCLUSIVE\n\
-         lock for the duration. For large tables, this causes extended downtime.\n\
-         Binary-coercible casts (e.g., varchar widening) do NOT rewrite.\n\
-         \n\
-         Safe casts (no finding):\n\
-         - varchar(N) -> varchar(M) where M > N\n\
-         - varchar(N) -> text\n\
-         - numeric(P,S) -> numeric(P2,S) where P2 > P and same scale\n\
-         - varbit(N) -> varbit(M) where M > N\n\
-         \n\
-         INFO cast:\n\
-         - timestamp -> timestamptz (no rewrite in PG 9.2+; the cast uses the\n\
-           session TimeZone at ALTER time, so verify that the executing session\n\
-           has TimeZone=UTC — a server default of UTC is not sufficient if the\n\
-           connection overrides it)\n\
-         \n\
-         All other type changes fire as CRITICAL.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ALTER COLUMN amount TYPE bigint;\n\
-         \n\
-         Fix:\n\
-           -- Create a new column, backfill, and swap:\n\
-           ALTER TABLE orders ADD COLUMN amount_new bigint;\n\
-           UPDATE orders SET amount_new = amount;\n\
-           ALTER TABLE orders DROP COLUMN amount;\n\
-           ALTER TABLE orders RENAME COLUMN amount_new TO amount;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm007.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

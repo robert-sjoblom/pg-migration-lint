@@ -1,76 +1,11 @@
-//! PGM501 — Foreign key without covering index
-//!
-//! Detects foreign key constraints where the referencing table has no usable
-//! index containing any of the FK columns. Without such an index, any query
-//! joining or filtering on those columns forces a sequential scan on the
-//! referencing table — and so does a referential integrity check when a
-//! referenced row is deleted or its key columns are updated.
+#![doc = include_str!("docs/pgm501.md")]
 
 use crate::parser::ir::{IrNode, Located, SourceSpan, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Foreign key without covering index on referencing columns";
 
-pub(super) const EXPLAIN: &str = "PGM501 — Foreign key without covering index\n\
-         \n\
-         What it detects:\n\
-         A FOREIGN KEY constraint where the referencing table has no usable\n\
-         index containing any of the FK columns.\n\
-         \n\
-         Why it's dangerous:\n\
-         Any query that joins or filters on these columns has no index to\n\
-         seek through, so it falls back to a sequential scan of the entire\n\
-         child table — this is usually the more frequent cost. Referential\n\
-         integrity checks add another: when a row in the referenced (parent)\n\
-         table is deleted, or its key columns are updated, PostgreSQL must\n\
-         confirm no row in the referencing (child) table still references\n\
-         the old value, and without an index that check is also a full scan\n\
-         of the child table — once per affected parent row. Either path can\n\
-         cause severe performance degradation and lock contention.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE order_items\n\
-             ADD CONSTRAINT fk_order\n\
-             FOREIGN KEY (order_id) REFERENCES orders(id);\n\
-           -- No index on order_items(order_id)\n\
-         \n\
-         Fix:\n\
-           CREATE INDEX idx_order_items_order_id\n\
-             ON order_items (order_id);\n\
-           ALTER TABLE order_items\n\
-             ADD CONSTRAINT fk_order\n\
-             FOREIGN KEY (order_id) REFERENCES orders(id);\n\
-         \n\
-         Column matching: FK columns (a, b) are covered by any usable index\n\
-         that contains at least one of a or b, in any position — e.g.\n\
-         (a, b), (b, a), (a), or (c, b) all count. An index covering only\n\
-         some of the FK columns still avoids a sequential scan (via a\n\
-         Filter or Recheck), so it counts as coverage even though a fully\n\
-         covering index performs better. Column order does not matter here.\n\
-         \n\
-         The check uses the catalog state AFTER the entire file is processed,\n\
-         so creating the index later in the same file avoids a false positive.\n\
-         \n\
-         Partitioned tables:\n\
-         For partitioned parent tables, a recursive index (one not created\n\
-         with ON ONLY) covers all partitions and satisfies this check. An\n\
-         ON ONLY index is just a stub and does NOT provide FK coverage until\n\
-         child indexes are attached via ALTER INDEX ... ATTACH PARTITION.\n\
-         \n\
-         For partition children, the check first looks for an index on the\n\
-         child itself, then delegates to the parent's indexes.\n\
-         \n\
-         Known limitations:\n\
-         This check is index-shape-based only; it has no column statistics.\n\
-         An index on a low-cardinality FK column (e.g. 10 distinct values\n\
-         over a million rows) satisfies this check but can still degrade to\n\
-         a Bitmap Heap Scan touching a large fraction of the table — a real\n\
-         performance risk this rule cannot see, since a low-cardinality\n\
-         index and a selective one look identical in the catalog. Requiring\n\
-         the covering index to also be UNIQUE would not rescue this: the\n\
-         false-negative case is not unique in the referencing table either,\n\
-         so that heuristic would just reintroduce the false positive on the\n\
-         common, benign case.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm501.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

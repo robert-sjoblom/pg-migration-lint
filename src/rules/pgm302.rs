@@ -1,40 +1,11 @@
-//! PGM302 — `UPDATE` on existing table in migration
-//!
-//! Detects `UPDATE` statements targeting tables that already exist in the
-//! database. Unbatched updates hold row locks for the full statement
-//! duration and can cause significant contention on busy tables.
+#![doc = include_str!("docs/pgm302.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "UPDATE on existing table in migration";
 
-pub(super) const EXPLAIN: &str = "PGM302 — UPDATE on existing table in migration\n\
-         \n\
-         What it detects:\n\
-         An UPDATE statement targeting a table that already exists in the\n\
-         database (i.e., not created in the same set of changed files).\n\
-         \n\
-         Why it matters:\n\
-         UPDATE statements in migrations typically backfill or transform\n\
-         existing data. On large tables this can be problematic:\n\
-         - Row locks are held for the full statement duration.\n\
-         - The entire UPDATE generates WAL, which can spike replication lag.\n\
-         - Long-running updates may time out under migration tool limits.\n\
-         - They block autovacuum from processing dead tuples on the table.\n\
-         \n\
-         Example (flagged):\n\
-           UPDATE orders SET status = 'pending' WHERE status IS NULL;\n\
-         \n\
-         Recommended approach:\n\
-         1. Verify the row count is bounded (small lookup table = fine).\n\
-         2. For large tables, batch the update in chunks.\n\
-         3. Consider running the update outside the migration transaction.\n\
-         \n\
-         Not flagged:\n\
-         - UPDATE on a table created in the same migration file.\n\
-         \n\
-         This rule is MINOR severity.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm302.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

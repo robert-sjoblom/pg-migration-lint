@@ -1,8 +1,4 @@
-//! PGM204 — `TRUNCATE TABLE ... CASCADE` on existing table
-//!
-//! Detects `TRUNCATE TABLE ... CASCADE` targeting a table that exists in `catalog_before`.
-//! CASCADE silently extends the truncation to all tables with foreign key references
-//! to the truncated table, and recursively to their dependents.
+#![doc = include_str!("docs/pgm204.md")]
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
@@ -10,35 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "TRUNCATE TABLE CASCADE on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM204 — TRUNCATE TABLE CASCADE on existing table\n\
-         \n\
-         What it detects:\n\
-         A TRUNCATE TABLE ... CASCADE statement targeting a table that already\n\
-         exists in the database.\n\
-         \n\
-         Why it matters:\n\
-         CASCADE silently extends the truncation to all tables that have foreign\n\
-         key references to the truncated table, and recursively to their\n\
-         dependents. The developer may not be aware of the full cascade chain,\n\
-         leading to unexpected data loss across multiple tables.\n\
-         \n\
-         A plain TRUNCATE (without CASCADE) would fail if FK dependencies exist,\n\
-         which is a safer default. CASCADE bypasses that safety net.\n\
-         \n\
-         Example:\n\
-           TRUNCATE TABLE customers CASCADE;\n\
-         \n\
-         If the 'orders' table has a FK referencing 'customers', CASCADE will\n\
-         silently truncate 'orders' as well.\n\
-         \n\
-         Recommended approach:\n\
-         1. Identify all dependent tables before truncating.\n\
-         2. Explicitly truncate each table in the correct order.\n\
-         3. Use plain TRUNCATE (without CASCADE) so PostgreSQL will error\n\
-            if unexpected dependencies remain.\n\
-         \n\
-         This rule is MAJOR severity because CASCADE silently destroys\n\
-         data in dependent tables the developer may not be aware of.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm204.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

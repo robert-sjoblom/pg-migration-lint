@@ -1,47 +1,11 @@
-//! PGM502 — Table without primary key
-//!
-//! Detects `CREATE TABLE` statements (non-temporary) that result in a table
-//! without a primary key. Checks the catalog state AFTER the entire file is
-//! processed, so `ALTER TABLE ... ADD PRIMARY KEY` later in the same file
-//! avoids a false positive.
+#![doc = include_str!("docs/pgm502.md")]
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Table without primary key";
 
-pub(super) const EXPLAIN: &str = "PGM502 — Table without primary key\n\
-         \n\
-         What it detects:\n\
-         A CREATE TABLE statement (non-temporary) that does not define a\n\
-         PRIMARY KEY constraint, and no ALTER TABLE ... ADD PRIMARY KEY\n\
-         follows in the same file.\n\
-         \n\
-         Why it's dangerous:\n\
-         Tables without primary keys:\n\
-         - Cannot be reliably targeted by logical replication.\n\
-         - May cause issues with ORMs that require a PK for identity.\n\
-         - Make it harder to deduplicate or reference specific rows.\n\
-         - Are a strong code smell indicating incomplete schema design.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE events (event_type text, payload jsonb);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE events (\n\
-             id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n\
-             event_type text,\n\
-             payload jsonb\n\
-           );\n\
-         \n\
-         Note: Temporary tables are excluded. If PGM503 fires (UNIQUE NOT NULL\n\
-         used instead of PK), PGM502 does NOT fire for the same table.\n\
-         \n\
-         Partition children (CREATE TABLE ... PARTITION OF parent) inherit the\n\
-         primary key from their parent table. This rule is suppressed for\n\
-         partition children when the parent already has a PK or when the\n\
-         parent is not in the catalog (common in incremental CI where only\n\
-         new migrations are analyzed).";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm502.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

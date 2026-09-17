@@ -1,37 +1,11 @@
-//! PGM018 — `CLUSTER` on existing table
-//!
-//! Detects `CLUSTER table_name [USING index_name]` targeting a table that
-//! exists in `catalog_before`. `CLUSTER` rewrites the entire table and all
-//! indexes under `ACCESS EXCLUSIVE` lock, blocking all reads and writes for
-//! the full duration. There is no online alternative.
+#![doc = include_str!("docs/pgm018.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CLUSTER on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM018 — CLUSTER on existing table\n\
-         \n\
-         What it detects:\n\
-         A CLUSTER statement targeting a table that already exists in the\n\
-         database (i.e., the table was not created in the same set of changed\n\
-         files).\n\
-         \n\
-         Why it matters:\n\
-         CLUSTER rewrites the entire table and all its indexes in a new\n\
-         physical order, holding an ACCESS EXCLUSIVE lock for the full\n\
-         duration of the rewrite. Unlike VACUUM FULL, there is no online\n\
-         alternative. On large tables this causes complete unavailability\n\
-         (all reads and writes blocked) for the duration — typically minutes\n\
-         to hours. It is almost never appropriate in an online migration.\n\
-         \n\
-         Example:\n\
-           CLUSTER orders USING idx_orders_created_at;\n\
-         \n\
-         Recommended approach:\n\
-         1. Schedule CLUSTER during a maintenance window when downtime is acceptable.\n\
-         2. Consider pg_repack or pg_squeeze for online table rewrites.\n\
-         3. For new tables, CLUSTER is fine — this rule only fires on existing tables.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm018.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

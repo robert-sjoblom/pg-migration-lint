@@ -1,48 +1,11 @@
-//! PGM205 — `DROP SCHEMA ... CASCADE`
-//!
-//! Detects `DROP SCHEMA ... CASCADE`. This is the most destructive single DDL
-//! statement in PostgreSQL — it silently drops every object in the schema:
-//! tables, views, sequences, functions, types, and indexes.
-//!
-//! Unlike other destructive rules, this **always fires** when CASCADE is
-//! present, regardless of catalog state. The catalog only tracks tables from
-//! parsed migrations, so there may be objects we don't know about. Known
-//! affected tables are listed in the message for context.
+#![doc = include_str!("docs/pgm205.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "DROP SCHEMA CASCADE";
 
-pub(super) const EXPLAIN: &str = "PGM205 — DROP SCHEMA CASCADE\n\
-         \n\
-         What it detects:\n\
-         A DROP SCHEMA ... CASCADE statement.\n\
-         \n\
-         Why it matters:\n\
-         DROP SCHEMA CASCADE drops every object in the schema — tables, views,\n\
-         sequences, functions, types, and indexes — in a single statement. It is\n\
-         the most destructive single DDL statement in PostgreSQL and cannot be\n\
-         selectively undone.\n\
-         \n\
-         Unlike DROP TABLE CASCADE (which only removes objects that depend on one\n\
-         table), DROP SCHEMA CASCADE destroys the entire namespace and everything\n\
-         in it.\n\
-         \n\
-         Example:\n\
-           DROP SCHEMA myschema CASCADE;\n\
-         \n\
-         This silently drops every table, view, function, sequence, and type\n\
-         defined in 'myschema'.\n\
-         \n\
-         Recommended approach:\n\
-         1. Enumerate all objects in the schema before dropping.\n\
-         2. Explicitly drop or migrate each object in separate migration steps.\n\
-         3. Use plain DROP SCHEMA (without CASCADE) so PostgreSQL will error\n\
-            if the schema is non-empty.\n\
-         \n\
-         This rule is CRITICAL severity because CASCADE silently destroys\n\
-         every object in the schema.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm205.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

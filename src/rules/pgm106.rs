@@ -1,10 +1,4 @@
-//! PGM106 — Don't use `json` type (use `jsonb` instead)
-//!
-//! The `json` type stores an exact copy of the input text and must re-parse it on
-//! every operation. `jsonb` stores a decomposed binary format that is significantly
-//! faster for queries, supports indexing (GIN), and supports containment/existence
-//! operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving
-//! exact key order and duplicate keys — both rarely needed.
+#![doc = include_str!("docs/pgm106.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -12,24 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses json type instead of jsonb";
 
-pub(super) const EXPLAIN: &str = "PGM106 — Don't use `json` (prefer `jsonb`)\n\
-         \n\
-         What it detects:\n\
-         A column declared as `json` in CREATE TABLE, ADD COLUMN, or ALTER COLUMN TYPE.\n\
-         \n\
-         Why it's problematic:\n\
-         The `json` type stores an exact copy of the input text and must re-parse\n\
-         it on every operation. `jsonb` stores a decomposed binary format that is\n\
-         significantly faster for queries, supports indexing (GIN), and supports\n\
-         containment/existence operators (`@>`, `?`, `?|`, `?&`). The only\n\
-         advantages of `json` are preserving exact key order and duplicate keys\n\
-         — both rarely needed.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE events (payload json NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE events (payload jsonb NOT NULL);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm106.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

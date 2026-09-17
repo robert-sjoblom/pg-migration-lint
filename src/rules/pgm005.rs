@@ -1,9 +1,4 @@
-//! PGM005 — ATTACH PARTITION without pre-validated CHECK constraint
-//!
-//! Detects attaching an existing table as a partition when the child table
-//! has no CHECK constraint referencing the partition key columns. Without
-//! a pre-validated CHECK, PostgreSQL performs a full table scan under
-//! ACCESS EXCLUSIVE lock.
+#![doc = include_str!("docs/pgm005.md")]
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
@@ -12,37 +7,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table
 pub(super) const DESCRIPTION: &str =
     "ATTACH PARTITION of existing table without pre-validated CHECK";
 
-pub(super) const EXPLAIN: &str = "\
-PGM005 — ATTACH PARTITION without pre-validated CHECK constraint
-
-What it detects:
-  ALTER TABLE parent ATTACH PARTITION child FOR VALUES ... where the
-  child table already exists and has no CHECK constraint that references
-  the partition key columns.
-
-Why it's dangerous:
-  When attaching a partition, PostgreSQL must verify that every existing
-  row in the child satisfies the partition bound. Without a pre-validated
-  CHECK constraint whose expression implies the partition bound, PostgreSQL
-  performs a full table scan under ACCESS EXCLUSIVE lock on the child
-  table. For large child tables this causes extended unavailability.
-
-Safe alternative (3-step pattern):
-  -- Step 1: Add a CHECK constraint mirroring the partition bound (NOT VALID)
-  ALTER TABLE orders_2024 ADD CONSTRAINT orders_2024_bound_check
-      CHECK (created_at >= '2024-01-01' AND created_at < '2025-01-01')
-      NOT VALID;
-
-  -- Step 2: Validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
-  ALTER TABLE orders_2024 VALIDATE CONSTRAINT orders_2024_bound_check;
-
-  -- Step 3: Attach (scan skipped because constraint is already validated)
-  ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
-      FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
-
-Note: The rule checks that at least one CHECK constraint on the child
-references all of the parent's partition key columns. It does not verify
-that the CHECK expression values semantically match the partition bound.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm005.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

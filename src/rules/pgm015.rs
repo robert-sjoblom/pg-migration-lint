@@ -1,39 +1,11 @@
-//! PGM015 — ADD CHECK on existing table without NOT VALID
-//!
-//! Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK ... ` without `NOT VALID`
-//! on tables that already exist. Adding a CHECK constraint without NOT VALID
-//! requires scanning the entire table while holding a SHARE ROW EXCLUSIVE lock,
-//! which blocks concurrent data modifications (INSERT, UPDATE, DELETE) but
-//! allows reads.
+#![doc = include_str!("docs/pgm015.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD CHECK on existing table without NOT VALID";
 
-pub(super) const EXPLAIN: &str = "PGM015 — ADD CHECK on existing table without NOT VALID\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) on a table that already\n\
-         exists, without the NOT VALID modifier.\n\
-         \n\
-         Why it's dangerous:\n\
-         Adding a CHECK constraint without NOT VALID acquires a SHARE ROW\n\
-         EXCLUSIVE lock and scans the entire table to verify all existing rows\n\
-         satisfy the constraint. This blocks concurrent data modifications\n\
-         (INSERT, UPDATE, DELETE) for the duration. On large tables this can\n\
-         cause significant disruption.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ADD CONSTRAINT orders_status_check\n\
-             CHECK (status IN ('pending', 'shipped', 'delivered'));\n\
-         \n\
-         Fix (safe two-step pattern):\n\
-           -- Step 1: Add with NOT VALID (instant, no scan)\n\
-           ALTER TABLE orders ADD CONSTRAINT orders_status_check\n\
-             CHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;\n\
-           -- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)\n\
-           ALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm015.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 
