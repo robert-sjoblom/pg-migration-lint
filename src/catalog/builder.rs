@@ -595,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_indexed_fk_column_skips_non_btree() {
+    fn test_has_indexed_fk_column_hash_index_counts() {
         let catalog = CatalogBuilder::new()
             .table("orders", |t| {
                 t.column("customer_id", "integer", false).index_with_method(
@@ -608,8 +608,27 @@ mod tests {
             .build();
         let orders = catalog.get_table("orders").unwrap();
         assert!(
-            !orders.has_indexed_fk_column(&["customer_id".to_string()]),
-            "Non-btree (hash) index should NOT satisfy FK coverage"
+            orders.has_indexed_fk_column(&["customer_id".to_string()]),
+            "Hash index supports equality lookups, so it should satisfy FK coverage"
+        );
+    }
+
+    #[test]
+    fn test_has_indexed_fk_column_skips_gin() {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("tags", "text[]", false).index_with_method(
+                    "idx_tags_gin",
+                    &["tags"],
+                    false,
+                    "gin",
+                );
+            })
+            .build();
+        let orders = catalog.get_table("orders").unwrap();
+        assert!(
+            !orders.has_indexed_fk_column(&["tags".to_string()]),
+            "GIN index does not provide equality point lookups, so it should NOT satisfy FK coverage"
         );
     }
 
