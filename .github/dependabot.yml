@@ -22,3 +22,21 @@ updates:
       default-days: 7
     commit-message:
       prefix: "ci"
+
+  # PostgreSQL images for the verify suite and the catalog generators. Every
+  # service is pinned to a minor so a point release is a reviewable PR. Only
+  # point releases: the matrix tracks supported PostgreSQL majors and is
+  # changed by hand (add a service for a new major, drop one at EOL).
+  # pg-generators.yml fails a pg18 bump until src/rules/fn_volatility.rs and
+  # reserved_keywords.rs are regenerated against the new tag.
+  - package-ecosystem: docker-compose
+    directory: /verify
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "ci"

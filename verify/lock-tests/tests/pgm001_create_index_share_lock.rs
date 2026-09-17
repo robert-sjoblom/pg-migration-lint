@@ -12,7 +12,7 @@ const SETUP: &str = "
 ";
 
 #[rstest]
-fn create_index_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_index_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm001_blocks_insert") else {
         return;
     };
@@ -27,7 +27,7 @@ fn create_index_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn create_index_blocks_update(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_index_blocks_update(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm001_blocks_update") else {
         return;
     };
@@ -42,7 +42,7 @@ fn create_index_blocks_update(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn create_index_allows_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_index_allows_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm001_allows_select") else {
         return;
     };

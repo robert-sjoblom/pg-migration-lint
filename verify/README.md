@@ -3,7 +3,7 @@
 `pg-migration-lint` makes factual claims about PostgreSQL in its rule explanations — that
 `DROP INDEX` blocks reads, that `char(n)` pads, that `ATTACH PARTITION` only needs SHARE
 UPDATE EXCLUSIVE. This directory checks those claims against real servers, PostgreSQL 14
-through 18, so a claim cannot quietly become folklore.
+through 19, so a claim cannot quietly become folklore.
 
 Nothing here is part of the analyzer. `pg-migration-lint` has no database dependency and
 never connects to one.
@@ -32,7 +32,7 @@ Both suites need the servers up:
 cd verify && docker compose up -d --wait
 ```
 
-PG 14–18 land on ports 54314–54318. No local `psql` or Rust database setup is needed; the
+PG 14–19 land on ports 54314–54319. No local `psql` or Rust database setup is needed; the
 SQL suite runs `psql` inside the container, and the Rust suite connects over the mapped
 ports.
 
@@ -63,7 +63,7 @@ to every version. Call `assert_true` / `assert_false` / `assert_eq` /
 Each file gets a freshly created database.
 
 **Rust suite.** Add a file under `lock-tests/tests/`. One `#[rstest]` function per claim,
-parameterized `#[values(14, 15, 16, 17, 18)]`, so a failure is attributable to one claim on
+parameterized `#[values(14, 15, 16, 17, 18, 19)]`, so a failure is attributable to one claim on
 one version. Each test opens its own database via `TestDb::new(pg, "<unique_label>")` —
 the label becomes the database name and **must be unique across the crate**. See
 `lock-tests/src/lib.rs` for the harness API, and
@@ -77,10 +77,26 @@ every PR, because a test suite that no longer compiles is worse than no suite.
 
 ## Also here
 
-Two generators build Rust source from a live server's catalogs, both against PG 18:
+Two generators build Rust source from a live server's catalogs, both against the `pg18`
+service in `docker-compose.yml`:
 
 - `gen-reserved-keywords.sh` → `src/rules/reserved_keywords.rs`, from `pg_get_keywords()`
 - `gen-fn-volatility.sh` → `src/rules/fn_volatility.rs`, from `pg_proc.provolatile`
 
-`ci.yml` runs both with `--check` on every PR, so the committed tables cannot drift from
-what PostgreSQL actually reports.
+Each file records the server version it came from in its header. `--check` regenerates
+and diffs against the committed file, header included, so a bumped image tag with stale
+files fails. `.github/workflows/pg-generators.yml` runs both checks on every PR that
+touches the compose file, the generator scripts, or the generated files, and weekly as a
+backstop.
+
+Every service in `docker-compose.yml` is pinned to a PostgreSQL minor. Dependabot bumps
+the tags on each point release; a PR that bumps `pg18` must also regenerate both files:
+
+```bash
+./verify/gen-fn-volatility.sh
+./verify/gen-reserved-keywords.sh
+```
+
+Majors are not bumped by the bot. The matrix tracks supported PostgreSQL majors and
+changes by hand: add a service and port, extend `PG_VERSIONS` in `lock-tests/src/lib.rs`
+and the `#[values(...)]` lists, and the port map in `run.sh`.

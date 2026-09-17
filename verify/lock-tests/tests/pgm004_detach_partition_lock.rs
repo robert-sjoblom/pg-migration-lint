@@ -17,7 +17,7 @@ const SETUP: &str = "
 ";
 
 #[rstest]
-fn detach_partition_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_partition_blocks_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm004_blocks_select") else {
         return;
     };
@@ -32,7 +32,7 @@ fn detach_partition_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn detach_partition_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_partition_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm004_blocks_insert") else {
         return;
     };
@@ -48,7 +48,7 @@ fn detach_partition_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 
 /// DETACH CONCURRENTLY uses a weaker lock.
 #[rstest]
-fn detach_concurrently_detaches_partition(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_concurrently_detaches_partition(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm004_concurrently") else {
         return;
     };

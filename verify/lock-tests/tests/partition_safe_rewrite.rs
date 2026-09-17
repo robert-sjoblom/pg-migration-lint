@@ -35,7 +35,7 @@ use pg_lock_tests::{
 use rstest::rstest;
 
 // `DETACH PARTITION ... CONCURRENTLY` arrived in PG 14, which is the oldest version the
-// harness covers, so every case here runs the full 14–18 matrix.
+// harness covers, so every case here runs the full 14–19 matrix.
 
 /// The drop half of the migration, in miniature: one range-partitioned parent, two
 /// quarterly children, traffic routed through the parent.
@@ -98,7 +98,7 @@ const DETACH_Q1_CONCURRENTLY: &str = "ALTER TABLE txns DETACH PARTITION txns_q1 
 /// would have left them.
 #[rstest]
 fn detach_concurrently_then_drop_reaches_the_same_end_state_as_a_plain_drop(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_drop_end_state") else {
         return;
@@ -184,7 +184,7 @@ fn detach_concurrently_then_drop_reaches_the_same_end_state_as_a_plain_drop(
 /// so there is no parent lock to fail to get.
 #[rstest]
 fn dropping_a_detached_partition_succeeds_while_traffic_holds_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_detached_drop_ok") else {
         return;
@@ -218,7 +218,7 @@ fn dropping_a_detached_partition_succeeds_while_traffic_holds_the_parent(
 /// not stand in its way.
 #[rstest]
 fn dropping_a_detached_partition_needs_no_lock_on_the_parent_at_all(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_detached_drop_no_parent_lock") else {
         return;
@@ -254,7 +254,7 @@ fn dropping_a_detached_partition_needs_no_lock_on_the_parent_at_all(
 /// drop under identical traffic gives up.
 #[rstest]
 fn dropping_a_still_attached_partition_fails_under_the_same_traffic(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_attached_drop_fails") else {
         return;
@@ -277,7 +277,7 @@ fn dropping_a_still_attached_partition_fails_under_the_same_traffic(
 
 /// Direction 1: does the DDL block the application?
 #[rstest]
-fn attach_partition_allows_select_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn attach_partition_allows_select_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "psafe_attach_allows_select") else {
         return;
     };
@@ -293,7 +293,7 @@ fn attach_partition_allows_select_through_the_parent(#[values(14, 15, 16, 17, 18
 }
 
 #[rstest]
-fn attach_partition_allows_insert_through_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn attach_partition_allows_insert_through_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "psafe_attach_allows_insert") else {
         return;
     };
@@ -315,7 +315,7 @@ fn attach_partition_allows_insert_through_the_parent(#[values(14, 15, 16, 17, 18
 /// Control: the statement the migration actually used blocks the same reader.
 #[rstest]
 fn create_table_partition_of_blocks_select_through_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_partof_blocks_select") else {
         return;
@@ -333,7 +333,7 @@ fn create_table_partition_of_blocks_select_through_the_parent(
 
 #[rstest]
 fn create_table_partition_of_blocks_insert_through_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_partof_blocks_insert") else {
         return;
@@ -351,7 +351,9 @@ fn create_table_partition_of_blocks_insert_through_the_parent(
 
 /// Direction 2, the one the incident was about: does the application block the DDL?
 #[rstest]
-fn like_plus_attach_succeeds_while_traffic_holds_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn like_plus_attach_succeeds_while_traffic_holds_the_parent(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "psafe_attach_under_traffic") else {
         return;
     };
@@ -383,7 +385,9 @@ fn like_plus_attach_succeeds_while_traffic_holds_the_parent(#[values(14, 15, 16,
 
 /// Control: the migration's own recreate statement, under the same traffic, fails.
 #[rstest]
-fn create_table_partition_of_fails_under_the_same_traffic(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn create_table_partition_of_fails_under_the_same_traffic(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "psafe_partof_under_traffic") else {
         return;
     };
@@ -409,7 +413,7 @@ fn create_table_partition_of_fails_under_the_same_traffic(#[values(14, 15, 16, 1
 /// `ATTACH` is a lock-level change, not a schema change.
 #[rstest]
 fn like_plus_attach_reaches_the_same_end_state_as_partition_of(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_attach_end_state") else {
         return;
@@ -555,7 +559,7 @@ fn like_plus_attach_reaches_the_same_end_state_as_partition_of(
 ///   its rows.
 #[rstest]
 fn detach_concurrently_waits_for_traffic_and_a_timeout_leaves_a_pending_detach(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_detach_conc_waits") else {
         return;
@@ -630,7 +634,7 @@ fn leave_detach_pending_under_traffic(db: &TestDb) -> Holder {
 /// The window where the parent under-reports its rows lasts until somebody
 /// intervenes.
 #[rstest]
-fn a_pending_detach_does_not_resolve_itself(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn a_pending_detach_does_not_resolve_itself(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "psafe_pending_no_self_heal") else {
         return;
     };
@@ -668,7 +672,7 @@ fn a_pending_detach_does_not_resolve_itself(#[values(14, 15, 16, 17, 18)] pg: u3
 /// Nor can the operation simply be retried: PostgreSQL refuses and names the way out.
 #[rstest]
 fn retrying_detach_concurrently_on_a_pending_partition_is_refused(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_pending_retry_refused") else {
         return;
@@ -695,7 +699,7 @@ fn retrying_detach_concurrently_on_a_pending_partition_is_refused(
 }
 
 #[rstest]
-fn detach_finalize_completes_a_pending_detach(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn detach_finalize_completes_a_pending_detach(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "psafe_pending_finalize") else {
         return;
     };
@@ -722,7 +726,7 @@ fn detach_finalize_completes_a_pending_detach(#[values(14, 15, 16, 17, 18)] pg: 
 
 #[rstest]
 fn dropping_a_pending_partition_also_clears_the_pending_state(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_pending_drop") else {
         return;
@@ -764,7 +768,7 @@ fn dropping_a_pending_partition_also_clears_the_pending_state(
 /// reader. Half-detached does not buy the half of that benefit.
 #[rstest]
 fn dropping_a_pending_partition_still_loses_to_traffic_on_the_parent(
-    #[values(14, 15, 16, 17, 18)] pg: u32,
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
 ) {
     let Some(db) = TestDb::new(pg, "psafe_pending_drop_vs_traffic") else {
         return;

@@ -16,7 +16,7 @@ const SETUP: &str = "
 const INDEX_COUNT: &str = "SELECT count(*)::bigint FROM pg_indexes WHERE tablename = 'test_pk'";
 
 #[rstest]
-fn add_pk_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_pk_blocks_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm016_blocks_select") else {
         return;
     };
@@ -31,7 +31,7 @@ fn add_pk_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn add_pk_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_pk_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm016_blocks_insert") else {
         return;
     };
@@ -47,7 +47,7 @@ fn add_pk_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 
 /// A matching unique index is not adopted implicitly; PostgreSQL builds a second one.
 #[rstest]
-fn add_pk_builds_new_index_despite_existing_unique(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_pk_builds_new_index_despite_existing_unique(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm016_new_index") else {
         return;
     };
@@ -69,7 +69,7 @@ fn add_pk_builds_new_index_despite_existing_unique(#[values(14, 15, 16, 17, 18)]
 
 /// `USING INDEX` is the way to avoid that second build.
 #[rstest]
-fn add_pk_using_index_reuses_existing(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_pk_using_index_reuses_existing(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm016_using_index") else {
         return;
     };

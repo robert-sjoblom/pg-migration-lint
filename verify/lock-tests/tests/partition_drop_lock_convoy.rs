@@ -16,7 +16,7 @@
 //!
 //! A blocked probe only demonstrates a convoy if no *granted* lock could have
 //! blocked it:
-//!   * MEASURED here on 14-18: while `DROP TABLE <child>` is queued for the parent it
+//!   * MEASURED here on 14-19: while `DROP TABLE <child>` is queued for the parent it
 //!     holds **no lock at all** on the child it is dropping -- PostgreSQL takes the
 //!     parent lock *before* the child's (`RangeVarCallbackForDropRelation` locks a
 //!     partition's parent first). So the doomed child cannot be the reason a probe
@@ -60,7 +60,9 @@ const ACCESS_SHARE: &str = "AccessShareLock";
 /// The convoy claim, with realistic traffic on both ends: the holder and the probe are
 /// the same ordinary read of the current partition.
 #[rstest]
-fn queued_drop_blocks_a_reader_the_holder_alone_would_allow(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn queued_drop_blocks_a_reader_the_holder_alone_would_allow(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "pconvoy_queued_blocks_read") else {
         return;
     };
@@ -116,7 +118,7 @@ fn queued_drop_blocks_a_reader_the_holder_alone_would_allow(#[values(14, 15, 16,
 /// CONTROL for the test above: with the holder present but nothing queued behind it,
 /// the identical read succeeds. Without this, "blocked" could be blamed on the holder.
 #[rstest]
-fn holder_alone_allows_the_same_reader(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn holder_alone_allows_the_same_reader(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pconvoy_holder_alone_allows") else {
         return;
     };
@@ -136,7 +138,7 @@ fn holder_alone_allows_the_same_reader(#[values(14, 15, 16, 17, 18)] pg: u32) {
 /// The same convoy claim with a probe that assumes nothing about partition pruning:
 /// `SELECT ... FROM ONLY <parent>` needs exactly one lock, ACCESS SHARE on the parent.
 #[rstest]
-fn queued_drop_blocks_a_read_that_needs_only_the_parent(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn queued_drop_blocks_a_read_that_needs_only_the_parent(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pconvoy_parent_only_blocked") else {
         return;
     };
@@ -164,7 +166,7 @@ fn queued_drop_blocks_a_read_that_needs_only_the_parent(#[values(14, 15, 16, 17,
 
 /// CONTROL for the parent-only probe.
 #[rstest]
-fn holder_alone_allows_the_parent_only_read(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn holder_alone_allows_the_parent_only_read(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pconvoy_parent_only_control") else {
         return;
     };
@@ -186,7 +188,9 @@ fn holder_alone_allows_the_parent_only_read(#[values(14, 15, 16, 17, 18)] pg: u3
 /// Independent of the measurement that a queued DROP holds nothing on the child, this
 /// rules out the doomed partition as an explanation for the headline test's timeout.
 #[rstest]
-fn live_read_lock_footprint_excludes_the_doomed_partition(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn live_read_lock_footprint_excludes_the_doomed_partition(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
     let Some(db) = TestDb::new(pg, "pconvoy_read_footprint") else {
         return;
     };
@@ -219,7 +223,7 @@ fn live_read_lock_footprint_excludes_the_doomed_partition(#[values(14, 15, 16, 1
 
 /// The queued DROP is waiting: nothing is wrong with it except the lock.
 #[rstest]
-fn the_queued_drop_completes_once_the_holder_releases(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn the_queued_drop_completes_once_the_holder_releases(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pconvoy_waiter_finishes") else {
         return;
     };

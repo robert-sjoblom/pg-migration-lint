@@ -22,7 +22,7 @@ jobs:
   check:
     name: Check (fmt, clippy, compile)
     runs-on: ubuntu-latest
-    # Skip on scheduled runs (only audit/mutants need the weekly trigger)
+    # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
     steps:
       - name: Checkout
@@ -132,7 +132,7 @@ jobs:
   build-bridge:
     name: Build Liquibase bridge JAR
     runs-on: ubuntu-latest
-    # Skip on scheduled runs (only audit needs the weekly trigger)
+    # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
     steps:
       - name: Checkout
@@ -164,7 +164,7 @@ jobs:
     name: Liquibase integration tests (LB ${{ matrix.liquibase-version }})
     runs-on: ubuntu-latest
     needs: [test, build-bridge]
-    # Skip on scheduled runs (only audit/mutants need the weekly trigger)
+    # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
     strategy:
       matrix:
@@ -216,11 +216,16 @@ jobs:
     name: Coverage
     runs-on: ubuntu-latest
     needs: check
-    # Run on main push, scheduled, or when PR title contains [coverage]
+    # Run on main push, scheduled, or when PR title contains [coverage].
+    # check is skipped on the schedule, and a skipped dependency skips this job
+    # too unless the condition uses a status function; !cancelled() lets it run,
+    # and the result test still holds coverage back when check actually failed.
     if: >-
-      github.event_name == 'push'
-      || github.event_name == 'schedule'
-      || contains(github.event.pull_request.title, '[coverage]')
+      !cancelled()
+      && needs.check.result != 'failure'
+      && (github.event_name == 'push'
+          || github.event_name == 'schedule'
+          || contains(github.event.pull_request.title, '[coverage]'))
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -254,77 +259,8 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  mutants:
-    name: Mutation testing
-    runs-on: ubuntu-latest
-    # Only run on the weekly schedule
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-mutants
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-mutants
-          locked: true
-
-      - name: Install cargo-nextest
-        uses: baptiste0928/cargo-install@v3
-        with:
-          crate: cargo-nextest
-          locked: true
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run mutation tests
-        run: cargo mutants --test-tool nextest --output mutants.out
-
-      - name: Upload mutants report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: mutants-report
-          path: mutants.out/
-          retention-days: 30
-
-  fn-volatility-check:
-    name: Check fn_volatility.rs is up-to-date
-    runs-on: ubuntu-latest
-    # Only run on the weekly schedule (requires Docker + PG 18)
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Verify fn_volatility.rs matches pg_proc
-        run: ./verify/gen-fn-volatility.sh --check
-
-  reserved-keywords-check:
-    name: Check reserved_keywords.rs is up-to-date
-    runs-on: ubuntu-latest
-    # Only run on the weekly schedule (requires Docker + PG 18)
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Verify reserved_keywords.rs matches pg_get_keywords()
-        run: ./verify/gen-reserved-keywords.sh --check
+  # fn_volatility.rs / reserved_keywords.rs freshness checks live in
+  # pg-generators.yml so they can path-filter on their inputs.
 
   deny:
     name: Deny (licenses, advisories, duplicates)

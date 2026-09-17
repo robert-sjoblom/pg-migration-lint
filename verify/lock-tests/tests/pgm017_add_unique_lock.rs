@@ -17,7 +17,7 @@ const SETUP: &str = "
 const INDEX_COUNT: &str = "SELECT count(*)::bigint FROM pg_indexes WHERE tablename = 'test_uq'";
 
 #[rstest]
-fn add_unique_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_unique_blocks_select(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm017_blocks_select") else {
         return;
     };
@@ -32,7 +32,7 @@ fn add_unique_blocks_select(#[values(14, 15, 16, 17, 18)] pg: u32) {
 }
 
 #[rstest]
-fn add_unique_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_unique_blocks_insert(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm017_blocks_insert") else {
         return;
     };
@@ -48,7 +48,7 @@ fn add_unique_blocks_insert(#[values(14, 15, 16, 17, 18)] pg: u32) {
 
 /// Precondition for the `USING INDEX` case: a lone unique index is the only index.
 #[rstest]
-fn one_index_before_add_unique_using_index(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn one_index_before_add_unique_using_index(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm017_one_index_before") else {
         return;
     };
@@ -65,7 +65,7 @@ fn one_index_before_add_unique_using_index(#[values(14, 15, 16, 17, 18)] pg: u32
 
 /// `USING INDEX` adopts the existing index rather than building a second one.
 #[rstest]
-fn add_unique_using_index_reuses_existing(#[values(14, 15, 16, 17, 18)] pg: u32) {
+fn add_unique_using_index_reuses_existing(#[values(14, 15, 16, 17, 18, 19)] pg: u32) {
     let Some(db) = TestDb::new(pg, "pgm017_using_index") else {
         return;
     };

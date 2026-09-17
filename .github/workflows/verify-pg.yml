@@ -26,7 +26,7 @@ jobs:
         with:
           workspaces: verify/lock-tests
 
-      - name: Start PostgreSQL 14-18
+      - name: Start PostgreSQL 14-19
         run: cd verify && docker compose up -d --wait
 
       - name: Verify single-session claims (SQL suite)
