@@ -179,14 +179,18 @@ impl TableState {
     /// Skipped indexes:
     /// - Partial indexes — they only index a subset of rows.
     /// - ON ONLY indexes — they don't cover partition children.
-    /// - Non-B-tree indexes (GIN, GiST, BRIN, hash) — only B-tree indexes
-    ///   support the ordered lookups PostgreSQL uses for FK enforcement.
+    /// - GIN, GiST, and BRIN indexes — they don't provide the direct equality
+    ///   point lookups FK enforcement needs (BRIN is a lossy range summary;
+    ///   GIN/GiST serve other operator classes). B-tree and hash indexes both
+    ///   support equality lookups and so both count as coverage; PostgreSQL
+    ///   hash indexes are inherently single-column, which lines up with the
+    ///   single-FK-column-subset case this function already treats as coverage.
     ///
     /// Expression entries never match, since an expression cannot equal a
     /// plain FK column name.
     pub fn has_indexed_fk_column(&self, fk_columns: &[String]) -> bool {
         self.indexes.iter().any(|idx| {
-            if idx.is_partial() || idx.only || !idx.is_btree() {
+            if idx.is_partial() || idx.only || !idx.supports_equality_lookup() {
                 return false;
             }
             idx.column_names()
@@ -332,9 +336,15 @@ impl IndexState {
     }
 
     /// True if this index uses the B-tree access method.
-    /// Only B-tree indexes can serve FK lookups in PostgreSQL.
     pub fn is_btree(&self) -> bool {
         self.access_method == Self::DEFAULT_ACCESS_METHOD
+    }
+
+    /// True if this index's access method supports direct equality point
+    /// lookups (B-tree or hash) rather than only specialized operator classes
+    /// (GIN, GiST) or lossy range summaries (BRIN).
+    pub fn supports_equality_lookup(&self) -> bool {
+        self.is_btree() || self.access_method == "hash"
     }
 }
 

@@ -43,7 +43,7 @@ fn test_catalog_ops_set_drop_default_and_hash_index() {
     // V003 exercises SET DEFAULT, DROP DEFAULT, re-adds an FK, and creates a hash index.
     // Expected findings:
     //   - PGM001: CREATE INDEX without CONCURRENTLY on existing table
-    //   - PGM501: FK without covering btree index (hash index does NOT count)
+    //   - PGM501: does NOT fire (hash index supports equality lookups, so it covers the FK)
     let findings = common::lint_fixture("catalog-ops", &["V003__defaults_and_hash.sql"]);
     let rule_ids: Vec<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
     assert!(
@@ -51,22 +51,21 @@ fn test_catalog_ops_set_drop_default_and_hash_index() {
         "PGM001 should fire for CREATE INDEX without CONCURRENTLY on existing table"
     );
     assert!(
-        rule_ids.contains(&"PGM501"),
-        "PGM501 should fire: hash index does NOT satisfy FK coverage. Got: {:?}",
+        !rule_ids.contains(&"PGM501"),
+        "PGM501 should NOT fire: hash index satisfies FK coverage. Got: {:?}",
         rule_ids
     );
 }
 
 #[test]
-fn test_catalog_ops_hash_index_does_not_suppress_pgm501() {
-    // Isolated PGM501 check: V003 adds FK + hash index. The hash index should
-    // NOT count as a covering index, so PGM501 must fire.
+fn test_catalog_ops_hash_index_suppresses_pgm501() {
+    // Isolated PGM501 check: V003 adds FK + hash index. The hash index supports
+    // equality lookups, so it counts as a covering index and PGM501 must not fire.
     let findings =
         common::lint_fixture_rules("catalog-ops", &["V003__defaults_and_hash.sql"], &["PGM501"]);
-    assert_eq!(
-        findings.len(),
-        1,
-        "PGM501 should fire exactly once for the FK with only a hash index. Got: {:?}",
+    assert!(
+        findings.is_empty(),
+        "PGM501 should not fire: FK is covered by a hash index. Got: {:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
 }

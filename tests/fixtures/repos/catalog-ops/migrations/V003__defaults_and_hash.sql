@@ -12,5 +12,5 @@ ALTER TABLE orders ADD CONSTRAINT fk_customer2
     FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;
 
 -- Non-btree index: hash index on orders.customer_id
--- Hash indexes work on scalar types but cannot serve FK lookups.
+-- Hash indexes support equality lookups, so this satisfies FK coverage.
 CREATE INDEX idx_orders_customer_hash ON orders USING hash (customer_id);
