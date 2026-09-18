@@ -1,34 +1,11 @@
-//! PGM402 — Missing `IF NOT EXISTS` on `CREATE TABLE` / `CREATE INDEX`
-//!
-//! Detects `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause.
-//! Without `IF NOT EXISTS`, the statement fails if the object already exists.
-//! In migration pipelines that may be re-run, this causes hard failures.
+#![doc = include_str!("docs/pgm402.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM402 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX\n\
-         \n\
-         What it detects:\n\
-         A CREATE TABLE or CREATE INDEX statement that does not include the\n\
-         IF NOT EXISTS clause.\n\
-         \n\
-         Why it matters:\n\
-         Without IF NOT EXISTS, the statement fails if the object already exists.\n\
-         In migration pipelines that may be re-run (e.g., idempotent migrations,\n\
-         manual re-execution after partial failure), this causes hard failures.\n\
-         Adding IF NOT EXISTS makes the statement idempotent.\n\
-         \n\
-         Example:\n\
-           -- Fails if 'orders' already exists:\n\
-           CREATE TABLE orders (id bigint PRIMARY KEY);\n\
-           CREATE INDEX idx_orders_status ON orders (status);\n\
-         \n\
-         Recommended fix:\n\
-           CREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);\n\
-           CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm402.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

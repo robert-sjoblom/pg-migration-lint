@@ -1,38 +1,11 @@
-//! PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
-//!
-//! Detects `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE` on existing tables
-//! that doesn't use `USING INDEX` to reference a pre-built unique index.
-//! Even if a matching unique index already exists, PostgreSQL will build a
-//! **new** index under ACCESS EXCLUSIVE lock unless `USING INDEX` is explicit.
+#![doc = include_str!("docs/pgm017.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD UNIQUE on existing table without USING INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM017 — ADD UNIQUE on existing table without USING INDEX\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD CONSTRAINT ... UNIQUE on an existing table that\n\
-         does not use USING INDEX, or where the referenced index does not\n\
-         exist or is not UNIQUE.\n\
-         \n\
-         Why it's dangerous:\n\
-         Without USING INDEX, PostgreSQL always builds a new unique index\n\
-         inline under an ACCESS EXCLUSIVE lock, even if a matching unique\n\
-         index already exists. For large tables this causes extended downtime.\n\
-         NOT VALID does NOT apply to UNIQUE constraints.\n\
-         \n\
-         When USING INDEX is specified, PostgreSQL validates that the\n\
-         referenced index exists and is unique, then promotes it to a\n\
-         constraint without rebuilding.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE (email);\n\
-         \n\
-         Fix (safe pattern — build unique index concurrently first):\n\
-           CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);\n\
-           ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm017.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

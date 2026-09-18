@@ -1,48 +1,11 @@
-//! PGM503 — `UNIQUE NOT NULL` used instead of primary key
-//!
-//! Detects tables that have no primary key but have at least one UNIQUE
-//! constraint where all constituent columns are NOT NULL. This is functionally
-//! equivalent to a PK but less conventional.
+#![doc = include_str!("docs/pgm503.md")]
 
 use crate::parser::ir::{IrNode, Located, TablePersistence};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "UNIQUE NOT NULL used instead of PRIMARY KEY";
 
-pub(super) const EXPLAIN: &str = "PGM503 — UNIQUE NOT NULL used instead of PRIMARY KEY\n\
-         \n\
-         What it detects:\n\
-         A table that has no PRIMARY KEY but has at least one UNIQUE constraint\n\
-         where all constituent columns are NOT NULL. This combination is\n\
-         functionally equivalent to a PK.\n\
-         \n\
-         Why it matters:\n\
-         While UNIQUE NOT NULL is functionally equivalent to PRIMARY KEY,\n\
-         using PRIMARY KEY is more conventional and explicit. Tools, ORMs,\n\
-         and database administrators expect PK as the standard way to\n\
-         identify rows. Using UNIQUE NOT NULL may confuse readers and\n\
-         prevent some tools from auto-detecting the identity column.\n\
-         \n\
-         Example (flagged):\n\
-           CREATE TABLE users (\n\
-             email text NOT NULL UNIQUE,\n\
-             name text\n\
-           );\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE users (\n\
-             email text PRIMARY KEY,\n\
-             name text\n\
-           );\n\
-         \n\
-         Note: When PGM503 fires, PGM502 (table without PK) does NOT fire\n\
-         for the same table, since the situation is already flagged.\n\
-         \n\
-         Partition children (CREATE TABLE ... PARTITION OF parent) inherit the\n\
-         primary key from their parent table. This rule is suppressed for\n\
-         partition children when the parent already has a PK or when the\n\
-         parent is not in the catalog (common in incremental CI where only\n\
-         new migrations are analyzed).";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm503.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

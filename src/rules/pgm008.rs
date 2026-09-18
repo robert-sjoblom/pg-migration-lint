@@ -1,41 +1,11 @@
-//! PGM008 — `ADD COLUMN NOT NULL` without default on existing table
-//!
-//! Detects `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a `DEFAULT` clause
-//! on tables that already exist. This command will fail outright if the table
-//! has any rows.
+#![doc = include_str!("docs/pgm008.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD COLUMN NOT NULL without DEFAULT on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM008 — ADD COLUMN NOT NULL without DEFAULT on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD COLUMN ... NOT NULL without a DEFAULT clause,\n\
-         where the table already exists in the database (not created in the\n\
-         same set of changed files).\n\
-         \n\
-         Why it's dangerous:\n\
-         Adding a NOT NULL column without a default to a table that has\n\
-         existing rows will fail immediately with:\n\
-           ERROR: column \"x\" of relation \"t\" contains null values\n\
-         This is almost always a bug. The migration will fail at deploy time.\n\
-         \n\
-         On PG 11+, ADD COLUMN ... NOT NULL DEFAULT <value> is safe — the\n\
-         default is applied lazily without rewriting the table (for non-volatile\n\
-         defaults).\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ADD COLUMN status text NOT NULL;\n\
-         \n\
-         Fix (option A — add with default):\n\
-           ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'pending';\n\
-         \n\
-         Fix (option B — add nullable, backfill, then constrain):\n\
-           ALTER TABLE orders ADD COLUMN status text;\n\
-           UPDATE orders SET status = 'pending' WHERE status IS NULL;\n\
-           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm008.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

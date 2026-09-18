@@ -1,8 +1,4 @@
-//! PGM202 — `DROP TABLE ... CASCADE` on existing table
-//!
-//! Detects `DROP TABLE ... CASCADE` targeting a table that exists in `catalog_before`.
-//! CASCADE silently drops all dependent objects (views, foreign keys, triggers, rules)
-//! that reference the dropped table, amplifying the blast radius beyond a simple DROP.
+#![doc = include_str!("docs/pgm202.md")]
 
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
@@ -10,35 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "DROP TABLE CASCADE on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM202 — DROP TABLE CASCADE on existing table\n\
-         \n\
-         What it detects:\n\
-         A DROP TABLE ... CASCADE statement targeting a table that already exists\n\
-         in the database.\n\
-         \n\
-         Why it matters:\n\
-         CASCADE silently drops all dependent objects — foreign keys, views,\n\
-         triggers, and rules — that reference the dropped table. The developer\n\
-         may not be aware of all dependencies, leading to unexpected breakage\n\
-         in other tables and application code.\n\
-         \n\
-         A plain DROP TABLE (without CASCADE) would fail if dependencies exist,\n\
-         which is a safer default. CASCADE bypasses that safety net.\n\
-         \n\
-         Example:\n\
-           DROP TABLE customers CASCADE;\n\
-         \n\
-         If the 'orders' table has a FK referencing 'customers', CASCADE will\n\
-         silently drop that FK constraint on 'orders'.\n\
-         \n\
-         Recommended approach:\n\
-         1. Identify all dependent objects before dropping.\n\
-         2. Explicitly drop or alter dependencies in separate migration steps.\n\
-         3. Use plain DROP TABLE (without CASCADE) so PostgreSQL will error\n\
-            if unexpected dependencies remain.\n\
-         \n\
-         This rule is MAJOR severity because CASCADE silently destroys\n\
-         dependent objects the developer may not be aware of.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm202.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

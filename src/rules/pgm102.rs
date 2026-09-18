@@ -1,8 +1,4 @@
-//! PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`
-//!
-//! Detects timestamp columns with precision 0. Precision 0 causes rounding,
-//! not truncation — a value of '23:59:59.9' rounds to the next day.
-//! Use full precision and format on output instead.
+#![doc = include_str!("docs/pgm102.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -10,27 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses timestamp or timestamptz with precision 0";
 
-pub(super) const EXPLAIN: &str = "PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`\n\
-         \n\
-         What it detects:\n\
-         A column declared as `timestamp(0)` or `timestamptz(0)`.\n\
-         \n\
-         Why it's problematic:\n\
-         Precision 0 causes PostgreSQL to round the fractional seconds,\n\
-         not truncate them. A value of '2024-12-31 23:59:59.9' rounds to\n\
-         '2025-01-01 00:00:00', which is the next day (and potentially the\n\
-         next year). This can cause subtle bugs in date-boundary logic,\n\
-         audit trails, and ordering.\n\
-         \n\
-         The default precision (6 microseconds) is almost always sufficient.\n\
-         If you need to reduce storage or display precision, format the\n\
-         output rather than constraining the stored value.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE events (created_at timestamptz(0));\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE events (created_at timestamptz);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm102.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

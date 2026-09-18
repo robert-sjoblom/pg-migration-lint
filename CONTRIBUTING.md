@@ -16,24 +16,17 @@ Each migration unit is processed through the pipeline. For changed files, the en
 
 ### 1. Create the rule file
 
-Create `src/rules/pgmXXX.rs` with three constants and a `check` function:
+Create `src/rules/pgmXXX.rs`. Its first line pulls the rule's markdown file (step 6) in as the module doc, and the same file is the `EXPLAIN` text, so the prose is written once:
 
 ```rust
+#![doc = include_str!("docs/pgmXXX.md")]
+
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::{Finding, LintContext, Rule, Severity};
+
 pub(super) const DESCRIPTION: &str = "Short one-line description";
 
-pub(super) const EXPLAIN: &str = "PGMXXX — Title\n\
-    \n\
-    What it detects:\n\
-    ...\n\
-    \n\
-    Why it's dangerous:\n\
-    ...\n\
-    \n\
-    Example (bad):\n\
-      ...\n\
-    \n\
-    Fix:\n\
-      ...";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgmXXX.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major; // Info, Minor, Major, Critical, or Blocker
 
@@ -46,7 +39,7 @@ pub(super) fn check(
 }
 ```
 
-The `EXPLAIN` text should reference the rule's own ID (e.g., `"PGMXXX"`) as a review convention — `src/rules/mod.rs` only asserts a minimum length on `DESCRIPTION`/`EXPLAIN`, it does not check that `EXPLAIN` names the rule.
+`DESCRIPTION` is the only copy of the rule's title. `--explain`, `--list-rules`, the GitHub review comment and `docs/rules.md` each compose their own heading from it, so the markdown body must not repeat it (see step 6). The `SPEC.md` heading for the rule must use the same words, backticks aside; a test under `--features docgen` checks that.
 
 ### 2. Add the enum variant
 
@@ -111,11 +104,17 @@ fn test_violation_fires() {
 }
 ```
 
-### 6. Add a docs/examples body file
+### 6. Add the rule's markdown file
 
-Create `docs/examples/pgmXXX_body.md` with the rule's documentation content — everything that appears between the severity line and the `---` separator in `docs/rules.md`. This includes prose, examples (with fenced code blocks), fix suggestions, and cross-reference notes.
+Create `src/rules/docs/pgmXXX.md`. This one file is the rule's module doc, the body that `--explain PGMXXX` prints verbatim, and the body of the rule's section in `docs/rules.md`, so it is written once and rendered three ways. Look at existing files for the shape: an opening paragraph on what is detected and why it matters, `**Example**` and `**Fix**` labels with fenced SQL, then notes and cross-references.
 
-Look at existing body files for the format. The content is rich markdown (bold, links, lists, code blocks) — it's the authoritative source for the generated docs, separate from the `EXPLAIN` constant which is plain text for terminal output.
+The file has to satisfy rustdoc, a terminal and Jekyll at once, so `src/rules/rule_docs_tests.rs` enforces these rules on every rule:
+
+- body only: no title line and no `#` headings (the title comes from `DESCRIPTION`)
+- every code fence carries a language tag (` ```sql `, ` ```text `, ` ```xml `). An untagged fence, or a line indented four spaces outside a fence, is a Rust doctest to rustdoc and `cargo test` would try to compile it
+- no Jekyll, Liquid or kramdown syntax (`{:`, `{{`, `{%`)
+- cross-references use the absolute docs URL, `[PGM004](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004)`, never a bare `#pgm004` anchor, so they resolve in the terminal, in GitHub comments and in rustdoc
+- the file ends with exactly one newline
 
 ### 7. Run tests and review snapshots
 
@@ -274,7 +273,7 @@ All variants live in a single flat `RuleId` enum (no per-family sub-enums). Gaps
 `docs/rules.md` is **generated** — do not edit it by hand. It is produced from three sources:
 
 1. **Rule metadata** — `DESCRIPTION` and `default_severity()` from each rule in `src/rules/`
-2. **Body files** — `docs/examples/pgmXXX_body.md` (one per rule, rich markdown)
+2. **Rule markdown** — `src/rules/docs/pgmXXX.md`, read through `Rule::explain()` (one per rule)
 3. **Template** — `docs/rules.md.j2` (minijinja template for the overall page structure)
 
 The generation is feature-gated behind `--features docgen` (using the `minijinja` crate) and verified by an insta snapshot test.
@@ -298,7 +297,7 @@ make docs-sync
 ### What triggers a snapshot failure
 
 - Changing a rule's `DESCRIPTION` or `default_severity()`
-- Editing any `docs/examples/pgmXXX_body.md` file
+- Editing any `src/rules/docs/pgmXXX.md` file
 - Adding or removing a rule
 - Changing `docs/rules.md.j2`
 
@@ -306,7 +305,7 @@ make docs-sync
 
 | Path | Purpose |
 |------|---------|
-| `docs/examples/pgmXXX_body.md` | Per-rule content (prose, examples, notes) |
+| `src/rules/docs/pgmXXX.md` | Per-rule content; also the module doc and the `--explain` body |
 | `docs/rules.md.j2` | Page template |
 | `src/docgen.rs` | Build context + render + snapshot test |
 | `src/snapshots/…rules_md.snap` | Accepted snapshot (source of truth) |

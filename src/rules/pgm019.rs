@@ -1,41 +1,11 @@
-//! PGM019 — ADD EXCLUDE constraint on existing table
-//!
-//! Detects adding EXCLUDE constraints to tables that already exist.
-//! Unlike CHECK and FK constraints, PostgreSQL does not support NOT VALID
-//! for EXCLUDE constraints — there is no safe online path.
+#![doc = include_str!("docs/pgm019.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD EXCLUDE constraint on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM019 — ADD EXCLUDE constraint on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...) where the table\n\
-         already exists.\n\
-         \n\
-         Why it's dangerous:\n\
-         Adding an EXCLUDE constraint acquires an ACCESS EXCLUSIVE lock\n\
-         (blocking all reads and writes) and scans all existing rows to\n\
-         verify the exclusion condition. Unlike CHECK and FOREIGN KEY\n\
-         constraints, PostgreSQL does not support NOT VALID for EXCLUDE\n\
-         constraints. There is also no equivalent to ADD CONSTRAINT ...\n\
-         USING INDEX for exclusion constraints. There is currently no\n\
-         online path to add an exclusion constraint to a large existing\n\
-         table without an ACCESS EXCLUSIVE lock for the duration of the scan.\n\
-         \n\
-         Safe alternative:\n\
-         Schedule the migration during a maintenance window when\n\
-         downtime is acceptable.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE reservations\n\
-             ADD CONSTRAINT excl_overlap\n\
-             EXCLUDE USING gist (room WITH =, period WITH &&);\n\
-         \n\
-         Fix:\n\
-           There is no online alternative. Plan for a maintenance window.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm019.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

@@ -1,37 +1,11 @@
-//! PGM009 — `DROP COLUMN` on existing table
-//!
-//! Detects `ALTER TABLE ... DROP COLUMN` on tables that already exist.
-//! While the DDL itself is cheap (PostgreSQL marks the column as dropped
-//! without rewriting the table), the risk is application-level: queries
-//! referencing the column will break.
+#![doc = include_str!("docs/pgm009.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM009 — DROP COLUMN on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... DROP COLUMN on a table that already exists in the\n\
-         database (not created in the same set of changed files).\n\
-         \n\
-         Why it matters:\n\
-         PostgreSQL marks the column as dropped without rewriting the table,\n\
-         so the DDL operation itself is cheap and fast. However, the risk is\n\
-         application-level: any queries, views, functions, or ORM mappings\n\
-         that reference the dropped column will fail at runtime.\n\
-         \n\
-         Example:\n\
-           ALTER TABLE orders DROP COLUMN legacy_status;\n\
-         \n\
-         Recommended approach:\n\
-         1. First remove all application references to the column.\n\
-         2. Deploy the application change.\n\
-         3. Then drop the column in a subsequent migration.\n\
-         \n\
-         This rule is informational (INFO severity) to increase visibility\n\
-         of column drops in code review.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm009.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

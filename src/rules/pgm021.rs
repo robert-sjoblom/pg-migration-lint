@@ -1,36 +1,11 @@
-//! PGM021 — `VACUUM FULL` on existing table
-//!
-//! Detects `VACUUM FULL` targeting a table that exists in `catalog_before`.
-//! `VACUUM FULL` rewrites the entire table under an ACCESS EXCLUSIVE lock,
-//! blocking all reads and writes for the full duration. Use `pg_repack` or
-//! `pg_squeeze` for online compaction.
+#![doc = include_str!("docs/pgm021.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "VACUUM FULL on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM021 — VACUUM FULL on existing table\n\
-         \n\
-         What it detects:\n\
-         A VACUUM FULL statement targeting a table that already exists in the\n\
-         database (i.e., the table was not created in the same set of changed\n\
-         files).\n\
-         \n\
-         Why it matters:\n\
-         VACUUM FULL rewrites the entire table into a new data file, holding\n\
-         an ACCESS EXCLUSIVE lock for the full duration. Unlike regular VACUUM,\n\
-         which runs concurrently with reads and writes, VACUUM FULL blocks\n\
-         everything. On large tables this causes complete unavailability\n\
-         (all reads and writes blocked) for minutes to hours.\n\
-         \n\
-         Example:\n\
-           VACUUM FULL orders;\n\
-         \n\
-         Recommended approach:\n\
-         1. Use pg_repack or pg_squeeze for online table compaction.\n\
-         2. Schedule VACUUM FULL during a maintenance window when downtime is acceptable.\n\
-         3. For new tables, VACUUM FULL is fine — this rule only fires on existing tables.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm021.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

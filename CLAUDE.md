@@ -164,17 +164,20 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 
 ### Adding a New Rule
 
-1. Define rule in `src/rules/pgmXXX.rs`
-2. Implement the `Rule` trait with all methods:
+1. Define rule in `src/rules/pgmXXX.rs`, starting with `#![doc = include_str!("docs/pgmXXX.md")]`
+2. Write `src/rules/docs/pgmXXX.md`, the rule's markdown body. It is the module doc, the `--explain` output (printed verbatim) and the `docs/rules.md` body. No title line, no headings, a language tag on every fence, absolute docs URLs for cross-references; `src/rules/rule_docs_tests.rs` enforces this.
+3. Implement the `Rule` trait with all methods:
    - `id()` - stable identifier like "PGM001"
-   - `default_severity()` - Critical, Major, Warning, Info
-   - `description()` - short summary
-   - `explain()` - detailed explanation with examples and fixes
+   - `default_severity()` - Critical, Major, Minor, Info
+   - `description()` - short summary; the only copy of the rule's title
+   - `explain()` - `include_str!` of the markdown file
    - `check()` - main rule logic
-3. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/rule_id.rs` (`default_severity`, `description`, `explain`, `check`)
-4. Add component test fixtures in `tests/fixtures/` with positive and negative cases
-5. Add unit tests for helper functions in the rule file
-6. Add integration test in fixture repo `tests/fixtures/repos/all-rules/`
+4. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/rule_id.rs` (`default_severity`, `description`, `explain`, `check`)
+5. Add component test fixtures in `tests/fixtures/` with positive and negative cases
+6. Add unit tests for helper functions in the rule file
+7. Add integration test in fixture repo `tests/fixtures/repos/all-rules/`
+8. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
+9. Run `cargo test --features docgen`, accept the `rules_md` snapshot (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
 
 ### Working with IR
 

@@ -67,7 +67,7 @@ CREATE INDEX idx_orders_status ON orders (status);
 CREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);
 ```
 
-Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). See also [PGM003](#pgm003).
+Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
 ---
 
@@ -88,7 +88,7 @@ DROP INDEX idx_orders_status;
 DROP INDEX CONCURRENTLY idx_orders_status;
 ```
 
-See also [PGM003](#pgm003).
+See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
 ---
 
@@ -113,7 +113,7 @@ Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ...
 </changeSet>
 ```
 
-See also [PGM001](#pgm001), [PGM002](#pgm002), and [PGM022](#pgm022).
+See also [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001), [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), and [PGM022](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm022).
 
 ---
 
@@ -291,7 +291,7 @@ ALTER TABLE users DROP COLUMN email;
 
 **Fix**: Verify that the uniqueness guarantee is no longer needed before dropping the column.
 
-See also [PGM011](#pgm011), [PGM012](#pgm012).
+See also [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
 
 ---
 
@@ -311,7 +311,7 @@ ALTER TABLE orders DROP COLUMN id;
 
 **Fix**: Add a new primary key on remaining columns before or after dropping the column.
 
-See also [PGM010](#pgm010), [PGM012](#pgm012).
+See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
 
 ---
 
@@ -331,7 +331,7 @@ ALTER TABLE orders DROP COLUMN customer_id;
 
 **Fix**: Verify that the referential integrity guarantee is no longer needed before dropping the column.
 
-See also [PGM010](#pgm010), [PGM011](#pgm011).
+See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011).
 
 ---
 
@@ -360,7 +360,7 @@ ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
 ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
 ```
 
-See also [PGM015](#pgm015).
+See also [PGM015](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm015).
 
 ---
 
@@ -387,7 +387,7 @@ ALTER TABLE orders
 ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;
 ```
 
-See also [PGM015](#pgm015).
+See also [PGM015](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm015).
 
 ---
 
@@ -413,7 +413,7 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_check
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;
 ```
 
-See also [PGM013](#pgm013), [PGM014](#pgm014).
+See also [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013), [PGM014](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm014).
 
 ---
 
@@ -437,7 +437,7 @@ CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
 ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ```
 
-If the PK columns are nullable, `USING INDEX` alone is not enough — PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](#pgm013):
+If the PK columns are nullable, `USING INDEX` alone is not enough — PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013):
 
 ```sql
 -- Step 1: Make column NOT NULL safely (see PGM013)
@@ -471,7 +471,7 @@ CREATE UNIQUE INDEX CONCURRENTLY idx_orders_email ON orders (email);
 ALTER TABLE orders ADD CONSTRAINT uq_email UNIQUE USING INDEX idx_orders_email;
 ```
 
-See also [PGM016](#pgm016).
+See also [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016).
 
 ---
 
@@ -554,7 +554,7 @@ VACUUM FULL orders;
 ```
 
 **Fix** (use an online compaction tool):
-```
+```text
 pg_repack --table orders --no-superuser-check -d mydb
 ```
 
@@ -583,7 +583,7 @@ REINDEX INDEX CONCURRENTLY idx_orders_status;
 
 The `CONCURRENTLY` option (PostgreSQL 12+) rebuilds the index without holding an exclusive lock for the entire operation. It takes longer but allows normal reads and writes to continue.
 
-See also [PGM003](#pgm003).
+See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
 ---
 
@@ -861,7 +861,7 @@ DROP TABLE orders;
 3. Take a backup of the table data if it may be needed later.
 4. If the table is a partition, `DETACH PARTITION ... CONCURRENTLY` first, then `DROP` the now-standalone table.
 
-`DETACH PARTITION ... CONCURRENTLY` cannot run inside a transaction block, and it still waits for traffic on the parent — it can fail with `55P03` too. An interrupted detach leaves the partition pending detach, where `DROP TABLE` still takes ACCESS EXCLUSIVE on the parent. See also [PGM004](#pgm004).
+`DETACH PARTITION ... CONCURRENTLY` cannot run inside a transaction block, and it still waits for traffic on the parent — it can fail with `55P03` too. An interrupted detach leaves the partition pending detach, where `DROP TABLE` still takes ACCESS EXCLUSIVE on the parent. See also [PGM004](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004).
 
 ---
 
@@ -1048,7 +1048,7 @@ CREATE TABLE IF NOT EXISTS orders (id bigint PRIMARY KEY);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 ```
 
-See also [PGM401](#pgm401).
+See also [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401).
 
 ---
 
@@ -1129,7 +1129,7 @@ CREATE TABLE events (
 );
 ```
 
-Temporary tables are excluded. When [PGM503](#pgm503) fires (UNIQUE NOT NULL substitute detected), PGM502 does not fire for the same table.
+Temporary tables are excluded. When [PGM503](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm503) fires (UNIQUE NOT NULL substitute detected), PGM502 does not fire for the same table.
 
 ---
 
@@ -1156,7 +1156,7 @@ CREATE TABLE users (
 );
 ```
 
-When PGM503 fires, [PGM502](#pgm502) does not fire for the same table.
+When PGM503 fires, [PGM502](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm502) does not fire for the same table.
 
 ---
 
@@ -1313,7 +1313,7 @@ CREATE TABLE users (id bigint, order_status text);
 
 ## 9xx — Meta-behavior Rules
 
-### PGM901 — Meta rules alter the behavior of other rules, they are not rules themselves
+### PGM901 — Down migration severity cap
 {: #pgm901}
 
 **Severity**: Info
@@ -1388,4 +1388,4 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM507](#pgm507) | Info | DROP NOT NULL on existing table allows NULL values |
 | [PGM508](#pgm508) | Info | Duplicate or redundant index detected (prefix of another index) |
 | [PGM509](#pgm509) | Info | Mixed-case identifier or reserved word requires double-quoting |
-| [PGM901](#pgm901) | Info | Meta rules alter the behavior of other rules, they are not rules themselves |
+| [PGM901](#pgm901) | Info | Down migration severity cap |

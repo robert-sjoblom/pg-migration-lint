@@ -28,9 +28,11 @@ tmp/
 # Claude / AI context (not needed for builds)
 .claude/
 
-# Documentation not needed for test builds
+# Documentation not needed for test builds. `*.md` only matches the root
+# directory; the negations spell out the .md files the build does need.
 *.md
 !tests/fixtures/README.md
+!src/rules/docs/
 
 # OS files
 .DS_Store

@@ -79,14 +79,12 @@ impl Default for SarifReporter {
     }
 }
 
-/// Rule metadata for reporters that need per-rule information (e.g. SonarQube 10.3+).
+/// Rule metadata for the SonarQube 10.3+ reporter.
 pub struct RuleInfo {
     /// Rule identifier.
     pub id: RuleId,
     /// Short human-readable name (from `Rule::description()`).
     pub name: String,
-    /// Detailed explanation (from `Rule::explain()`).
-    pub description: String,
     /// Default severity for this rule.
     pub default_severity: Severity,
 }
@@ -98,7 +96,6 @@ impl RuleInfo {
             .map(|r| RuleInfo {
                 id: r,
                 name: r.description().to_string(),
-                description: r.explain().to_string(),
                 default_severity: r.default_severity(),
             })
             .collect()

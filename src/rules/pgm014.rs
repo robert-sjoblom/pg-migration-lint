@@ -1,44 +1,11 @@
-//! PGM014 — ADD FOREIGN KEY on existing table without NOT VALID
-//!
-//! Detects adding FK constraints without NOT VALID to tables that already
-//! exist. The safe pattern is ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT.
+#![doc = include_str!("docs/pgm014.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
 
 pub(super) const DESCRIPTION: &str = "ADD FOREIGN KEY on existing table without NOT VALID";
 
-pub(super) const EXPLAIN: &str = "PGM014 — ADD FOREIGN KEY on existing table without NOT VALID\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... where the table\n\
-         already exists and the constraint does not include NOT VALID.\n\
-         \n\
-         Why it's dangerous:\n\
-         Adding a foreign key constraint without NOT VALID causes PostgreSQL\n\
-         to immediately validate all existing rows. This acquires a SHARE\n\
-         ROW EXCLUSIVE lock on both the referencing and the referenced table\n\
-         and performs a full table scan, blocking concurrent data modifications\n\
-         on both tables for the duration. On large tables this can cause\n\
-         significant downtime.\n\
-         \n\
-         Safe alternative:\n\
-         Add the constraint with NOT VALID first, then validate it in a\n\
-         separate statement. VALIDATE CONSTRAINT only requires a SHARE\n\
-         UPDATE EXCLUSIVE lock, which allows concurrent reads and writes.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders\n\
-             ADD CONSTRAINT fk_customer\n\
-             FOREIGN KEY (customer_id) REFERENCES customers (id);\n\
-         \n\
-         Fix (safe pattern):\n\
-           ALTER TABLE orders\n\
-             ADD CONSTRAINT fk_customer\n\
-             FOREIGN KEY (customer_id) REFERENCES customers (id)\n\
-             NOT VALID;\n\
-           ALTER TABLE orders\n\
-             VALIDATE CONSTRAINT fk_customer;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm014.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

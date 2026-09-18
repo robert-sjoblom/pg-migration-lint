@@ -215,6 +215,8 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 ### 4.2 v1 Rules
 
+Rule sections define behaviour: severity, what triggers the rule, what does not, and the finding message. The rationale, worked examples and recommended fix for each rule live in exactly one place, `src/rules/docs/pgmXXX.md`, which is the rule's module doc, the body that `--explain` prints, and the source of its section in `docs/rules.md`. Each heading title here must equal the rule's `DESCRIPTION` and each Severity bullet must start with its `DEFAULT_SEVERITY`; `cargo test --features docgen` checks both.
+
 #### PGM001 — Missing `CONCURRENTLY` on `CREATE INDEX`
 
 - **Severity**: CRITICAL
@@ -242,11 +244,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
 
-#### PGM004 — `DETACH PARTITION` without `CONCURRENTLY`
+#### PGM004 — `DETACH PARTITION` on existing table without `CONCURRENTLY`
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... DETACH PARTITION child` without `CONCURRENTLY`, where the parent table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Plain `DETACH PARTITION` acquires ACCESS EXCLUSIVE on both the parent partitioned table and the child partition for the full duration. This blocks all reads and writes on the parent (and all its partitions) until detach completes.
 - **Safe alternative**: Use `DETACH PARTITION ... CONCURRENTLY` (PostgreSQL 14+), which uses SHARE UPDATE EXCLUSIVE instead, allowing concurrent reads and writes.
 - **Does not fire when**:
   - `CONCURRENTLY` is present
@@ -254,11 +255,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The parent table does not exist in `catalog_before`
 - **Message**: `DETACH PARTITION on existing partitioned table '{table}' without CONCURRENTLY acquires ACCESS EXCLUSIVE on the entire table, blocking all reads and writes. Use DETACH PARTITION ... CONCURRENTLY (PostgreSQL 14+).`
 
-#### PGM005 — `ATTACH PARTITION` without pre-validated CHECK
+#### PGM005 — `ATTACH PARTITION` of existing table without pre-validated `CHECK`
 
-- **Severity**: CRITICAL
+- **Severity**: MAJOR
 - **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where the child table exists in `catalog_before`, is not created in the same set of changed files, and has no CHECK constraint in the catalog.
-- **Why**: When attaching a partition, PostgreSQL must verify that every existing row in the child satisfies the partition bound. Without a pre-validated CHECK constraint whose expression implies the bound, PostgreSQL performs a full table scan under ACCESS EXCLUSIVE lock on the child table.
 - **Safe alternative** (3-step pattern):
   ```sql
   -- Step 1: add CHECK mirroring partition bound (NOT VALID)
@@ -280,14 +280,14 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 #### PGM006 — Volatile default on column
 
-- **Severity**: WARNING for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`, `nextval()`). INFO for any other function call used as a default.
+- **Severity**: MINOR for known volatile functions (`now()`, `current_timestamp`, `random()`, `gen_random_uuid()`, `uuid_generate_v4()`, `clock_timestamp()`, `timeofday()`, `txid_current()`, `nextval()`). INFO for any other function call used as a default.
 - **Triggers**: `ADD COLUMN ... DEFAULT fn()` or inline in `CREATE TABLE`.
 - **Note**: On Postgres 11+, non-volatile defaults on `ADD COLUMN` don't rewrite the table. Volatile defaults always evaluate per-row at write time, which is typically intentional — but worth flagging because developers sometimes use `now()` expecting a fixed value.
 - **Message (known volatile)**: `Column '{col}' on '{table}' uses volatile default '{fn}()'. Unlike non-volatile defaults, this forces a full table rewrite under an ACCESS EXCLUSIVE lock — every existing row must be physically updated with a computed value. For large tables, this causes extended downtime. Consider adding the column without a default, then backfilling with batched UPDATEs.`
 - **Message (nextval/serial)**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). This is standard usage — suppress if intentional. Note: on ADD COLUMN to an existing table, this is volatile and forces a table rewrite.`
 - **Message (unknown function)**: `Column '{col}' on '{table}' uses function '{fn}()' as default. If this function is volatile (the default for user-defined functions), it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead of a cheap catalog-only change. Verify the function's volatility classification.`
 
-#### PGM007 — `ALTER COLUMN TYPE` on existing table
+#### PGM007 — `ALTER COLUMN TYPE` on existing table causes table rewrite
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ALTER COLUMN ... TYPE ...` where the table exists in the catalog (not created in the same set of changed files).
@@ -301,7 +301,7 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - Safe casts produce no finding. All other type changes fire as CRITICAL.
 - **Message**: `Changing column type on existing table '{table}' ('{col}': {old_type} → {new_type}) rewrites the entire table under an ACCESS EXCLUSIVE lock. For large tables, this causes extended downtime. Consider creating a new column, backfilling, and swapping instead.`
 
-#### PGM008 — `ADD COLUMN NOT NULL` without default on existing table
+#### PGM008 — `ADD COLUMN NOT NULL` without `DEFAULT` on existing table
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD COLUMN ... NOT NULL` without a `DEFAULT` clause, where the table exists in the catalog.
@@ -319,7 +319,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MAJOR
 - **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns.
-- **Why**: Without `USING INDEX`, PostgreSQL always builds a new unique index inline under an `ACCESS EXCLUSIVE` lock, even if a matching unique index already exists. Even with `USING INDEX`, if any PK columns are nullable, PostgreSQL implicitly runs `SET NOT NULL` which requires a full table scan under `ACCESS EXCLUSIVE` lock.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
@@ -332,9 +331,8 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 #### PGM010 — `DROP COLUMN` silently removes unique constraint
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `UNIQUE` constraint or unique index on the table in `catalog_before`.
-- **Why**: PostgreSQL automatically drops any index or constraint that depends on the column. If the column was part of a unique constraint or unique index, the uniqueness guarantee is silently lost. This can lead to duplicate rows being inserted where they were previously impossible.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `Unique` or any `IndexState` where `is_unique` is true. If so, fire.
 - **Does not fire when**:
   - The column is not part of any unique constraint or unique index
@@ -345,7 +343,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MAJOR
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in the table's primary key (in `catalog_before`).
-- **Why**: Dropping a PK column (with `CASCADE`) silently removes the primary key constraint. The table loses its row identity, which affects replication, ORMs, query planning, and data integrity. PGM502 catches tables *created* without a PK, but cannot tell you which specific `DROP COLUMN` *caused* the loss.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `PrimaryKey`. If so, fire.
 - **Does not fire when**:
   - The column is not part of the primary key
@@ -354,20 +351,18 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 #### PGM012 — `DROP COLUMN` silently removes foreign key
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in a `FOREIGN KEY` constraint on the table in `catalog_before`.
-- **Why**: Dropping a column that is part of a foreign key (with `CASCADE`) silently removes the FK constraint. The referential integrity guarantee is lost — the table can now hold values with no corresponding row in the referenced table.
 - **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `ForeignKey`. If so, fire.
 - **Does not fire when**:
   - The column is not part of any foreign key constraint
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes foreign key '{constraint}' referencing '{ref_table}'. Verify that the referential integrity guarantee is no longer needed.`
 
-#### PGM013 — `SET NOT NULL` on existing column
+#### PGM013 — `SET NOT NULL` on existing table requires `ACCESS EXCLUSIVE` lock
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Acquires an `ACCESS EXCLUSIVE` lock and performs a full table scan to verify no NULL values exist. On large tables, this blocks all reads and writes for the duration of the scan. The scan is skipped if a valid `CHECK (col IS NOT NULL)` constraint already exists, but the linter cannot verify this.
 - **Safe alternative**:
   ```sql
   -- Migration 1: add check constraint (instant, lightweight lock)
@@ -384,11 +379,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - The table does not exist in `catalog_before`
 - **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans the table. Add a CHECK (col IS NOT NULL) NOT VALID constraint first, validate it separately, then SET NOT NULL.`
 
-#### PGM014 — `ADD FOREIGN KEY` without `NOT VALID` on existing table
+#### PGM014 — `ADD FOREIGN KEY` on existing table without `NOT VALID`
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Acquires `SHARE ROW EXCLUSIVE` lock on the table (blocking writes) and scans all existing rows to validate references. On large tables this means minutes of blocked writes.
 - **Safe alternative**:
   ```sql
   -- Migration 1: add constraint without validation (instant)
@@ -404,11 +398,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Interaction with PGM501**: PGM501 (missing FK index) fires independently. The rules are complementary.
 - **Message**: `Adding foreign key '{constraint}' on existing table '{table}' validates all rows, blocking writes. Use NOT VALID and validate in a separate migration.`
 
-#### PGM015 — `ADD CHECK` without `NOT VALID` on existing table
+#### PGM015 — `ADD CHECK` on existing table without `NOT VALID`
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Acquires `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to validate the expression.
 - **Safe alternative**:
   ```sql
   -- Migration 1: add constraint without validation (instant)
@@ -427,7 +420,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns)` where the table exists in `catalog_before` (not created in the same set of changed files) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
-- **Why**: Adding a UNIQUE constraint inline builds a unique index under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes for the duration. For large tables this can cause extended downtime. Unlike `CHECK` and `FOREIGN KEY` constraints, `NOT VALID` does NOT apply to `UNIQUE` constraints, so there is no `NOT VALID` escape hatch.
 - **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the constraint columns exactly (set equality). If neither exists, fire.
 - **Safe alternative**:
   ```sql
@@ -447,7 +439,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `CLUSTER table_name [USING index_name]` where the table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `CLUSTER` rewrites the entire table and all its indexes in a new physical order, holding an `ACCESS EXCLUSIVE` lock for the full duration of the rewrite. Unlike `VACUUM FULL`, there is no online alternative. On large tables this causes complete unavailability (all reads and writes blocked) for the duration — typically minutes to hours. It is almost never appropriate in an online migration.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
@@ -457,18 +448,16 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... EXCLUDE (...)` where the table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Adding an `EXCLUDE` constraint acquires an `ACCESS EXCLUSIVE` lock (blocking all reads and writes) and scans all existing rows to verify the exclusion condition. Unlike `CHECK` and `FOREIGN KEY` constraints, PostgreSQL does not support `NOT VALID` for `EXCLUDE` constraints — attempting it produces a syntax error. There is also no equivalent to `ADD CONSTRAINT ... USING INDEX` for exclusion constraints. There is currently no online path to add an exclusion constraint to a large existing table without an `ACCESS EXCLUSIVE` lock for the duration of the scan.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
   - The `EXCLUDE` constraint is part of a `CREATE TABLE` statement (only `ALTER TABLE` triggers)
 - **Message**: `Adding EXCLUDE constraint on existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans all rows. There is no online alternative — consider scheduling this during a maintenance window.`
 
-#### PGM020 — `DISABLE TRIGGER` on table
+#### PGM020 — `DISABLE TRIGGER` on table suppresses FK enforcement
 
 - **Severity**: MINOR on existing tables, INFO on all other tables (new or unknown).
 - **Triggers**: `ALTER TABLE ... DISABLE TRIGGER` (named trigger, `ALL`, or `USER`) on any table.
-- **Why**: Disabling triggers bypasses foreign-key enforcement and business logic. If the corresponding `ENABLE TRIGGER` is missing or the migration fails partway, referential integrity is silently lost. `DISABLE TRIGGER ALL` suppresses all triggers including system FK-enforcement triggers. `DISABLE TRIGGER USER` only suppresses user-defined triggers (FK triggers are unaffected). Since re-enables are not tracked, the rule fires at INFO on non-existing tables to flag cases where triggers may be left disabled.
 - **IR**: `AlterTableAction::DisableTrigger { scope: TriggerDisableScope }` where `TriggerDisableScope` is `Named(String)`, `All`, or `User`.
 - **pg_query**: `AT_DisableTrig`, `AT_DisableTrigAll`, `AT_DisableTrigUser`.
 - **Message**: Varies by trigger scope — includes scope label (ALL, USER, or trigger name) and scope-specific detail about what guarantees are lost.
@@ -477,7 +466,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `VACUUM FULL` targeting a table that exists in `catalog_before`.
-- **Why**: `VACUUM FULL` rewrites the entire table and rebuilds all indexes under an `ACCESS EXCLUSIVE` lock, blocking all reads and writes for the full duration of the rewrite. On large tables this causes complete unavailability for minutes to hours. Unlike regular `VACUUM`, there is no concurrent variant. Use `pg_repack` or `pg_squeeze` for online table compaction.
 - **Does not fire when**:
   - `VACUUM` without `FULL` (regular vacuum does not block reads)
   - Table doesn't exist in `catalog_before`
@@ -489,18 +477,16 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: CRITICAL
 - **Triggers**: `REINDEX TABLE|INDEX|SCHEMA|DATABASE|SYSTEM` without the `CONCURRENTLY` option.
-- **Why**: `REINDEX` without `CONCURRENTLY` acquires an `ACCESS EXCLUSIVE` lock on the table being reindexed (or the parent table for `REINDEX INDEX`), blocking all reads and writes for the duration of the rebuild. On large tables this causes complete unavailability for minutes to hours. `REINDEX CONCURRENTLY` (PostgreSQL 12+) rebuilds the index without holding an exclusive lock for the entire operation.
 - **Does not fire when**:
   - `REINDEX ... CONCURRENTLY` is used
 - **IR**: `IrNode::Reindex(Reindex { kind: ReindexObjectKind, target: ReindexTarget, concurrent: bool })`.
 - **Note**: `REINDEX CONCURRENTLY` cannot run inside a transaction block. See PGM003.
 - **Message**: `REINDEX {kind} '{target}' should use CONCURRENTLY to avoid holding an ACCESS EXCLUSIVE lock. Use REINDEX {kind} CONCURRENTLY '{target}' (PostgreSQL 12+).`
 
-#### PGM023 — Multiple `ALTER TABLE` statements on the same table
+#### PGM023 — Multiple `ALTER TABLE` statements on the same table can be combined
 
 - **Severity**: MINOR
 - **Triggers**: Two or more `ALTER TABLE` statements targeting the same pre-existing table within a single migration file, where all statements operate at the same lock level.
-- **Why**: Each separate `ALTER TABLE` statement acquires and releases the table lock independently, increasing the total lock contention window. Combining multiple actions into a single `ALTER TABLE` statement acquires the lock only once.
 - **Lock level classification**:
   - All actions are `VALIDATE CONSTRAINT` → `SHARE UPDATE EXCLUSIVE`
   - Any other action → `ACCESS EXCLUSIVE`
@@ -514,13 +500,12 @@ Format: `PGMnnn`. Stable across versions. Never reused.
   - Statements on the same table are separated by a chain-breaking statement
 - **Message**: `Table '{table}' has multiple ALTER TABLE statements with the same lock level in this migration (first occurrence at line {line}). Combine them into a single ALTER TABLE to reduce lock contention.`
 
-#### PGM024 — `DROP TABLE` or `CREATE TABLE ... PARTITION OF` locks the parent
+#### PGM024 — `DROP TABLE` or `CREATE TABLE PARTITION OF` locks the parent partitioned table
 
 - **Severity**: CRITICAL
 - **Triggers**: Either of two shapes, where in both cases the parent exists in `catalog_before` and is not created in the same set of changed files:
   1. `DROP TABLE child`, where `child` is a partition of the parent (per the catalog's `parent_table`).
   2. `CREATE TABLE child PARTITION OF parent`.
-- **Why**: Both statements acquire `ACCESS EXCLUSIVE` on the parent partitioned table, not just the child, and hold it until commit — blocking all reads and writes routed through the parent (and therefore every sibling partition) for the duration. A reader or writer already holding the parent does not make either statement fail outright: it queues behind them, and a merely queued `ACCESS EXCLUSIVE` request already blocks new readers the current holder would have let through. `DROP TABLE` additionally destroys the child's data irreversibly and has no `CONCURRENTLY` variant at all.
 - **Safe alternative (`DROP TABLE`)**: `DETACH PARTITION child CONCURRENTLY` (PostgreSQL 14+) first — see PGM004 — then drop the now-standalone table.
 - **Safe alternative (`CREATE TABLE ... PARTITION OF`)**: There is no `CONCURRENTLY` form of this statement. Create the table standalone, then `ATTACH PARTITION` it — see PGM005 for the pre-validated `CHECK` constraint that avoids a full scan of the child during attach. `ATTACH PARTITION` takes only `SHARE UPDATE EXCLUSIVE` on the parent.
 - **Does not fire when**:
@@ -537,7 +522,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `DROP TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Dropping a table is intentional but destructive and irreversible in production: all data in the table is permanently lost, and any queries, views, foreign keys, or application code referencing the table will break. The drop can also be a downtime risk, and the case to look for is a table that is part of a partitioned hierarchy. For a table outside any partitioned hierarchy the DDL itself is instant — PostgreSQL does not scan the table or hold an extended lock — so the risk is data loss, not downtime. Inside a partitioned hierarchy it is both: `DROP TABLE child` takes `ACCESS EXCLUSIVE` on the **parent** partitioned table, not just on the child, and holds it until the transaction commits, so a reader or writer holding the parent does not make the drop fail outright — the drop waits for that lock. With a migration-grade `lock_timeout` the wait ends as SQLSTATE `55P03` and the transaction rolls back; without one the drop waits for as long as the traffic holds the parent, which is the worse outcome, because a merely queued `ACCESS EXCLUSIVE` request already blocks new readers that the current lock holder would have let through, stalling the whole parent table. And because one transaction holds `ACCESS EXCLUSIVE` on every parent it has touched until `COMMIT`, a single lock it cannot get discards all the work the migration had already done. Traffic aimed straight at a sibling partition does not block the drop — it is traffic routed through the parent that does, so an idle-looking partition is no evidence that the drop is safe. Detach the partition first (`DETACH PARTITION ... CONCURRENTLY`, see PGM004), then drop the now-standalone table — noting that `DETACH PARTITION ... CONCURRENTLY` cannot run inside a transaction block, that it still waits for traffic on the parent and so can fail with `55P03` too, and that an interrupted detach leaves the partition pending detach, where `DROP TABLE` still takes `ACCESS EXCLUSIVE` on the parent.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
@@ -547,7 +531,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MAJOR
 - **Triggers**: `DROP TABLE ... CASCADE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `CASCADE` silently drops all dependent objects — foreign keys, views, triggers, and rules that reference the dropped table. Unlike a plain `DROP TABLE` (which fails if dependencies exist), `CASCADE` succeeds silently, potentially breaking other tables and application code without any warning at migration time.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
@@ -559,17 +542,15 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `TRUNCATE TABLE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `TRUNCATE` is instant DDL that does not scan rows and does not fire row-level `ON DELETE` triggers. All data in the table is permanently destroyed.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
 - **Message**: `TRUNCATE TABLE '{table}' removes all rows from an existing table. This is irreversible and does not fire ON DELETE triggers.`
 
-#### PGM204 — `TRUNCATE TABLE ... CASCADE` on existing table
+#### PGM204 — `TRUNCATE TABLE CASCADE` on existing table
 
 - **Severity**: MAJOR
 - **Triggers**: `TRUNCATE TABLE ... CASCADE` where the target table exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: `TRUNCATE CASCADE` automatically extends the truncate to all tables with FK references to the target table, recursively. The developer may not be aware of the full cascade chain.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
@@ -577,11 +558,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (no known FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Verify the full cascade chain is intentionally truncated.`
 - **Message (with FK deps)**: `TRUNCATE TABLE '{table}' CASCADE silently extends to all tables with foreign key references to '{table}', and recursively to their dependents. Known FK dependencies from: {dep_tables}.`
 
-#### PGM205 — `DROP SCHEMA ... CASCADE`
+#### PGM205 — `DROP SCHEMA CASCADE`
 
 - **Severity**: CRITICAL
 - **Triggers**: `DROP SCHEMA ... CASCADE` regardless of catalog state.
-- **Why**: `DROP SCHEMA CASCADE` is the most destructive single DDL statement in PostgreSQL — it silently drops every object in the schema (tables, views, sequences, functions, types). The catalog only tracks tables from parsed migrations, so there may be objects the tool doesn't know about. The rule always fires when CASCADE is present.
 - **Does not fire when**:
   - `DROP SCHEMA` without `CASCADE` (PostgreSQL errors at runtime if the schema is non-empty)
 - **Message (no known tables)**: `DROP SCHEMA '{schema}' CASCADE drops every object in the schema — tables, views, sequences, functions, and types. This is irreversible.`
@@ -591,7 +571,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: INFO
 - **Triggers**: `INSERT INTO` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Inserting into an existing table in a migration is often intentional seed or reference data, but bulk `INSERT ... SELECT` or large `VALUES` lists hold row locks for the full statement duration and can cause replication lag. The rule fires informational to prompt the author to confirm row volume is bounded.
 - **Does not fire when**:
   - The target table is created in the same set of changed files.
   - The table does not exist in `catalog_before`.
@@ -601,7 +580,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `UPDATE` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Unbatched `UPDATE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent reads and writes, causes replication lag, and can cascade into lock queues.
 - **Does not fire when**:
   - The target table is created in the same set of changed files.
   - The table does not exist in `catalog_before`.
@@ -611,7 +589,6 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `DELETE FROM` targeting a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Unbatched `DELETE` in a migration holds row-level locks on every matched row for the full statement duration. On large tables this blocks concurrent writes, generates significant WAL, and causes replication lag.
 - **Does not fire when**:
   - The target table is created in the same set of changed files.
   - The table does not exist in `catalog_before`.
@@ -621,17 +598,15 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause.
-- **Why**: Without `IF NOT EXISTS`, the statement fails if the object already exists. In migration pipelines that may be re-run (e.g., idempotent migrations, manual re-execution after partial failure), this causes hard failures. Adding `IF NOT EXISTS` makes the statement idempotent.
 - **Does not fire when**:
   - The statement already includes `IF NOT EXISTS`
 - **Message (CREATE TABLE)**: `CREATE TABLE '{table}' without IF NOT EXISTS will fail if the table already exists.`
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 
-#### PGM403 — `CREATE TABLE IF NOT EXISTS` for already-existing table
+#### PGM403 — `CREATE TABLE IF NOT EXISTS` for already-existing table is a misleading no-op
 
 - **Severity**: MINOR
 - **Triggers**: `CREATE TABLE IF NOT EXISTS` targeting a table that already exists in `catalog_before` at that point in the migration history.
-- **Why**: `IF NOT EXISTS` makes the statement a silent no-op when the table already exists. If the column definitions in the `CREATE TABLE` differ from the actual table state (built up from the original `CREATE TABLE` plus subsequent `ALTER TABLE` statements), the migration author may believe the table has the shape described in the statement, when in reality PostgreSQL ignores it entirely. The migration chain is ambiguous — two competing definitions of the same table exist in the history, and only the first one (plus its alterations) is truth. This is especially common with Liquibase 4.26+, which supports `ifNotExists="true"` on `<createTable>`.
 - **Does not fire when**:
   - The table does not already exist in the catalog (the statement genuinely creates it).
   - `IF NOT EXISTS` is absent (a duplicate `CREATE TABLE` without the guard would fail at runtime, which is a different problem).
@@ -641,13 +616,12 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: MINOR
 - **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
-- **Why**: Without `IF EXISTS`, the statement fails if the object does not exist. In migration pipelines that may be re-run, this causes hard failures. Adding `IF EXISTS` makes the statement idempotent.
 - **Does not fire when**:
   - The statement already includes `IF EXISTS`
 - **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 
-#### PGM501 — Foreign key without index on referencing columns
+#### PGM501 — Foreign key without covering index on referencing columns
 
 - **Severity**: MAJOR
 - **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
@@ -667,28 +641,26 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
 - **Message**: `Table '{table}' has no primary key.`
 
-#### PGM503 — `UNIQUE NOT NULL` used instead of primary key
+#### PGM503 — `UNIQUE NOT NULL` used instead of `PRIMARY KEY`
 
 - **Severity**: INFO
 - **Triggers**: Table has no PK but has at least one `UNIQUE` constraint where all constituent columns are `NOT NULL`.
 - **Message**: `Table '{table}' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent but PRIMARY KEY is conventional and more explicit.`
 
-#### PGM504 — `RENAME TABLE`
+#### PGM504 — `RENAME TABLE` on existing table
 
 - **Severity**: INFO
 - **Triggers**: `ALTER TABLE ... RENAME TO ...` on a table that exists in `catalog_before`.
-- **Why**: Renames are instant DDL (metadata-only), but silently break any application queries, views, functions, or triggers that reference the old name.
 - **Replacement detection**: Does **not** fire if, within the same migration unit, a `CREATE TABLE` with the old name appears after the rename. This is a common pattern (rename old table away, create replacement with the original name).
 - **Does not fire when**:
   - The table does not exist in `catalog_before`
   - A replacement table with the old name is created in the same migration unit
 - **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
 
-#### PGM505 — `RENAME COLUMN`
+#### PGM505 — `RENAME COLUMN` on existing table
 
 - **Severity**: INFO
 - **Triggers**: `ALTER TABLE ... RENAME COLUMN ... TO ...` on a table that exists in `catalog_before`.
-- **Why**: Column renames are instant DDL but silently break application queries that reference the old column name.
 - **Does not fire when**:
   - The table does not exist in `catalog_before`
 - **Message**: `Renaming column '{old_name}' to '{new_name}' on table '{table}'. Ensure all application queries, views, and functions referencing the old column name are updated.`
@@ -697,29 +669,26 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 
 - **Severity**: INFO
 - **Triggers**: `CREATE TABLE ... UNLOGGED` for any table.
-- **Why**: Unlogged tables are not written to the WAL. This means: (1) all data is truncated on crash recovery, (2) they are not streamed to standby replicas via streaming replication, and (3) they are excluded from logical replication slots. In most production environments, unlogged tables are unsuitable for data that needs to survive a crash or be replicated.
 - **Does not fire when**:
   - The `UNLOGGED` keyword is absent (permanent or temporary tables).
 - **Message**: `CREATE UNLOGGED TABLE '{table}'. Unlogged tables are truncated on crash recovery and not replicated to standbys. Confirm this is intentional.`
 
-#### PGM507 — `DROP NOT NULL` on existing table
+#### PGM507 — `DROP NOT NULL` on existing table allows NULL values
 
 - **Severity**: INFO
 - **Triggers**: `ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
-- **Why**: Dropping `NOT NULL` silently allows NULL values in a column where the application may assume non-NULL. This is especially dangerous when the column feeds into aggregations (`COUNT` vs `COUNT(*)`, `SUM` with NULLs), joins (`NULL != NULL`), or application logic that doesn't check for NULL.
 - **Does not fire when**:
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
 - **Message**: `DROP NOT NULL on column '{col}' of existing table '{table}' allows NULL values where the application may assume non-NULL. Verify that all code paths handle NULLs.`
 
-#### PGM508 — Duplicate/redundant index
+#### PGM508 — Duplicate or redundant index detected (prefix of another index)
 
 - **Severity**: INFO
 - **Triggers**: `CREATE INDEX` in the changed file where, after applying the migration (`catalog_after`), a non-unique index on a table is a column prefix of another index on the same table. Fires in three directions:
   1. The new index is an exact duplicate of an existing index (same columns, same access method).
   2. The new index is redundant (its columns are a prefix of an existing index).
   3. The new index makes an existing non-unique index redundant (existing index's columns are a prefix of the new one).
-- **Why**: Redundant indexes waste disk space, slow writes (every INSERT/UPDATE/DELETE must maintain all indexes), and add vacuum overhead. A btree index on `(a, b)` already serves lookups on `(a)` alone — a separate index on `(a)` provides no additional query capability.
 - **Does not fire when**:
   - The shorter (potentially redundant) index is a UNIQUE index — it enforces a constraint that the longer index does not.
   - Either index is a partial index (has a WHERE clause) — partial indexes serve different query patterns.
@@ -729,11 +698,10 @@ Format: `PGMnnn`. Stable across versions. Never reused.
 - **Message (new is prefix)**: `Index '{shorter_idx}' on '{table}' ({shorter_cols}) is redundant — index '{longer_idx}' ({longer_cols}) covers the same prefix.`
 - **Message (new makes existing redundant)**: `Index '{new_idx}' on '{table}' ({new_cols}) makes existing index '{existing_idx}' ({existing_cols}) redundant — the new index covers the same prefix.`
 
-#### PGM509 — Mixed-case identifiers or reserved words
+#### PGM509 — Mixed-case identifier or reserved word requires double-quoting
 
 - **Severity**: INFO
 - **Triggers**: Table or column names that require perpetual double-quoting. Detected in `CREATE TABLE` (table name and all column names), `ALTER TABLE ... ADD COLUMN` (column name), `RENAME TABLE` (new name), and `RENAME COLUMN` (new name). A name requires quoting if it contains uppercase characters or is a PostgreSQL reserved word.
-- **Why**: Double-quoted identifiers are a persistent source of developer friction. Every query must use the exact case and quotes, IDE autocompletion becomes unreliable, and ORMs may generate incorrect SQL. `pg_dump` output becomes harder to read and modify.
 - **Detection strategy**: `pg_query` (libpg_query) lowercases unquoted identifiers and preserves case for quoted ones. If a name contains uppercase characters, it was necessarily quoted in the DDL. If a name is a reserved word and the parse succeeded, it was necessarily quoted.
 - **Does not fire when**:
   - The identifier is all-lowercase and not a PostgreSQL reserved word.
@@ -771,72 +739,63 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 | `real` | `"float4"` | |
 | `varchar(n)` / `character varying(n)` | `"varchar"` | Modifiers: `[n]` |
 
-#### PGM101 — Don't use `timestamp` (without time zone)
+#### PGM101 — Column uses `timestamp` without time zone
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name == "timestamp"` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
-- **Why**: `timestamp without time zone` stores a date-time with no time zone context. The stored value is ambiguous — it could be UTC, local time, or anything else. `timestamptz` stores an absolute point in time (internally UTC) and converts on input/output based on session `timezone`, making it unambiguous.
 - **Message**: `Column '{col}' on '{table}' uses 'timestamp without time zone'. Use 'timestamptz' (timestamp with time zone) instead to store unambiguous points in time.`
 
-#### PGM102 — Don't use `timestamp(0)` or `timestamptz(0)`
+#### PGM102 — Column uses `timestamp` or `timestamptz` with precision 0
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name` in `("timestamp", "timestamptz")` and `TypeName.modifiers == [0]`.
-- **Why**: Setting fractional seconds precision to 0 causes PostgreSQL to *round* (not truncate). An input of `23:59:59.9` becomes `00:00:00` of the *next day*, silently changing the date.
 - **Message**: `Column '{col}' on '{table}' uses '{type}(0)'. Precision 0 causes rounding, not truncation — a value of '23:59:59.9' rounds to the next day. Use full precision and format on output instead.`
 
-#### PGM103 — Don't use `char(n)` or `character(n)`
+#### PGM103 — Column uses `char(n)` type
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name == "bpchar"` (pg_query canonical form for SQL `char`/`character`).
-- **Why**: `char(n)` pads values with spaces to exactly `n` characters. This wastes storage, causes surprising comparison behavior, and is never faster than `text` or `varchar` — PostgreSQL stores them identically on disk (as varlena), with added overhead of pad/unpad operations.
 - **Message**: `Column '{col}' on '{table}' uses 'char({n})'. The char(n) type pads with spaces, wastes storage, and is no faster than text or varchar in PostgreSQL. Use text or varchar instead.`
 
-#### PGM104 — Don't use the `money` type
+#### PGM104 — Column uses the `money` type
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name == "money"`.
-- **Why**: The `money` type has fixed fractional precision determined by `lc_monetary` locale. Changing the locale silently reinterprets stored values. It stores no currency code, making multi-currency support impossible. Input/output depends on locale, making dumps/restores across systems dangerous. Use `numeric(p,s)` instead.
 - **Message**: `Column '{col}' on '{table}' uses the 'money' type. The money type depends on the lc_monetary locale setting, making it unreliable across environments. Use numeric(p,s) instead.`
 
-#### PGM105 — Don't use `serial` / `bigserial`
+#### PGM105 — Column uses `serial`/`bigserial` instead of identity column
 
 - **Severity**: INFO
 - **Triggers**: Column with `DefaultExpr::FunctionCall { name: "nextval", .. }` on an `int4`, `int8`, or `int2` typed column. (pg_query expands `serial`→`int4 + nextval()`, `bigserial`→`int8 + nextval()`.)
-- **Why**: The `serial` pseudo-types create an implicit sequence with several problems: the sequence ownership is weaker than identity columns, `INSERT` with explicit values doesn't advance the sequence (causing future conflicts), and grants/ownership are separate. Identity columns (`GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY`, SQL standard, PG 10+) handle all these edge cases correctly.
 - **Interaction with PGM006**: Both PGM105 and PGM006 fire on `nextval()` defaults. This is intentional — PGM006 warns about the volatile default aspect, PGM105 recommends the identity column alternative.
 - **Message**: `Column '{col}' on '{table}' uses a sequence default (serial/bigserial). Prefer GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY for new tables (PostgreSQL 10+). Identity columns have better ownership semantics and are the SQL standard approach.`
 
-#### PGM106 — Don't use `json` (prefer `jsonb`)
+#### PGM106 — Column uses `json` type instead of `jsonb`
 
-- **Severity**: WARNING
+- **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name == "json"` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
-- **Why**: The `json` type stores an exact copy of the input text and must re-parse it on every operation. `jsonb` stores a decomposed binary format that is significantly faster for queries, supports indexing (GIN), and supports containment/existence operators (`@>`, `?`, `?|`, `?&`). The only advantages of `json` are preserving exact key order and duplicate keys — both rarely needed.
 - **Message**: `Column '{col}' on '{table}' uses 'json'. Use 'jsonb' instead — it's faster, smaller, indexable, and supports containment operators. Only use 'json' if you need to preserve exact text representation or key order.`
 
-#### PGM107 — Don't use `integer` as primary key type
+#### PGM107 — Primary key column uses `integer` or `smallint` instead of `bigint`
 
 - **Severity**: MAJOR
 - **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index.
-- **Why**: `integer` (max ~2.1 billion) is routinely exhausted in high-write tables. When it wraps, inserts fail with a unique constraint violation. Migrating from `integer` to `bigint` requires a full table rewrite under `ACCESS EXCLUSIVE` lock — one of the most dangerous DDL operations on large tables. Starting with `bigint` costs 4 extra bytes per row but avoids a future emergency migration.
 - **Does not fire when**:
   - The PK column type is `int8` / `bigint`
   - The column is not part of a primary key
   - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog
 - **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
 
-#### PGM108 — Prefer `text` over `varchar(n)`
+#### PGM108 — Column uses `varchar(n)` instead of `text`
 
 - **Severity**: INFO
 - **Triggers**: Column type with `TypeName.name == "varchar"` and non-empty `TypeName.modifiers` (i.e., `varchar(n)` with a length) in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`. Bare `varchar` without a length is not flagged.
-- **Why**: In PostgreSQL, `varchar(n)` has zero performance benefit over `text` — they share identical `varlena` storage. The length constraint adds an artificial limit that may require future schema changes. Changing the limit requires an `ACCESS EXCLUSIVE` lock and full table rewrite on PostgreSQL < 14 (or when decreasing the limit on 14+). Use `text` with a `CHECK` constraint if validation is needed — `CHECK` constraints can be added `NOT VALID` and validated without a rewrite.
 - **Message**: `Column '{col}' on '{table}' uses varchar({n}). Prefer text — varchar(n) has no performance benefit in PostgreSQL and adds an artificial limit that may require future schema changes.`
 
-#### PGM109 — Don't use `float`/`real`/`double precision`
+#### PGM109 — Column uses floating-point type instead of `numeric`
 
 - **Severity**: MINOR
 - **Triggers**: Column type with `TypeName.name` in `("float4", "float8")` in `CREATE TABLE`, `ADD COLUMN`, or `ALTER COLUMN TYPE`.
-- **Why**: IEEE 754 floating-point types suffer from precision issues — for example, `0.1 + 0.2 ≠ 0.3`. For money, quantities, measurements, or any domain where exact decimal values matter, `numeric`/`decimal` is the correct choice. Floating-point errors compound in aggregations and can cause silent data corruption.
 - **Message**: `Column '{col}' on '{table}' uses '{type}'. Floating-point types have precision issues (0.1 + 0.2 ≠ 0.3). Use numeric for exact values.`
 
 #### Deferred "Don't Do This" Rules
@@ -847,7 +806,7 @@ The following rules are specified but deferred until per-rule enable/disable con
 
 ### 4.4 `--explain PGMnnn`
 
-Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. Exits 0. No file scanning.
+Prints a detailed explanation of the rule: what it detects, why it's dangerous, concrete examples of the failure mode, and how to fix it. The header lines (rule, severity, enabled by default, description) are followed by the rule's `src/rules/docs/pgmXXX.md` printed verbatim as CommonMark. Exits 0. No file scanning.
 
 ### 4.5 `--list-rules [enabled|disabled]`
 
@@ -1050,11 +1009,13 @@ pg-migration-lint/
 │   │   ├── replay.rs        # Migration replay engine
 │   │   └── types.rs         # TableState, IndexState, etc.
 │   ├── rules/
-│   │   ├── mod.rs           # Rule trait, registry
+│   │   ├── mod.rs           # Rule trait, dispatch
 │   │   ├── pgm001.rs        # One file per rule
 │   │   ├── pgm002.rs
 │   │   ├── ...
-│   │   └── explain.rs       # --explain text per rule
+│   │   └── docs/            # One markdown file per rule: module doc, --explain body, docs/rules.md body
+│   │       ├── pgm001.md
+│   │       └── ...
 │   ├── suppress.rs          # Suppression comment parsing
 │   └── output/
 │       ├── mod.rs
@@ -1115,3 +1076,4 @@ pg-migration-lint/
 | 1.17    | 2026-03-02 | Added PGM021 (VACUUM FULL on existing table, CRITICAL) and PGM022 (REINDEX without CONCURRENTLY, CRITICAL). New IR nodes: `VacuumFull`, `Reindex`. |
 | 1.18    | 2026-03-02 | Spec sync with implementation. Added PGM107 (integer PK, MAJOR), PGM108 (prefer text over varchar(n), INFO), PGM109 (floating-point type, MINOR) — promoted from deferred "Don't Do This" rules. Added PGM507 (DROP NOT NULL, INFO), PGM508 (duplicate/redundant index, INFO), PGM509 (mixed-case identifiers or reserved words, INFO). Updated PGM016 definition to match implementation (USING INDEX focused, with nullable-column and non-btree checks). Updated IR table: `CreateIndex` gains `index_name`, `if_not_exists`, `where_clause`, `access_method`; `DropIndex` gains `if_exists`; `DropTable` gains `if_exists`, `cascade`. Added `access_method` to `IndexState`. Added missing `AlterTableAction` variants: `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`. Removed stale XML fallback reference from pipeline diagram. Removed "(Proposed)" from §11 heading. Total: 52 rules. |
 | 1.19    | 2026-09-10 | Added PGM024 (DROP TABLE or CREATE TABLE PARTITION OF locking a pre-existing partition parent, CRITICAL). No IR or catalog changes required — reads the existing `parent_table`/`partition_of` fields. Added `LintContext::parent_display_name` helper. |
+| 1.20    | 2026-09-17 | Rule text has a single source: `src/rules/docs/pgmXXX.md` is the module doc, the `--explain` body (printed verbatim as CommonMark) and the `docs/rules.md` body. Rule sections in §4.2/§4.3 now define behaviour only: removed every per-rule **Why** bullet, aligned 29 headings with `DESCRIPTION`, and aligned Severity bullets with `DEFAULT_SEVERITY` (7 stale `WARNING` to `MINOR`, PGM005 `CRITICAL` to `MAJOR`, PGM006 leads with `MINOR`). A `docgen`-gated test enforces heading, severity and the absence of **Why** bullets. |

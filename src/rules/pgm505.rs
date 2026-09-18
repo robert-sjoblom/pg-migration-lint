@@ -1,42 +1,11 @@
-//! PGM505 — RENAME COLUMN on existing table
-//!
-//! Detects `ALTER TABLE ... RENAME COLUMN ... TO ...` on tables that already
-//! exist. Renaming a column breaks any queries, views, or application code
-//! that references the old column name.
+#![doc = include_str!("docs/pgm505.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "RENAME COLUMN on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM505 — RENAME COLUMN on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... RENAME COLUMN old_name TO new_name on a table that\n\
-         already exists in the database (not created in the same set of changed\n\
-         files).\n\
-         \n\
-         Why it matters:\n\
-         Renaming a column is a backwards-incompatible schema change. Any\n\
-         queries, views, stored procedures, or application code that reference\n\
-         the old column name will break immediately after the migration runs.\n\
-         Unlike adding or dropping a column, a rename silently invalidates\n\
-         existing references without any compile-time or startup-time error.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders RENAME COLUMN status TO order_status;\n\
-           -- All queries using 'status' will fail with 'column does not exist'\n\
-         \n\
-         Fix:\n\
-         Consider a multi-step approach:\n\
-         1. Add the new column with the desired name.\n\
-         2. Backfill data from the old column to the new column.\n\
-         3. Update application code to use the new column name.\n\
-         4. Drop the old column once all references have been migrated.\n\
-         \n\
-         This rule does NOT fire when the table is created in the same set of\n\
-         changed files, because renaming a column on a new table has no\n\
-         external consumers.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm505.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

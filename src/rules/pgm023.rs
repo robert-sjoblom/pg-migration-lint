@@ -1,9 +1,4 @@
-//! PGM023 — Multiple ALTER TABLE statements on the same table
-//!
-//! When a migration contains multiple separate `ALTER TABLE` statements
-//! targeting the same table with the same lock level, they should be combined
-//! into a single statement. Each separate statement acquires and releases the
-//! table lock independently, increasing lock contention time unnecessarily.
+#![doc = include_str!("docs/pgm023.md")]
 
 use std::collections::HashMap;
 
@@ -13,36 +8,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 pub(super) const DESCRIPTION: &str =
     "Multiple ALTER TABLE statements on the same table can be combined";
 
-pub(super) const EXPLAIN: &str = "PGM023 — Multiple ALTER TABLE statements on the same table can be combined\n\
-         \n\
-         What it detects:\n\
-         Multiple separate ALTER TABLE statements targeting the same table within\n\
-         a single migration file, where all statements operate at the same lock\n\
-         level.\n\
-         \n\
-         Why it matters:\n\
-         Each ALTER TABLE statement acquires and releases the table lock\n\
-         independently. Combining multiple actions into a single ALTER TABLE\n\
-         statement acquires the lock only once, reducing the window during which\n\
-         other sessions are blocked.\n\
-         \n\
-         Example (bad — two lock acquisitions):\n\
-           ALTER TABLE authors ALTER COLUMN name SET NOT NULL;\n\
-           ALTER TABLE authors ALTER COLUMN email SET NOT NULL;\n\
-         \n\
-         Fix (one lock acquisition):\n\
-           ALTER TABLE authors\n\
-             ALTER COLUMN name SET NOT NULL,\n\
-             ALTER COLUMN email SET NOT NULL;\n\
-         \n\
-         Note: ALTER TABLE statements with different lock levels (e.g.,\n\
-         ValidateConstraint vs SetNotNull) are tracked separately and will not\n\
-         trigger this rule across different lock levels.\n\
-         \n\
-         Note: ATTACH PARTITION and DETACH PARTITION are never reported by this\n\
-         rule. PostgreSQL's grammar makes partition_cmd occupy the entire ALTER\n\
-         TABLE statement, so these actions can never be combined with anything\n\
-         else, and \"combine them\" is not applicable advice for this pair.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm023.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

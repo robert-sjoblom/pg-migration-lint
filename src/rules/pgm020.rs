@@ -1,48 +1,11 @@
-//! PGM020 — `DISABLE TRIGGER` on table
-//!
-//! Detects `ALTER TABLE ... DISABLE TRIGGER` on any table.
-//! Fires at Minor on existing tables (high risk) and at Info on all other
-//! tables (lower risk but still worth flagging since we don't track
-//! re-enables).
+#![doc = include_str!("docs/pgm020.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TriggerDisableScope};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "DISABLE TRIGGER on table suppresses FK enforcement";
 
-pub(super) const EXPLAIN: &str = "PGM020 \u{2014} DISABLE TRIGGER on table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... DISABLE TRIGGER (specific name, ALL, or USER) on\n\
-         any table. Fires at MINOR on existing tables and at INFO on all\n\
-         other tables (new or unknown).\n\
-         \n\
-         Why it\u{2019}s dangerous:\n\
-         Disabling triggers in a migration bypasses business logic and \u{2014}\n\
-         critically \u{2014} foreign key enforcement triggers. DISABLE TRIGGER ALL\n\
-         suppresses FK checks for the duration between the disable and the\n\
-         corresponding re-enable. If the re-enable is missing, omitted due\n\
-         to a migration failure, or placed in a separate migration that is\n\
-         never run, the integrity guarantee is permanently lost. Even\n\
-         intentional disables for bulk load performance are high-risk in\n\
-         migration files.\n\
-         \n\
-         Since re-enables are not tracked, the rule fires at INFO on all\n\
-         non-existing tables to flag cases where triggers may be left disabled.\n\
-         \n\
-         Safe alternative:\n\
-         Avoid disabling triggers in migrations. If you must disable\n\
-         triggers for bulk data loading, ensure the DISABLE and ENABLE\n\
-         are in the same migration and wrapped in a transaction.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders DISABLE TRIGGER ALL;\n\
-           INSERT INTO orders SELECT * FROM staging;\n\
-         \n\
-         Fix:\n\
-           ALTER TABLE orders DISABLE TRIGGER ALL;\n\
-           INSERT INTO orders SELECT * FROM staging;\n\
-           ALTER TABLE orders ENABLE TRIGGER ALL;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm020.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

@@ -1,42 +1,11 @@
-//! PGM022 — Missing `CONCURRENTLY` on `REINDEX`
-//!
-//! Detects `REINDEX TABLE|INDEX|SCHEMA|DATABASE|SYSTEM` without `CONCURRENTLY`.
-//! `REINDEX` without `CONCURRENTLY` acquires an ACCESS EXCLUSIVE lock on the
-//! target table (or parent table for `REINDEX INDEX`), blocking all reads and
-//! writes. Use `REINDEX ... CONCURRENTLY` (PostgreSQL 12+).
+#![doc = include_str!("docs/pgm022.md")]
 
 use crate::parser::ir::{IrNode, Located, ReindexTarget};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on REINDEX";
 
-pub(super) const EXPLAIN: &str = "PGM022 — Missing CONCURRENTLY on REINDEX\n\
-         \n\
-         What it detects:\n\
-         A REINDEX statement (TABLE, INDEX, SCHEMA, DATABASE, or SYSTEM) that\n\
-         does not use the CONCURRENTLY option.\n\
-         \n\
-         Why it's dangerous:\n\
-         REINDEX without CONCURRENTLY acquires an ACCESS EXCLUSIVE lock on the\n\
-         table being reindexed (or the parent table for REINDEX INDEX), blocking\n\
-         all reads and writes for the duration of the rebuild. On large tables\n\
-         this causes complete unavailability for minutes to hours.\n\
-         \n\
-         Example (bad):\n\
-           REINDEX TABLE orders;\n\
-           REINDEX INDEX idx_orders_status;\n\
-         \n\
-         Fix:\n\
-           REINDEX TABLE CONCURRENTLY orders;\n\
-           REINDEX INDEX CONCURRENTLY idx_orders_status;\n\
-         \n\
-         The CONCURRENTLY option (PostgreSQL 12+) rebuilds the index without\n\
-         holding an exclusive lock for the entire operation. It takes longer\n\
-         but allows normal reads and writes to continue.\n\
-         \n\
-         Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
-         framework wraps each file in a transaction (e.g., Liquibase default),\n\
-         you must also disable that. See PGM003.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm022.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

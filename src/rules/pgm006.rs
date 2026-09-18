@@ -1,16 +1,4 @@
-//! PGM006 — Volatile default on column
-//!
-//! Detects `ADD COLUMN` on an existing table that uses a function call as the
-//! DEFAULT expression. Known volatile functions produce a WARNING; `nextval`
-//! gets a serial-specific message; unknown functions produce an INFO suggesting
-//! the developer verify volatility.
-//!
-//! Also detects `ALTER COLUMN SET DEFAULT` with volatile functions (INFO level).
-//! Unlike `ADD COLUMN`, `SET DEFAULT` does not cause a table rewrite — it only
-//! affects future inserts. The finding warns that existing rows are NOT backfilled.
-//!
-//! `CREATE TABLE` and `ADD COLUMN` on tables created in the same changeset are
-//! exempt — there are no existing rows, so no table rewrite occurs.
+#![doc = include_str!("docs/pgm006.md")]
 
 use crate::parser::ir::{
     AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName, SourceSpan,
@@ -21,49 +9,7 @@ use std::path::Path;
 
 pub(super) const DESCRIPTION: &str = "Volatile default on column";
 
-pub(super) const EXPLAIN: &str = "PGM006 — Volatile default on column\n\
-         \n\
-         What it detects:\n\
-         A column definition (in ALTER TABLE ... ADD COLUMN) that uses a\n\
-         volatile function call as the DEFAULT expression on an existing table.\n\
-         \n\
-         Why it's dangerous:\n\
-         On PostgreSQL 11+, non-volatile defaults on ADD COLUMN don't rewrite\n\
-         the table — they are applied lazily. Volatile defaults (random(),\n\
-         gen_random_uuid(), clock_timestamp(), etc.) must be evaluated per-row\n\
-         at write time, forcing a full table rewrite under an ACCESS EXCLUSIVE\n\
-         lock.\n\
-         \n\
-         Note: now() and current_timestamp are STABLE in PostgreSQL, not\n\
-         volatile. They return the transaction start time and are evaluated\n\
-         once at ALTER TABLE time. The resulting value is stored in the\n\
-         catalog and applied lazily — no table rewrite occurs.\n\
-         \n\
-         Volatility classification is derived from PostgreSQL's pg_proc catalog\n\
-         covering all ~2700 built-in functions.\n\
-         \n\
-         Severity levels:\n\
-         - MINOR (WARNING): Volatile built-in functions (ADD COLUMN)\n\
-         - MINOR (WARNING): nextval (serial/bigserial) — standard but volatile (ADD COLUMN)\n\
-         - INFO: SET DEFAULT with volatile or unrecognized function\n\
-         - INFO: Unrecognized functions on ADD COLUMN — developer should verify volatility\n\
-         - No finding: Literal defaults, stable/immutable functions\n\
-         \n\
-         Example (flagged — ADD COLUMN):\n\
-           ALTER TABLE orders ADD COLUMN token uuid DEFAULT gen_random_uuid();\n\
-         \n\
-         Fix:\n\
-           ALTER TABLE orders ADD COLUMN token uuid;\n\
-           -- Then backfill:\n\
-           UPDATE orders SET token = gen_random_uuid() WHERE token IS NULL;\n\
-         \n\
-         Also detects SET DEFAULT with volatile functions (INFO):\n\
-           ALTER TABLE orders ALTER COLUMN token SET DEFAULT gen_random_uuid();\n\
-         Unlike ADD COLUMN, SET DEFAULT does NOT cause a table rewrite — it only\n\
-         affects future INSERTs. Existing rows are NOT backfilled.\n\
-         \n\
-         Note: For CREATE TABLE, volatile defaults are harmless (no existing\n\
-         rows) and are not flagged.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm006.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

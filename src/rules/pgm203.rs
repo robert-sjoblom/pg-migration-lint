@@ -1,36 +1,11 @@
-//! PGM203 — `TRUNCATE TABLE` on existing table
-//!
-//! Detects `TRUNCATE TABLE` targeting a table that exists in `catalog_before`.
-//! TRUNCATE removes all rows instantly but is irreversible and does not fire
-//! ON DELETE triggers. Unlike DELETE, there is no WHERE clause — every row is gone.
+#![doc = include_str!("docs/pgm203.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "TRUNCATE TABLE on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM203 — TRUNCATE TABLE on existing table\n\
-         \n\
-         What it detects:\n\
-         A TRUNCATE TABLE statement targeting a table that already exists in the\n\
-         database (i.e., the table was not created in the same set of changed\n\
-         files).\n\
-         \n\
-         Why it matters:\n\
-         TRUNCATE removes all rows from a table instantly without scanning them.\n\
-         Unlike DELETE, it does not fire ON DELETE triggers, does not log\n\
-         individual row deletions, and cannot be filtered with a WHERE clause.\n\
-         The operation is irreversible once committed.\n\
-         \n\
-         Example:\n\
-           TRUNCATE TABLE audit_trail;\n\
-         \n\
-         Recommended approach:\n\
-         1. Ensure the data is truly disposable or has been backed up.\n\
-         2. Consider whether ON DELETE triggers need to fire — if so, use DELETE.\n\
-         3. If truncating for a schema migration, document the intent clearly.\n\
-         \n\
-         This rule is MINOR severity to flag the operation for human review.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm203.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

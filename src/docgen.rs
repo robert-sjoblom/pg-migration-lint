@@ -1,9 +1,10 @@
 //! Documentation generator for `docs/rules.md`.
 //!
 //! Feature-gated behind `--features docgen`. Reads rule metadata from
-//! [`RuleId`] and per-rule content from `docs/examples/`, renders
-//! them through a minijinja template, and exposes an insta snapshot test
-//! that fails when the generated output drifts.
+//! [`RuleId`] and each rule's body from [`Rule::explain`] (the markdown in
+//! `src/rules/docs/`), renders them through a minijinja template, and
+//! exposes an insta snapshot test that fails when the generated output
+//! drifts. The same module also checks `SPEC.md` against the binary.
 
 use std::path::Path;
 
@@ -109,37 +110,20 @@ const FAMILIES: &[FamilyMeta] = &[
     },
 ];
 
-/// Build the template context from all rule IDs and example files on disk.
-///
-/// `examples_dir` should point to `docs/examples/` relative to the project root.
-pub fn build_context(examples_dir: &Path) -> Result<DocsContext, DocgenError> {
-    let mut all_rules = Vec::new();
-
-    for id in RuleId::iter() {
-        let id_str = id.to_string();
-        let anchor = id_str.to_lowercase();
-
-        // Read body file
-        let body_path = examples_dir.join(format!("{}_body.md", anchor));
-        let body = std::fs::read_to_string(&body_path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "missing body file for {id_str} — create {path}\n\
-                     (original error: {e})",
-                    path = body_path.display(),
-                ),
-            )
-        })?;
-
-        all_rules.push(RuleEntry {
-            id: id_str,
-            anchor,
-            description: id.description().to_string(),
-            severity: id.default_severity().title_case().to_string(),
-            body: body.trim_end().to_string(),
-        });
-    }
+/// Build the template context from all rule IDs and their markdown bodies.
+pub fn build_context() -> DocsContext {
+    let all_rules: Vec<RuleEntry> = RuleId::iter()
+        .map(|id| {
+            let id_str = id.to_string();
+            RuleEntry {
+                anchor: id_str.to_lowercase(),
+                id: id_str,
+                description: id.description().to_string(),
+                severity: id.default_severity().title_case().to_string(),
+                body: id.explain().trim_end().to_string(),
+            }
+        })
+        .collect();
 
     // Group into families
     let mut families = Vec::new();
@@ -172,11 +156,11 @@ pub fn build_context(examples_dir: &Path) -> Result<DocsContext, DocgenError> {
     // PGM901 is a meta-behavior, not a standalone rule — exclude from count
     let rule_count = all_rules.iter().filter(|r| r.id != "PGM901").count();
 
-    Ok(DocsContext {
+    DocsContext {
         rule_count,
         families,
         all_rules,
-    })
+    }
 }
 
 /// Render the docs context through the template.
@@ -204,12 +188,117 @@ mod tests {
 
     #[test]
     fn docs_rules_md() {
-        let examples_dir = project_root().join("docs/examples");
         let template_path = project_root().join("docs/rules.md.j2");
 
-        let ctx = build_context(&examples_dir).expect("build_context should succeed");
+        let ctx = build_context();
         let rendered = render(&ctx, &template_path).expect("render should succeed");
 
         insta::assert_snapshot!("rules_md", rendered);
+    }
+
+    /// Rule sections of `SPEC.md`, keyed by rule ID: heading title and the
+    /// section body up to the next `###`/`####` heading.
+    fn spec_rule_sections(spec: &str) -> std::collections::HashMap<&str, (&str, String)> {
+        let mut sections = std::collections::HashMap::new();
+        let mut current: Option<(&str, &str)> = None;
+        let mut body = String::new();
+
+        for line in spec.lines() {
+            if line.starts_with("### ") || line.starts_with("#### ") {
+                if let Some((id, title)) = current.take() {
+                    let previous = sections.insert(id, (title, std::mem::take(&mut body)));
+                    assert!(previous.is_none(), "SPEC.md has two `#### {id}` headings");
+                }
+                if let Some(rest) = line.strip_prefix("#### PGM")
+                    && let (Some(digits), Some(tail)) = (rest.get(..3), rest.get(3..))
+                    && digits.chars().all(|c| c.is_ascii_digit())
+                    && let Some(title) = tail.strip_prefix(" — ")
+                {
+                    current = Some((&line[5..11], title));
+                }
+                continue;
+            }
+            if current.is_some() {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        if let Some((id, title)) = current {
+            let previous = sections.insert(id, (title, body));
+            assert!(previous.is_none(), "SPEC.md has two `#### {id}` headings");
+        }
+        sections
+    }
+
+    #[test]
+    fn spec_rule_sections_match_the_binary() {
+        let spec =
+            std::fs::read_to_string(project_root().join("SPEC.md")).expect("SPEC.md readable");
+        let sections = spec_rule_sections(&spec);
+        let mut failures = Vec::new();
+
+        if sections.len() != RuleId::iter().count() {
+            failures.push(format!(
+                "SPEC.md has {} rule headings, RuleId has {} variants",
+                sections.len(),
+                RuleId::iter().count()
+            ));
+        }
+
+        for id in RuleId::iter() {
+            let Some((title, body)) = sections.get(id.as_str()) else {
+                failures.push(format!("{id}: no `#### {id} — ...` heading in SPEC.md"));
+                continue;
+            };
+
+            if body
+                .lines()
+                .any(|l| l.trim_start().starts_with("- **Why**"))
+            {
+                failures.push(format!(
+                    "{id}: SPEC section has a **Why** bullet; rationale lives only in src/rules/docs/{}.md",
+                    id.as_str().to_lowercase()
+                ));
+            }
+
+            let plain_title = title.replace('`', "");
+            if plain_title != id.description() {
+                failures.push(format!(
+                    "{id}: SPEC heading {plain_title:?} != DESCRIPTION {:?}",
+                    id.description()
+                ));
+            }
+
+            if id.is_meta() {
+                // A meta-behaviour has no severity of its own.
+                continue;
+            }
+
+            match body
+                .lines()
+                .find_map(|l| l.strip_prefix("- **Severity**: "))
+            {
+                None => failures.push(format!("{id}: no `- **Severity**:` bullet")),
+                Some(rest) => {
+                    let first = rest
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .trim_end_matches(['.', ',', ';']);
+                    let expected = id.default_severity().to_string();
+                    if first != expected {
+                        failures.push(format!(
+                            "{id}: SPEC severity {first:?} != DEFAULT_SEVERITY {expected:?}"
+                        ));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "SPEC.md drifted from the binary:\n{}",
+            failures.join("\n")
+        );
     }
 }

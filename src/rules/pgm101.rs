@@ -1,8 +1,4 @@
-//! PGM101 — Don't use `timestamp` (without time zone)
-//!
-//! Detects columns declared as `timestamp` (i.e. `timestamp without time zone`).
-//! This type stores no timezone context, making values ambiguous.
-//! Use `timestamptz` (timestamp with time zone) instead.
+#![doc = include_str!("docs/pgm101.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -10,28 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses timestamp without time zone";
 
-pub(super) const EXPLAIN: &str = "PGM101 — Don't use `timestamp` (without time zone)\n\
-         \n\
-         What it detects:\n\
-         A column declared as `timestamp` (which PostgreSQL interprets as\n\
-         `timestamp without time zone`).\n\
-         \n\
-         Why it's problematic:\n\
-         `timestamp` (without time zone) stores a date/time value with no\n\
-         timezone context. This makes the stored values ambiguous — they could\n\
-         represent any timezone, and PostgreSQL performs no conversion on\n\
-         input or output. When servers, clients, or applications use different\n\
-         timezones, this leads to subtle, hard-to-debug data corruption.\n\
-         \n\
-         `timestamptz` (timestamp with time zone) stores values as UTC\n\
-         internally and converts to the session's timezone on output. This\n\
-         ensures unambiguous points in time.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE events (created_at timestamp NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE events (created_at timestamptz NOT NULL);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm101.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

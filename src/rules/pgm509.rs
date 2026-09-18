@@ -1,13 +1,4 @@
-//! PGM509 — Mixed-case identifiers or reserved words
-//!
-//! Detects table and column names that require perpetual double-quoting,
-//! either because they contain uppercase characters or because they are
-//! PostgreSQL reserved words.
-//!
-//! Key insight: `pg_query` (libpg_query) lowercases unquoted identifiers and
-//! preserves case for quoted ones. So if a name contains uppercase chars, it
-//! was necessarily quoted. If a name is a reserved word and the parse succeeded,
-//! it was necessarily quoted.
+#![doc = include_str!("docs/pgm509.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, reserved_keywords};
@@ -15,41 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, reserved_keywords};
 pub(super) const DESCRIPTION: &str =
     "Mixed-case identifier or reserved word requires double-quoting";
 
-pub(super) const EXPLAIN: &str = "PGM509 — Mixed-case identifiers or reserved words\n\
-         \n\
-         What it detects:\n\
-         Table and column names that will require double-quoting in every\n\
-         subsequent query. This happens when a name contains uppercase\n\
-         characters (was necessarily quoted in the DDL) or is a PostgreSQL\n\
-         reserved word (was necessarily quoted to be used as an identifier).\n\
-         \n\
-         Why it matters:\n\
-         Double-quoted identifiers are a persistent source of developer friction.\n\
-         Every query must use the exact case and quotes, IDE autocompletion\n\
-         becomes unreliable, and ORMs may generate incorrect SQL. pg_dump\n\
-         output becomes harder to read and modify.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE \"User\" (\"Id\" bigint, \"order\" text);\n\
-           -- Every query must now use: SELECT \"Id\", \"order\" FROM \"User\";\n\
-         \n\
-         Example (good):\n\
-           CREATE TABLE users (id bigint, order_status text);\n\
-         \n\
-         Fix:\n\
-         Use a lowercase, non-reserved name:\n\
-           CREATE TABLE users (id bigint, order_status text);\n\
-         \n\
-         Does NOT fire when:\n\
-         - The identifier is all-lowercase and not a PostgreSQL reserved word.\n\
-         - The identifier is a schema name or index name (only table and\n\
-           column names are checked).\n\
-         \n\
-         Statements checked:\n\
-         - CREATE TABLE — table name and all column names\n\
-         - ALTER TABLE ... ADD COLUMN — column name\n\
-         - RENAME TABLE — new name\n\
-         - RENAME COLUMN — new name";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm509.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

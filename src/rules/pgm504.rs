@@ -1,11 +1,4 @@
-//! PGM504 — RENAME TABLE on existing table
-//!
-//! Renaming a table breaks all queries, views, and functions that reference
-//! the old name. This is a high-risk operation in production.
-//!
-//! **Replacement detection**: if the same migration file creates a new table
-//! with the old name (rename away + create replacement pattern), the finding
-//! is suppressed.
+#![doc = include_str!("docs/pgm504.md")]
 
 use std::collections::HashSet;
 
@@ -14,34 +7,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "RENAME TABLE on existing table";
 
-pub(super) const EXPLAIN: &str = "PGM504 — RENAME TABLE on existing table\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... RENAME TO ... on a table that already exists in the\n\
-         database (i.e., the table was not created in the same set of changed\n\
-         files).\n\
-         \n\
-         Why it matters:\n\
-         Renaming a table breaks all queries, views, and functions that reference\n\
-         the old name. While the rename itself is instant DDL (metadata-only),\n\
-         the downstream breakage can be severe.\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders RENAME TO orders_archive;\n\
-           -- All queries referencing 'orders' will now fail.\n\
-         \n\
-         Example (safe — replacement pattern):\n\
-           ALTER TABLE orders RENAME TO orders_old;\n\
-           CREATE TABLE orders (...);\n\
-           -- The old name is re-created, so existing queries still work.\n\
-         \n\
-         Fix:\n\
-         Use a view to maintain backward compatibility during the transition:\n\
-           ALTER TABLE orders RENAME TO orders_v2;\n\
-           CREATE VIEW orders AS SELECT * FROM orders_v2;\n\
-         \n\
-         This rule does NOT fire when a replacement table with the old name\n\
-         is created in the same migration unit.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm504.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

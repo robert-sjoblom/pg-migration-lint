@@ -1,9 +1,4 @@
-//! PGM013 — `SET NOT NULL` on existing table requires ACCESS EXCLUSIVE lock
-//!
-//! Detects `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on tables that
-//! already exist. This requires scanning the entire table and acquiring an
-//! ACCESS EXCLUSIVE lock. The safe pattern is to add a CHECK constraint
-//! with NOT VALID, validate it, then set NOT NULL.
+#![doc = include_str!("docs/pgm013.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
@@ -11,39 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table
 pub(super) const DESCRIPTION: &str =
     "SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock";
 
-pub(super) const EXPLAIN: &str = "PGM013 — SET NOT NULL on existing table requires ACCESS EXCLUSIVE lock\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... ALTER COLUMN ... SET NOT NULL on a table that already\n\
-         exists in the database (not created in the same set of changed files).\n\
-         \n\
-         Why it's dangerous:\n\
-         SET NOT NULL acquires an ACCESS EXCLUSIVE lock on the table, blocking\n\
-         all concurrent reads and writes. PostgreSQL must also perform a full\n\
-         table scan to verify that no existing rows contain NULL in the column.\n\
-         On large tables this can cause significant downtime.\n\
-         \n\
-         Safe alternative (PostgreSQL 12+):\n\
-         1. Add a CHECK constraint with NOT VALID:\n\
-            ALTER TABLE orders ADD CONSTRAINT orders_status_nn\n\
-              CHECK (status IS NOT NULL) NOT VALID;\n\
-         2. Validate the constraint (only takes a SHARE UPDATE EXCLUSIVE lock):\n\
-            ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
-         3. Set NOT NULL (instant in PG 12+ — the optimizer recognises a\n\
-            validated CHECK of exactly the form `CHECK (col IS NOT NULL)`\n\
-            and skips the full table scan; other CHECK forms do not qualify):\n\
-            ALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\
-         4. Optionally drop the now-redundant CHECK constraint:\n\
-            ALTER TABLE orders DROP CONSTRAINT orders_status_nn;\n\
-         \n\
-         Example (bad):\n\
-           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;\n\
-         \n\
-         Fix (safe three-step pattern):\n\
-           ALTER TABLE orders ADD CONSTRAINT orders_status_nn\n\
-             CHECK (status IS NOT NULL) NOT VALID;\n\
-           ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;\n\
-           ALTER TABLE orders ALTER COLUMN status SET NOT NULL;";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm013.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

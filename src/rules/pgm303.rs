@@ -1,41 +1,11 @@
-//! PGM303 — `DELETE FROM` existing table in migration
-//!
-//! Detects `DELETE FROM` statements targeting tables that already exist in
-//! the database. Unbatched deletes hold row locks and generate significant
-//! WAL volume, which can spike replication lag.
+#![doc = include_str!("docs/pgm303.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, existing_table_check};
 
 pub(super) const DESCRIPTION: &str = "DELETE FROM existing table in migration";
 
-pub(super) const EXPLAIN: &str = "PGM303 — DELETE FROM existing table in migration\n\
-         \n\
-         What it detects:\n\
-         A DELETE FROM statement targeting a table that already exists in the\n\
-         database (i.e., not created in the same set of changed files).\n\
-         \n\
-         Why it matters:\n\
-         DELETE statements in migrations remove existing data. On large tables\n\
-         this can be problematic:\n\
-         - Row locks are held for the full statement duration.\n\
-         - Each deleted row generates WAL, which can spike replication lag.\n\
-         - ON DELETE triggers fire for every row, adding overhead.\n\
-         - Long-running deletes may time out under migration tool limits.\n\
-         - Deleted rows become dead tuples until autovacuum runs.\n\
-         \n\
-         Example (flagged):\n\
-           DELETE FROM audit_log WHERE created_at < '2020-01-01';\n\
-         \n\
-         Recommended approach:\n\
-         1. Verify the row count is bounded.\n\
-         2. For large deletes, batch in chunks (e.g., 10k rows per iteration).\n\
-         3. If no triggers need to fire, consider TRUNCATE instead.\n\
-         \n\
-         Not flagged:\n\
-         - DELETE from a table created in the same migration file.\n\
-         \n\
-         This rule is MINOR severity.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm303.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

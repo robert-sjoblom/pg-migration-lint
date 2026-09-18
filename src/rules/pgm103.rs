@@ -1,8 +1,4 @@
-//! PGM103 — Don't use `char(n)`
-//!
-//! Detects columns declared as `char(n)` (which pg_query canonicalizes to `bpchar`).
-//! The `char(n)` type pads with spaces, wastes storage, and is no faster than
-//! `text` or `varchar` in PostgreSQL.
+#![doc = include_str!("docs/pgm103.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -10,28 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses char(n) type";
 
-pub(super) const EXPLAIN: &str = "PGM103 — Don't use `char(n)`\n\
-         \n\
-         What it detects:\n\
-         A column declared as `char(n)` or `character(n)`.\n\
-         \n\
-         Why it's problematic:\n\
-         In PostgreSQL, `char(n)` pads values with trailing spaces to fill\n\
-         the declared length. This wastes storage, causes surprising equality\n\
-         semantics (trailing spaces are ignored in comparisons but present\n\
-         in the stored data), and is no faster than `text` or `varchar`.\n\
-         \n\
-         The PostgreSQL documentation itself recommends using `text` or\n\
-         `varchar` instead: \"There is no performance difference among these\n\
-         three types\" and \"In most situations text or character varying\n\
-         should be used instead.\"\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE countries (code char(2) NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE countries (code text NOT NULL);\n\
-           -- or: code varchar(2) NOT NULL";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm103.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

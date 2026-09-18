@@ -1,8 +1,4 @@
-//! PGM508 — Duplicate/redundant indexes
-//!
-//! Detects `CREATE INDEX` where, after applying the migration, a non-unique
-//! index on a table is a column prefix of another index on the same table.
-//! Also fires for exact duplicates (same columns, same access method).
+#![doc = include_str!("docs/pgm508.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
@@ -10,36 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 pub(super) const DESCRIPTION: &str =
     "Duplicate or redundant index detected (prefix of another index)";
 
-pub(super) const EXPLAIN: &str = "PGM508 — Duplicate/redundant indexes\n\
-         \n\
-         What it detects:\n\
-         A CREATE INDEX that produces an index whose columns are an exact\n\
-         duplicate or a leading prefix of another index on the same table.\n\
-         \n\
-         Why it matters:\n\
-         Redundant indexes waste disk space, slow writes (every INSERT/UPDATE/\n\
-         DELETE must maintain all indexes), and add vacuum overhead. A btree\n\
-         index on (a, b) already serves lookups on (a) — a separate index on\n\
-         (a) provides no additional query capability.\n\
-         \n\
-         Example (bad):\n\
-           CREATE INDEX idx_orders_customer ON orders (customer_id);\n\
-           CREATE INDEX idx_orders_customer_date ON orders (customer_id, created_at);\n\
-           -- idx_orders_customer is redundant: idx_orders_customer_date covers it.\n\
-         \n\
-         Fix:\n\
-           Drop the shorter index:\n\
-           DROP INDEX CONCURRENTLY idx_orders_customer;\n\
-         \n\
-         Does NOT fire when:\n\
-         - The shorter (potentially redundant) index is UNIQUE — it enforces a\n\
-           constraint the longer one doesn't.\n\
-         - Either index is partial (has a WHERE clause).\n\
-         - Either index has expression entries.\n\
-         - The indexes use different access methods (btree vs GIN vs ...).\n\
-         \n\
-         The check uses catalog_after so indexes created later in the same\n\
-         migration file are visible.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm508.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Info;
 

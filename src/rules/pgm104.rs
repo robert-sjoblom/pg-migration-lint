@@ -1,8 +1,4 @@
-//! PGM104 — Don't use `money` type
-//!
-//! Detects columns declared as `money`. The money type depends on the
-//! `lc_monetary` locale setting, making it unreliable across environments.
-//! Use `numeric(p,s)` instead.
+#![doc = include_str!("docs/pgm104.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::column_type_check;
@@ -10,29 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Column uses the money type";
 
-pub(super) const EXPLAIN: &str = "PGM104 — Don't use `money` type\n\
-         \n\
-         What it detects:\n\
-         A column declared as `money`.\n\
-         \n\
-         Why it's problematic:\n\
-         The `money` type formats its output (and parses input) according\n\
-         to the `lc_monetary` locale setting on the PostgreSQL server. This\n\
-         means the same stored value can appear differently on different\n\
-         servers, and importing/exporting data between servers with different\n\
-         locale settings can corrupt values. It also has limited precision\n\
-         (fixed to the locale's currency format) and poor interoperability\n\
-         with other numeric types.\n\
-         \n\
-         `numeric(p,s)` is the recommended alternative for monetary values.\n\
-         It has arbitrary precision, no locale dependency, and well-defined\n\
-         arithmetic behavior.\n\
-         \n\
-         Example (bad):\n\
-           CREATE TABLE orders (total money NOT NULL);\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE orders (total numeric(12,2) NOT NULL);";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm104.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 

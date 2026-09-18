@@ -1,10 +1,4 @@
-//! PGM107 — Integer Primary Key
-//!
-//! Detects primary key columns that use `int4` (`integer`) or `int2`
-//! (`smallint`) instead of `int8` (`bigint`). High-write tables routinely
-//! exhaust the 2.1 billion (`integer`) or 32 000 (`smallint`) limit.
-//! Migrating to `bigint` later requires an ACCESS EXCLUSIVE lock and full
-//! table rewrite.
+#![doc = include_str!("docs/pgm107.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity};
@@ -12,29 +6,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity};
 pub(super) const DESCRIPTION: &str =
     "Primary key column uses integer or smallint instead of bigint";
 
-pub(super) const EXPLAIN: &str = "PGM107 — Integer Primary Key\n\
-         \n\
-         What it detects:\n\
-         A primary key column whose type is integer (int4) or smallint (int2).\n\
-         Detected in CREATE TABLE (inline PK or table-level PRIMARY KEY) and\n\
-         ALTER TABLE ... ADD PRIMARY KEY.\n\
-         \n\
-         Why it matters:\n\
-         integer maxes out at ~2.1 billion rows, smallint at ~32 000.\n\
-         High-write tables routinely exhaust these ranges. Migrating a\n\
-         primary key column from integer to bigint requires an ACCESS\n\
-         EXCLUSIVE lock and full table rewrite — a painful, high-risk\n\
-         operation on production tables.\n\
-         \n\
-         Example (flagged):\n\
-           CREATE TABLE orders (\n\
-             id integer PRIMARY KEY\n\
-           );\n\
-         \n\
-         Fix:\n\
-           CREATE TABLE orders (\n\
-             id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY\n\
-           );";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm107.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major;
 

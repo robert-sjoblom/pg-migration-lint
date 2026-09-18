@@ -9,6 +9,13 @@ pub use crate::rules::lint_context::LintContext;
 pub use crate::rules::rule_id::RuleId;
 pub use crate::rules::severity::Severity;
 
+/// Base URL of the hosted rule reference (GitHub Pages).
+///
+/// Cross-references inside `src/rules/docs/*.md` and the SonarQube rule
+/// descriptions both link here, so `rule_docs_tests` checks the markdown
+/// against this constant.
+pub const DOCS_BASE_URL: &str = "https://robert-sjoblom.github.io/pg-migration-lint/rules";
+
 mod alter_table_check;
 mod column_type_check;
 mod drop_column_check;
@@ -21,6 +28,8 @@ mod lint_context;
 mod reserved_keywords;
 #[cfg(test)]
 mod reserved_keywords_tests;
+#[cfg(test)]
+mod rule_docs_tests;
 mod rule_id;
 mod severity;
 #[cfg(test)]
@@ -196,31 +205,6 @@ mod tests {
     }
 
     #[test]
-    fn test_all_rules_have_valid_explain() {
-        for id in RuleId::lint_rules() {
-            let explain = id.explain();
-            assert!(
-                explain.len() > 20,
-                "{id} explain text too short: {explain:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_explain_output_snapshots() {
-        for id in RuleId::lint_rules() {
-            let output = format!(
-                "Rule: {}\nSeverity: {}\nDescription: {}\n\n{}",
-                id,
-                id.default_severity(),
-                id.description(),
-                id.explain()
-            );
-            insta::assert_snapshot!(format!("explain_{}", id), output);
-        }
-    }
-
-    #[test]
     fn test_severity_parse() {
         assert_eq!(Severity::parse("blocker"), Some(Severity::Blocker));
         assert_eq!(Severity::parse("critical"), Some(Severity::Critical));
@@ -282,14 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn meta_rule_pgm901_description_is_non_empty() {
-        let rule_id = RuleId::Pgm901;
-        let desc = rule_id.description();
-        assert!(!desc.is_empty(), "PGM901 description should not be empty");
-        assert!(
-            desc.contains("Meta"),
-            "PGM901 description should mention Meta"
-        );
+    fn meta_rule_pgm901_description_names_the_behaviour() {
+        assert_eq!(RuleId::Pgm901.description(), "Down migration severity cap");
     }
 
     #[test]

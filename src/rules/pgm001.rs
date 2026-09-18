@@ -1,49 +1,11 @@
-//! PGM001 — Missing `CONCURRENTLY` on `CREATE INDEX`
-//!
-//! Detects `CREATE INDEX` statements on existing tables that do not use
-//! the `CONCURRENTLY` option. Without `CONCURRENTLY`, PostgreSQL acquires
-//! a `SHARE` lock on the table for the duration of the index build,
-//! blocking all writes (inserts, updates, deletes).
+#![doc = include_str!("docs/pgm001.md")]
 
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on CREATE INDEX";
 
-pub(super) const EXPLAIN: &str = "PGM001 — Missing CONCURRENTLY on CREATE INDEX\n\
-         \n\
-         What it detects:\n\
-         A CREATE INDEX statement that does not use the CONCURRENTLY option,\n\
-         targeting a table that already exists in the database (i.e., the table\n\
-         was not created in the same set of changed files).\n\
-         \n\
-         Why it's dangerous:\n\
-         Without CONCURRENTLY, PostgreSQL acquires a SHARE lock on the table\n\
-         for the entire duration of the index build. This blocks all writes\n\
-         (inserts, updates, deletes) on the table while allowing reads.\n\
-         For large tables, index creation can take minutes or hours, blocking\n\
-         all write traffic for that duration.\n\
-         \n\
-         Example (bad):\n\
-           CREATE INDEX idx_orders_status ON orders (status);\n\
-         \n\
-         Fix:\n\
-           CREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);\n\
-         \n\
-         Note: CONCURRENTLY cannot run inside a transaction. If your migration\n\
-         framework wraps each file in a transaction (e.g., Liquibase default),\n\
-         you must also disable that. See PGM003.\n\
-         \n\
-         This rule does NOT fire when the table is created in the same set of\n\
-         changed files, because locking an empty/new table is harmless.\n\
-         \n\
-         Partitioned tables: CREATE INDEX on a partitioned parent propagates\n\
-         the index build to every partition, locking all of them. The safe\n\
-         pattern is: CREATE INDEX ON ONLY parent (creates an invalid parent-\n\
-         only index with no lock on children), then CREATE INDEX CONCURRENTLY\n\
-         on each partition, then ALTER INDEX parent_idx ATTACH PARTITION\n\
-         child_idx for each. CREATE INDEX ON ONLY is suppressed by this rule\n\
-         because it does not lock child partitions.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm001.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Critical;
 

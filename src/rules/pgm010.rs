@@ -1,9 +1,4 @@
-//! PGM010 — `DROP COLUMN` silently removes unique constraint
-//!
-//! Detects `ALTER TABLE ... DROP COLUMN col` where `col` participates in a
-//! `UNIQUE` constraint or unique index on the table in `catalog_before`.
-//! PostgreSQL automatically drops any index or constraint that depends on the
-//! column, silently removing uniqueness guarantees.
+#![doc = include_str!("docs/pgm010.md")]
 
 use crate::catalog::replay::unique_backing_index_name;
 use crate::catalog::types::ConstraintState;
@@ -12,28 +7,7 @@ use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes unique constraint";
 
-pub(super) const EXPLAIN: &str = "PGM010 — DROP COLUMN silently removes unique constraint\n\
-         \n\
-         What it detects:\n\
-         ALTER TABLE ... DROP COLUMN where the dropped column participates\n\
-         in a UNIQUE constraint or unique index on the table.\n\
-         \n\
-         Why it matters:\n\
-         PostgreSQL automatically drops any index or constraint that depends\n\
-         on a dropped column. If the column was part of a UNIQUE constraint\n\
-         or unique index, the uniqueness guarantee is silently lost. This can\n\
-         lead to duplicate data being inserted without any error.\n\
-         \n\
-         Example (bad):\n\
-           -- Table has UNIQUE(email)\n\
-           ALTER TABLE users DROP COLUMN email;\n\
-           -- The unique constraint on email is silently removed.\n\
-         \n\
-         Fix:\n\
-         Verify that the uniqueness guarantee provided by the constraint or\n\
-         index is no longer needed before dropping the column. If uniqueness\n\
-         is still required on the remaining columns, create a new constraint\n\
-         or index covering those columns.";
+pub(super) const EXPLAIN: &str = include_str!("docs/pgm010.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
 
