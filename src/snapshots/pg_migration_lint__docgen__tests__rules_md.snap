@@ -10,7 +10,7 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 53 lint rules across seven categories:
+`pg-migration-lint` ships with 54 lint rules across seven categories:
 
 - **Unsafe DDL** (PGM001-PGM024) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101-PGM109) — flag column types that should be avoided per PostgreSQL best practice.
@@ -291,7 +291,7 @@ ALTER TABLE users DROP COLUMN email;
 
 **Fix**: Verify that the uniqueness guarantee is no longer needed before dropping the column.
 
-See also [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
+See also [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012), [PGM025](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm025).
 
 ---
 
@@ -311,7 +311,7 @@ ALTER TABLE orders DROP COLUMN id;
 
 **Fix**: Add a new primary key on remaining columns before or after dropping the column.
 
-See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
+See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012), [PGM025](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm025).
 
 ---
 
@@ -331,7 +331,7 @@ ALTER TABLE orders DROP COLUMN customer_id;
 
 **Fix**: Verify that the referential integrity guarantee is no longer needed before dropping the column.
 
-See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011).
+See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM025](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm025).
 
 ---
 
@@ -646,6 +646,26 @@ ALTER TABLE measurements_2025 VALIDATE CONSTRAINT measurements_2025_bound;
 ALTER TABLE measurements ATTACH PARTITION measurements_2025
     FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
 ```
+
+---
+
+### PGM025 — DROP COLUMN silently removes EXCLUDE constraint
+{: #pgm025}
+
+**Severity**: Minor
+
+Detects `ALTER TABLE ... DROP COLUMN` where the dropped column participates in an EXCLUDE constraint. PostgreSQL automatically drops the whole EXCLUDE constraint, silently removing the exclusion guarantee.
+
+**Example** (bad):
+```sql
+-- Table has EXCLUDE USING gist (room WITH =, period WITH &&)
+ALTER TABLE bookings DROP COLUMN room;
+-- The EXCLUDE constraint is silently removed.
+```
+
+**Fix**: Verify that the exclusion guarantee is no longer needed before dropping the column.
+
+See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
 
 ---
 
@@ -1359,6 +1379,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM022](#pgm022) | Critical | Missing CONCURRENTLY on REINDEX |
 | [PGM023](#pgm023) | Minor | Multiple ALTER TABLE statements on the same table can be combined |
 | [PGM024](#pgm024) | Critical | DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table |
+| [PGM025](#pgm025) | Minor | DROP COLUMN silently removes EXCLUDE constraint |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

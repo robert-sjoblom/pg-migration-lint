@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm025.rs
+expression: findings
+---
+- rule_id: PGM025
+  severity: Minor
+  message: "Dropping column 'room' from table 'bookings' silently removes EXCLUDE constraint 'excl_bookings_room_during'. Verify that the exclusion guarantee is no longer needed."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1

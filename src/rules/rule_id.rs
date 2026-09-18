@@ -89,6 +89,9 @@ pub enum RuleId {
     /// `DROP TABLE` or `CREATE TABLE ... PARTITION OF` locking a pre-existing parent.
     #[strum(serialize = "PGM024")]
     Pgm024,
+    /// Dropping a column that participates in an EXCLUDE constraint.
+    #[strum(serialize = "PGM025")]
+    Pgm025,
 
     // 1xx — Type anti-patterns
     /// `timestamp` without time zone.
@@ -336,6 +339,7 @@ dispatch_rules! {
     Pgm022 => pgm022,
     Pgm023 => pgm023,
     Pgm024 => pgm024,
+    Pgm025 => pgm025,
     // 1xx — Type anti-patterns
     Pgm101 => pgm101,
     Pgm102 => pgm102,

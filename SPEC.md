@@ -518,6 +518,16 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Message (`DROP TABLE`)**: `DROP TABLE '{child}' is a partition of '{parent}': this acquires ACCESS EXCLUSIVE on '{parent}' for the duration, blocking all reads and writes routed through it until commit — and the data is permanently lost. DETACH PARTITION '{child}' CONCURRENTLY first, then drop the now-standalone table.`
 - **Message (`CREATE TABLE ... PARTITION OF`)**: `CREATE TABLE '{child}' PARTITION OF '{parent}' acquires ACCESS EXCLUSIVE on '{parent}' for the duration, blocking all reads and writes routed through it until commit. Create '{child}' as a standalone table and ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE EXCLUSIVE on the parent.`
 
+#### PGM025 — `DROP COLUMN` silently removes EXCLUDE constraint
+
+- **Severity**: MINOR
+- **Triggers**: `ALTER TABLE ... DROP COLUMN col` where `col` participates in an `EXCLUDE` constraint on the table in `catalog_before`.
+- **Logic**: On `AlterTableAction::DropColumn`, look up the table in `catalog_before`. Check if the dropped column appears in any `ConstraintState` of kind `Exclude`. If so, fire.
+- **Does not fire when**:
+  - The column is not part of any EXCLUDE constraint
+  - The table does not exist in `catalog_before`
+- **Message**: `Dropping column '{col}' from table '{table}' silently removes EXCLUDE constraint '{constraint}'. Verify that the exclusion guarantee is no longer needed.`
+
 #### PGM201 — `DROP TABLE` on existing table
 
 - **Severity**: MINOR
@@ -1077,3 +1087,4 @@ pg-migration-lint/
 | 1.18    | 2026-03-02 | Spec sync with implementation. Added PGM107 (integer PK, MAJOR), PGM108 (prefer text over varchar(n), INFO), PGM109 (floating-point type, MINOR) — promoted from deferred "Don't Do This" rules. Added PGM507 (DROP NOT NULL, INFO), PGM508 (duplicate/redundant index, INFO), PGM509 (mixed-case identifiers or reserved words, INFO). Updated PGM016 definition to match implementation (USING INDEX focused, with nullable-column and non-btree checks). Updated IR table: `CreateIndex` gains `index_name`, `if_not_exists`, `where_clause`, `access_method`; `DropIndex` gains `if_exists`; `DropTable` gains `if_exists`, `cascade`. Added `access_method` to `IndexState`. Added missing `AlterTableAction` variants: `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`. Removed stale XML fallback reference from pipeline diagram. Removed "(Proposed)" from §11 heading. Total: 52 rules. |
 | 1.19    | 2026-09-10 | Added PGM024 (DROP TABLE or CREATE TABLE PARTITION OF locking a pre-existing partition parent, CRITICAL). No IR or catalog changes required — reads the existing `parent_table`/`partition_of` fields. Added `LintContext::parent_display_name` helper. |
 | 1.20    | 2026-09-17 | Rule text has a single source: `src/rules/docs/pgmXXX.md` is the module doc, the `--explain` body (printed verbatim as CommonMark) and the `docs/rules.md` body. Rule sections in §4.2/§4.3 now define behaviour only: removed every per-rule **Why** bullet, aligned 29 headings with `DESCRIPTION`, and aligned Severity bullets with `DEFAULT_SEVERITY` (7 stale `WARNING` to `MINOR`, PGM005 `CRITICAL` to `MAJOR`, PGM006 leads with `MINOR`). A `docgen`-gated test enforces heading, severity and the absence of **Why** bullets. |
+| 1.21    | 2026-09-18 | Added PGM025 (DROP COLUMN silently removes EXCLUDE constraint, MINOR). Same shape as PGM010/011/012: shares `drop_column_check::check_drop_column_constraints`, matches `ConstraintState::Exclude`. No IR or catalog changes required — `ConstraintState::Exclude` and its `involves_column`/`remove_column` handling already existed. |

@@ -25,6 +25,11 @@ CREATE TABLE audit_trail (
     id bigint PRIMARY KEY,
     action text NOT NULL
 );
+CREATE TABLE room_bookings (
+    room bigint NOT NULL,
+    during tsrange NOT NULL,
+    EXCLUDE USING gist (room WITH =, during WITH &&)
+);
 CREATE INDEX idx_addresses_account_id ON addresses (account_id);
 CREATE INDEX idx_customers_email ON customers (email);
 

@@ -77,12 +77,14 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             impact_severity: "MEDIUM",
         },
         // Silent constraint drops / trigger disables: risk data integrity
-        RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 => SonarQubeRuleMeta {
-            clean_code_attribute: "COMPLETE",
-            issue_type: "BUG",
-            software_quality: "RELIABILITY",
-            impact_severity: "MEDIUM",
-        },
+        RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 | RuleId::Pgm025 => {
+            SonarQubeRuleMeta {
+                clean_code_attribute: "COMPLETE",
+                issue_type: "BUG",
+                software_quality: "RELIABILITY",
+                impact_severity: "MEDIUM",
+            }
+        }
         // Schema quality / side-effect warnings (DROP COLUMN)
         RuleId::Pgm009 => SonarQubeRuleMeta {
             clean_code_attribute: "COMPLETE",
@@ -274,7 +276,12 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         | RuleId::Pgm022
         | RuleId::Pgm024 => 30,
         // Schema quality / side-effect warnings
-        RuleId::Pgm009 | RuleId::Pgm010 | RuleId::Pgm011 | RuleId::Pgm012 | RuleId::Pgm020 => 10,
+        RuleId::Pgm009
+        | RuleId::Pgm010
+        | RuleId::Pgm011
+        | RuleId::Pgm012
+        | RuleId::Pgm020
+        | RuleId::Pgm025 => 10,
         RuleId::Pgm502
         | RuleId::Pgm503
         | RuleId::Pgm504

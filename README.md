@@ -119,9 +119,9 @@ pg-migration-lint targets currently supported PostgreSQL versions (14+). Rule ad
 
 ## Rules
 
-pg-migration-lint ships with 53 rules across seven categories:
+pg-migration-lint ships with 54 rules across seven categories:
 
-- **Unsafe DDL (PGM001-PGM024)** -- mostly Critical/Major (a few Minor/Info). Missing `CONCURRENTLY`, table rewrites, unsafe constraint additions, silent side effects from `DROP COLUMN`,
+- **Unsafe DDL (PGM001-PGM025)** -- mostly Critical/Major (a few Minor/Info). Missing `CONCURRENTLY`, table rewrites, unsafe constraint additions, silent side effects from `DROP COLUMN`,
 `VACUUM FULL`, `CLUSTER`.
 - **Type Anti-patterns (PGM101-PGM109)** -- Minor/Info. `timestamp` without time zone, `char(n)`, `money`, `serial`, `json`, `varchar(n)`, floating-point columns.
 Derived from the PostgreSQL wiki "Don't Do This" page.

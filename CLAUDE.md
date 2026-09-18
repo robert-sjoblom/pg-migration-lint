@@ -32,7 +32,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM024, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -150,9 +150,9 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 - **MINOR**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules (53 total)
+#### Rules (54 total)
 
-**0xx — Unsafe DDL** (PGM001–PGM024): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
+**0xx — Unsafe DDL** (PGM001–PGM025): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
 **1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
 **2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
 **3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.
