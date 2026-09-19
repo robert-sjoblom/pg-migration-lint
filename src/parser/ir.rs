@@ -46,6 +46,11 @@ pub enum IrNode {
         old_name: String,
         new_name: String,
     },
+    /// Rename an existing index. pg_query emits `RenameStmt`.
+    RenameIndex {
+        index: QualifiedName,
+        new_name: String,
+    },
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
     Ignored {

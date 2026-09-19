@@ -38,6 +38,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             old_name,
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
+        IrNode::RenameIndex { .. } => todo!("we'll fix this before release. promise"),
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
         } => apply_alter_index_attach(catalog, parent_index_name),

@@ -491,6 +491,8 @@ fn spike_alter_index_attach_partition() {
         "ALTER INDEX idx_foo SET (fillfactor = 70);",
         // ALTER INDEX RENAME
         "ALTER INDEX idx_old RENAME TO idx_new;",
+        // ALTER INDEX RENAME, schema-qualified source
+        "ALTER INDEX myschema.idx_old RENAME TO idx_new;",
         // ALTER INDEX SET TABLESPACE
         "ALTER INDEX idx_foo SET TABLESPACE fast_ssd;",
         // ALTER INDEX ALL IN TABLESPACE

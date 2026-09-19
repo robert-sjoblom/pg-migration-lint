@@ -95,14 +95,19 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
                 name.set_default_schema(default_schema);
             }
         }
+        // AlterIndexAttachPartition parent_index_name is a plain String (like DropIndex).
         IrNode::AlterIndexAttachPartition {
             child_index_name, ..
         } => {
             child_index_name.set_default_schema(default_schema);
         }
+        // new_name is unqualified — Postgres doesn't allow schema-qualifying
+        // the RENAME TO target.
+        IrNode::RenameIndex { index, .. } => {
+            index.set_default_schema(default_schema);
+        }
         // DropIndex only has index_name: String — no QualifiedName to normalize.
         // DropSchema only has schema_name: String — no QualifiedName to normalize.
-        // AlterIndexAttachPartition parent_index_name is a plain String (like DropIndex).
         IrNode::DropIndex(_) | IrNode::DropSchema(_) | IrNode::Ignored { .. } => {}
     }
 }

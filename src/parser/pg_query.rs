@@ -761,6 +761,13 @@ fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -
                 new_name: rename.newname.clone(),
             }
         }
+        pg_query::protobuf::ObjectType::ObjectIndex => {
+            let index = relation_to_qualified_name(rename.relation.as_ref());
+            IrNode::RenameIndex {
+                index,
+                new_name: rename.newname.clone(),
+            }
+        }
         _ => IrNode::Ignored {
             raw_sql: raw_sql.to_string(),
         },

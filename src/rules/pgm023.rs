@@ -138,6 +138,7 @@ fn table_key_of(node: &IrNode) -> Option<String> {
         IrNode::AlterTable(_)
         | IrNode::DropIndex(_)
         | IrNode::DropSchema(_)
+        | IrNode::RenameIndex { .. }
         | IrNode::AlterIndexAttachPartition { .. }
         | IrNode::Ignored { .. }
         | IrNode::Unparseable { .. } => None,
