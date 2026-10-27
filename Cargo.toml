@@ -69,13 +69,13 @@ docgen = ["dep:minijinja"]
 github-review = ["dep:octocrab", "dep:tokio"]
 
 [dependencies.minijinja]
-version = "2"
+version = "3"
 optional = true
 
 [dev-dependencies]
 insta = { version = "1.34", features = ["json", "yaml", "redactions"] }
 proptest = "1.4"
-rstest = "0.27.0"
+rstest = "0.28.0"
 tempfile = "3.26"
 wiremock = "0.6.5"
 
