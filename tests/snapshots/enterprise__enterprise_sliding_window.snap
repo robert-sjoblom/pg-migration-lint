@@ -756,7 +756,7 @@ expression: snapshot
       rule: PGM002
       severity: Critical
     - line: 4
-      message: "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
+      message: "DROP INDEX 'idx_orders_status' without IF EXISTS will fail if the index does not exist."
       rule: PGM401
       severity: Minor
   step: step_23_V023__drop_index_no_concurrently

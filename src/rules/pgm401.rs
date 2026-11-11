@@ -21,7 +21,7 @@ pub(super) fn check(
             IrNode::DropTable(dt) if !dt.if_exists => {
                 findings.push(rule.make_finding(
                     format!(
-                        "DROP TABLE '{}': add IF EXISTS for idempotent migrations.",
+                        "DROP TABLE '{}' without IF EXISTS will fail if the table does not exist.",
                         dt.name.display_name()
                     ),
                     ctx.file,
@@ -31,7 +31,7 @@ pub(super) fn check(
             IrNode::DropIndex(di) if !di.if_exists => {
                 findings.push(rule.make_finding(
                     format!(
-                        "DROP INDEX '{}': add IF EXISTS for idempotent migrations.",
+                        "DROP INDEX '{}' without IF EXISTS will fail if the index does not exist.",
                         di.index_name.display_name()
                     ),
                     ctx.file,
@@ -68,7 +68,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(
             findings[0].message,
-            "DROP INDEX 'myschema.idx_orders_status': add IF EXISTS for idempotent migrations."
+            "DROP INDEX 'myschema.idx_orders_status' without IF EXISTS will fail if the index does not exist."
         );
     }
 
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(
             findings[0].message,
-            "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
+            "DROP INDEX 'idx_orders_status' without IF EXISTS will fail if the index does not exist."
         );
     }
 
