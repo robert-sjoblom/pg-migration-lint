@@ -1,0 +1,152 @@
+---
+source: src/catalog/replay/tests/catalog_rework.rs
+expression: debug_snapshot_catalog(&catalog)
+---
+[
+    TableState {
+        name: "public.events",
+        display_name: "events",
+        columns: [
+            ColumnState {
+                name: "id",
+                type_name: TypeName {
+                    name: "int4",
+                    modifiers: [],
+                },
+                nullable: false,
+                has_default: false,
+                default_expr: None,
+            },
+        ],
+        indexes: [
+            IndexState {
+                name: "public.events_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "public.events_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "idx_created_at",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: false,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+        ],
+        constraints: [
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+        ],
+        has_primary_key: true,
+        incomplete: false,
+        is_partitioned: false,
+        partition_by: None,
+        parent_table: None,
+    },
+    TableState {
+        name: "public.metrics",
+        display_name: "metrics",
+        columns: [
+            ColumnState {
+                name: "id",
+                type_name: TypeName {
+                    name: "int4",
+                    modifiers: [],
+                },
+                nullable: false,
+                has_default: false,
+                default_expr: None,
+            },
+        ],
+        indexes: [
+            IndexState {
+                name: "public.metrics_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "public.metrics_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "idx_created_at",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: false,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+        ],
+        constraints: [
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+        ],
+        has_primary_key: true,
+        incomplete: false,
+        is_partitioned: false,
+        partition_by: None,
+        parent_table: None,
+    },
+]

@@ -3503,3 +3503,5 @@ fn test_replay_preserves_access_method() {
     );
     assert!(!idx.is_btree(), "GIN index should not be btree");
 }
+
+mod catalog_rework;

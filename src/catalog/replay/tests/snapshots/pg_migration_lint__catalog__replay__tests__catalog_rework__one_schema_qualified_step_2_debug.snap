@@ -1,0 +1,152 @@
+---
+source: src/catalog/replay/tests/catalog_rework.rs
+expression: debug_snapshot_catalog(&catalog)
+---
+[
+    TableState {
+        name: "analytics.orders",
+        display_name: "analytics.orders",
+        columns: [
+            ColumnState {
+                name: "id",
+                type_name: TypeName {
+                    name: "int4",
+                    modifiers: [],
+                },
+                nullable: false,
+                has_default: false,
+                default_expr: None,
+            },
+        ],
+        indexes: [
+            IndexState {
+                name: "analytics.orders_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "analytics.orders_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "idx_customer",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: false,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+        ],
+        constraints: [
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+        ],
+        has_primary_key: true,
+        incomplete: false,
+        is_partitioned: false,
+        partition_by: None,
+        parent_table: None,
+    },
+    TableState {
+        name: "public.orders",
+        display_name: "orders",
+        columns: [
+            ColumnState {
+                name: "id",
+                type_name: TypeName {
+                    name: "int4",
+                    modifiers: [],
+                },
+                nullable: false,
+                has_default: false,
+                default_expr: None,
+            },
+        ],
+        indexes: [
+            IndexState {
+                name: "public.orders_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "public.orders_pkey",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: true,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+            IndexState {
+                name: "idx_customer",
+                entries: [
+                    Column(
+                        "id",
+                    ),
+                ],
+                unique: false,
+                where_clause: None,
+                only: false,
+                access_method: "btree",
+            },
+        ],
+        constraints: [
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+            PrimaryKey {
+                name: None,
+                columns: [
+                    "id",
+                ],
+            },
+        ],
+        has_primary_key: true,
+        incomplete: false,
+        is_partitioned: false,
+        partition_by: None,
+        parent_table: None,
+    },
+]
