@@ -16,7 +16,7 @@ expression: findings
   end_line: 2
 - rule_id: PGM401
   severity: Minor
-  message: "DROP TABLE 'billing.users': add IF EXISTS for idempotent migrations."
+  message: "DROP TABLE 'billing.users' without IF EXISTS will fail if the table does not exist."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
   start_line: 2
   end_line: 2

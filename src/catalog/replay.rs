@@ -38,9 +38,10 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             old_name,
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
+        IrNode::RenameIndex { .. } => todo!("we'll fix this before release. promise"),
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
-        } => apply_alter_index_attach(catalog, parent_index_name),
+        } => apply_alter_index_attach(catalog, &parent_index_name.name),
         IrNode::DropSchema(ds) => apply_drop_schema(catalog, ds),
         IrNode::TruncateTable(_)
         | IrNode::Cluster(_)
@@ -417,14 +418,15 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
 /// Handle DROP INDEX: find and remove the named index from whichever table has it.
 /// If no table has the index, silently skip.
 fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
-    let Some(table_name) = catalog.table_for_index(&di.index_name).map(str::to_string) else {
+    let index_name = &di.index_name.name;
+    let Some(table_name) = catalog.table_for_index(index_name).map(str::to_string) else {
         return;
     };
 
-    catalog.unregister_index(&di.index_name);
+    catalog.unregister_index(index_name);
 
     if let Some(table) = catalog.get_table_mut(&table_name) {
-        table.indexes.retain(|idx| idx.name != di.index_name);
+        table.indexes.retain(|idx| idx.name != *index_name);
     }
 }
 

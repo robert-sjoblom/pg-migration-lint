@@ -4,7 +4,7 @@ expression: findings
 ---
 - rule_id: PGM401
   severity: Minor
-  message: "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
+  message: "DROP INDEX 'idx_orders_status' without IF EXISTS will fail if the index does not exist."
   file: migrations/003.sql
   start_line: 1
   end_line: 1

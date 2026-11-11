@@ -1,0 +1,11 @@
+---
+source: src/catalog/replay/tests/catalog_rework.rs
+expression: snapshot_catalog(&catalog)
+---
+tables:
+  analytics.orders (indexes: analytics.orders_pkey, analytics.orders_pkey, idx_customer)
+  data.orders (indexes: data.orders_pkey, data.orders_pkey)
+index_to_table lookups:
+  analytics.orders_pkey -> analytics.orders
+  data.orders_pkey -> data.orders
+  idx_customer -> analytics.orders

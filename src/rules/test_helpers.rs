@@ -1,10 +1,11 @@
 //! Shared test helpers for rule unit tests.
 
 use crate::catalog::Catalog;
+use crate::input::MigrationUnit;
 use crate::parser::ir::*;
 use crate::rules::LintContext;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Build a `LintContext` with default settings (in transaction, not a down migration).
 pub fn make_ctx<'a>(
@@ -95,4 +96,20 @@ pub fn located_at(node: IrNode, line: usize) -> Located<IrNode> {
         node,
         span: SourceSpan::at(line, line),
     }
+}
+
+/// Run hand-built statements through the pipeline's schema normalization with
+/// `public` as the default schema, so unqualified names carry the
+/// synthesized-schema marker that `QualifiedName::display_name()` reads.
+pub fn normalized(statements: Vec<Located<IrNode>>) -> Vec<Located<IrNode>> {
+    let mut unit = MigrationUnit {
+        id: "normalized".to_string(),
+        statements,
+        source_file: PathBuf::new(),
+        source_line_offset: 1,
+        run_in_transaction: true,
+        is_down: false,
+    };
+    crate::normalize::normalize_schemas(std::slice::from_mut(&mut unit), "public");
+    unit.statements
 }

@@ -125,7 +125,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/002.sql", txn: true);
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_foo")
+            DropIndex::test(QualifiedName::unqualified("idx_foo"))
                 .with_concurrent(true)
                 .with_if_exists(false),
         ))];

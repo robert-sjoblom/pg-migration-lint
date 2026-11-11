@@ -96,14 +96,22 @@ fn normalize_node(node: &mut IrNode, default_schema: &str) {
             }
         }
         IrNode::AlterIndexAttachPartition {
-            child_index_name, ..
+            parent_index_name,
+            child_index_name,
         } => {
+            parent_index_name.set_default_schema(default_schema);
             child_index_name.set_default_schema(default_schema);
         }
-        // DropIndex only has index_name: String — no QualifiedName to normalize.
+        // new_name is unqualified — Postgres doesn't allow schema-qualifying
+        // the RENAME TO target.
+        IrNode::RenameIndex { index, .. } => {
+            index.set_default_schema(default_schema);
+        }
+        IrNode::DropIndex(di) => {
+            di.index_name.set_default_schema(default_schema);
+        }
         // DropSchema only has schema_name: String — no QualifiedName to normalize.
-        // AlterIndexAttachPartition parent_index_name is a plain String (like DropIndex).
-        IrNode::DropIndex(_) | IrNode::DropSchema(_) | IrNode::Ignored { .. } => {}
+        IrNode::DropSchema(_) | IrNode::Ignored { .. } => {}
     }
 }
 
@@ -344,21 +352,72 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_normalize_drop_index_untouched() {
-        let mut units = vec![make_unit(vec![IrNode::DropIndex(DropIndex {
-            index_name: "idx_orders_status".to_string(),
-            concurrent: false,
-            if_exists: false,
-        })])];
+    fn normalized_drop_index_name(index_name: QualifiedName) -> QualifiedName {
+        let mut units = vec![make_unit(vec![DropIndex::test(index_name).into()])];
 
         normalize_schemas(&mut units, "public");
 
-        if let IrNode::DropIndex(di) = &units[0].statements[0].node {
-            assert_eq!(di.index_name, "idx_orders_status");
-        } else {
-            panic!("Expected DropIndex");
+        match &units[0].statements[0].node {
+            IrNode::DropIndex(di) => di.index_name.clone(),
+            other => panic!("Expected DropIndex, got {:?}", other),
         }
+    }
+
+    fn normalized_attach_partition_parent_name(parent_index_name: QualifiedName) -> QualifiedName {
+        let mut units = vec![make_unit(vec![IrNode::AlterIndexAttachPartition {
+            parent_index_name,
+            child_index_name: QualifiedName::unqualified("idx_child"),
+        }])];
+
+        normalize_schemas(&mut units, "public");
+
+        match &units[0].statements[0].node {
+            IrNode::AlterIndexAttachPartition {
+                parent_index_name, ..
+            } => parent_index_name.clone(),
+            other => panic!("Expected AlterIndexAttachPartition, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_normalize_unqualified_drop_index_gets_default_schema_marked_as_default() {
+        let name = normalized_drop_index_name(QualifiedName::unqualified("idx_orders_status"));
+
+        assert_eq!(name.schema.as_deref(), Some("public"));
+        assert_eq!(name.catalog_key(), "public.idx_orders_status");
+        assert_eq!(name.display_name(), "idx_orders_status");
+    }
+
+    #[test]
+    fn test_normalize_qualified_drop_index_keeps_explicit_schema() {
+        let name =
+            normalized_drop_index_name(QualifiedName::qualified("myschema", "idx_orders_status"));
+
+        assert_eq!(name.schema.as_deref(), Some("myschema"));
+        assert_eq!(name.catalog_key(), "myschema.idx_orders_status");
+        assert_eq!(name.display_name(), "myschema.idx_orders_status");
+    }
+
+    #[test]
+    fn test_normalize_unqualified_attach_partition_parent_gets_default_schema_marked_as_default() {
+        let name =
+            normalized_attach_partition_parent_name(QualifiedName::unqualified("idx_parent"));
+
+        assert_eq!(name.schema.as_deref(), Some("public"));
+        assert_eq!(name.catalog_key(), "public.idx_parent");
+        assert_eq!(name.display_name(), "idx_parent");
+    }
+
+    #[test]
+    fn test_normalize_qualified_attach_partition_parent_keeps_explicit_schema() {
+        let name = normalized_attach_partition_parent_name(QualifiedName::qualified(
+            "myschema",
+            "idx_parent",
+        ));
+
+        assert_eq!(name.schema.as_deref(), Some("myschema"));
+        assert_eq!(name.catalog_key(), "myschema.idx_parent");
+        assert_eq!(name.display_name(), "myschema.idx_parent");
     }
 
     #[test]
