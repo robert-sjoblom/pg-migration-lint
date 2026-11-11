@@ -32,7 +32,7 @@ pub(super) fn check(
                 findings.push(rule.make_finding(
                     format!(
                         "DROP INDEX '{}': add IF EXISTS for idempotent migrations.",
-                        di.index_name.name
+                        di.index_name.display_name()
                     ),
                     ctx.file,
                     &stmt.span,
@@ -51,7 +51,44 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{lint_ctx, located, normalized};
+
+    #[test]
+    fn test_drop_index_qualified_by_user_reports_schema_in_message() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(vec![located(IrNode::DropIndex(
+            DropIndex::test(QualifiedName::qualified("myschema", "idx_orders_status"))
+                .with_if_exists(false),
+        ))]);
+
+        let findings = RuleId::Pgm401.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'myschema.idx_orders_status': add IF EXISTS for idempotent migrations."
+        );
+    }
+
+    #[test]
+    fn test_drop_index_unqualified_reports_bare_name_after_default_schema_applied() {
+        let before = Catalog::new();
+        let after = Catalog::new();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(vec![located(IrNode::DropIndex(
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
+        ))]);
+
+        let findings = RuleId::Pgm401.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'idx_orders_status': add IF EXISTS for idempotent migrations."
+        );
+    }
 
     #[test]
     fn test_drop_table_without_if_exists_fires() {

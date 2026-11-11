@@ -57,7 +57,8 @@ pub(super) fn check(
                         "DROP INDEX '{}' on partitioned table '{}' will lock all \
                             partitions. CONCURRENTLY is not supported for partitioned \
                             parent indexes.",
-                        index_name, display_name,
+                        di.index_name.display_name(),
+                        display_name,
                     ),
                     ctx.file,
                     &stmt.span,
@@ -68,7 +69,8 @@ pub(super) fn check(
                     format!(
                         "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
                             to avoid holding an exclusive lock.",
-                        index_name, display_name,
+                        di.index_name.display_name(),
+                        display_name,
                     ),
                     ctx.file,
                     &stmt.span,
@@ -86,7 +88,90 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{lint_ctx, located, normalized};
+
+    #[test]
+    fn test_drop_index_qualified_by_user_reports_schema_in_message() {
+        let before = CatalogBuilder::new()
+            .table("myschema.orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]).index(
+                    "idx_orders_status",
+                    &["status"],
+                    false,
+                );
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(vec![located(IrNode::DropIndex(
+            DropIndex::test(QualifiedName::qualified("myschema", "idx_orders_status"))
+                .with_if_exists(false),
+        ))]);
+
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'myschema.idx_orders_status' on existing table 'myschema.orders' \
+             should use CONCURRENTLY to avoid holding an exclusive lock."
+        );
+    }
+
+    #[test]
+    fn test_drop_index_on_partitioned_table_qualified_by_user_reports_schema_in_message() {
+        let before = CatalogBuilder::new()
+            .table("myschema.orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", false)
+                    .index("idx_orders_status", &["status"], false)
+                    .partitioned_by(crate::parser::ir::PartitionStrategy::Range, &["id"]);
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(vec![located(IrNode::DropIndex(
+            DropIndex::test(QualifiedName::qualified("myschema", "idx_orders_status"))
+                .with_if_exists(false),
+        ))]);
+
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'myschema.idx_orders_status' on partitioned table 'myschema.orders' \
+             will lock all partitions. CONCURRENTLY is not supported for partitioned parent \
+             indexes."
+        );
+    }
+
+    #[test]
+    fn test_drop_index_unqualified_reports_bare_name_after_default_schema_applied() {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]).index(
+                    "idx_orders_status",
+                    &["status"],
+                    false,
+                );
+            })
+            .build();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(vec![located(IrNode::DropIndex(
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
+        ))]);
+
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'idx_orders_status' on existing table 'orders' should use \
+             CONCURRENTLY to avoid holding an exclusive lock."
+        );
+    }
 
     #[test]
     fn test_drop_index_no_concurrent_fires() {
