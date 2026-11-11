@@ -1164,11 +1164,11 @@ expression: snapshot
       rule: PGM009
       severity: Info
     - line: 8
-      message: "Dropping column 'name' from table 'products' silently removes unique constraint UNIQUE(name). Verify that the uniqueness guarantee is no longer needed."
+      message: "Dropping column 'name' from table 'products' silently removes unique constraint 'products_name_key'. Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
     - line: 11
-      message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint UNIQUE(account_id). Verify that the uniqueness guarantee is no longer needed."
+      message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint 'account_locks_account_id_key'. Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
     - line: 5
@@ -1176,15 +1176,15 @@ expression: snapshot
       rule: PGM011
       severity: Major
     - line: 14
-      message: "Dropping column 'user_id' from table 'orders' silently removes foreign key (user_id) → users. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'user_id' from table 'orders' silently removes foreign key 'orders_user_id_fkey' referencing 'users'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
     - line: 17
-      message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key (connector_id) → connector_catalog. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key 'connector_articles_connector_id_fkey' referencing 'connector_catalog'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
     - line: 20
-      message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key (subscription_id) → subscriptions. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key 'subscription_periods_subscription_id_fkey' referencing 'subscriptions'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
   step: step_31_V031__drop_constrained_columns

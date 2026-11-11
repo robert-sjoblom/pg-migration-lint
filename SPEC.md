@@ -139,19 +139,21 @@ IR node types (non-exhaustive):
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 
+Relation names in the IR start as `QualifiedName { schema: Option<String>, name }`, as the parser read them. Normalization resolves each against `default_schema` into a `ResolvedName`, which holds the catalog key (`RelationName { schema, name }`) and remembers whether the SQL wrote the schema, so messages show the name as the user wrote it. Replay and rules only see resolved names.
+
 ### 3.3 Table Catalog
 
 Built by replaying all migration files in configured order. Represents the schema state at each point in the migration history.
 
 ```
 Catalog {
-    tables: HashMap<String, TableState>,
-    index_to_table: HashMap<String, String>,       // reverse lookup: index name → table key
+    tables: HashMap<RelationName, TableState>,     // RelationName { schema, name }; schema always set
+    index_to_table: HashMap<String, RelationName>, // reverse lookup: bare index name → table key
     partition_children: HashMap<String, Vec<String>>, // parent key → child keys
 }
 
 TableState {
-    name: String,
+    name: RelationName,
     columns: Vec<ColumnState>,       // name, type, nullable, default
     indexes: Vec<IndexState>,        // name, entries (ordered), unique, where_clause, only
     constraints: Vec<ConstraintState>,  // PK, FK, unique, check
@@ -159,7 +161,7 @@ TableState {
     incomplete: bool,                // true if any unparseable statement touched this table
     is_partitioned: bool,            // true if PARTITION BY was used
     partition_by: Option<PartitionByInfo>,  // strategy + columns
-    parent_table: Option<String>,    // catalog key of parent (if PARTITION OF)
+    parent_table: Option<RelationName>,  // catalog key of parent (if PARTITION OF)
 }
 
 IndexState {
@@ -178,6 +180,7 @@ IndexState {
 - `CREATE INDEX` → add to table's index list (preserving `only` flag)
 - `ALTER INDEX ATTACH PARTITION` → flip parent index's `only` from `true` to `false`
 - Unparseable statements → if they reference a known table (best-effort regex on table name), mark that table `incomplete = true`; otherwise skip silently
+- Every constraint and index has a name. One created without a name gets the name PostgreSQL generates from the bare table name: `{table}_pkey`, `{table}_{cols}_key`, `{table}_{cols}_fkey`, `{table}_{col}_check` (exactly one referenced column) or `{table}_check`, `{table}_{elements}_excl`, `{table}_{elements}_idx`, cut to 63 bytes as PostgreSQL does (measured in `verify/tests/naming/`). Collision suffixes (`{table}_{cols}_key1`) are not modelled. A PRIMARY KEY or UNIQUE constraint and its backing index share one name: `ADD PRIMARY KEY USING INDEX idx` names the constraint `idx`, and `ADD CONSTRAINT c PRIMARY KEY USING INDEX idx` renames the index to `c`. Renaming a table or column keeps every name. `DROP CONSTRAINT` matches the stored name only, and drops the index of the same name when the constraint is index-backed.
 
 ### 3.4 Changed file detection
 
@@ -470,7 +473,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - `VACUUM` without `FULL` (regular vacuum does not block reads)
   - Table doesn't exist in `catalog_before`
   - Table is new (in `tables_created_in_change`)
-- **IR**: `IrNode::VacuumFull(VacuumFull { table: Option<QualifiedName> })`.
+- **IR**: `IrNode::VacuumFull(VacuumFull { table: Option<ResolvedName> })`.
 - **Message**: `VACUUM FULL on existing table '{table}' rewrites the entire table under an ACCESS EXCLUSIVE lock. Use pg_repack or pg_squeeze for online compaction.`
 
 #### PGM022 — Missing `CONCURRENTLY` on `REINDEX`
@@ -704,6 +707,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Either index is a partial index (has a WHERE clause) — partial indexes serve different query patterns.
   - Either index has expression entries — expression indexes are not directly comparable by column name.
   - The indexes use different access methods (e.g., btree vs GIN) — different access methods serve fundamentally different query types.
+  - More than one index on the table has the new index's name, as when an unnamed index's generated name is already taken. Collision suffixes are not modelled (§3.3), so which index the statement created is unknown.
 - **Message (exact duplicate)**: `Index '{new_idx}' on '{table}' ({cols}) is an exact duplicate of index '{existing_idx}'.`
 - **Message (new is prefix)**: `Index '{shorter_idx}' on '{table}' ({shorter_cols}) is redundant — index '{longer_idx}' ({longer_cols}) covers the same prefix.`
 - **Message (new makes existing redundant)**: `Index '{new_idx}' on '{table}' ({new_cols}) makes existing index '{existing_idx}' ({existing_cols}) redundant — the new index covers the same prefix.`
@@ -870,7 +874,7 @@ include = ["*.sql", "*.xml"]
 exclude = ["**/test/**"]
 
 # Default schema for unqualified table names (default: "public").
-# Unqualified names are normalized to "<default_schema>.<name>" for catalog lookups.
+# Unqualified names resolve to the schema <default_schema> for catalog lookups.
 default_schema = "public"
 
 [liquibase]

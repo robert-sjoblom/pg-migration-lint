@@ -4,7 +4,8 @@
 //! pattern: iterate statements, extract a table name from a specific IR variant, check
 //! `is_existing_table`, and emit a finding.
 
-use crate::parser::ir::{IrNode, Located, QualifiedName};
+use crate::names::ResolvedName;
+use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule};
 
 /// Iterate statements, calling `extract` on each `IrNode`. When the closure returns
@@ -16,16 +17,16 @@ pub fn check_existing_table(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
     rule: impl Rule,
-    mut extract: impl FnMut(&IrNode) -> Option<(&QualifiedName, String)>,
+    mut extract: impl FnMut(&IrNode) -> Option<(&ResolvedName, String)>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
     for stmt in statements {
         if let Some((table_name, message)) = extract(&stmt.node)
-            && ctx.is_existing_table(table_name.catalog_key())
+            && ctx.is_existing_table(table_name.relation())
         {
             let finding = rule
                 .make_finding(message, ctx.file, &stmt.span)
-                .with_dedup_key(table_name.catalog_key().to_string());
+                .with_dedup_key(table_name.relation().clone());
             findings.push(finding);
         }
     }

@@ -20,7 +20,7 @@ pub(super) fn check(
         if let IrNode::VacuumFull(ref v) = stmt.node {
             match &v.table {
                 Some(table) => {
-                    if ctx.is_existing_table(table.catalog_key()) {
+                    if ctx.is_existing_table(table.relation()) {
                         findings.push(rule.make_finding(
                             format!(
                                 "VACUUM FULL on table '{}' rewrites the entire table under \

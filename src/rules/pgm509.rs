@@ -41,7 +41,7 @@ pub(super) fn check(
         match &stmt.node {
             IrNode::CreateTable(ct) => {
                 // Check table name
-                if let Some(reason) = needs_quoting(&ct.name.name) {
+                if let Some(reason) = needs_quoting(ct.name.name()) {
                     findings.push(rule.make_finding(
                         format!(
                             "Table '{}' requires double-quoting ({reason}).",

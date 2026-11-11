@@ -1,5 +1,6 @@
 #![doc = include_str!("docs/pgm501.md")]
 
+use crate::names::RelationName;
 use crate::parser::ir::{IrNode, Located, SourceSpan, TableConstraint};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -23,7 +24,7 @@ pub(super) fn check(
                 for constraint in &ct.constraints {
                     if let TableConstraint::ForeignKey { columns, .. } = constraint {
                         fks.push(FkInfo {
-                            table_name: ct.name.catalog_key().to_string(),
+                            table_name: ct.name.relation().clone(),
                             display_name: ct.name.display_name(),
                             columns: columns.clone(),
                             span: stmt.span.clone(),
@@ -41,7 +42,7 @@ pub(super) fn check(
                     ) = action
                     {
                         fks.push(FkInfo {
-                            table_name: at.name.catalog_key().to_string(),
+                            table_name: at.name.relation().clone(),
                             display_name: at.name.display_name(),
                             columns: columns.clone(),
                             span: stmt.span.clone(),
@@ -101,7 +102,7 @@ pub(super) fn check(
 /// Represents a foreign key found in the current migration unit, with
 /// enough context to report a finding.
 struct FkInfo {
-    table_name: String,
+    table_name: RelationName,
     display_name: String,
     columns: Vec<String>,
     span: SourceSpan,

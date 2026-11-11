@@ -23,11 +23,10 @@ pub(super) fn check(
             }
 
             // Find known affected tables from catalog_before
-            let prefix = format!("{}.", ds.schema_name);
             let mut affected_tables: Vec<String> = ctx
                 .catalog_before
                 .tables()
-                .filter(|t| t.name.starts_with(&prefix))
+                .filter(|t| t.name.schema == ds.schema_name)
                 .map(|t| t.display_name.clone())
                 .collect();
             affected_tables.sort();

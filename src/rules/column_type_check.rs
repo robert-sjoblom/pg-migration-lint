@@ -4,7 +4,8 @@
 //! matches a predicate, across `CreateTable`, `AddColumn`, and `AlterColumnType`.
 
 use crate::Rule;
-use crate::parser::ir::{AlterTableAction, IrNode, Located, QualifiedName, TypeName};
+use crate::names::ResolvedName;
+use crate::parser::ir::{AlterTableAction, IrNode, Located, TypeName};
 use crate::rules::{Finding, LintContext};
 
 /// Check all columns in CREATE TABLE and ALTER TABLE statements against a type predicate.
@@ -16,7 +17,7 @@ pub fn check_column_types(
     ctx: &LintContext<'_>,
     rule: impl Rule,
     predicate: impl Fn(&TypeName) -> bool,
-    message_fn: impl Fn(&str, &QualifiedName, &TypeName) -> String,
+    message_fn: impl Fn(&str, &ResolvedName, &TypeName) -> String,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 

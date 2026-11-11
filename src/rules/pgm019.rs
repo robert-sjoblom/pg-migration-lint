@@ -57,6 +57,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
                 elements: vec![],
+                include_columns: vec![],
             })],
         }))
     }
@@ -128,6 +129,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Exclude {
                     name: Some("excl_orders".to_string()),
                     elements: vec![],
+                    include_columns: vec![],
                 }]),
         ))];
 
@@ -151,6 +153,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
                 elements: vec![],
+                include_columns: vec![],
             })],
         }))];
 
@@ -182,6 +185,7 @@ mod tests {
                 AlterTableAction::AddConstraint(TableConstraint::Exclude {
                     name: Some("excl_orders".to_string()),
                     elements: vec![],
+                    include_columns: vec![],
                 }),
             ],
         }))];

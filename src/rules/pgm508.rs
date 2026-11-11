@@ -1,5 +1,6 @@
 #![doc = include_str!("docs/pgm508.md")]
 
+use crate::catalog::generated_names::created_index_name;
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -22,19 +23,20 @@ pub(super) fn check(
             continue;
         };
 
-        let table = match ctx.catalog_after.get_table(ci.table_name.catalog_key()) {
+        let table = match ctx.catalog_after.get_table(ci.table_name.relation()) {
             Some(t) => t,
             None => continue,
         };
 
-        let Some(index_name) = &ci.index_name else {
+        // Two indexes on the table share a name when an unnamed index's
+        // generated name was already taken (Postgres would add a collision
+        // suffix, which the catalog does not model) or an explicit name
+        // clashed. Which one this statement created is then unknown, so skip
+        // rather than report on the wrong index.
+        let index_name = created_index_name(ci);
+        let mut same_named = table.indexes.iter().filter(|idx| idx.name == index_name);
+        let (Some(new_idx), None) = (same_named.next(), same_named.next()) else {
             continue;
-        };
-
-        // find the index in catalog_after
-        let new_idx = match table.indexes.iter().find(|idx| idx.name == *index_name) {
-            Some(idx) => idx,
-            None => continue,
         };
 
         // Skip if new index has expressions or is partial — these are specialized
@@ -122,8 +124,21 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+
+    fn messages_for_change(history: &str, change: &str) -> Vec<String> {
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        let stmts = normalized(parse_sql(change));
+        RuleId::Pgm508
+            .check(&stmts, &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
 
     fn create_index_stmt(name: &str, table: &str, columns: &[&str]) -> Located<IrNode> {
         located(IrNode::CreateIndex(CreateIndex {
@@ -133,6 +148,7 @@ mod tests {
                 .iter()
                 .map(|c| IndexColumn::Column(c.to_string()))
                 .collect(),
+            include_columns: vec![],
             unique: false,
             concurrent: false,
             if_not_exists: false,
@@ -343,5 +359,113 @@ mod tests {
         let stmts = vec![create_index_stmt("idx_a", "orders", &["a"])];
         let findings = RuleId::Pgm508.check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn unnamed_index_duplicating_a_named_index_fires_under_its_generated_name() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int, customer_id int);
+             CREATE INDEX idx_orders_customer ON orders (customer_id);",
+            "CREATE INDEX ON orders (customer_id);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'orders_customer_id_idx' on 'orders' (customer_id) is an exact duplicate \
+                 of index 'idx_orders_customer'."
+            ]
+        );
+    }
+
+    #[test]
+    fn named_index_redundant_with_an_unnamed_index_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX ON orders (a, b);",
+            "CREATE INDEX idx_orders_a ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_a' on 'orders' (a) is redundant — index 'orders_a_b_idx' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn unnamed_index_on_schema_qualified_table_is_named_after_the_bare_table() {
+        let messages = messages_for_change(
+            "CREATE TABLE sales.orders (a int, b int);
+             CREATE INDEX idx_orders_a_b ON sales.orders (a, b);",
+            "CREATE INDEX ON sales.orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'orders_a_idx' on 'sales.orders' (a) is redundant — index \
+                 'idx_orders_a_b' (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn unnamed_index_on_a_non_leading_column_is_silent() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX ON orders (b);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn second_unnamed_index_with_the_same_generated_name_is_skipped() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int);
+             CREATE INDEX ON orders (a);",
+            "CREATE INDEX ON orders (a);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn unnamed_index_is_not_confused_with_an_earlier_unnamed_index_of_the_same_name() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX ON orders (a);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX ON orders USING hash (a);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn unnamed_index_is_not_confused_with_an_explicit_index_holding_its_generated_name() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX orders_a_idx ON orders (b);
+             CREATE INDEX idx_orders_b_a ON orders (b, a);",
+            "CREATE INDEX ON orders (a);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn unnamed_index_fires_when_its_generated_name_is_held_by_another_tables_index() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE TABLE refunds (a int);
+             CREATE INDEX orders_a_idx ON refunds (a);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'orders_a_idx' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
     }
 }

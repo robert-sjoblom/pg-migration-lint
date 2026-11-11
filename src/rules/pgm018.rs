@@ -18,7 +18,7 @@ pub(super) fn check(
 
     for stmt in statements {
         if let IrNode::Cluster(ref c) = stmt.node {
-            let table_key = c.table.catalog_key();
+            let table_key = c.table.relation();
 
             if ctx.is_existing_table(table_key) {
                 let message = match &c.index {

@@ -28,7 +28,7 @@ pub(super) fn check(
                 return vec![];
             };
 
-            let table_key = at.name.catalog_key();
+            let table_key = at.name.relation();
             // Table must exist in catalog_before (i.e. pre-existing).
             if ctx.catalog_before.get_table(table_key).is_none() {
                 return vec![];
@@ -86,6 +86,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
                 name: Some(format!("uq_{}", columns.join("_"))),
                 columns: columns.iter().map(|s| s.to_string()).collect(),
+                include_columns: vec![],
                 using_index: None,
             })],
         }))
@@ -98,6 +99,7 @@ mod tests {
                 name: Some(format!("uq_{}", idx_name)),
                 columns: vec![], // empty with USING INDEX
                 using_index: Some(idx_name.to_string()),
+                include_columns: vec![],
             })],
         }))
     }

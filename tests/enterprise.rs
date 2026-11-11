@@ -155,21 +155,21 @@ fn test_enterprise_sliding_window() {
         .join("tests/fixtures/repos/enterprise/migrations");
 
     let loader = SqlLoader::default();
-    let mut history = loader
+    let history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load enterprise fixture");
 
-    normalize::normalize_schemas(&mut history.units, "public");
+    let units = normalize::resolve_units(history.units, "public");
 
     let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
 
     // Collect (filename, findings) for each step
     let mut steps: Vec<(String, Vec<Finding>)> = Vec::new();
 
-    for (i, unit) in history.units.iter().enumerate() {
+    for (i, unit) in units.iter().enumerate() {
         // Fresh pipeline per unit: replay all prior units, then lint the current one.
         let mut pipeline = LintPipeline::new();
-        for prior in &history.units[..i] {
+        for prior in &units[..i] {
             pipeline.replay(prior);
         }
         let mut unit_findings = pipeline.lint(unit, &all_rules);

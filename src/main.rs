@@ -235,7 +235,7 @@ fn run(args: Args) -> Result<bool> {
     let changed_files = parse_changed_files(&args)?;
 
     // --- Step 1: Load migration files ---
-    let mut history = load_migrations(&config)?;
+    let history = load_migrations(&config)?;
 
     // Selective mode: if the user passed --changed-files or --changed-files-from,
     // we only lint the files they named even if the resulting set is empty.
@@ -248,7 +248,7 @@ fn run(args: Args) -> Result<bool> {
         None
     };
 
-    let mut all_findings = lint_history(&mut history, &config, changed_files_arg);
+    let mut all_findings = lint_history(history, &config, changed_files_arg);
     strip_output_prefix(&mut all_findings, &config);
 
     let formats: Vec<String> = if let Some(ref fmt) = args.format {
@@ -279,11 +279,11 @@ fn run(args: Args) -> Result<bool> {
     exceeds_fail_on_threshold(&all_findings, fail_on_str)
 }
 
-/// Drives the single-pass replay+lint loop over `history`'s units: normalizes
-/// schemas, replays every unit into the catalog, lints only units in
-/// `changed_files` (or every unit when `changed_files` is `None`), applies
-/// suppression comments and per-unit dedup, and warns about single-file
-/// changelogs that look suspiciously large.
+/// Drives the single-pass replay+lint loop over `history`'s units: resolves
+/// their names against the default schema, replays every unit into the
+/// catalog, lints only units in `changed_files` (or every unit when
+/// `changed_files` is `None`), applies suppression comments and per-unit
+/// dedup, and warns about single-file changelogs that look suspiciously large.
 ///
 /// Deliberately does **not** apply `config.output.strip_prefix` -- every
 /// returned finding's `file` is the same raw path `unit.source_file` had.
@@ -295,13 +295,11 @@ fn run(args: Args) -> Result<bool> {
 /// difference between them is which files count as "changed" -- a CLI flag
 /// here, the PR's changed-files list there.
 fn lint_history(
-    history: &mut MigrationHistory,
+    history: MigrationHistory,
     config: &Config,
     changed_files: Option<&[PathBuf]>,
 ) -> Vec<Finding> {
-    // Assign the configured default schema to every unqualified QualifiedName
-    // so that catalog keys are always schema-qualified.
-    normalize::normalize_schemas(&mut history.units, &config.migrations.default_schema);
+    let units = normalize::resolve_units(history.units, &config.migrations.default_schema);
 
     // Build changed files set for O(1) lookup. Canonicalize paths where
     // possible for reliable matching, and strip any leading `./` -- a
@@ -335,7 +333,7 @@ fn lint_history(
     let mut all_findings: Vec<Finding> = Vec::new();
     let mut changed_units_per_file: HashMap<PathBuf, usize> = HashMap::new();
 
-    for unit in &history.units {
+    for unit in &units {
         // Determine if this unit is in the changed set.
         // Try canonicalized comparison first, then fall back to direct and ends_with matching.
         let is_changed = if lint_all {
@@ -785,7 +783,7 @@ mod strip_prefix_hunk_routing_tests {
         let mut config = Config::default();
         config.output.strip_prefix = Some("impl/".to_string());
 
-        let findings = lint_history(&mut history, &config, None);
+        let findings = lint_history(history, &config, None);
 
         assert!(
             !findings.is_empty(),
@@ -806,7 +804,7 @@ mod strip_prefix_hunk_routing_tests {
         let mut config = Config::default();
         config.output.strip_prefix = Some("impl/".to_string());
 
-        let mut all_findings = lint_history(&mut history, &config, None);
+        let mut all_findings = lint_history(history, &config, None);
         assert!(!all_findings.is_empty());
         assert!(all_findings.iter().any(|f| f.rule_id == RuleId::Pgm101));
 
@@ -946,7 +944,7 @@ mod config_path_hunk_routing_tests {
 
         let config = load_config(&None).expect("config should load");
         let mut history = load_migrations(&config).expect("migrations should load");
-        let findings = lint_history(&mut history, &config, None);
+        let findings = lint_history(history, &config, None);
 
         assert!(
             !findings.is_empty(),
@@ -985,7 +983,7 @@ mod config_path_hunk_routing_tests {
         let config_path = repo.path().join(DEFAULT_CONFIG_FILE);
         let config = load_config(&Some(config_path)).expect("config should load");
         let mut history = load_migrations(&config).expect("migrations should load");
-        let findings = lint_history(&mut history, &config, None);
+        let findings = lint_history(history, &config, None);
 
         assert!(!findings.is_empty());
         assert!(
@@ -1018,7 +1016,7 @@ mod config_path_hunk_routing_tests {
 
         let config = load_config(&None).expect("config should load");
         let mut history = load_migrations(&config).expect("migrations should load");
-        let findings = lint_history(&mut history, &config, None);
+        let findings = lint_history(history, &config, None);
 
         assert!(!findings.is_empty());
 
@@ -1093,7 +1091,7 @@ mod config_path_hunk_routing_tests {
         // `unit.source_file` without stripping the leading `./` first.
         let changed_files = vec![PathBuf::from(format!("backend/{GITHUB_FILENAME}"))];
 
-        let findings = lint_history(&mut history, &config, Some(&changed_files));
+        let findings = lint_history(history, &config, Some(&changed_files));
 
         assert!(
             !findings.is_empty(),

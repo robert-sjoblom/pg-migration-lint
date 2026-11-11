@@ -35,7 +35,7 @@ pub(super) fn check(
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
-    use crate::catalog::builder::CatalogBuilder;
+    use crate::catalog::builder::{CatalogBuilder, rel};
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{lint_ctx, located};
@@ -103,8 +103,8 @@ mod tests {
         // Rule emits one finding per statement (dedup is pipeline-level)
         assert_eq!(findings.len(), 2);
         // Both carry the same dedup key so the pipeline can collapse them
-        assert_eq!(findings[0].dedup_key.as_deref(), Some("orders"));
-        assert_eq!(findings[1].dedup_key.as_deref(), Some("orders"));
+        assert_eq!(findings[0].dedup_key, Some(rel("orders")));
+        assert_eq!(findings[1].dedup_key, Some(rel("orders")));
     }
 
     #[test]

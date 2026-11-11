@@ -3,9 +3,8 @@ source: src/catalog/replay/tests/catalog_rework.rs
 expression: snapshot_catalog(&catalog)
 ---
 tables:
-  analytics.orders (indexes: analytics.orders_pkey, analytics.orders_pkey, idx_customer)
-  public.orders (indexes: public.orders_pkey, public.orders_pkey)
+  analytics.orders (indexes: idx_customer, orders_pkey, orders_pkey)
+  public.orders (indexes: orders_pkey, orders_pkey)
 index_to_table lookups:
-  analytics.orders_pkey -> analytics.orders
   idx_customer -> analytics.orders
-  public.orders_pkey -> public.orders
+  orders_pkey -> public.orders

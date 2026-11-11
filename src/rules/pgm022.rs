@@ -87,7 +87,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/010.sql");
 
-        let cases: Vec<(&str, IrNode)> = vec![
+        let cases: Vec<(&str, IrNode<_>)> = vec![
             (
                 "INDEX",
                 Reindex::test_index(QualifiedName::unqualified("idx_foo")).into(),

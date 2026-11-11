@@ -25,29 +25,18 @@ pub(super) fn check(
             for constraint in table.constraints_involving_column(name) {
                 if let ConstraintState::ForeignKey {
                     name: constraint_name,
-                    columns,
                     ref_table_display,
                     ..
                 } = constraint
                 {
-                    let fk_description = match constraint_name {
-                        Some(n) => {
-                            format!("'{n}' referencing '{ref_tbl}'", ref_tbl = ref_table_display,)
-                        }
-                        None => format!(
-                            "({cols}) \u{2192} {ref_tbl}",
-                            cols = columns.join(", "),
-                            ref_tbl = ref_table_display,
-                        ),
-                    };
                     findings.push(rule.make_finding(
                         format!(
                             "Dropping column '{col}' from table '{table}' silently \
-                             removes foreign key {constraint}. Verify that the \
-                             referential integrity guarantee is no longer needed.",
+                             removes foreign key '{constraint_name}' referencing \
+                             '{ref_table_display}'. Verify that the referential \
+                             integrity guarantee is no longer needed.",
                             col = name,
                             table = at.name.display_name(),
-                            constraint = fk_description,
                         ),
                         ctx.file,
                         &stmt.span,
@@ -66,8 +55,9 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
 
     #[test]
     fn test_drop_fk_column_fires() {
@@ -221,36 +211,15 @@ mod tests {
     }
 
     #[test]
-    fn test_unnamed_fk_shows_column_arrow_description() {
-        let before = CatalogBuilder::new()
-            .table("orders", |t| {
-                t.column("id", "integer", false)
-                    .column("customer_id", "integer", false)
-                    .pk(&["id"]);
-            })
-            .build();
-
-        // We need to add the unnamed FK manually since the builder always sets a name.
-        let mut before = before;
-        let table = before.get_table_mut("orders").unwrap();
-        table.constraints.push(ConstraintState::ForeignKey {
-            name: None,
-            columns: vec!["customer_id".to_string()],
-            ref_table: "customers".to_string(),
-            ref_table_display: "customers".to_string(),
-            ref_columns: vec!["id".to_string()],
-            not_valid: false,
-        });
-
+    fn test_unnamed_fk_shows_generated_name() {
+        let before = catalog_from_sql(
+            "CREATE TABLE customers (id int PRIMARY KEY);
+             CREATE TABLE orders (id int PRIMARY KEY, customer_id int REFERENCES customers);",
+        );
         let after = before.clone();
         lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
-        let stmts = vec![located(IrNode::AlterTable(AlterTable {
-            name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::DropColumn {
-                name: "customer_id".to_string(),
-            }],
-        }))];
+        let stmts = normalized(parse_sql("ALTER TABLE orders DROP COLUMN customer_id;"));
 
         let findings = RuleId::Pgm012.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);

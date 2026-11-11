@@ -1304,3 +1304,173 @@ fn spike_exclude_constraint_exclusions_shape() {
         }
     }
 }
+
+/// Parse `CREATE INDEX ON t (<element>)` and return the single index element's
+/// expression node. Panics if the element is a plain column (`IndexElem.name`).
+fn index_element_expression(element: &str) -> pg_query::NodeEnum {
+    let sql = format!("CREATE INDEX ON t ({element});");
+    let result = pg_query::parse(&sql).expect("parse failed");
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let pg_query::NodeEnum::IndexStmt(idx) = stmt else {
+        panic!("not an IndexStmt: {stmt:?}");
+    };
+    let Some(pg_query::NodeEnum::IndexElem(elem)) = idx.index_params[0].node.as_ref() else {
+        panic!("not an IndexElem: {:?}", idx.index_params[0]);
+    };
+    assert!(elem.name.is_empty(), "{element} parsed as a plain column");
+    elem.expr.as_ref().unwrap().node.clone().unwrap()
+}
+
+/// The raw-tree node kinds behind expression index elements, as Postgres's
+/// `FigureColnameInternal` sees them when it picks each element's part of a
+/// generated index name. Measured names are in `verify/tests/naming/create_index.sql`.
+#[test]
+fn spike_index_element_expression_node_kinds() {
+    use pg_query::NodeEnum;
+    use pg_query::protobuf::{AExprKind, MinMaxOp};
+
+    assert!(matches!(
+        index_element_expression("(a)"),
+        NodeEnum::ColumnRef(_)
+    ));
+
+    let NodeEnum::AExpr(nullif) = index_element_expression("nullif(a, b)") else {
+        panic!("nullif is not an A_Expr");
+    };
+    assert_eq!(nullif.kind(), AExprKind::AexprNullif);
+
+    let NodeEnum::MinMaxExpr(greatest) = index_element_expression("greatest(a, b)") else {
+        panic!("greatest is not a MinMaxExpr");
+    };
+    assert_eq!(greatest.op(), MinMaxOp::IsGreatest);
+    let NodeEnum::MinMaxExpr(least) = index_element_expression("least(a, b)") else {
+        panic!("least is not a MinMaxExpr");
+    };
+    assert_eq!(least.op(), MinMaxOp::IsLeast);
+
+    assert!(matches!(
+        index_element_expression("(ARRAY[a, b])"),
+        NodeEnum::AArrayExpr(_)
+    ));
+
+    // COLLATE inside the parentheses is part of the expression; COLLATE after
+    // them belongs to the IndexElem and leaves `expr` as the bare function call.
+    assert!(matches!(
+        index_element_expression("(lower(e) COLLATE \"C\")"),
+        NodeEnum::CollateClause(_)
+    ));
+    assert!(matches!(
+        index_element_expression("lower(e) COLLATE \"C\""),
+        NodeEnum::FuncCall(_)
+    ));
+
+    // A subscript keeps the column in `arg`; a field selection puts the field
+    // name in `indirection` as a String.
+    let NodeEnum::AIndirection(subscript) = index_element_expression("(arr[1])") else {
+        panic!("arr[1] is not an A_Indirection");
+    };
+    assert!(matches!(
+        subscript.arg.as_ref().unwrap().node.as_ref(),
+        Some(NodeEnum::ColumnRef(_))
+    ));
+    assert!(matches!(
+        subscript.indirection[0].node.as_ref(),
+        Some(NodeEnum::AIndices(_))
+    ));
+    let NodeEnum::AIndirection(field) = index_element_expression("((p).x)") else {
+        panic!("(p).x is not an A_Indirection");
+    };
+    assert!(matches!(
+        field.indirection[0].node.as_ref(),
+        Some(NodeEnum::String(s)) if s.sval == "x"
+    ));
+
+    // SQL-standard type names are rewritten to their internal names in the raw
+    // tree, so the last element of `names` is what Postgres puts in the name.
+    for (element, internal_name) in [
+        ("(CAST(a + b AS bigint))", "int8"),
+        ("((a + b)::int)", "int4"),
+        ("((a + b)::double precision)", "float8"),
+        ("((a + b)::text)", "text"),
+    ] {
+        let NodeEnum::TypeCast(cast) = index_element_expression(element) else {
+            panic!("{element} is not a TypeCast");
+        };
+        let last_name = cast.type_name.as_ref().unwrap().names.last().unwrap();
+        assert!(
+            matches!(last_name.node.as_ref(), Some(NodeEnum::String(s)) if s.sval == internal_name),
+            "{element}: expected last type name part {internal_name}, got {last_name:?}"
+        );
+    }
+}
+
+/// Where INCLUDE columns land: `IndexStmt.index_including_params` holds
+/// `IndexElem`s, while UNIQUE, PRIMARY KEY and EXCLUDE constraints hold bare
+/// `String` nodes in `Constraint.including`.
+#[test]
+fn spike_include_columns_shape() {
+    use pg_query::NodeEnum;
+
+    let result = pg_query::parse("CREATE INDEX ON t (a) INCLUDE (b, c);").unwrap();
+    let stmt = result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .as_ref()
+        .unwrap();
+    let NodeEnum::IndexStmt(idx) = stmt else {
+        panic!("not an IndexStmt: {stmt:?}");
+    };
+    let included: Vec<&str> = idx
+        .index_including_params
+        .iter()
+        .map(|n| match n.node.as_ref() {
+            Some(NodeEnum::IndexElem(elem)) => elem.name.as_str(),
+            other => panic!("INCLUDE entry is not an IndexElem: {other:?}"),
+        })
+        .collect();
+    assert_eq!(included, ["b", "c"]);
+
+    for constraint in [
+        "UNIQUE (a) INCLUDE (b, c)",
+        "PRIMARY KEY (a) INCLUDE (b, c)",
+        "EXCLUDE USING btree (a WITH =) INCLUDE (b, c)",
+    ] {
+        let sql = format!("CREATE TABLE t (a int, b int, c int, {constraint});");
+        let result = pg_query::parse(&sql).unwrap();
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let NodeEnum::CreateStmt(create) = stmt else {
+            panic!("not a CreateStmt: {stmt:?}");
+        };
+        let con = create
+            .table_elts
+            .iter()
+            .find_map(|elt| match elt.node.as_ref() {
+                Some(NodeEnum::Constraint(con)) => Some(con),
+                _ => None,
+            })
+            .unwrap();
+        let included: Vec<&str> = con
+            .including
+            .iter()
+            .map(|n| match n.node.as_ref() {
+                Some(NodeEnum::String(s)) => s.sval.as_str(),
+                other => panic!("{constraint}: INCLUDE entry is not a String: {other:?}"),
+            })
+            .collect();
+        assert_eq!(included, ["b", "c"], "{constraint}");
+    }
+}

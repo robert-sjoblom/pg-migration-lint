@@ -1,5 +1,6 @@
 //! Table catalog and replay engine
 
+pub(crate) mod generated_names;
 pub(crate) mod replay;
 pub mod types;
 

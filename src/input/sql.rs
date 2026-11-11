@@ -1,10 +1,11 @@
 //! SQL file loading
 //!
 //! Reads `.sql` migration files from disk, parses them into IR using the
-//! pg_query parser, and returns `MigrationUnit`s ready for catalog replay
-//! and linting.
+//! pg_query parser, and returns parser-form `MigrationUnit`s, which
+//! `normalize::resolve_units` prepares for catalog replay and linting.
 
 use crate::input::{LoadError, MigrationHistory, MigrationUnit};
+use crate::parser::ir::QualifiedName;
 use crate::parser::pg_query::parse_sql;
 use std::path::{Path, PathBuf};
 
@@ -76,7 +77,7 @@ impl SqlLoader {
     ///
     /// The file is read entirely into memory, parsed into IR nodes, and
     /// wrapped in a `MigrationUnit` with metadata derived from the filename.
-    pub fn load_file(&self, path: &Path) -> Result<MigrationUnit, LoadError> {
+    pub fn load_file(&self, path: &Path) -> Result<MigrationUnit<QualifiedName>, LoadError> {
         let source = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
             path: path.to_path_buf(),
             source: e,

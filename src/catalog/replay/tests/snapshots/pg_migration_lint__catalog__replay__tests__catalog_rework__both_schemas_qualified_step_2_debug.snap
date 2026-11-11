@@ -4,7 +4,10 @@ expression: debug_snapshot_catalog(&catalog)
 ---
 [
     TableState {
-        name: "analytics.orders",
+        name: RelationName {
+            schema: "analytics",
+            name: "orders",
+        },
         display_name: "analytics.orders",
         columns: [
             ColumnState {
@@ -20,7 +23,7 @@ expression: debug_snapshot_catalog(&catalog)
         ],
         indexes: [
             IndexState {
-                name: "analytics.orders_pkey",
+                name: "orders_pkey",
                 entries: [
                     Column(
                         "id",
@@ -32,7 +35,7 @@ expression: debug_snapshot_catalog(&catalog)
                 access_method: "btree",
             },
             IndexState {
-                name: "analytics.orders_pkey",
+                name: "orders_pkey",
                 entries: [
                     Column(
                         "id",
@@ -58,13 +61,13 @@ expression: debug_snapshot_catalog(&catalog)
         ],
         constraints: [
             PrimaryKey {
-                name: None,
+                name: "orders_pkey",
                 columns: [
                     "id",
                 ],
             },
             PrimaryKey {
-                name: None,
+                name: "orders_pkey",
                 columns: [
                     "id",
                 ],
@@ -77,7 +80,10 @@ expression: debug_snapshot_catalog(&catalog)
         parent_table: None,
     },
     TableState {
-        name: "data.orders",
+        name: RelationName {
+            schema: "data",
+            name: "orders",
+        },
         display_name: "data.orders",
         columns: [
             ColumnState {
@@ -93,7 +99,7 @@ expression: debug_snapshot_catalog(&catalog)
         ],
         indexes: [
             IndexState {
-                name: "data.orders_pkey",
+                name: "orders_pkey",
                 entries: [
                     Column(
                         "id",
@@ -105,7 +111,7 @@ expression: debug_snapshot_catalog(&catalog)
                 access_method: "btree",
             },
             IndexState {
-                name: "data.orders_pkey",
+                name: "orders_pkey",
                 entries: [
                     Column(
                         "id",
@@ -131,13 +137,13 @@ expression: debug_snapshot_catalog(&catalog)
         ],
         constraints: [
             PrimaryKey {
-                name: None,
+                name: "orders_pkey",
                 columns: [
                     "id",
                 ],
             },
             PrimaryKey {
-                name: None,
+                name: "orders_pkey",
                 columns: [
                     "id",
                 ],

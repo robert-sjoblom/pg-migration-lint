@@ -3,9 +3,9 @@ source: src/catalog/replay/tests/catalog_rework.rs
 expression: snapshot_catalog(&catalog)
 ---
 tables:
-  public.events (indexes: idx_created_at, public.events_pkey, public.events_pkey)
-  public.metrics (indexes: idx_created_at, public.metrics_pkey, public.metrics_pkey)
+  public.events (indexes: events_pkey, events_pkey, idx_created_at)
+  public.metrics (indexes: idx_created_at, metrics_pkey, metrics_pkey)
 index_to_table lookups:
+  events_pkey -> public.events
   idx_created_at -> public.events
-  public.events_pkey -> public.events
-  public.metrics_pkey -> public.metrics
+  metrics_pkey -> public.metrics

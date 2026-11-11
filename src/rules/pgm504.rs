@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::names::RelationName;
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -18,10 +19,10 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     // Pass 1: collect all CREATE TABLE catalog keys in this unit.
     // These represent "replacement" tables that re-create a renamed-away name.
-    let created_in_unit: HashSet<&str> = statements
+    let created_in_unit: HashSet<&RelationName> = statements
         .iter()
         .filter_map(|stmt| match &stmt.node {
-            IrNode::CreateTable(ct) => Some(ct.name.catalog_key()),
+            IrNode::CreateTable(ct) => Some(ct.name.relation()),
             _ => None,
         })
         .collect();
@@ -35,7 +36,7 @@ pub(super) fn check(
             ref new_name,
         } = stmt.node
         {
-            let table_key = name.catalog_key();
+            let table_key = name.relation();
 
             // Only flag if the table pre-exists (not created in the current changeset).
             if !ctx.is_existing_table(table_key) {

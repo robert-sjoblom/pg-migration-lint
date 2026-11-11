@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::names::RelationName;
 use crate::parser::ir::{AlterTableAction, IrNode, Located, SourceSpan};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -20,16 +21,16 @@ pub(super) fn check(
     let mut findings = Vec::new();
 
     // Tracks the first ALTER TABLE seen per table key, per lock level:
-    // key = (catalog_key, LockLevel), value = SourceSpan of first occurrence.
-    let mut tracking: HashMap<(String, LockLevel), SourceSpan> = HashMap::new();
+    // key = (table, LockLevel), value = SourceSpan of first occurrence.
+    let mut tracking: HashMap<(RelationName, LockLevel), SourceSpan> = HashMap::new();
 
     for stmt in statements {
         match &stmt.node {
             IrNode::AlterTable(at) => {
-                let key = at.name.catalog_key().to_string();
+                let key = at.name.relation();
 
                 // Only flag pre-existing tables — new tables have no lock contention risk.
-                if !ctx.is_existing_table(&key) {
+                if !ctx.is_existing_table(key) {
                     continue;
                 }
 
@@ -68,7 +69,7 @@ pub(super) fn check(
                 if let Some(key) = table_key_of(node) {
                     // Remove both lock-level chains for this table.
                     tracking.remove(&(key.clone(), LockLevel::AccessExclusive));
-                    tracking.remove(&(key, LockLevel::ShareUpdateExclusive));
+                    tracking.remove(&(key.clone(), LockLevel::ShareUpdateExclusive));
                 }
                 // Ignored and Unparseable nodes: no chain broken (table_key_of returns None).
             }
@@ -116,24 +117,24 @@ fn combinable_lock_level(actions: &[AlterTableAction]) -> Option<LockLevel> {
     }
 }
 
-/// Extract the catalog key from non-ALTER IR nodes that reference a table.
+/// The table a non-ALTER IR node references, if any.
 ///
 /// Returns `None` for nodes that don't reference a table (or where the table
 /// name is not available without a catalog lookup, like `DropIndex`).
-fn table_key_of(node: &IrNode) -> Option<String> {
+fn table_key_of(node: &IrNode) -> Option<&RelationName> {
     match node {
-        IrNode::CreateTable(ct) => Some(ct.name.catalog_key().to_string()),
-        IrNode::CreateIndex(ci) => Some(ci.table_name.catalog_key().to_string()),
-        IrNode::DropTable(dt) => Some(dt.name.catalog_key().to_string()),
-        IrNode::TruncateTable(tt) => Some(tt.name.catalog_key().to_string()),
-        IrNode::InsertInto(ii) => Some(ii.table_name.catalog_key().to_string()),
-        IrNode::UpdateTable(ut) => Some(ut.table_name.catalog_key().to_string()),
-        IrNode::DeleteFrom(df) => Some(df.table_name.catalog_key().to_string()),
-        IrNode::Cluster(cl) => Some(cl.table.catalog_key().to_string()),
-        IrNode::VacuumFull(vf) => vf.table.as_ref().map(|t| t.catalog_key().to_string()),
+        IrNode::CreateTable(ct) => Some(ct.name.relation()),
+        IrNode::CreateIndex(ci) => Some(ci.table_name.relation()),
+        IrNode::DropTable(dt) => Some(dt.name.relation()),
+        IrNode::TruncateTable(tt) => Some(tt.name.relation()),
+        IrNode::InsertInto(ii) => Some(ii.table_name.relation()),
+        IrNode::UpdateTable(ut) => Some(ut.table_name.relation()),
+        IrNode::DeleteFrom(df) => Some(df.table_name.relation()),
+        IrNode::Cluster(cl) => Some(cl.table.relation()),
+        IrNode::VacuumFull(vf) => vf.table.as_ref().map(|t| t.relation()),
         IrNode::Reindex(_) => None,
-        IrNode::RenameTable { name, .. } => Some(name.catalog_key().to_string()),
-        IrNode::RenameColumn { table, .. } => Some(table.catalog_key().to_string()),
+        IrNode::RenameTable { name, .. } => Some(name.relation()),
+        IrNode::RenameColumn { table, .. } => Some(table.relation()),
         // These don't have a table name to extract
         IrNode::AlterTable(_)
         | IrNode::DropIndex(_)
@@ -168,7 +169,7 @@ mod tests {
             .build()
     }
 
-    fn alter_set_not_null(table: &str, col: &str) -> IrNode {
+    fn alter_set_not_null(table: &str, col: &str) -> IrNode<QualifiedName> {
         IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::SetNotNull {
@@ -177,7 +178,7 @@ mod tests {
         })
     }
 
-    fn alter_attach(table: &str, child: &str) -> IrNode {
+    fn alter_attach(table: &str, child: &str) -> IrNode<QualifiedName> {
         IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::AttachPartition {
@@ -186,7 +187,7 @@ mod tests {
         })
     }
 
-    fn alter_detach(table: &str, child: &str) -> IrNode {
+    fn alter_detach(table: &str, child: &str) -> IrNode<QualifiedName> {
         IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::DetachPartition {
@@ -196,7 +197,7 @@ mod tests {
         })
     }
 
-    fn alter_validate(table: &str, constraint: &str) -> IrNode {
+    fn alter_validate(table: &str, constraint: &str) -> IrNode<QualifiedName> {
         IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
             actions: vec![AlterTableAction::ValidateConstraint {
@@ -376,6 +377,7 @@ mod tests {
                     index_name: Some("idx_authors_name".to_string()),
                     table_name: QualifiedName::unqualified("authors"),
                     columns: vec![IndexColumn::Column("name".to_string())],
+                    include_columns: vec![],
                     unique: false,
                     concurrent: true,
                     if_not_exists: false,

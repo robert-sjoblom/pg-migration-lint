@@ -1,6 +1,7 @@
 use std::{collections::HashSet, path::Path};
 
 use crate::catalog::types::IndexState;
+use crate::names::{RelationName, ResolvedName};
 use crate::{Catalog, rules::TableScope};
 
 /// Context available to rules during linting.
@@ -18,7 +19,7 @@ pub struct LintContext<'a> {
     /// Built incrementally during the single-pass replay: when a changed
     /// file contains a CreateTable, add it to this set before linting
     /// subsequent changed files.
-    pub tables_created_in_change: &'a HashSet<String>,
+    pub tables_created_in_change: &'a HashSet<RelationName>,
 
     /// Whether this migration unit runs in a transaction.
     pub run_in_transaction: bool,
@@ -33,7 +34,7 @@ pub struct LintContext<'a> {
 impl<'a> LintContext<'a> {
     /// Check if a table existed before this change and was not created in the
     /// current set of changed files.
-    pub fn is_existing_table(&self, table_key: &str) -> bool {
+    pub fn is_existing_table(&self, table_key: &RelationName) -> bool {
         self.catalog_before.has_table(table_key)
             && !self.tables_created_in_change.contains(table_key)
     }
@@ -56,13 +57,12 @@ impl<'a> LintContext<'a> {
     /// - The parent exists but lacks a PK.
     pub fn partition_child_inherits_pk(
         &self,
-        ir_partition_of: Option<&crate::parser::ir::QualifiedName>,
-        table_key: &str,
+        ir_partition_of: Option<&ResolvedName>,
+        table_key: &RelationName,
     ) -> bool {
         // Primary: from IR (CREATE TABLE ... PARTITION OF parent)
         if let Some(parent_name) = ir_partition_of {
-            let parent_key = parent_name.catalog_key();
-            return match self.catalog_after.get_table(parent_key) {
+            return match self.catalog_after.get_table(parent_name.relation()) {
                 Some(parent) if parent.has_primary_key => true,
                 Some(_) => false,
                 None => true,
@@ -85,9 +85,10 @@ impl<'a> LintContext<'a> {
 
     /// Resolves the display name of `table_key`'s parent partition table from
     /// `catalog_before`. Returns `None` when `table_key` is not a partition
-    /// child (no `parent_table` recorded). Falls back to the parent's raw
-    /// catalog key when the parent itself is not tracked in the catalog.
-    pub fn parent_display_name(&self, table_key: &str) -> Option<String> {
+    /// child (no `parent_table` recorded). Falls back to the parent's bare
+    /// name when the parent itself is not tracked in the catalog, so a
+    /// default schema never shows up in a message.
+    pub fn parent_display_name(&self, table_key: &RelationName) -> Option<String> {
         let parent_key = self
             .catalog_before
             .get_table(table_key)?
@@ -96,8 +97,7 @@ impl<'a> LintContext<'a> {
         Some(
             self.catalog_before
                 .get_table(parent_key)
-                .map(|p| p.display_name.clone())
-                .unwrap_or_else(|| parent_key.clone()),
+                .map_or_else(|| parent_key.name.clone(), |p| p.display_name.clone()),
         )
     }
 
@@ -111,7 +111,7 @@ impl<'a> LintContext<'a> {
     }
 
     /// Check if a table matches the given scope filter.
-    pub fn table_matches_scope(&self, table_key: &str, scope: TableScope) -> bool {
+    pub fn table_matches_scope(&self, table_key: &RelationName, scope: TableScope) -> bool {
         match scope {
             TableScope::ExcludeCreatedInChange => self.is_existing_table(table_key),
             TableScope::AnyPreExisting => self.catalog_before.has_table(table_key),
@@ -122,7 +122,7 @@ impl<'a> LintContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
+    use crate::catalog::builder::{CatalogBuilder, rel};
     use crate::rules::test_helpers::lint_ctx;
 
     #[test]
@@ -141,7 +141,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/test.sql");
 
         assert_eq!(
-            ctx.parent_display_name("measurements_2024"),
+            ctx.parent_display_name(&rel("measurements_2024")),
             Some("Measurements".to_string())
         );
     }
@@ -157,7 +157,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/test.sql");
 
         assert_eq!(
-            ctx.parent_display_name("measurements_2024"),
+            ctx.parent_display_name(&rel("measurements_2024")),
             Some("ghost_parent".to_string())
         );
     }
@@ -172,7 +172,7 @@ mod tests {
         let after = before.clone();
         lint_ctx!(ctx, &before, &after, "migrations/test.sql");
 
-        assert_eq!(ctx.parent_display_name("measurements"), None);
+        assert_eq!(ctx.parent_display_name(&rel("measurements")), None);
     }
 
     #[test]
@@ -181,6 +181,6 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/test.sql");
 
-        assert_eq!(ctx.parent_display_name("nonexistent"), None);
+        assert_eq!(ctx.parent_display_name(&rel("nonexistent")), None);
     }
 }

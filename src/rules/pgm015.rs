@@ -69,6 +69,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
+                referenced_columns: vec!["status".to_string()],
                 not_valid: false,
             })],
         }))];
@@ -94,6 +95,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
+                referenced_columns: vec!["status".to_string()],
                 not_valid: true,
             })],
         }))];
@@ -119,6 +121,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
+                referenced_columns: vec!["status".to_string()],
                 not_valid: false,
             })],
         }))];
@@ -138,6 +141,7 @@ mod tests {
             actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
+                referenced_columns: vec!["status".to_string()],
                 not_valid: false,
             })],
         }))];

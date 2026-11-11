@@ -4,7 +4,7 @@ use crate::{
     IrNode,
     parser::{
         IndexColumn, QualifiedName,
-        ir::{ReindexObjectKind, ReindexTarget},
+        ir::{CreateIndex, ReindexObjectKind, ReindexTarget},
         pg_query::parse_sql,
     },
 };
@@ -25,6 +25,25 @@ fn expr_index_refs(expr: &str) -> Vec<String> {
         },
         other => panic!("Expected CreateIndex, got: {:?}", other),
     }
+}
+
+fn parsed_create_index(sql: &str) -> CreateIndex<QualifiedName> {
+    match parse_sql(sql)
+        .into_iter()
+        .next()
+        .map(|located| located.node)
+    {
+        Some(IrNode::CreateIndex(ci)) => ci,
+        other => panic!("Expected CreateIndex for `{sql}`, got: {other:?}"),
+    }
+}
+
+fn generated_name_parts(sql: &str) -> Vec<String> {
+    parsed_create_index(sql)
+        .columns
+        .iter()
+        .map(|column| column.generated_name_part().to_owned())
+        .collect()
 }
 
 fn parsed_drop_index_names(sql: &str) -> Vec<QualifiedName> {
@@ -230,7 +249,7 @@ fn test_parse_expression_index() {
             assert!(
                 matches!(
                     &ci.columns[0],
-                    IndexColumn::Expression { text, referenced_columns }
+                    IndexColumn::Expression { text, referenced_columns, .. }
                     if text == "lower(email)" && referenced_columns == &["email".to_string()]
                 ),
                 "Expected Expression {{ text: lower(email), referenced_columns: [email] }}, got: {:?}",
@@ -253,7 +272,7 @@ fn test_parse_mixed_column_expression_index() {
             assert!(
                 matches!(
                     &ci.columns[1],
-                    IndexColumn::Expression { text, referenced_columns }
+                    IndexColumn::Expression { text, referenced_columns, .. }
                     if text == "lower(email)" && referenced_columns == &["email".to_string()]
                 ),
                 "Expected Expression {{ text: lower(email), referenced_columns: [email] }}, got: {:?}",
@@ -456,4 +475,85 @@ fn test_parse_alter_index_rename() {
         }
         other => panic!("Expected RenameIndex, got: {:?}", other),
     }
+}
+
+#[rstest]
+#[case::plain_column("a", "a")]
+#[case::plain_column_desc_nulls_last("a DESC NULLS LAST", "a")]
+#[case::plain_column_opclass("a text_pattern_ops", "a")]
+#[case::plain_column_collate("a COLLATE \"C\"", "a")]
+#[case::function_call("lower(email)", "lower")]
+#[case::schema_qualified_function_call("pg_catalog.lower(email)", "lower")]
+#[case::coalesce("coalesce(a, b)", "coalesce")]
+#[case::greatest("greatest(a, b)", "greatest")]
+#[case::least("least(a, b)", "least")]
+#[case::nullif("nullif(a, b)", "nullif")]
+#[case::array_constructor("(ARRAY[a, b])", "array")]
+#[case::parenthesized_column("(a)", "a")]
+#[case::subscript("(arr[1])", "arr")]
+#[case::jsonb_subscript("(js['k'])", "js")]
+#[case::field_selection("((p).x)", "x")]
+#[case::operator("(a + b)", "expr")]
+#[case::jsonb_operator("(js ->> 'k')", "expr")]
+#[case::null_test_falls_back_to_expr("(a IS NULL)", "expr")]
+#[case::bool_expr_falls_back_to_expr("(a > 0 AND b > 0)", "expr")]
+#[case::cast_of_column("(a::text)", "a")]
+#[case::cast_of_operator_to_text("((a + b)::text)", "text")]
+#[case::cast_of_operator_to_bigint("(CAST(a + b AS bigint))", "int8")]
+#[case::cast_of_operator_to_int("((js ->> 'k')::int)", "int4")]
+#[case::cast_of_function_call("(lower(email)::text)", "lower")]
+#[case::cast_of_coalesce("(coalesce(a, b)::text)", "coalesce")]
+#[case::case_without_else("(CASE WHEN a > 0 THEN 1 END)", "case")]
+#[case::case_else_column("(CASE WHEN a > 0 THEN 1 ELSE b END)", "b")]
+#[case::case_else_function_call("(CASE WHEN a > 0 THEN 1 ELSE abs(b) END)", "abs")]
+#[case::case_else_cast_of_operator("(CASE WHEN a > 0 THEN 1 ELSE (a + b)::int END)", "case")]
+#[case::cast_of_case_without_else("((CASE WHEN a > 0 THEN 1 END)::text)", "text")]
+#[case::collate_column("(email COLLATE \"C\")", "email")]
+#[case::collate_function_call("(lower(email) COLLATE \"C\")", "lower")]
+#[case::collate_cast_of_operator("((a + b)::text COLLATE \"C\")", "text")]
+fn test_index_element_generated_name_part(#[case] element: &str, #[case] expected: &str) {
+    let sql = format!("CREATE INDEX ON t ({element});");
+    assert_eq!(generated_name_parts(&sql), [expected]);
+}
+
+#[test]
+fn test_mixed_index_elements_each_contribute_a_name_part_in_order() {
+    assert_eq!(
+        generated_name_parts("CREATE INDEX ON i_mixed (lower(email), (a + b), b);"),
+        ["lower", "expr", "b"]
+    );
+}
+
+#[test]
+fn test_repeated_index_elements_keep_unsuffixed_name_parts() {
+    assert_eq!(
+        generated_name_parts("CREATE INDEX ON i_repeat (lower(email), lower(email));"),
+        ["lower", "lower"]
+    );
+}
+
+#[test]
+fn test_expression_element_stores_its_generated_name_part() {
+    let ci = parsed_create_index("CREATE INDEX ON i_lower (lower(email));");
+    assert_eq!(
+        ci.columns,
+        [IndexColumn::Expression {
+            text: "lower(email)".to_string(),
+            referenced_columns: vec!["email".to_string()],
+            generated_name_part: "lower".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn test_create_index_include_columns() {
+    let ci = parsed_create_index("CREATE INDEX ON i_include (a) INCLUDE (b, c);");
+    assert_eq!(ci.columns, [IndexColumn::Column("a".to_string())]);
+    assert_eq!(ci.include_columns, ["b", "c"]);
+}
+
+#[test]
+fn test_create_index_without_include_has_no_include_columns() {
+    let ci = parsed_create_index("CREATE INDEX ON i_single (a);");
+    assert!(ci.include_columns.is_empty());
 }

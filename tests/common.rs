@@ -111,11 +111,11 @@ pub fn lint_fixture_inner<S: AsRef<str>>(
         .join("migrations");
 
     let loader = SqlLoader::default();
-    let mut history = loader
+    let history = loader
         .load(std::slice::from_ref(&base))
         .expect("Failed to load fixture");
 
-    normalize::normalize_schemas(&mut history.units, default_schema);
+    let units = normalize::resolve_units(history.units, default_schema);
 
     let changed: HashSet<PathBuf> = changed_filenames
         .iter()
@@ -133,7 +133,7 @@ pub fn lint_fixture_inner<S: AsRef<str>>(
     let mut pipeline = LintPipeline::new();
     let mut all_findings: Vec<Finding> = Vec::new();
 
-    for unit in &history.units {
+    for unit in &units {
         let is_changed = changed.is_empty() || changed.contains(&unit.source_file);
 
         if is_changed {

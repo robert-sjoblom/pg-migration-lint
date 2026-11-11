@@ -5,9 +5,9 @@
 //! subset actually fires.
 
 use pg_migration_lint::catalog::Catalog;
-use pg_migration_lint::catalog::builder::CatalogBuilder;
+use pg_migration_lint::catalog::builder::{CatalogBuilder, rel};
 use pg_migration_lint::parser::ir::*;
-use pg_migration_lint::rules::*;
+use pg_migration_lint::{RelationName, rules::*};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +15,7 @@ fn make_ctx<'a>(
     before: &'a Catalog,
     after: &'a Catalog,
     file: &'a std::path::Path,
-    created: &'a HashSet<String>,
+    created: &'a HashSet<RelationName>,
 ) -> LintContext<'a> {
     LintContext {
         catalog_before: before,
@@ -69,7 +69,7 @@ fn test_matrix_add_column_not_null_with_volatile_default() {
 
     // Use gen_random_uuid() which is truly volatile (not now() which is STABLE)
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddColumn(ColumnDef {
             name: "token".to_string(),
             type_name: TypeName::simple("uuid"),
@@ -100,7 +100,7 @@ fn test_matrix_add_column_not_null_without_default() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddColumn(ColumnDef {
             name: "status".to_string(),
             type_name: TypeName::simple("text"),
@@ -130,8 +130,9 @@ fn test_matrix_create_index_concurrent_in_transaction() {
 
     let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
         index_name: Some("idx_orders_status".to_string()),
-        table_name: QualifiedName::unqualified("orders"),
+        table_name: QualifiedName::unqualified("orders").resolve("public"),
         columns: vec![IndexColumn::Column("status".to_string())],
+        include_columns: vec![],
         unique: false,
         concurrent: true,
         if_not_exists: false,
@@ -159,8 +160,9 @@ fn test_matrix_create_index_non_concurrent_in_transaction() {
 
     let stmts = vec![located(IrNode::CreateIndex(CreateIndex {
         index_name: Some("idx_orders_status".to_string()),
-        table_name: QualifiedName::unqualified("orders"),
+        table_name: QualifiedName::unqualified("orders").resolve("public"),
         columns: vec![IndexColumn::Column("status".to_string())],
+        include_columns: vec![],
         unique: false,
         concurrent: false,
         if_not_exists: false,
@@ -191,11 +193,11 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
         .build();
     let file = PathBuf::from("migrations/001.sql");
     let mut created = HashSet::new();
-    created.insert("orders".to_string());
+    created.insert(rel("orders"));
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::CreateTable(CreateTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         columns: vec![
             ColumnDef {
                 name: "order_id".to_string(),
@@ -217,7 +219,7 @@ fn test_matrix_create_table_no_pk_with_fk_no_index() {
         constraints: vec![TableConstraint::ForeignKey {
             name: Some("fk_customer".to_string()),
             columns: vec!["customer_id".to_string()],
-            ref_table: QualifiedName::unqualified("customers"),
+            ref_table: QualifiedName::unqualified("customers").resolve("public"),
             ref_columns: vec!["id".to_string()],
             not_valid: false,
         }],
@@ -243,11 +245,11 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
         .build();
     let file = PathBuf::from("migrations/001.sql");
     let mut created = HashSet::new();
-    created.insert("users".to_string());
+    created.insert(rel("users"));
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::CreateTable(CreateTable {
-        name: QualifiedName::unqualified("users"),
+        name: QualifiedName::unqualified("users").resolve("public"),
         columns: vec![
             ColumnDef {
                 name: "email".to_string(),
@@ -269,6 +271,7 @@ fn test_matrix_create_table_no_pk_but_unique_not_null() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uk_email".to_string()),
             columns: vec!["email".to_string()],
+            include_columns: vec![],
             using_index: None,
         }],
         persistence: TablePersistence::Permanent,
@@ -310,12 +313,12 @@ fn test_matrix_add_fk_without_not_valid_no_index() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::ForeignKey {
                 name: Some("fk_customer".to_string()),
                 columns: vec!["customer_id".to_string()],
-                ref_table: QualifiedName::unqualified("customers"),
+                ref_table: QualifiedName::unqualified("customers").resolve("public"),
                 ref_columns: vec!["id".to_string()],
                 not_valid: false,
             },
@@ -355,12 +358,12 @@ fn test_matrix_add_fk_not_valid_no_index() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::ForeignKey {
                 name: Some("fk_customer".to_string()),
                 columns: vec!["customer_id".to_string()],
-                ref_table: QualifiedName::unqualified("customers"),
+                ref_table: QualifiedName::unqualified("customers").resolve("public"),
                 ref_columns: vec!["id".to_string()],
                 not_valid: true,
             },
@@ -386,10 +389,11 @@ fn test_matrix_add_check_without_not_valid() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
             name: Some("orders_status_check".to_string()),
             expression: "status IN ('pending', 'shipped', 'delivered')".to_string(),
+            referenced_columns: vec!["status".to_string()],
             not_valid: false,
         })],
     }))];
@@ -413,7 +417,7 @@ fn test_matrix_set_not_null_on_existing() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::SetNotNull {
             column_name: "status".to_string(),
         }],
@@ -465,7 +469,7 @@ fn test_matrix_create_table_with_bad_types() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::CreateTable(CreateTable {
-        name: QualifiedName::unqualified("bad_types"),
+        name: QualifiedName::unqualified("bad_types").resolve("public"),
         columns: vec![
             // PGM105: serial column
             ColumnDef {
@@ -532,11 +536,12 @@ fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![AlterTableAction::AddConstraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec!["id".to_string()],
+                include_columns: vec![],
                 using_index: None,
             },
         )],
@@ -560,16 +565,18 @@ fn test_matrix_add_pk_and_add_unique_both_fire() {
     let ctx = make_ctx(&before, &after, &file, &created);
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
-        name: QualifiedName::unqualified("orders"),
+        name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![
             AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec!["id".to_string()],
+                include_columns: vec![],
                 using_index: None,
             }),
             AlterTableAction::AddConstraint(TableConstraint::Unique {
                 name: Some("uq_orders_email".to_string()),
                 columns: vec!["email".to_string()],
+                include_columns: vec![],
                 using_index: None,
             }),
         ],

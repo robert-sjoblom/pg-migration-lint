@@ -142,7 +142,7 @@ Provided to every rule's `check()` function:
 |-------|------|---------|
 | `catalog_before` | `&Catalog` | State before the current unit was applied |
 | `catalog_after` | `&Catalog` | State after the current unit was applied |
-| `tables_created_in_change` | `&HashSet<String>` | Tables created in the current set of changed files |
+| `tables_created_in_change` | `&HashSet<RelationName>` | Tables created in the current set of changed files |
 | `run_in_transaction` | `bool` | Whether the migration unit runs in a transaction |
 | `is_down` | `bool` | Whether this is a down/rollback migration |
 | `file` | `&Path` | The source file being linted |
@@ -154,11 +154,16 @@ Provided to every rule's `check()` function:
   - `TableScope::ExcludeCreatedInChange` — same as `is_existing_table()`
   - `TableScope::AnyPreExisting` — table exists in `catalog_before` regardless of `tables_created_in_change`
 
+### Names
+
+- Relation names in the IR that rules receive are `ResolvedName`s. `name.relation()` is the `&RelationName` catalog key, and `name.display_name()` is the text for messages: the bare name when the schema came from `default_schema`, `schema.name` when the SQL wrote one.
+- `RelationName { schema, name }` has no `Display` impl, so a catalog key can't end up in a message. Use `display_name()`, or `TableState::display_name` for a table from the catalog.
+
 ### Catalog / TableState
 
 `Catalog` query methods:
 
-- `catalog.has_table(key)` / `catalog.get_table(key)` — look up a table by catalog key
+- `catalog.has_table(key)` / `catalog.get_table(key)` — look up a table by its `&RelationName` key
 - `catalog.get_index(name)` — look up an index across all tables
 - `catalog.table_for_index(name)` — find which table owns an index
 
@@ -209,7 +214,7 @@ pub fn check_column_types(
     ctx: &LintContext<'_>,
     rule: impl Rule,
     predicate: impl Fn(&TypeName) -> bool,
-    message_fn: impl Fn(&str, &QualifiedName, &TypeName) -> String,
+    message_fn: impl Fn(&str, &ResolvedName, &TypeName) -> String,
 ) -> Vec<Finding>
 ```
 
@@ -235,11 +240,13 @@ let catalog = CatalogBuilder::new()
 
 Methods: `column()`, `column_with_default()`, `index()`, `pk()`, `fk()`, `unique()`, `incomplete()`.
 
+Table names, including `fk()`'s referenced table, are written `"orders"` (meaning `public.orders`) or `"audit.orders"`. `rel("orders")` and `rel_in("audit", "orders")` from `src/catalog/builder.rs` build the matching `RelationName`, for example to fill the `created` set passed to `make_ctx()`.
+
 ### test_helpers
 
 - `make_ctx(before, after, file, created)` — build a `LintContext` with default settings (in transaction, not a down migration)
 - `make_ctx_with_txn(before, after, file, created, run_in_transaction)` — same but with explicit transaction flag
-- `located(node)` — wrap an `IrNode` in a `Located` with a dummy span at line 1
+- `located(node)` — take a parser-form `IrNode<QualifiedName>`, resolve its names against `public` as the pipeline would, and wrap it in a `Located` with a dummy span at line 1
 
 ### Insta snapshots
 

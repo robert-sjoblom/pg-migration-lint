@@ -28,7 +28,7 @@ mod tests;
 /// GRANT, COMMENT ON) are returned as `Ignored`.
 ///
 /// Line numbers in the returned `SourceSpan`s are 1-based.
-pub fn parse_sql(source: &str) -> Vec<Located<IrNode>> {
+pub fn parse_sql(source: &str) -> Vec<Located<IrNode<QualifiedName>>> {
     let result = match pg_query::parse(source) {
         Ok(r) => r,
         Err(_) => {
@@ -136,7 +136,7 @@ fn byte_offset_to_line(source: &str, offset: usize) -> usize {
 /// Most statements produce a single IR node. Multi-target statements like
 /// `DROP TABLE t1, t2` or `TRUNCATE t1, t2, t3 CASCADE` produce one node
 /// per target table.
-fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
+fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode<QualifiedName>> {
     match node {
         NodeEnum::CreateStmt(create) => vec![convert_create_table(create, raw_sql)],
         NodeEnum::AlterTableStmt(alter) => {
@@ -167,7 +167,10 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode> {
 }
 
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.
-fn convert_create_table(create: &pg_query::protobuf::CreateStmt, _raw_sql: &str) -> IrNode {
+fn convert_create_table(
+    create: &pg_query::protobuf::CreateStmt,
+    _raw_sql: &str,
+) -> IrNode<QualifiedName> {
     let name = relation_to_qualified_name(create.relation.as_ref());
 
     let persistence = if matches!(
@@ -287,7 +290,9 @@ fn optional_name(name: &str) -> Option<String> {
 ///
 /// Returns `(ColumnDef, Vec<TableConstraint>)` where the vector contains
 /// inline PRIMARY KEY, FOREIGN KEY, UNIQUE, and CHECK constraints.
-fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<TableConstraint>) {
+fn convert_column_def(
+    col: &pg_query::protobuf::ColumnDef,
+) -> (ColumnDef, Vec<TableConstraint<QualifiedName>>) {
     let col_name = col.colname.clone();
 
     // Extract type name
@@ -327,6 +332,7 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 constraints.push(TableConstraint::PrimaryKey {
                     name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
+                    include_columns: vec![],
                     using_index: None,
                 });
             }
@@ -345,20 +351,12 @@ fn convert_column_def(col: &pg_query::protobuf::ColumnDef) -> (ColumnDef, Vec<Ta
                 constraints.push(TableConstraint::Unique {
                     name: optional_name(&con.conname),
                     columns: vec![col_name.clone()],
+                    include_columns: vec![],
                     using_index: None,
                 });
             }
             pg_query::protobuf::ConstrType::ConstrCheck => {
-                let expression = con
-                    .raw_expr
-                    .as_ref()
-                    .map(|e| deparse_node(e))
-                    .unwrap_or_default();
-                constraints.push(TableConstraint::Check {
-                    name: optional_name(&con.conname),
-                    expression,
-                    not_valid: con.skip_validation,
-                });
+                constraints.push(convert_check_constraint(con));
             }
             _ => {}
         }
@@ -503,7 +501,10 @@ fn convert_default_expr_from_node(node: &NodeEnum) -> DefaultExpr {
 }
 
 /// Convert a pg_query `AlterTableStmt` to `IrNode::AlterTable`.
-fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> IrNode {
+fn convert_alter_table(
+    alter: &pg_query::protobuf::AlterTableStmt,
+    raw_sql: &str,
+) -> IrNode<QualifiedName> {
     let name = relation_to_qualified_name(alter.relation.as_ref());
 
     let mut actions = Vec::new();
@@ -530,7 +531,9 @@ fn convert_alter_table(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
 ///
 /// Returns a `Vec` because `ADD COLUMN` with inline constraints (e.g. FK,
 /// UNIQUE, CHECK) produces the column action *plus* constraint actions.
-fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<AlterTableAction> {
+fn convert_alter_table_cmd(
+    cmd: &pg_query::protobuf::AlterTableCmd,
+) -> Vec<AlterTableAction<QualifiedName>> {
     match cmd.subtype() {
         pg_query::protobuf::AlterTableType::AtAddColumn => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
@@ -697,7 +700,10 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
 ///
 /// pg_query represents `ALTER INDEX` as `AlterTableStmt` with `objtype = ObjectIndex`.
 /// We only model `ATTACH PARTITION`; all other ALTER INDEX subtypes are ignored.
-fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> Vec<IrNode> {
+fn convert_alter_index(
+    alter: &pg_query::protobuf::AlterTableStmt,
+    raw_sql: &str,
+) -> Vec<IrNode<QualifiedName>> {
     let parent_name = match alter.relation.as_ref() {
         Some(r) => relation_to_qualified_name(Some(r)),
         None => {
@@ -744,7 +750,10 @@ fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str
 /// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
 /// - `ObjectType::ObjectColumn` → `IrNode::RenameColumn`
 /// - Everything else → `IrNode::Ignored`
-fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -> IrNode {
+fn convert_rename_stmt(
+    rename: &pg_query::protobuf::RenameStmt,
+    raw_sql: &str,
+) -> IrNode<QualifiedName> {
     match rename.rename_type() {
         pg_query::protobuf::ObjectType::ObjectTable => {
             let name = relation_to_qualified_name(rename.relation.as_ref());
@@ -782,7 +791,7 @@ fn convert_rename_stmt(rename: &pg_query::protobuf::RenameStmt, raw_sql: &str) -
 fn convert_table_constraint(
     con: &pg_query::protobuf::Constraint,
     context_column: Option<&str>,
-) -> Option<TableConstraint> {
+) -> Option<TableConstraint<QualifiedName>> {
     let name = optional_name(&con.conname);
 
     match con.contype() {
@@ -796,6 +805,7 @@ fn convert_table_constraint(
             Some(TableConstraint::PrimaryKey {
                 name,
                 columns,
+                include_columns: extract_string_list(&con.including),
                 using_index: optional_name(&con.indexname),
             })
         }
@@ -826,26 +836,33 @@ fn convert_table_constraint(
             Some(TableConstraint::Unique {
                 name,
                 columns,
+                include_columns: extract_string_list(&con.including),
                 using_index: optional_name(&con.indexname),
             })
         }
-        pg_query::protobuf::ConstrType::ConstrCheck => {
-            let expression = con
-                .raw_expr
-                .as_ref()
-                .map(|e| deparse_node(e))
-                .unwrap_or_default();
-            Some(TableConstraint::Check {
-                name,
-                expression,
-                not_valid: con.skip_validation,
-            })
-        }
+        pg_query::protobuf::ConstrType::ConstrCheck => Some(convert_check_constraint(con)),
         pg_query::protobuf::ConstrType::ConstrExclusion => Some(TableConstraint::Exclude {
             name,
             elements: extract_exclusion_elements(&con.exclusions),
+            include_columns: extract_string_list(&con.including),
         }),
         _ => None,
+    }
+}
+
+/// Convert a CHECK `Constraint` node, written on a column or on the table,
+/// into `TableConstraint::Check`.
+fn convert_check_constraint(
+    con: &pg_query::protobuf::Constraint,
+) -> TableConstraint<QualifiedName> {
+    let raw_expr = con.raw_expr.as_deref();
+    TableConstraint::Check {
+        name: optional_name(&con.conname),
+        expression: raw_expr.map(deparse_node).unwrap_or_default(),
+        referenced_columns: raw_expr
+            .map(distinct_column_refs_in_order)
+            .unwrap_or_default(),
+        not_valid: con.skip_validation,
     }
 }
 
@@ -863,8 +880,90 @@ fn index_elem_to_column(elem: &pg_query::protobuf::IndexElem) -> Option<IndexCol
         elem.expr.as_ref().map(|expr_node| IndexColumn::Expression {
             text: deparse_node(expr_node),
             referenced_columns: extract_column_refs(expr_node),
+            generated_name_part: expression_name_part(expr_node),
         })
     }
+}
+
+/// How firmly a candidate name part holds against an enclosing cast or CASE,
+/// after the strength levels in Postgres's `FigureColnameInternal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NamePartStrength {
+    /// A type name or `case`: an enclosing cast or CASE replaces it with its own.
+    Fallback,
+    /// A column, field or function name: every enclosing node keeps it.
+    Definite,
+}
+
+/// The name part Postgres derives for an expression index or EXCLUDE element,
+/// following `FigureIndexColname`. An expression it cannot name gives
+/// [`IndexColumn::UNNAMED_EXPRESSION_NAME_PART`].
+///
+/// Each node kind handled here has its naming asserted in
+/// `verify/tests/naming/create_index.sql`; any other kind falls back.
+fn expression_name_part(expr: &pg_query::protobuf::Node) -> String {
+    figure_name_part(expr)
+        .map(|(name, _)| name)
+        .unwrap_or_else(|| IndexColumn::UNNAMED_EXPRESSION_NAME_PART.to_string())
+}
+
+/// Recursive core of [`expression_name_part`]: the candidate name part for one
+/// node and how firmly it holds, or `None` when the node yields no name.
+fn figure_name_part(node: &pg_query::protobuf::Node) -> Option<(String, NamePartStrength)> {
+    use NamePartStrength::{Definite, Fallback};
+    use pg_query::protobuf::{AExprKind, MinMaxOp};
+
+    let definite = |name: String| Some((name, Definite));
+
+    match node.node.as_ref()? {
+        NodeEnum::ColumnRef(column) => last_string_value(&column.fields).and_then(definite),
+        NodeEnum::AIndirection(indirection) => match last_string_value(&indirection.indirection) {
+            Some(field) => definite(field),
+            None => figure_name_part(indirection.arg.as_deref()?),
+        },
+        NodeEnum::FuncCall(call) => last_string_value(&call.funcname).and_then(definite),
+        NodeEnum::AExpr(expr) if expr.kind() == AExprKind::AexprNullif => {
+            definite("nullif".to_string())
+        }
+        NodeEnum::CoalesceExpr(_) => definite("coalesce".to_string()),
+        NodeEnum::MinMaxExpr(min_max) => match min_max.op() {
+            MinMaxOp::IsGreatest => definite("greatest".to_string()),
+            MinMaxOp::IsLeast => definite("least".to_string()),
+            MinMaxOp::Undefined => None,
+        },
+        NodeEnum::AArrayExpr(_) => definite("array".to_string()),
+        NodeEnum::CollateClause(collate) => figure_name_part(collate.arg.as_deref()?),
+        NodeEnum::TypeCast(cast) => {
+            let operand = cast.arg.as_deref().and_then(figure_name_part);
+            if matches!(operand, Some((_, Definite))) {
+                return operand;
+            }
+            cast.type_name
+                .as_ref()
+                .and_then(|type_name| last_string_value(&type_name.names))
+                .map(|type_name| (type_name, Fallback))
+                .or(operand)
+        }
+        NodeEnum::CaseExpr(case) => {
+            let else_result = case.defresult.as_deref().and_then(figure_name_part);
+            if matches!(else_result, Some((_, Definite))) {
+                else_result
+            } else {
+                Some(("case".to_string(), Fallback))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The value of the last `String` node in a name list such as
+/// `ColumnRef.fields`, `FuncCall.funcname` or `TypeName.names`, skipping
+/// `*` and subscripts.
+fn last_string_value(nodes: &[pg_query::protobuf::Node]) -> Option<String> {
+    nodes.iter().rev().find_map(|n| match n.node.as_ref() {
+        Some(NodeEnum::String(s)) => Some(s.sval.clone()),
+        _ => None,
+    })
 }
 
 /// Extract the element list from an EXCLUDE constraint's `exclusions` field.
@@ -887,7 +986,7 @@ fn extract_exclusion_elements(exclusions: &[pg_query::protobuf::Node]) -> Vec<In
 }
 
 /// Convert a pg_query `IndexStmt` to `IrNode::CreateIndex`.
-fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
+fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode<QualifiedName> {
     let table_name = relation_to_qualified_name(idx.relation.as_ref());
 
     let index_name = if idx.idxname.is_empty() {
@@ -901,6 +1000,15 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         .iter()
         .filter_map(|p| match p.node.as_ref() {
             Some(NodeEnum::IndexElem(elem)) => index_elem_to_column(elem),
+            _ => None,
+        })
+        .collect();
+
+    let include_columns: Vec<String> = idx
+        .index_including_params
+        .iter()
+        .filter_map(|p| match p.node.as_ref() {
+            Some(NodeEnum::IndexElem(elem)) if !elem.name.is_empty() => Some(elem.name.clone()),
             _ => None,
         })
         .collect();
@@ -923,6 +1031,7 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
         index_name,
         table_name,
         columns,
+        include_columns,
         unique: idx.unique,
         concurrent: idx.concurrent,
         if_not_exists: idx.if_not_exists,
@@ -940,7 +1049,10 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 /// - `ObjectType::ObjectIndex` -> `IrNode::DropIndex` (one per index)
 /// - `ObjectType::ObjectTable` -> `IrNode::DropTable` (one per table)
 /// - Everything else -> `IrNode::Ignored`
-fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<IrNode> {
+fn convert_drop_stmt(
+    drop: &pg_query::protobuf::DropStmt,
+    raw_sql: &str,
+) -> Vec<IrNode<QualifiedName>> {
     match drop.remove_type() {
         pg_query::protobuf::ObjectType::ObjectIndex => {
             let qualified_names = extract_all_qualified_names_from_drop_objects(&drop.objects);
@@ -1006,7 +1118,7 @@ fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<
 ///
 /// `TRUNCATE t1, t2, t3 CASCADE` produces three `TruncateTable` nodes,
 /// all sharing the same `cascade` flag.
-fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode> {
+fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode<QualifiedName>> {
     let cascade = trunc.behavior() == pg_query::protobuf::DropBehavior::DropCascade;
 
     trunc
@@ -1025,24 +1137,24 @@ fn convert_truncate_stmt(trunc: &pg_query::protobuf::TruncateStmt) -> Vec<IrNode
 }
 
 /// Convert an `InsertStmt` to `IrNode::InsertInto`.
-fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt) -> IrNode {
+fn convert_insert_stmt(insert: &pg_query::protobuf::InsertStmt) -> IrNode<QualifiedName> {
     let table_name = relation_to_qualified_name(insert.relation.as_ref());
     IrNode::InsertInto(InsertInto { table_name })
 }
 
 /// Convert an `UpdateStmt` to `IrNode::UpdateTable`.
-fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt) -> IrNode {
+fn convert_update_stmt(update: &pg_query::protobuf::UpdateStmt) -> IrNode<QualifiedName> {
     let table_name = relation_to_qualified_name(update.relation.as_ref());
     IrNode::UpdateTable(UpdateTable { table_name })
 }
 
 /// Convert a `DeleteStmt` to `IrNode::DeleteFrom`.
-fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode {
+fn convert_delete_stmt(delete: &pg_query::protobuf::DeleteStmt) -> IrNode<QualifiedName> {
     let table_name = relation_to_qualified_name(delete.relation.as_ref());
     IrNode::DeleteFrom(DeleteFrom { table_name })
 }
 
-fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
+fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode<QualifiedName> {
     let table = relation_to_qualified_name(cluster.relation.as_ref());
     let index = if cluster.indexname.is_empty() {
         None
@@ -1056,7 +1168,7 @@ fn convert_cluster_stmt(cluster: &pg_query::protobuf::ClusterStmt) -> IrNode {
 ///
 /// Only `VACUUM FULL` is relevant — it rewrites the table under ACCESS EXCLUSIVE.
 /// Plain `VACUUM` (no `FULL` option) is mapped to `Ignored`.
-fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
+fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode<QualifiedName>> {
     let is_full = vacuum.options.iter().any(|n| {
         matches!(
             n.node.as_ref(),
@@ -1092,7 +1204,7 @@ fn convert_vacuum_stmt(vacuum: &pg_query::protobuf::VacuumStmt) -> Vec<IrNode> {
 ///
 /// `REINDEX` without `CONCURRENTLY` acquires ACCESS EXCLUSIVE lock on the
 /// target table (or parent table for INDEX). All four object kinds are mapped.
-fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
+fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode<QualifiedName> {
     use pg_query::protobuf::ReindexObjectType;
 
     let concurrent = reindex.params.iter().any(|n| {
@@ -1325,6 +1437,83 @@ fn walk_node_for_column_refs(node: &pg_query::protobuf::Node, refs: &mut Vec<Str
     }
 }
 
+/// Distinct column names an expression references, in order of first
+/// appearance, from every `ColumnRef` anywhere in it.
+///
+/// Used for CHECK constraints, whose generated name depends on how many
+/// distinct columns they reference. Unlike [`extract_column_refs`], this also
+/// descends into IN lists, BETWEEN bounds, subscripts, COLLATE, named
+/// arguments, ROW and ARRAY constructors, and `IS TRUE` and `IS JSON` tests.
+fn distinct_column_refs_in_order(node: &pg_query::protobuf::Node) -> Vec<String> {
+    let mut refs = Vec::new();
+    collect_distinct_column_refs(node, &mut refs);
+    refs
+}
+
+/// Recursive helper for [`distinct_column_refs_in_order`].
+fn collect_distinct_column_refs(node: &pg_query::protobuf::Node, refs: &mut Vec<String>) {
+    let Some(inner) = &node.node else {
+        return;
+    };
+    if let NodeEnum::ColumnRef(column) = inner {
+        if let Some(last) = column.fields.last()
+            && let Some(NodeEnum::String(s)) = &last.node
+            && !refs.contains(&s.sval)
+        {
+            refs.push(s.sval.clone());
+        }
+        return;
+    }
+    for sub_expression in sub_expressions(inner) {
+        collect_distinct_column_refs(sub_expression, refs);
+    }
+}
+
+/// The direct sub-expressions of a raw expression node, in source order.
+fn sub_expressions(node: &NodeEnum) -> Vec<&pg_query::protobuf::Node> {
+    match node {
+        NodeEnum::AExpr(expr) => [expr.lexpr.as_deref(), expr.rexpr.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        NodeEnum::BoolExpr(expr) => expr.args.iter().collect(),
+        NodeEnum::FuncCall(call) => call.args.iter().collect(),
+        NodeEnum::NamedArgExpr(arg) => arg.arg.as_deref().into_iter().collect(),
+        NodeEnum::TypeCast(cast) => cast.arg.as_deref().into_iter().collect(),
+        NodeEnum::CollateClause(collate) => collate.arg.as_deref().into_iter().collect(),
+        NodeEnum::NullTest(test) => test.arg.as_deref().into_iter().collect(),
+        NodeEnum::BooleanTest(test) => test.arg.as_deref().into_iter().collect(),
+        NodeEnum::JsonIsPredicate(test) => test.expr.as_deref().into_iter().collect(),
+        NodeEnum::CaseExpr(case) => case
+            .arg
+            .as_deref()
+            .into_iter()
+            .chain(&case.args)
+            .chain(case.defresult.as_deref())
+            .collect(),
+        NodeEnum::CaseWhen(when) => [when.expr.as_deref(), when.result.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        NodeEnum::CoalesceExpr(coalesce) => coalesce.args.iter().collect(),
+        NodeEnum::MinMaxExpr(min_max) => min_max.args.iter().collect(),
+        NodeEnum::RowExpr(row) => row.args.iter().collect(),
+        NodeEnum::AArrayExpr(array) => array.elements.iter().collect(),
+        NodeEnum::List(list) => list.items.iter().collect(),
+        NodeEnum::AIndirection(indirection) => indirection
+            .arg
+            .as_deref()
+            .into_iter()
+            .chain(&indirection.indirection)
+            .collect(),
+        NodeEnum::AIndices(indices) => [indices.lidx.as_deref(), indices.uidx.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Deparse a pg_query node back to SQL text using pg_query's deparser.
 ///
 /// Falls back to a debug representation if deparsing fails.
@@ -1362,24 +1551,34 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
 /// Try to extract a table name hint from raw SQL that failed to parse.
 ///
 /// This is a best-effort heuristic used to mark tables as incomplete in the catalog.
-fn extract_table_hint_from_raw(sql: &str) -> Option<String> {
+fn extract_table_hint_from_raw(sql: &str) -> Option<QualifiedName> {
     let upper = sql.to_uppercase();
 
     // Try to find "ALTER TABLE <name>" pattern
     let kw = "ALTER TABLE";
     if let Some(pos) = upper.find(kw) {
         let rest = &sql[pos + kw.len()..];
-        return extract_first_identifier(rest);
+        return extract_first_identifier(rest).map(|ident| qualified_name_from_identifier(&ident));
     }
 
     // Try to find "CREATE TABLE <name>" pattern
     let kw = "CREATE TABLE";
     if let Some(pos) = upper.find(kw) {
         let rest = &sql[pos + kw.len()..];
-        return extract_first_identifier(rest);
+        return extract_first_identifier(rest).map(|ident| qualified_name_from_identifier(&ident));
     }
 
     None
+}
+
+/// Split an identifier taken from raw SQL text at its first `.` into schema
+/// and name. Quotes are already stripped, so a quoted name containing a dot
+/// splits in the wrong place; acceptable for a best-effort hint.
+fn qualified_name_from_identifier(ident: &str) -> QualifiedName {
+    match ident.split_once('.') {
+        Some((schema, name)) => QualifiedName::qualified(schema, name),
+        None => QualifiedName::unqualified(ident),
+    }
 }
 
 /// Extract the first SQL identifier from a string, skipping whitespace and keywords.
