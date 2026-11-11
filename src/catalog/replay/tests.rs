@@ -218,7 +218,7 @@ fn test_index_removal() {
         CreateIndex::test(Some("idx_a".to_string()), qname("t"))
             .with_columns(vec![IndexColumn::Column("a".to_string())])
             .into(),
-        DropIndex::test("idx_a").with_if_exists(false).into(),
+        DropIndex::test(qname("idx_a")).with_if_exists(false).into(),
     ]);
 
     apply(&mut catalog, &unit);
@@ -523,7 +523,7 @@ fn test_drop_index_nonexistent_silently_skips() {
         CreateIndex::test(Some("idx_a".to_string()), qname("t"))
             .with_columns(vec![IndexColumn::Column("a".to_string())])
             .into(),
-        DropIndex::test("idx_nonexistent")
+        DropIndex::test(qname("idx_nonexistent"))
             .with_if_exists(false)
             .into(),
     ]);
@@ -2545,7 +2545,7 @@ fn test_alter_index_attach_partition_flips_only() {
 
     // ALTER INDEX ATTACH PARTITION flips only to false
     let unit2 = make_unit(vec![IrNode::AlterIndexAttachPartition {
-        parent_index_name: "idx_parent".to_string(),
+        parent_index_name: QualifiedName::unqualified("idx_parent"),
         child_index_name: QualifiedName::unqualified("idx_child"),
     }]);
     apply(&mut catalog, &unit2);
@@ -2572,7 +2572,7 @@ fn test_alter_index_attach_partition_missing_index_is_noop() {
 
     // ATTACH PARTITION on an index that doesn't exist — should not panic
     let unit2 = make_unit(vec![IrNode::AlterIndexAttachPartition {
-        parent_index_name: "idx_nonexistent".to_string(),
+        parent_index_name: QualifiedName::unqualified("idx_nonexistent"),
         child_index_name: QualifiedName::unqualified("idx_child"),
     }]);
     apply(&mut catalog, &unit2);

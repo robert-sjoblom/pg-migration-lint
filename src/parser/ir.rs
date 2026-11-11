@@ -32,7 +32,7 @@ pub enum IrNode {
     /// `ALTER INDEX parent ATTACH PARTITION child` — attaches a child index
     /// to a parent ON ONLY index, making it valid (recursive).
     AlterIndexAttachPartition {
-        parent_index_name: String,
+        parent_index_name: QualifiedName,
         child_index_name: QualifiedName,
     },
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
@@ -199,7 +199,7 @@ pub struct CreateIndex {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DropIndex {
-    pub index_name: String,
+    pub index_name: QualifiedName,
     pub concurrent: bool,
     pub if_exists: bool,
 }
@@ -720,9 +720,9 @@ impl DropTable {
 #[cfg(test)]
 impl DropIndex {
     /// Minimal DROP INDEX: not concurrent, if_exists defaults to true.
-    pub fn test(index_name: impl Into<String>) -> Self {
+    pub fn test(index_name: QualifiedName) -> Self {
         Self {
-            index_name: index_name.into(),
+            index_name,
             concurrent: false,
             if_exists: true,
         }

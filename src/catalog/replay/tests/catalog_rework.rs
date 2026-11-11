@@ -1,4 +1,3 @@
-
 // --- Scratch snapshot scaffold for the schema-scoped-index-collision investigation ---
 //
 // See TODO.md "Design: per-schema `SchemaState` catalog structure". These tests parse real

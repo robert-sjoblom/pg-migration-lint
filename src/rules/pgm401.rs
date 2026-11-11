@@ -32,7 +32,7 @@ pub(super) fn check(
                 findings.push(rule.make_finding(
                     format!(
                         "DROP INDEX '{}': add IF EXISTS for idempotent migrations.",
-                        di.index_name
+                        di.index_name.name
                     ),
                     ctx.file,
                     &stmt.span,
@@ -88,7 +88,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm401.check(&stmts, &ctx);
@@ -102,7 +102,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(DropIndex::test(
-            "idx_orders_status",
+            QualifiedName::unqualified("idx_orders_status"),
         )))];
 
         let findings = RuleId::Pgm401.check(&stmts, &ctx);

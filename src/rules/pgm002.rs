@@ -23,7 +23,8 @@ pub(super) fn check(
             }
 
             // Look up which table owns this index via the catalog's reverse index.
-            let Some(table_name) = ctx.catalog_before.table_for_index(&di.index_name) else {
+            let index_name = &di.index_name.name;
+            let Some(table_name) = ctx.catalog_before.table_for_index(index_name) else {
                 continue;
             };
 
@@ -37,7 +38,7 @@ pub(super) fn check(
             let is_partitioned = table.map(|t| t.is_partitioned).unwrap_or(false);
             let idx_is_only = ctx
                 .catalog_before
-                .get_index(&di.index_name)
+                .get_index(index_name)
                 .map(|idx| idx.only)
                 .unwrap_or(false);
 
@@ -56,7 +57,7 @@ pub(super) fn check(
                         "DROP INDEX '{}' on partitioned table '{}' will lock all \
                             partitions. CONCURRENTLY is not supported for partitioned \
                             parent indexes.",
-                        di.index_name, display_name,
+                        index_name, display_name,
                     ),
                     ctx.file,
                     &stmt.span,
@@ -67,7 +68,7 @@ pub(super) fn check(
                     format!(
                         "DROP INDEX '{}' on existing table '{}' should use CONCURRENTLY \
                             to avoid holding an exclusive lock.",
-                        di.index_name, display_name,
+                        index_name, display_name,
                     ),
                     ctx.file,
                     &stmt.span,
@@ -102,7 +103,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm002.check(&stmts, &ctx);
@@ -123,7 +124,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm002.check(&stmts, &ctx);
@@ -145,7 +146,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm002.check(&stmts, &ctx);
@@ -170,7 +171,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm002.check(&stmts, &ctx);
@@ -197,7 +198,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/005.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status").with_if_exists(false),
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status")).with_if_exists(false),
         ))];
 
         let findings = RuleId::Pgm002.check(&stmts, &ctx);
@@ -229,7 +230,7 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
 
         let stmts = vec![located(IrNode::DropIndex(
-            DropIndex::test("idx_orders_status")
+            DropIndex::test(QualifiedName::unqualified("idx_orders_status"))
                 .with_concurrent(true)
                 .with_if_exists(false),
         ))];

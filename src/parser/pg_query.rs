@@ -699,7 +699,7 @@ fn convert_alter_table_cmd(cmd: &pg_query::protobuf::AlterTableCmd) -> Vec<Alter
 /// We only model `ATTACH PARTITION`; all other ALTER INDEX subtypes are ignored.
 fn convert_alter_index(alter: &pg_query::protobuf::AlterTableStmt, raw_sql: &str) -> Vec<IrNode> {
     let parent_name = match alter.relation.as_ref() {
-        Some(r) => r.relname.clone(),
+        Some(r) => relation_to_qualified_name(Some(r)),
         None => {
             return vec![IrNode::Ignored {
                 raw_sql: raw_sql.to_string(),
@@ -943,17 +943,17 @@ fn convert_create_index(idx: &pg_query::protobuf::IndexStmt) -> IrNode {
 fn convert_drop_stmt(drop: &pg_query::protobuf::DropStmt, raw_sql: &str) -> Vec<IrNode> {
     match drop.remove_type() {
         pg_query::protobuf::ObjectType::ObjectIndex => {
-            let names = extract_all_names_from_drop_objects(&drop.objects);
-            if names.is_empty() {
+            let qualified_names = extract_all_qualified_names_from_drop_objects(&drop.objects);
+            if qualified_names.is_empty() {
                 return vec![IrNode::Ignored {
                     raw_sql: raw_sql.to_string(),
                 }];
             }
-            names
+            qualified_names
                 .into_iter()
-                .map(|name| {
+                .map(|index_name| {
                     IrNode::DropIndex(DropIndex {
-                        index_name: name,
+                        index_name,
                         concurrent: drop.concurrent,
                         if_exists: drop.missing_ok,
                     })
@@ -1136,29 +1136,6 @@ fn convert_reindex_stmt(reindex: &pg_query::protobuf::ReindexStmt) -> IrNode {
     })
 }
 
-/// Extract ALL object names from `DropStmt.objects[]`.
-///
-/// For `DROP INDEX idx1, idx2`, returns `["idx1", "idx2"]`.
-fn extract_all_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) -> Vec<String> {
-    objects
-        .iter()
-        .filter_map(|obj| {
-            if let Some(NodeEnum::List(list)) = obj.node.as_ref() {
-                // Take the last string item as the name
-                list.items.iter().rev().find_map(|item| {
-                    if let Some(NodeEnum::String(s)) = item.node.as_ref() {
-                        Some(s.sval.clone())
-                    } else {
-                        None
-                    }
-                })
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
 /// Extract schema names from `DropStmt.objects[]` for `DROP SCHEMA`.
 ///
 /// Unlike tables/indexes (where objects are wrapped in `List` nodes), schema
@@ -1176,7 +1153,8 @@ fn extract_schema_names_from_drop_objects(objects: &[pg_query::protobuf::Node]) 
         .collect()
 }
 
-/// Extract ALL qualified names from `DropStmt.objects[]` for multi-table DROP.
+/// Extract ALL qualified names from `DropStmt.objects[]` for multi-object
+/// `DROP TABLE` / `DROP INDEX`.
 ///
 /// For `DROP TABLE foo, myschema.bar`, returns both names.
 fn extract_all_qualified_names_from_drop_objects(

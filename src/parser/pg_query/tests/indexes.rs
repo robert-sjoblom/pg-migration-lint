@@ -27,6 +27,16 @@ fn expr_index_refs(expr: &str) -> Vec<String> {
     }
 }
 
+fn parsed_drop_index_names(sql: &str) -> Vec<QualifiedName> {
+    parse_sql(sql)
+        .into_iter()
+        .map(|located| match located.node {
+            IrNode::DropIndex(di) => di.index_name,
+            other => panic!("Expected DropIndex for `{sql}`, got: {other:?}"),
+        })
+        .collect()
+}
+
 #[test]
 fn test_parse_create_index() {
     let sql = "CREATE INDEX idx_status ON orders (status);";
@@ -110,13 +120,13 @@ fn test_parse_drop_index_multi() {
     assert_eq!(nodes.len(), 2);
     match &nodes[0].node {
         IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx1");
+            assert_eq!(di.index_name.name, "idx1");
         }
         other => panic!("Expected DropIndex, got: {:?}", other),
     }
     match &nodes[1].node {
         IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx2");
+            assert_eq!(di.index_name.name, "idx2");
         }
         other => panic!("Expected DropIndex, got: {:?}", other),
     }
@@ -147,7 +157,7 @@ fn test_parse_drop_index_flags(
     match &nodes[0].node {
         IrNode::DropIndex(di) => {
             assert_eq!(
-                di.index_name, expected_index_name,
+                di.index_name.name, expected_index_name,
                 "index_name mismatch for: {sql}"
             );
             assert_eq!(di.concurrent, concurrent, "concurrent mismatch for: {sql}");
@@ -159,21 +169,40 @@ fn test_parse_drop_index_flags(
 
 #[test]
 fn test_parse_drop_index_multi_schema_qualified() {
-    let sql = "DROP INDEX myschema.idx1, myschema.idx2;";
-    let nodes = parse_sql(sql);
-    assert_eq!(nodes.len(), 2);
-    match &nodes[0].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx1");
-        }
-        other => panic!("Expected DropIndex for idx1, got: {:?}", other),
-    }
-    match &nodes[1].node {
-        IrNode::DropIndex(di) => {
-            assert_eq!(di.index_name, "idx2");
-        }
-        other => panic!("Expected DropIndex for idx2, got: {:?}", other),
-    }
+    assert_eq!(
+        parsed_drop_index_names("DROP INDEX myschema.idx1, myschema.idx2;"),
+        vec![
+            QualifiedName::qualified("myschema", "idx1"),
+            QualifiedName::qualified("myschema", "idx2"),
+        ]
+    );
+}
+
+#[test]
+fn test_parse_drop_index_schema_qualified_keeps_schema() {
+    assert_eq!(
+        parsed_drop_index_names("DROP INDEX myschema.idx_status;"),
+        vec![QualifiedName::qualified("myschema", "idx_status")]
+    );
+}
+
+#[test]
+fn test_parse_drop_index_unqualified_has_no_schema() {
+    assert_eq!(
+        parsed_drop_index_names("DROP INDEX idx_status;"),
+        vec![QualifiedName::unqualified("idx_status")]
+    );
+}
+
+#[test]
+fn test_parse_drop_index_multi_mixed_qualification() {
+    assert_eq!(
+        parsed_drop_index_names("DROP INDEX a.x, y;"),
+        vec![
+            QualifiedName::qualified("a", "x"),
+            QualifiedName::unqualified("y"),
+        ]
+    );
 }
 
 // TODO: can we find out the name they're given?
@@ -367,7 +396,7 @@ fn test_alter_index_attach_partition() {
             parent_index_name,
             child_index_name,
         } => {
-            assert_eq!(parent_index_name, "idx_parent");
+            assert_eq!(parent_index_name, &QualifiedName::unqualified("idx_parent"));
             assert_eq!(child_index_name.name, "idx_child");
             assert!(child_index_name.schema.is_none());
         }
@@ -385,8 +414,10 @@ fn test_alter_index_attach_partition_schema_qualified() {
             parent_index_name,
             child_index_name,
         } => {
-            // pg_query puts the parent name in relation.relname (without schema for index name lookup)
-            assert_eq!(parent_index_name, "idx_parent");
+            assert_eq!(
+                parent_index_name,
+                &QualifiedName::qualified("myschema", "idx_parent")
+            );
             assert_eq!(child_index_name.name, "idx_child");
             assert_eq!(child_index_name.schema.as_deref(), Some("myschema"));
         }
