@@ -286,115 +286,115 @@ expression: findings
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'users' without IF NOT EXISTS will fail if the table already exists."
   file: 001-base-tables.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'accounts': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'accounts' without IF NOT EXISTS will fail if the table already exists."
   file: 001-base-tables.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'subscriptions' without IF NOT EXISTS will fail if the table already exists."
   file: 001-base-tables.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'products' without IF NOT EXISTS will fail if the table already exists."
   file: 001-base-tables.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'orders' without IF NOT EXISTS will fail if the table already exists."
   file: 002-orders.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'order_actions': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'order_actions' without IF NOT EXISTS will fail if the table already exists."
   file: 002-orders.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'subscription_items' without IF NOT EXISTS will fail if the table already exists."
   file: 002-orders.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_order_actions_order_id': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_order_actions_order_id' without IF NOT EXISTS will fail if the index already exists."
   file: 002-orders.xml
   start_line: 2
   end_line: 2
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_subscription_items_subscription' without IF NOT EXISTS will fail if the index already exists."
   file: 002-orders.xml
   start_line: 2
   end_line: 2
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_orders_account_id': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_orders_account_id' without IF NOT EXISTS will fail if the index already exists."
   file: 002-orders.xml
   start_line: 3
   end_line: 3
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_users_email': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_users_email' without IF NOT EXISTS will fail if the index already exists."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_subscriptions_account_id': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_subscriptions_account_id' without IF NOT EXISTS will fail if the index already exists."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_products_name_article': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_products_name_article' without IF NOT EXISTS will fail if the index already exists."
   file: 004-create-indexes.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'event_log' without IF NOT EXISTS will fail if the table already exists."
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'subscription_invoices' without IF NOT EXISTS will fail if the table already exists."
   file: 006-table-no-pk.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'price_plans': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'price_plans' without IF NOT EXISTS will fail if the table already exists."
   file: 007-volatile-defaults.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'price_plan_products': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'price_plan_products' without IF NOT EXISTS will fail if the table already exists."
   file: 007-volatile-defaults.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_users_display_name': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_users_display_name' without IF NOT EXISTS will fail if the index already exists."
   file: 012-suppressed.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'suppressed_audit': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'suppressed_audit' without IF NOT EXISTS will fail if the table already exists."
   file: 012-suppressed.xml
   start_line: 1
   end_line: 1

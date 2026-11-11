@@ -21,7 +21,7 @@ pub(super) fn check(
             IrNode::CreateTable(ct) if !ct.if_not_exists => {
                 findings.push(rule.make_finding(
                     format!(
-                        "CREATE TABLE '{}': add IF NOT EXISTS for idempotent migrations.",
+                        "CREATE TABLE '{}' without IF NOT EXISTS will fail if the table already exists.",
                         ct.name.display_name()
                     ),
                     ctx.file,
@@ -32,7 +32,7 @@ pub(super) fn check(
                 let index_name = ci.index_name.as_deref().unwrap_or("<unnamed>");
                 findings.push(rule.make_finding(
                     format!(
-                        "CREATE INDEX '{}': add IF NOT EXISTS for idempotent migrations.",
+                        "CREATE INDEX '{}' without IF NOT EXISTS will fail if the index already exists.",
                         index_name
                     ),
                     ctx.file,
