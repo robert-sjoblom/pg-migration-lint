@@ -779,7 +779,7 @@ mod strip_prefix_hunk_routing_tests {
 
     #[test]
     fn lint_history_never_strips_paths_even_when_configured() {
-        let mut history = history_with_a_finding("impl/migrations/001-create-events.sql");
+        let history = history_with_a_finding("impl/migrations/001-create-events.sql");
         let mut config = Config::default();
         config.output.strip_prefix = Some("impl/".to_string());
 
@@ -800,7 +800,7 @@ mod strip_prefix_hunk_routing_tests {
 
     #[test]
     fn strip_prefix_configured_does_not_break_hunk_routing() {
-        let mut history = history_with_a_finding("impl/migrations/001-create-events.sql");
+        let history = history_with_a_finding("impl/migrations/001-create-events.sql");
         let mut config = Config::default();
         config.output.strip_prefix = Some("impl/".to_string());
 
@@ -943,7 +943,7 @@ mod config_path_hunk_routing_tests {
         let _cwd = WorkingDirectoryGuard::enter(repo.path());
 
         let config = load_config(&None).expect("config should load");
-        let mut history = load_migrations(&config).expect("migrations should load");
+        let history = load_migrations(&config).expect("migrations should load");
         let findings = lint_history(history, &config, None);
 
         assert!(
@@ -982,7 +982,7 @@ mod config_path_hunk_routing_tests {
 
         let config_path = repo.path().join(DEFAULT_CONFIG_FILE);
         let config = load_config(&Some(config_path)).expect("config should load");
-        let mut history = load_migrations(&config).expect("migrations should load");
+        let history = load_migrations(&config).expect("migrations should load");
         let findings = lint_history(history, &config, None);
 
         assert!(!findings.is_empty());
@@ -1015,7 +1015,7 @@ mod config_path_hunk_routing_tests {
         let _cwd = WorkingDirectoryGuard::enter(&project);
 
         let config = load_config(&None).expect("config should load");
-        let mut history = load_migrations(&config).expect("migrations should load");
+        let history = load_migrations(&config).expect("migrations should load");
         let findings = lint_history(history, &config, None);
 
         assert!(!findings.is_empty());
@@ -1067,7 +1067,7 @@ mod config_path_hunk_routing_tests {
         let _cwd = WorkingDirectoryGuard::enter(&project);
 
         let config = load_config(&None).expect("config should load");
-        let mut history = load_migrations(&config).expect("migrations should load");
+        let history = load_migrations(&config).expect("migrations should load");
 
         assert!(
             history

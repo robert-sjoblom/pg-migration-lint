@@ -1,7 +1,5 @@
 use super::*;
-use crate::catalog::builder::{
-    CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel, rel_in,
-};
+use crate::catalog::builder::{CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel};
 use crate::normalize::{resolve_node, resolve_units};
 use rstest::rstest;
 use std::path::PathBuf;

@@ -31,8 +31,8 @@ fn test_repartition_reports_one_pgm024_finding_per_parent() {
 }
 
 /// End-to-end regression test for the same-unit DETACH-then-DROP guard,
-/// run through the real parser and `normalize_schemas` pass rather than
-/// hand-built IR, so it can catch a regression in normalization's handling
+/// run through the real parser and `normalize::resolve_units` rather than
+/// hand-built IR, so it can catch a regression in name resolution's handling
 /// of `AlterTableAction::DetachPartition`'s `child` field.
 #[test]
 fn test_safe_detach_then_drop_no_finding() {

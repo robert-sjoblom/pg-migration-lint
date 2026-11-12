@@ -2,7 +2,6 @@
 
 use crate::catalog::Catalog;
 use crate::catalog::builder::TEST_DEFAULT_SCHEMA;
-pub use crate::catalog::builder::{rel, rel_in};
 use crate::input::MigrationUnit;
 use crate::names::RelationName;
 use crate::normalize::resolve_node;
