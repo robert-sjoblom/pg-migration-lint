@@ -23,8 +23,8 @@ pub(super) fn check(
             }
 
             // Look up which table owns this index via the catalog's reverse index.
-            let index_name = di.index_name.name();
-            let Some(table_name) = ctx.catalog_before.table_for_index(index_name) else {
+            let index_key = di.index_name.relation();
+            let Some(table_name) = ctx.catalog_before.table_for_index(index_key) else {
                 continue;
             };
 
@@ -40,7 +40,7 @@ pub(super) fn check(
             let is_partitioned = table.map(|t| t.is_partitioned).unwrap_or(false);
             let idx_is_only = ctx
                 .catalog_before
-                .get_index(index_name)
+                .get_index(index_key)
                 .map(|idx| idx.only)
                 .unwrap_or(false);
 
@@ -90,7 +90,46 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located, normalized};
+    use crate::parser::pg_query::parse_sql;
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+
+    fn orders_and_events_with_idx_customer_in_two_schemas() -> crate::catalog::Catalog {
+        catalog_from_sql(
+            "CREATE TABLE analytics.orders (id int, customer_id int);
+             CREATE TABLE data.events (id int, customer_id int);
+             CREATE INDEX idx_customer ON analytics.orders (customer_id);
+             CREATE INDEX idx_customer ON data.events (customer_id);",
+        )
+    }
+
+    #[test]
+    fn test_drop_index_names_the_table_that_owns_it_in_its_schema() {
+        let before = orders_and_events_with_idx_customer_in_two_schemas();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(parse_sql("DROP INDEX analytics.idx_customer;"));
+
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "got {findings:?}");
+        assert_eq!(
+            findings[0].message,
+            "DROP INDEX 'analytics.idx_customer' on existing table 'analytics.orders' \
+             should use CONCURRENTLY to avoid holding an exclusive lock."
+        );
+    }
+
+    #[test]
+    fn test_drop_index_unqualified_ignores_same_named_indexes_outside_the_default_schema() {
+        let before = orders_and_events_with_idx_customer_in_two_schemas();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/003.sql");
+
+        let stmts = normalized(parse_sql("DROP INDEX idx_customer;"));
+
+        let findings = RuleId::Pgm002.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
+    }
 
     #[test]
     fn test_drop_index_qualified_by_user_reports_schema_in_message() {

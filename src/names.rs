@@ -26,6 +26,13 @@ impl RelationName {
             name: name.into(),
         }
     }
+
+    /// The relation called `name` in this relation's schema. A table's
+    /// indexes live in the table's schema, and a rename never changes the
+    /// schema, so bare index names and `RENAME TO` targets are keyed this way.
+    pub fn in_same_schema(&self, name: impl Into<String>) -> Self {
+        Self::new(self.schema.clone(), name)
+    }
 }
 
 /// A relation name from the SQL, resolved against the default schema.

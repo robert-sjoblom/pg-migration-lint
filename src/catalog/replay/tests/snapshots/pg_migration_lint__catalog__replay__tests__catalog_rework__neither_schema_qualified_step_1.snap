@@ -6,6 +6,6 @@ tables:
   public.events (indexes: events_pkey, events_pkey)
   public.metrics (indexes: idx_created_at, metrics_pkey, metrics_pkey)
 index_to_table lookups:
-  events_pkey -> public.events
-  idx_created_at -> public.metrics
-  metrics_pkey -> public.metrics
+  public.events_pkey -> public.events
+  public.idx_created_at -> public.metrics
+  public.metrics_pkey -> public.metrics

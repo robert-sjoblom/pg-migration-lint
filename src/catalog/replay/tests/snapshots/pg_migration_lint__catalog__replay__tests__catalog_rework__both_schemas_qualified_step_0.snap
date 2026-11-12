@@ -6,4 +6,5 @@ tables:
   analytics.orders (indexes: orders_pkey, orders_pkey)
   data.orders (indexes: orders_pkey, orders_pkey)
 index_to_table lookups:
-  orders_pkey -> data.orders
+  analytics.orders_pkey -> analytics.orders
+  data.orders_pkey -> data.orders

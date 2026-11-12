@@ -23,11 +23,9 @@ fn index_names(table: &TableState) -> BTreeSet<&str> {
 }
 
 fn assert_index_owned_by(catalog: &Catalog, index_name: &str, table_key: &str) {
-    assert_eq!(
-        index_names(table(catalog, table_key)),
-        BTreeSet::from([index_name]),
-    );
-    catalog.assert_index_owner(index_name, table_key);
+    let table = table(catalog, table_key);
+    assert_eq!(index_names(table), BTreeSet::from([index_name]));
+    catalog.assert_index_owner(&format!("{}.{index_name}", table.name.schema), table_key);
 }
 
 fn assert_pk_fully_dropped(catalog: &Catalog, table_key: &str, pk_index_name: &str) {
@@ -46,7 +44,7 @@ fn assert_pk_fully_dropped(catalog: &Catalog, table_key: &str, pk_index_name: &s
         "PK index should be gone, found {:?}",
         index_names(table),
     );
-    catalog.assert_index_unregistered(pk_index_name);
+    catalog.assert_index_unregistered(&format!("{}.{pk_index_name}", table.name.schema));
 }
 
 #[test]

@@ -23,12 +23,12 @@ fn snapshot_catalog(catalog: &Catalog) -> String {
     let mut tables: Vec<&TableState> = catalog.tables().collect();
     tables.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut all_index_names = std::collections::BTreeSet::new();
+    let mut all_index_keys = std::collections::BTreeSet::new();
     let mut out = String::from("tables:\n");
     for table in &tables {
         let mut index_names: Vec<&str> = table.indexes.iter().map(|i| i.name.as_str()).collect();
         index_names.sort_unstable();
-        all_index_names.extend(index_names.iter().map(|s| s.to_string()));
+        all_index_keys.extend(index_names.iter().map(|name| table.name.in_same_schema(*name)));
         let indexes = if index_names.is_empty() {
             "none".to_string()
         } else {
@@ -41,11 +41,11 @@ fn snapshot_catalog(catalog: &Catalog) -> String {
     }
 
     out.push_str("index_to_table lookups:\n");
-    for name in &all_index_names {
+    for key in &all_index_keys {
         let owner = catalog
-            .table_for_index(name)
+            .table_for_index(key)
             .map_or_else(|| "<none>".to_string(), schema_dot_name);
-        out.push_str(&format!("  {name} -> {owner}\n"));
+        out.push_str(&format!("  {} -> {owner}\n", schema_dot_name(key)));
     }
     out
 }

@@ -10,8 +10,9 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
     tables: HashMap<RelationName, TableState>,
-    /// Reverse lookup: bare index name → owning table.
-    index_to_table: HashMap<String, RelationName>,
+    /// Reverse lookup: index → owning table. An index lives in its table's
+    /// schema, so every key has the same schema as the table it maps to.
+    index_to_table: HashMap<RelationName, RelationName>,
 }
 
 impl Catalog {
@@ -34,46 +35,52 @@ impl Catalog {
     }
 
     pub(crate) fn insert_table(&mut self, table: TableState) {
-        // Register all indexes in the reverse lookup.
         for idx in &table.indexes {
             self.index_to_table
-                .insert(idx.name.clone(), table.name.clone());
+                .insert(table.name.in_same_schema(&idx.name), table.name.clone());
         }
         self.tables.insert(table.name.clone(), table);
     }
 
+    /// Remove a table, and the reverse-lookup entries of its indexes that
+    /// still point at it. An entry another table re-registered under the
+    /// same key stays.
     pub(crate) fn remove_table(&mut self, name: &RelationName) -> Option<TableState> {
-        if let Some(table) = self.tables.remove(name) {
-            for idx in &table.indexes {
-                self.index_to_table.remove(&idx.name);
+        let table = self.tables.remove(name)?;
+        for idx in &table.indexes {
+            let index_key = table.name.in_same_schema(&idx.name);
+            if self.index_to_table.get(&index_key) == Some(&table.name) {
+                self.index_to_table.remove(&index_key);
             }
-            Some(table)
-        } else {
-            None
         }
+        Some(table)
     }
 
-    /// Register an index in the reverse lookup.
-    pub(crate) fn register_index(&mut self, index_name: &str, table: &RelationName) {
-        self.index_to_table
-            .insert(index_name.to_string(), table.clone());
+    /// Register `index` as belonging to `table`. The index must be in the
+    /// table's schema.
+    pub(crate) fn register_index(&mut self, index: &RelationName, table: &RelationName) {
+        debug_assert_eq!(
+            index.schema, table.schema,
+            "an index lives in its table's schema"
+        );
+        self.index_to_table.insert(index.clone(), table.clone());
     }
 
-    /// Remove an index from the reverse lookup.
-    pub(crate) fn unregister_index(&mut self, index_name: &str) {
-        self.index_to_table.remove(index_name);
+    /// Remove `index` from the reverse lookup.
+    pub(crate) fn unregister_index(&mut self, index: &RelationName) {
+        self.index_to_table.remove(index);
     }
 
-    /// Look up which table owns a given index. O(1).
-    pub(crate) fn table_for_index(&self, index_name: &str) -> Option<&RelationName> {
-        self.index_to_table.get(index_name)
+    /// The table that owns `index`, looked up in `index`'s schema only. O(1).
+    pub(crate) fn table_for_index(&self, index: &RelationName) -> Option<&RelationName> {
+        self.index_to_table.get(index)
     }
 
-    /// Look up an index by name across all tables. Returns the `IndexState` if found.
-    pub(crate) fn get_index(&self, index_name: &str) -> Option<&IndexState> {
-        let table = self.index_to_table.get(index_name)?;
+    /// The state of `index`, looked up in `index`'s schema only.
+    pub(crate) fn get_index(&self, index: &RelationName) -> Option<&IndexState> {
+        let table = self.index_to_table.get(index)?;
         let table = self.tables.get(table)?;
-        table.indexes.iter().find(|idx| idx.name == index_name)
+        table.indexes.iter().find(|idx| idx.name == index.name)
     }
 
     pub fn tables(&self) -> impl Iterator<Item = &TableState> {
@@ -390,6 +397,17 @@ impl ConstraintState {
             | ConstraintState::Unique { name, .. }
             | ConstraintState::Check { name, .. }
             | ConstraintState::Exclude { name, .. } => name,
+        }
+    }
+
+    /// Give the constraint a new name.
+    pub(crate) fn rename(&mut self, new_name: &str) {
+        match self {
+            ConstraintState::PrimaryKey { name, .. }
+            | ConstraintState::ForeignKey { name, .. }
+            | ConstraintState::Unique { name, .. }
+            | ConstraintState::Check { name, .. }
+            | ConstraintState::Exclude { name, .. } => *name = new_name.to_string(),
         }
     }
 
