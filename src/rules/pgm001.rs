@@ -22,7 +22,7 @@ pub(super) fn check(
                 continue;
             }
 
-            let table_key = ci.table_name.catalog_key();
+            let table_key = ci.table_name.relation();
 
             // Only flag if table exists in catalog_before (pre-existing)
             // AND was not created in the current set of changed files.

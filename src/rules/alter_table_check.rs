@@ -28,7 +28,7 @@ where
     let mut findings = Vec::new();
     for stmt in statements {
         if let IrNode::AlterTable(ref at) = stmt.node {
-            let table_key = at.name.catalog_key();
+            let table_key = at.name.relation();
             if !ctx.table_matches_scope(table_key, scope) {
                 continue;
             }

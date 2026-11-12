@@ -23,7 +23,7 @@ pub(super) fn check(
             }
 
             // Look up which table owns this index via the catalog's reverse index.
-            let index_name = &di.index_name.name;
+            let index_name = di.index_name.name();
             let Some(table_name) = ctx.catalog_before.table_for_index(index_name) else {
                 continue;
             };
@@ -34,7 +34,9 @@ pub(super) fn check(
             }
 
             let table = ctx.catalog_before.get_table(table_name);
-            let display_name = table.map(|t| t.display_name.as_str()).unwrap_or(table_name);
+            let display_name = table
+                .map(|t| t.display_name.as_str())
+                .unwrap_or(table_name.name.as_str());
             let is_partitioned = table.map(|t| t.is_partitioned).unwrap_or(false);
             let idx_is_only = ctx
                 .catalog_before

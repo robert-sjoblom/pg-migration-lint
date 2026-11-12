@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use crate::Catalog;
 use crate::catalog::replay;
 use crate::input::MigrationUnit;
+use crate::names::RelationName;
 use crate::parser::ir::IrNode;
 use crate::rules::{self, Finding, LintContext, Rule, RuleId};
 
@@ -20,7 +21,7 @@ use crate::rules::{self, Finding, LintContext, Rule, RuleId};
 /// sequence internally.
 pub struct LintPipeline {
     catalog: Catalog,
-    tables_created_in_change: HashSet<String>,
+    tables_created_in_change: HashSet<RelationName>,
 }
 
 impl LintPipeline {
@@ -57,9 +58,9 @@ impl LintPipeline {
         // not a genuine creation, and must not mask rules on later statements.
         for stmt in &unit.statements {
             if let IrNode::CreateTable(ct) = &stmt.node {
-                let key = ct.name.catalog_key().to_string();
-                if !(ct.if_not_exists && catalog_before.has_table(&key)) {
-                    self.tables_created_in_change.insert(key);
+                let key = ct.name.relation();
+                if !(ct.if_not_exists && catalog_before.has_table(key)) {
+                    self.tables_created_in_change.insert(key.clone());
                 }
             }
         }

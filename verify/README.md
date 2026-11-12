@@ -60,6 +60,9 @@ container that never started cannot pass as a green run.
 `-- @claim:` lines saying what it establishes, and `-- @min_version: N` if it does not apply
 to every version. Call `assert_true` / `assert_false` / `assert_eq` /
 `assert_explain_contains` from `lib/framework.sql`; the runner collects the results table.
+For exact catalog names, `constraint_names`, `constraint_index` and `index_names` in the
+same file return sorted text that is never NULL, ready for `assert_eq` (a NULL actual makes
+`assert_eq` error out without recording a row, so the assertion would silently vanish).
 Each file gets a freshly created database.
 
 **Rust suite.** Add a file under `lock-tests/tests/`. One `#[rstest]` function per claim,

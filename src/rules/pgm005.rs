@@ -22,7 +22,7 @@ pub(super) fn check(
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
             if let AlterTableAction::AttachPartition { child } = action {
-                let child_key = child.catalog_key();
+                let child_key = child.relation();
 
                 if !ctx.catalog_before.has_table(child_key) {
                     return vec![];
@@ -35,7 +35,7 @@ pub(super) fn check(
                 if let Some(table) = ctx.catalog_before.get_table(child_key) {
                     // Look up the parent's partition key columns to verify
                     // the CHECK references the right columns.
-                    let parent_key = at.name.catalog_key();
+                    let parent_key = at.name.relation();
                     let partition_columns = ctx
                         .catalog_before
                         .get_table(parent_key)

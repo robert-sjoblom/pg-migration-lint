@@ -28,7 +28,7 @@ expression: findings
   end_line: 14
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_stock_product': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_stock_product' without IF NOT EXISTS will fail if the index already exists."
   file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
   start_line: 17
   end_line: 17
@@ -64,13 +64,13 @@ expression: findings
   end_line: 2
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_auth_users_email': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_auth_users_email' without IF NOT EXISTS will fail if the index already exists."
   file: repos/multi-schema/migrations/V003__same_name_isolation.sql
   start_line: 8
   end_line: 8
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_billing_users_acct': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_billing_users_acct' without IF NOT EXISTS will fail if the index already exists."
   file: repos/multi-schema/migrations/V003__same_name_isolation.sql
   start_line: 11
   end_line: 11
@@ -94,7 +94,7 @@ expression: findings
   end_line: 2
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'users' without IF NOT EXISTS will fail if the table already exists."
   file: repos/multi-schema/migrations/V004__drop_schema_isolation.sql
   start_line: 8
   end_line: 11

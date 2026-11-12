@@ -22,13 +22,13 @@ expression: findings
   end_line: 27
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'event_log': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'event_log' without IF NOT EXISTS will fail if the table already exists."
   file: 006-table-no-pk.xml
   start_line: 11
   end_line: 11
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'subscription_invoices' without IF NOT EXISTS will fail if the table already exists."
   file: 006-table-no-pk.xml
   start_line: 27
   end_line: 27

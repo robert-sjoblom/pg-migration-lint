@@ -3,14 +3,15 @@
 //! The catalog represents the database schema state at a point in migration history.
 //! It's built by replaying migrations in order.
 
+use crate::names::RelationName;
 use crate::parser::ir::{DefaultExpr, IndexColumn, PartitionStrategy, TypeName};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
-    tables: HashMap<String, TableState>,
-    /// Reverse lookup: index name → owning table key.
-    index_to_table: HashMap<String, String>,
+    tables: HashMap<RelationName, TableState>,
+    /// Reverse lookup: bare index name → owning table.
+    index_to_table: HashMap<String, RelationName>,
 }
 
 impl Catalog {
@@ -18,30 +19,30 @@ impl Catalog {
         Self::default()
     }
 
-    pub fn get_table(&self, name: &str) -> Option<&TableState> {
+    /// Look up a table by its schema-qualified name.
+    pub fn get_table(&self, name: &RelationName) -> Option<&TableState> {
         self.tables.get(name)
     }
 
-    pub(crate) fn get_table_mut(&mut self, name: &str) -> Option<&mut TableState> {
+    pub(crate) fn get_table_mut(&mut self, name: &RelationName) -> Option<&mut TableState> {
         self.tables.get_mut(name)
     }
 
-    pub fn has_table(&self, name: &str) -> bool {
+    /// True if a table with this schema-qualified name exists.
+    pub fn has_table(&self, name: &RelationName) -> bool {
         self.tables.contains_key(name)
     }
 
     pub(crate) fn insert_table(&mut self, table: TableState) {
         // Register all indexes in the reverse lookup.
         for idx in &table.indexes {
-            if !idx.name.is_empty() {
-                self.index_to_table
-                    .insert(idx.name.clone(), table.name.clone());
-            }
+            self.index_to_table
+                .insert(idx.name.clone(), table.name.clone());
         }
         self.tables.insert(table.name.clone(), table);
     }
 
-    pub(crate) fn remove_table(&mut self, name: &str) -> Option<TableState> {
+    pub(crate) fn remove_table(&mut self, name: &RelationName) -> Option<TableState> {
         if let Some(table) = self.tables.remove(name) {
             for idx in &table.indexes {
                 self.index_to_table.remove(&idx.name);
@@ -53,11 +54,9 @@ impl Catalog {
     }
 
     /// Register an index in the reverse lookup.
-    pub(crate) fn register_index(&mut self, index_name: &str, table_key: &str) {
-        if !index_name.is_empty() {
-            self.index_to_table
-                .insert(index_name.to_string(), table_key.to_string());
-        }
+    pub(crate) fn register_index(&mut self, index_name: &str, table: &RelationName) {
+        self.index_to_table
+            .insert(index_name.to_string(), table.clone());
     }
 
     /// Remove an index from the reverse lookup.
@@ -66,14 +65,14 @@ impl Catalog {
     }
 
     /// Look up which table owns a given index. O(1).
-    pub(crate) fn table_for_index(&self, index_name: &str) -> Option<&str> {
-        self.index_to_table.get(index_name).map(|s| s.as_str())
+    pub(crate) fn table_for_index(&self, index_name: &str) -> Option<&RelationName> {
+        self.index_to_table.get(index_name)
     }
 
     /// Look up an index by name across all tables. Returns the `IndexState` if found.
     pub(crate) fn get_index(&self, index_name: &str) -> Option<&IndexState> {
-        let table_key = self.index_to_table.get(index_name)?;
-        let table = self.tables.get(table_key)?;
+        let table = self.index_to_table.get(index_name)?;
+        let table = self.tables.get(table)?;
         table.indexes.iter().find(|idx| idx.name == index_name)
     }
 
@@ -81,24 +80,24 @@ impl Catalog {
         self.tables.values()
     }
 
-    /// Returns the catalog keys of all partition children of the given parent.
+    /// Returns the names of all partition children of the given parent.
     ///
     /// Computed on demand by scanning tables with matching `parent_table`.
     /// Partition queries are rare (only a few rules check them), so the O(n)
     /// scan is negligible compared to maintaining a bidirectional map.
-    pub(crate) fn get_partition_children(&self, key: &str) -> Vec<String> {
+    pub(crate) fn get_partition_children(&self, parent: &RelationName) -> Vec<RelationName> {
         self.tables
             .values()
-            .filter(|t| t.parent_table.as_deref() == Some(key))
+            .filter(|t| t.parent_table.as_ref() == Some(parent))
             .map(|t| t.name.clone())
             .collect()
     }
 
     /// Returns `true` if the given table is a partition child (has a `parent_table`).
     #[cfg(test)]
-    pub(crate) fn is_partition_child(&self, key: &str) -> bool {
+    pub(crate) fn is_partition_child(&self, table: &RelationName) -> bool {
         self.tables
-            .get(key)
+            .get(table)
             .and_then(|t| t.parent_table.as_ref())
             .is_some()
     }
@@ -113,7 +112,7 @@ pub struct PartitionByInfo {
 
 #[derive(Debug, Clone)]
 pub struct TableState {
-    pub name: String,
+    pub name: RelationName,
     /// User-facing name (omits synthetic schema prefix).
     pub display_name: String,
     pub columns: Vec<ColumnState>,
@@ -127,8 +126,8 @@ pub struct TableState {
     pub is_partitioned: bool,
     /// Partition strategy and columns, if this table is partitioned.
     pub partition_by: Option<PartitionByInfo>,
-    /// Catalog key of the parent table, if this table is a partition child.
-    pub parent_table: Option<String>,
+    /// The parent table, if this table is a partition child.
+    pub parent_table: Option<RelationName>,
 }
 
 impl TableState {
@@ -348,40 +347,63 @@ impl IndexState {
     }
 }
 
+/// A constraint on a table. Every constraint has a name, as in `pg_constraint`:
+/// the one written in the DDL, or the one Postgres generated for it (see
+/// `catalog::generated_names`). PRIMARY KEY and UNIQUE constraints share
+/// their name with their backing index.
 #[derive(Debug, Clone)]
 pub enum ConstraintState {
     PrimaryKey {
-        name: Option<String>,
+        name: String,
         columns: Vec<String>,
     },
     ForeignKey {
-        name: Option<String>,
+        name: String,
         columns: Vec<String>,
-        ref_table: String,
+        ref_table: RelationName,
         /// User-facing referenced table name (omits synthetic schema prefix).
         ref_table_display: String,
         ref_columns: Vec<String>,
         not_valid: bool,
     },
     Unique {
-        name: Option<String>,
+        name: String,
         columns: Vec<String>,
-        /// Index name from `USING INDEX` clause. When the constraint is dropped,
-        /// this index must also be removed (its name may differ from the constraint name).
-        using_index: Option<String>,
     },
     Check {
-        name: Option<String>,
+        name: String,
         expression: String,
         not_valid: bool,
     },
     Exclude {
-        name: Option<String>,
+        name: String,
         elements: Vec<IndexColumn>,
     },
 }
 
 impl ConstraintState {
+    /// The constraint's name, given or generated.
+    pub fn name(&self) -> &str {
+        match self {
+            ConstraintState::PrimaryKey { name, .. }
+            | ConstraintState::ForeignKey { name, .. }
+            | ConstraintState::Unique { name, .. }
+            | ConstraintState::Check { name, .. }
+            | ConstraintState::Exclude { name, .. } => name,
+        }
+    }
+
+    /// True for PRIMARY KEY, UNIQUE and EXCLUDE: Postgres enforces them with
+    /// an index of the same name, which dropping the constraint drops too.
+    pub fn is_index_backed(&self) -> bool {
+        matches!(
+            self,
+            ConstraintState::PrimaryKey { .. }
+                | ConstraintState::Unique { .. }
+                | ConstraintState::Exclude { .. }
+        )
+    }
+
     /// Returns true if this constraint involves the given column name.
     pub fn involves_column(&self, col: &str) -> bool {
         match self {
@@ -401,7 +423,7 @@ impl ConstraintState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::CatalogBuilder;
+    use crate::catalog::builder::{CatalogBuilder, rel};
     use crate::parser::ir::PartitionStrategy;
     use rstest::rstest;
 
@@ -420,10 +442,10 @@ mod tests {
             })
             .build();
 
-        assert!(catalog.is_partition_child("child"));
-        assert!(!catalog.is_partition_child("parent"));
-        assert!(!catalog.is_partition_child("standalone"));
-        assert!(!catalog.is_partition_child("nonexistent"));
+        assert!(catalog.is_partition_child(&rel("child")));
+        assert!(!catalog.is_partition_child(&rel("parent")));
+        assert!(!catalog.is_partition_child(&rel("standalone")));
+        assert!(!catalog.is_partition_child(&rel("nonexistent")));
     }
 
     #[test]
@@ -434,7 +456,7 @@ mod tests {
             })
             .build();
 
-        assert!(catalog.remove_table("nonexistent").is_none());
+        assert!(catalog.remove_table(&rel("nonexistent")).is_none());
     }
 
     #[test]
@@ -449,9 +471,13 @@ mod tests {
             })
             .build();
 
-        let children = catalog.get_partition_children("parent");
-        assert_eq!(children, vec!["child"]);
-        assert!(catalog.get_partition_children("nonexistent").is_empty());
+        let children = catalog.get_partition_children(&rel("parent"));
+        assert_eq!(children, vec![rel("child")]);
+        assert!(
+            catalog
+                .get_partition_children(&rel("nonexistent"))
+                .is_empty()
+        );
     }
 
     #[rstest]
@@ -474,7 +500,7 @@ mod tests {
     #[case::no_match("id", false)]
     fn test_involves_column_check_constraint(#[case] col: &str, #[case] expected: bool) {
         let constraint = ConstraintState::Check {
-            name: Some("chk_positive".to_string()),
+            name: "chk_positive".to_string(),
             expression: "(amount > 0)".to_string(),
             not_valid: false,
         };
@@ -490,7 +516,7 @@ mod tests {
     #[case::no_match("id", false)]
     fn test_involves_column_exclude_constraint(#[case] col: &str, #[case] expected: bool) {
         let constraint = ConstraintState::Exclude {
-            name: Some("excl_rooms".to_string()),
+            name: "excl_rooms".to_string(),
             elements: vec![
                 IndexColumn::Column("room".to_string()),
                 IndexColumn::Column("period".to_string()),
@@ -514,7 +540,7 @@ mod tests {
             })
             .build();
 
-        let mut table = catalog.get_table("rooms").unwrap().clone();
+        let mut table = catalog.get_table(&rel("rooms")).unwrap().clone();
         assert_eq!(
             table.constraints.len(),
             1,
@@ -541,7 +567,7 @@ mod tests {
             })
             .build();
 
-        let mut table = catalog.get_table("rooms").unwrap().clone();
+        let mut table = catalog.get_table(&rel("rooms")).unwrap().clone();
 
         table.remove_column("extra");
 
@@ -562,7 +588,7 @@ mod tests {
             })
             .build();
 
-        let mut table = catalog.get_table("orders").unwrap().clone();
+        let mut table = catalog.get_table(&rel("orders")).unwrap().clone();
         assert_eq!(
             table.constraints.len(),
             1,
@@ -588,7 +614,7 @@ mod tests {
             })
             .build();
 
-        let mut table = catalog.get_table("orders").unwrap().clone();
+        let mut table = catalog.get_table(&rel("orders")).unwrap().clone();
         assert_eq!(
             table.constraints.len(),
             1,
@@ -604,7 +630,7 @@ mod tests {
         );
         assert!(
             table.constraints.iter().any(
-                |c| matches!(c, ConstraintState::Check { name: Some(n), .. } if n == "chk_positive")
+                |c| matches!(c, ConstraintState::Check { name, .. } if name == "chk_positive")
             ),
             "chk_positive should still exist"
         );

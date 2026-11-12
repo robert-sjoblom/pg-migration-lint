@@ -1,7 +1,7 @@
 #![doc = include_str!("docs/pgm025.md")]
 
 use crate::catalog::types::ConstraintState;
-use crate::parser::ir::{IndexColumn, IrNode, Located};
+use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
 
 pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes EXCLUDE constraint";
@@ -9,19 +9,6 @@ pub(super) const DESCRIPTION: &str = "DROP COLUMN silently removes EXCLUDE const
 pub(super) const EXPLAIN: &str = include_str!("docs/pgm025.md");
 
 pub(super) const DEFAULT_SEVERITY: Severity = Severity::Minor;
-
-/// Render EXCLUDE elements for the finding message: plain columns by name,
-/// expressions by their deparsed SQL text.
-fn format_elements(elements: &[IndexColumn]) -> String {
-    elements
-        .iter()
-        .map(|e| match e {
-            IndexColumn::Column(name) => name.clone(),
-            IndexColumn::Expression { text, .. } => text.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
 pub(super) fn check(
     rule: impl Rule,
@@ -38,21 +25,16 @@ pub(super) fn check(
             for constraint in table.constraints_involving_column(name) {
                 if let ConstraintState::Exclude {
                     name: constraint_name,
-                    elements,
+                    ..
                 } = constraint
                 {
-                    let constraint_description = match constraint_name {
-                        Some(n) => format!("'{n}'"),
-                        None => format!("EXCLUDE({})", format_elements(elements)),
-                    };
                     findings.push(rule.make_finding(
                         format!(
                             "Dropping column '{col}' from table '{table}' silently \
-                             removes EXCLUDE constraint {constraint}. Verify that the \
-                             exclusion guarantee is no longer needed.",
+                             removes EXCLUDE constraint '{constraint_name}'. Verify \
+                             that the exclusion guarantee is no longer needed.",
                             col = name,
                             table = at.name.display_name(),
-                            constraint = constraint_description,
                         ),
                         ctx.file,
                         &stmt.span,
@@ -98,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unnamed_exclude_shows_element_list() {
+    fn test_unnamed_exclude_shows_generated_name() {
         let before = CatalogBuilder::new()
             .table("bookings", |t| {
                 t.column("room", "integer", false)

@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use crate::names::RelationName;
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -21,11 +22,11 @@ pub(super) fn check(
     // these is the safe pattern PGM004 recommends, not the hazard this
     // rule exists to catch. Order-insensitive: DROP TABLE <child> before
     // its own DETACH is not valid SQL, so it can't occur the other way.
-    let detached_in_unit: HashSet<&str> = statements
+    let detached_in_unit: HashSet<&RelationName> = statements
         .iter()
         .filter_map(|stmt| match &stmt.node {
             IrNode::AlterTable(at) => at.actions.iter().find_map(|action| match action {
-                AlterTableAction::DetachPartition { child, .. } => Some(child.catalog_key()),
+                AlterTableAction::DetachPartition { child, .. } => Some(child.relation()),
                 _ => None,
             }),
             _ => None,
@@ -36,7 +37,7 @@ pub(super) fn check(
     for stmt in statements {
         match &stmt.node {
             IrNode::DropTable(dt) => {
-                let child_key = dt.name.catalog_key();
+                let child_key = dt.name.relation();
                 if detached_in_unit.contains(child_key) {
                     continue;
                 }
@@ -50,9 +51,9 @@ pub(super) fn check(
                 if !ctx.is_existing_table(&parent_key) {
                     continue;
                 }
-                let parent_name = ctx
-                    .parent_display_name(child_key)
-                    .unwrap_or_else(|| parent_key.clone());
+                let Some(parent_name) = ctx.parent_display_name(child_key) else {
+                    continue;
+                };
                 findings.push(
                     rule.make_finding(
                         format!(
@@ -76,7 +77,7 @@ pub(super) fn check(
                 let Some(parent_name) = &ct.partition_of else {
                     continue;
                 };
-                let parent_key = parent_name.catalog_key();
+                let parent_key = parent_name.relation();
                 if !ctx.is_existing_table(parent_key) {
                     continue;
                 }
@@ -96,7 +97,7 @@ pub(super) fn check(
                         ctx.file,
                         &stmt.span,
                     )
-                    .with_dedup_key(parent_key.to_string()),
+                    .with_dedup_key(parent_key.clone()),
                 );
             }
             _ => {}
@@ -109,7 +110,7 @@ pub(super) fn check(
 mod tests {
     use super::*;
     use crate::catalog::Catalog;
-    use crate::catalog::builder::CatalogBuilder;
+    use crate::catalog::builder::{CatalogBuilder, rel};
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{lint_ctx, located};
@@ -331,7 +332,7 @@ mod tests {
         assert!(
             findings
                 .iter()
-                .all(|f| f.dedup_key.as_deref() == Some("measurements")),
+                .all(|f| f.dedup_key == Some(rel("measurements"))),
             "all three findings must share the parent's key so the pipeline's dedup_findings collapses them to one, got: {findings:?}"
         );
     }

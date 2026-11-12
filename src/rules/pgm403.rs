@@ -21,7 +21,7 @@ pub(super) fn check(
         if let IrNode::CreateTable(ct) = &stmt.node
             && ct.if_not_exists
         {
-            let key = ct.name.catalog_key();
+            let key = ct.name.relation();
             if ctx.catalog_before.has_table(key) {
                 findings.push(rule.make_finding(
                     format!(

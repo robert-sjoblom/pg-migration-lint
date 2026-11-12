@@ -5,8 +5,10 @@
 //! single-pass replay strategy: the pipeline calls [`apply`] for each
 //! migration unit, and the catalog accumulates state over time.
 
+use crate::catalog::generated_names::{GeneratedName, created_index_name};
 use crate::catalog::types::*;
 use crate::input::MigrationUnit;
+use crate::names::{RelationName, ResolvedName};
 use crate::parser::ir::*;
 
 #[cfg(test)]
@@ -41,7 +43,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
         IrNode::RenameIndex { .. } => todo!("we'll fix this before release. promise"),
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
-        } => apply_alter_index_attach(catalog, &parent_index_name.name),
+        } => apply_alter_index_attach(catalog, parent_index_name.name()),
         IrNode::DropSchema(ds) => apply_drop_schema(catalog, ds),
         IrNode::TruncateTable(_)
         | IrNode::Cluster(_)
@@ -50,7 +52,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
         IrNode::InsertInto(_) | IrNode::UpdateTable(_) | IrNode::DeleteFrom(_) => {
             /* DML: no schema change */
         }
-        IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint),
+        IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint.as_ref()),
         IrNode::Ignored { .. } => { /* no-op */ }
     }
 }
@@ -63,7 +65,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
 /// state and emitting a warning — the migration chain is ambiguous at that
 /// point (which definition is the truth?).
 fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
-    let table_key = ct.name.catalog_key().to_string();
+    let table_key = ct.name.relation().clone();
 
     if catalog.has_table(&table_key) {
         if ct.if_not_exists {
@@ -81,10 +83,7 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
         );
     }
 
-    let parent_key = ct
-        .partition_of
-        .as_ref()
-        .map(|p| p.catalog_key().to_string());
+    let parent_key = ct.partition_of.as_ref().map(|p| p.relation().clone());
 
     let mut table = TableState {
         name: table_key.clone(),
@@ -111,6 +110,10 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
         }
     }
 
+    // `insert_table` registers every index the new table ends up with, so
+    // these updates need not be applied.
+    let mut index_registry = IndexRegistryUpdates::default();
+
     // Convert columns (explicit columns on the child, or regular table columns)
     for col in &ct.columns {
         table.columns.push(column_def_to_state(col));
@@ -119,18 +122,21 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
         if col.is_inline_pk {
             apply_table_constraint(
                 &mut table,
+                ct.name.name(),
                 &TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![col.name.clone()],
+                    include_columns: vec![],
                     using_index: None,
                 },
+                &mut index_registry,
             );
         }
     }
 
     // Convert table-level constraints
     for constraint in &ct.constraints {
-        apply_table_constraint(&mut table, constraint);
+        apply_table_constraint(&mut table, ct.name.name(), constraint, &mut index_registry);
     }
 
     catalog.insert_table(table);
@@ -139,21 +145,21 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
 /// Handle ALTER TABLE: apply each action to the existing table.
 /// If the table does not exist in the catalog, silently skip.
 fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
-    let table_key = at.name.catalog_key().to_string();
+    let table_key = at.name.relation();
+    let bare_table_name = at.name.name();
 
     // If the table doesn't exist, silently skip. It may be in a different
     // schema or managed outside our tracked migrations.
-    if !catalog.has_table(&table_key) {
+    if !catalog.has_table(table_key) {
         return;
     }
 
     // Collect indexes to register/unregister so we can update the reverse map
     // after releasing the mutable borrow on the table.
-    let mut indexes_to_register: Vec<String> = Vec::new();
-    let mut indexes_to_unregister: Vec<String> = Vec::new();
+    let mut index_registry = IndexRegistryUpdates::default();
 
     {
-        let Some(table) = catalog.get_table_mut(&table_key) else {
+        let Some(table) = catalog.get_table_mut(table_key) else {
             return;
         };
 
@@ -166,13 +172,15 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                     if col_def.is_inline_pk {
                         apply_table_constraint(
                             table,
+                            bare_table_name,
                             &TableConstraint::PrimaryKey {
                                 name: None,
                                 columns: vec![col_def.name.clone()],
+                                include_columns: vec![],
                                 using_index: None,
                             },
+                            &mut index_registry,
                         );
-                        indexes_to_register.push(format!("{}_pkey", table.name));
                     }
                 }
                 AlterTableAction::DropColumn { name } => {
@@ -181,35 +189,13 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                     // that reference the dropped column (e.g. `lower(email)`).
                     for idx in &table.indexes {
                         if idx.references_column(name) {
-                            indexes_to_unregister.push(idx.name.clone());
+                            index_registry.unregister.push(idx.name.clone());
                         }
                     }
                     table.remove_column(name);
                 }
                 AlterTableAction::AddConstraint(constraint) => {
-                    // Track synthetic PK/UNIQUE indexes created by apply_table_constraint.
-                    // Only when there's no USING INDEX (with USING INDEX the index already exists).
-                    match constraint {
-                        TableConstraint::PrimaryKey {
-                            using_index: None, ..
-                        } => {
-                            indexes_to_register.push(format!("{}_pkey", table.name));
-                        }
-                        TableConstraint::Unique {
-                            name,
-                            columns,
-                            using_index: None,
-                        } => {
-                            indexes_to_register.push(unique_backing_index_name(
-                                &table.name,
-                                name,
-                                columns,
-                                &None,
-                            ));
-                        }
-                        _ => {}
-                    }
-                    apply_table_constraint(table, constraint);
+                    apply_table_constraint(table, bare_table_name, constraint, &mut index_registry);
                 }
                 AlterTableAction::AlterColumnType {
                     column_name,
@@ -246,86 +232,17 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
                     }
                 }
                 AlterTableAction::DropConstraint { constraint_name } => {
-                    // Check if we're dropping a PK constraint.
-                    // Match by stored name, or fall back to the default
-                    // `{table}_pkey` heuristic for unnamed PKs.
-                    let default_pkey_name = format!("{}_pkey", table.name);
-                    let dropping_pk = table.has_primary_key
-                        && table.constraints.iter().any(|c| match c {
-                            ConstraintState::PrimaryKey { name, .. } => {
-                                name.as_deref() == Some(constraint_name)
-                                    || (name.is_none() && *constraint_name == default_pkey_name)
-                            }
-                            _ => false,
-                        });
-
-                    // Grab `using_index` from UNIQUE constraints before retain removes them.
-                    // When a UNIQUE constraint was created via USING INDEX, the backing
-                    // index name may differ from the constraint name.
-                    let unique_using_index: Option<String> =
-                        table.constraints.iter().find_map(|c| match c {
-                            ConstraintState::Unique {
-                                name,
-                                using_index: Some(idx),
-                                ..
-                            } if name.as_deref() == Some(constraint_name) => Some(idx.clone()),
-                            _ => None,
-                        });
-
-                    // Remove named constraints (FK, Unique, Check, Exclude, PK).
-                    table.constraints.retain(|c| match c {
-                        ConstraintState::ForeignKey { name, .. }
-                        | ConstraintState::Unique { name, .. }
-                        | ConstraintState::Check { name, .. }
-                        | ConstraintState::Exclude { name, .. } => {
-                            name.as_deref() != Some(constraint_name)
-                        }
-                        ConstraintState::PrimaryKey { .. } => !dropping_pk,
-                    });
-
-                    if dropping_pk {
-                        table.has_primary_key = false;
-                        // Remove the PK backing index — either the default name
-                        // or the constraint name itself (PostgreSQL uses the
-                        // constraint name as the index name).
-                        let pk_index_name =
-                            if table.indexes.iter().any(|idx| idx.name == *constraint_name) {
-                                constraint_name.clone()
-                            } else {
-                                default_pkey_name.clone()
-                            };
-                        indexes_to_unregister.push(pk_index_name.clone());
-                        table.indexes.retain(|idx| idx.name != pk_index_name);
-                    }
-
-                    // PostgreSQL drops the backing index when a constraint is
-                    // dropped (UNIQUE, EXCLUDE, and PK all have backing indexes).
-                    // Remove any index whose name matches the constraint name.
-                    if table.indexes.iter().any(|idx| idx.name == *constraint_name) {
-                        table.indexes.retain(|idx| idx.name != *constraint_name);
-                        indexes_to_unregister.push(constraint_name.clone());
-                    }
-
-                    // If the UNIQUE constraint was created via USING INDEX with a
-                    // different name, also remove that backing index.
-                    if let Some(idx_name) = unique_using_index
-                        && idx_name != *constraint_name
-                    {
-                        table.indexes.retain(|idx| idx.name != idx_name);
-                        indexes_to_unregister.push(idx_name);
-                    }
+                    drop_constraint(table, constraint_name, &mut index_registry);
                 }
                 AlterTableAction::ValidateConstraint { constraint_name } => {
                     for c in &mut table.constraints {
                         match c {
                             ConstraintState::ForeignKey {
                                 name, not_valid, ..
-                            } if name.as_deref() == Some(constraint_name) => {
-                                *not_valid = false;
                             }
-                            ConstraintState::Check {
+                            | ConstraintState::Check {
                                 name, not_valid, ..
-                            } if name.as_deref() == Some(constraint_name) => {
+                            } if name == constraint_name => {
                                 *not_valid = false;
                             }
                             _ => {}
@@ -343,25 +260,18 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     }
 
     // Update reverse map outside the table borrow.
-    for name in indexes_to_unregister {
-        catalog.unregister_index(&name);
-    }
-    for name in indexes_to_register {
-        catalog.register_index(&name, &table_key);
-    }
+    index_registry.apply(catalog, table_key);
 
     // Handle partition attach/detach outside the table borrow scope.
     for action in &at.actions {
         match action {
             AlterTableAction::AttachPartition { child } => {
-                let child_key = child.catalog_key().to_string();
-                if let Some(child_table) = catalog.get_table_mut(&child_key) {
+                if let Some(child_table) = catalog.get_table_mut(child.relation()) {
                     child_table.parent_table = Some(table_key.clone());
                 }
             }
             AlterTableAction::DetachPartition { child, .. } => {
-                let child_key = child.catalog_key().to_string();
-                if let Some(child_table) = catalog.get_table_mut(&child_key) {
+                if let Some(child_table) = catalog.get_table_mut(child.relation()) {
                     child_table.parent_table = None;
                 }
             }
@@ -376,11 +286,14 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
 /// When `IF NOT EXISTS` is used and a same-named index already exists,
 /// PostgreSQL treats it as a no-op. We keep the existing index and warn.
 fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
-    let table_key = ci.table_name.catalog_key().to_string();
+    let table_key = ci.table_name.relation();
 
-    let index_name = ci.index_name.clone().unwrap_or_default();
+    // Postgres never lets a generated name collide: it appends a number
+    // instead. Collision suffixes are not modelled yet, so only an explicit
+    // name can meaningfully clash with an existing index.
+    let index_name = created_index_name(ci);
 
-    if !index_name.is_empty() && catalog.get_index(&index_name).is_some() {
+    if ci.index_name.is_some() && catalog.get_index(&index_name).is_some() {
         if ci.if_not_exists {
             eprintln!(
                 "warning: CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
@@ -396,7 +309,7 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
         );
     }
 
-    let Some(table) = catalog.get_table_mut(&table_key) else {
+    let Some(table) = catalog.get_table_mut(table_key) else {
         return;
     };
 
@@ -412,21 +325,21 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
-    catalog.register_index(&index_name, &table_key);
+    catalog.register_index(&index_name, table_key);
 }
 
 /// Handle DROP INDEX: find and remove the named index from whichever table has it.
 /// If no table has the index, silently skip.
 fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
-    let index_name = &di.index_name.name;
-    let Some(table_name) = catalog.table_for_index(index_name).map(str::to_string) else {
+    let index_name = di.index_name.name();
+    let Some(table_name) = catalog.table_for_index(index_name).cloned() else {
         return;
     };
 
     catalog.unregister_index(index_name);
 
     if let Some(table) = catalog.get_table_mut(&table_name) {
-        table.indexes.retain(|idx| idx.name != *index_name);
+        table.indexes.retain(|idx| idx.name != index_name);
     }
 }
 
@@ -435,7 +348,7 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
 /// When all child partitions have their own indexes attached, the parent
 /// ON ONLY index becomes a valid recursive index covering all partitions.
 fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
-    let Some(table_key) = catalog.table_for_index(parent_index_name).map(String::from) else {
+    let Some(table_key) = catalog.table_for_index(parent_index_name).cloned() else {
         return;
     };
     let Some(table) = catalog.get_table_mut(&table_key) else {
@@ -459,37 +372,36 @@ fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
 /// CASCADE still governs other dependent objects (views, FK constraints)
 /// that this catalog does not track.
 fn apply_drop_table(catalog: &mut Catalog, dt: &DropTable) {
-    let table_key = dt.name.catalog_key().to_string();
+    let table_key = dt.name.relation();
 
     // Only recurse into the partition subtree if the table actually exists in
     // the catalog. This guards against `DROP TABLE <name-not-in-catalog>`
     // accidentally sweeping up unrelated tables whose `parent_table` happens
     // to equal that same string (see e.g. a child created via
     // `PARTITION OF unknown_parent` before `unknown_parent` was ever created).
-    if catalog.has_table(&table_key) {
-        let children_to_remove = collect_partition_subtree(catalog, &table_key);
+    if catalog.has_table(table_key) {
+        let children_to_remove = collect_partition_subtree(catalog, table_key);
         for child_key in children_to_remove {
             catalog.remove_table(&child_key);
         }
     }
 
-    catalog.remove_table(&table_key);
+    catalog.remove_table(table_key);
 }
 
 /// Handle DROP SCHEMA: remove all tables in the schema from the catalog.
 ///
-/// With CASCADE, all tables whose catalog key starts with `"{schema_name}."`
-/// are removed. Without CASCADE, PostgreSQL would error at runtime if the
-/// schema is non-empty, so we treat it as a no-op.
+/// With CASCADE, all tables in that schema are removed. Without CASCADE,
+/// PostgreSQL would error at runtime if the schema is non-empty, so we treat
+/// it as a no-op.
 fn apply_drop_schema(catalog: &mut Catalog, ds: &DropSchema) {
     if !ds.cascade {
         return;
     }
 
-    let prefix = format!("{}.", ds.schema_name);
-    let keys_to_remove: Vec<String> = catalog
+    let keys_to_remove: Vec<RelationName> = catalog
         .tables()
-        .filter(|t| t.name.starts_with(&prefix))
+        .filter(|t| t.name.schema == ds.schema_name)
         .map(|t| t.name.clone())
         .collect();
 
@@ -502,9 +414,9 @@ fn apply_drop_schema(catalog: &mut Catalog, ds: &DropSchema) {
 /// dropping a partitioned parent. Returns an empty `Vec` for a table with no
 /// children, so calling this unconditionally costs nothing for non-partitioned
 /// tables. Uses a visited set to prevent cycles.
-fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
+fn collect_partition_subtree(catalog: &Catalog, root_key: &RelationName) -> Vec<RelationName> {
     let mut result = Vec::new();
-    let mut stack = vec![root_key.to_string()];
+    let mut stack = vec![root_key.clone()];
     let mut visited = std::collections::HashSet::new();
 
     while let Some(key) = stack.pop() {
@@ -520,33 +432,21 @@ fn collect_partition_subtree(catalog: &Catalog, root_key: &str) -> Vec<String> {
     result
 }
 
-/// Handle RENAME TABLE: move the table state to a new key.
+/// Handle RENAME TABLE: move the table state to a new key in the same schema.
 ///
 /// Also updates partition tracking:
 /// - If the renamed table is a partitioned parent: updates each child's
 ///   `parent_table` to point to the new key.
 /// - If the renamed table is a partition child: `parent_table` is preserved
 ///   automatically (carried over on the `TableState`).
-fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &str) {
-    let old_key = name.catalog_key().to_string();
+fn apply_rename_table(catalog: &mut Catalog, name: &ResolvedName, new_name: &str) {
+    let old_key = name.relation();
 
     // Compute children before remove_table removes the table from the HashMap.
-    let children = catalog.get_partition_children(&old_key);
+    let children = catalog.get_partition_children(old_key);
 
-    if let Some(mut table) = catalog.remove_table(&old_key) {
-        // Build the new key using the same schema as the old name.
-        let new_key = match &name.schema {
-            Some(schema) => format!("{}.{}", schema, new_name),
-            None => {
-                // After normalization, schema should always be set. Fall back to
-                // extracting it from the old catalog key ("schema.name" format).
-                if let Some(dot) = old_key.find('.') {
-                    format!("{}.{}", &old_key[..dot], new_name)
-                } else {
-                    new_name.to_string()
-                }
-            }
-        };
+    if let Some(mut table) = catalog.remove_table(old_key) {
+        let new_key = RelationName::new(old_key.schema.clone(), new_name);
 
         // Update each child's parent_table to point to the new key.
         for child_key in &children {
@@ -564,12 +464,11 @@ fn apply_rename_table(catalog: &mut Catalog, name: &QualifiedName, new_name: &st
 /// Handle RENAME COLUMN: rename a column in a table, updating indexes and constraints.
 fn apply_rename_column(
     catalog: &mut Catalog,
-    table_name: &QualifiedName,
+    table_name: &ResolvedName,
     old_name: &str,
     new_name: &str,
 ) {
-    let table_key = table_name.catalog_key().to_string();
-    let Some(table) = catalog.get_table_mut(&table_key) else {
+    let Some(table) = catalog.get_table_mut(table_name.relation()) else {
         return;
     };
 
@@ -701,9 +600,9 @@ fn replace_column_in_expression(expression: &str, old: &str, new: &str) -> Strin
 }
 
 /// Handle Unparseable: if a table_hint is provided, mark that table as incomplete.
-fn apply_unparseable(catalog: &mut Catalog, table_hint: &Option<String>) {
+fn apply_unparseable(catalog: &mut Catalog, table_hint: Option<&ResolvedName>) {
     if let Some(hint) = table_hint
-        && let Some(table) = catalog.get_table_mut(hint)
+        && let Some(table) = catalog.get_table_mut(hint.relation())
     {
         table.incomplete = true;
     }
@@ -720,71 +619,150 @@ fn column_def_to_state(col: &ColumnDef) -> ColumnState {
     }
 }
 
-/// Name PostgreSQL gives a UNIQUE constraint's backing index: the `USING
-/// INDEX` name when attached to an existing index, the constraint's own
-/// name when given, otherwise the default `<table>_<col1>_..._key`
-/// convention. Shared with `rules::pgm010`, which needs it to recognize an
-/// index as a constraint's own backing index rather than a separate object.
-pub(crate) fn unique_backing_index_name(
-    table_name: &str,
-    name: &Option<String>,
+/// Index-name reverse-map changes collected while a table is mutably
+/// borrowed, applied to the catalog once the borrow ends.
+#[derive(Default)]
+struct IndexRegistryUpdates {
+    register: Vec<String>,
+    unregister: Vec<String>,
+}
+
+impl IndexRegistryUpdates {
+    fn rename(&mut self, old_name: &str, new_name: &str) {
+        self.unregister.push(old_name.to_string());
+        self.register.push(new_name.to_string());
+    }
+
+    fn apply(self, catalog: &mut Catalog, table_key: &RelationName) {
+        for name in self.unregister {
+            catalog.unregister_index(&name);
+        }
+        for name in self.register {
+            catalog.register_index(&name, table_key);
+        }
+    }
+}
+
+/// Handle `ALTER TABLE ... DROP CONSTRAINT`: remove the constraint with that
+/// name, and the index of the same name when the constraint is index-backed.
+///
+/// A table has at most one primary key, so dropping it removes every
+/// PRIMARY KEY entry; an inline PK can be registered twice (see TODO.md).
+fn drop_constraint(
+    table: &mut TableState,
+    constraint_name: &str,
+    index_registry: &mut IndexRegistryUpdates,
+) {
+    let dropping_pk = table
+        .constraints
+        .iter()
+        .any(|c| matches!(c, ConstraintState::PrimaryKey { .. }) && c.name() == constraint_name);
+    let (dropped, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut table.constraints)
+        .into_iter()
+        .partition(|c| {
+            c.name() == constraint_name
+                || (dropping_pk && matches!(c, ConstraintState::PrimaryKey { .. }))
+        });
+    table.constraints = kept;
+    table.has_primary_key = table
+        .constraints
+        .iter()
+        .any(|c| matches!(c, ConstraintState::PrimaryKey { .. }));
+
+    for constraint in dropped.iter().filter(|c| c.is_index_backed()) {
+        let index_name = constraint.name();
+        if table.indexes.iter().any(|idx| idx.name == index_name) {
+            table.indexes.retain(|idx| idx.name != index_name);
+            index_registry.unregister.push(index_name.to_string());
+        }
+    }
+}
+
+/// Give a PRIMARY KEY or UNIQUE constraint its backing index, which always
+/// carries the constraint's name, and return the constraint's key columns.
+///
+/// Without `USING INDEX`, a new unique btree index is created. With
+/// `USING INDEX idx` the existing index becomes the backing index: an
+/// unnamed constraint takes the name `idx`, and a named one renames the
+/// index to its own name. The IR has no columns in that case, so they come
+/// from the index. Expression entries are left out: PostgreSQL rejects an
+/// expression index there.
+fn attach_backing_index(
+    table: &mut TableState,
+    constraint_name: &str,
     columns: &[String],
+    using_index: Option<&str>,
+    index_registry: &mut IndexRegistryUpdates,
+) -> Vec<String> {
+    let Some(using_index) = using_index else {
+        table.indexes.push(IndexState {
+            name: constraint_name.to_string(),
+            entries: columns
+                .iter()
+                .map(|c| IndexColumn::Column(c.clone()))
+                .collect(),
+            unique: true,
+            where_clause: None,
+            only: false,
+            access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
+        });
+        index_registry.register.push(constraint_name.to_string());
+        return columns.to_vec();
+    };
+
+    let Some(index) = table.indexes.iter_mut().find(|idx| idx.name == using_index) else {
+        return Vec::new();
+    };
+    if index.name != constraint_name {
+        index.name = constraint_name.to_string();
+        index_registry.rename(using_index, constraint_name);
+    }
+    index.column_names().map(str::to_string).collect()
+}
+
+/// The name of an index-backed PRIMARY KEY or UNIQUE constraint: the given
+/// name, else the `USING INDEX` index's name, else the generated one.
+fn index_backed_constraint_name(
+    name: &Option<String>,
     using_index: &Option<String>,
+    generate: impl FnOnce() -> GeneratedName,
 ) -> String {
-    using_index.clone().unwrap_or_else(|| {
-        name.clone()
-            .unwrap_or_else(|| format!("{table_name}_{}_key", columns.join("_")))
-    })
+    name.clone()
+        .or_else(|| using_index.clone())
+        .unwrap_or_else(|| generate().unsuffixed())
 }
 
 /// Apply a table constraint to the table state, updating constraints list
-/// and has_primary_key flag as needed.
-fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) {
+/// and has_primary_key flag as needed. `bare_table_name` is the table's
+/// unqualified name, which unnamed constraints and their backing indexes
+/// are named after.
+fn apply_table_constraint(
+    table: &mut TableState,
+    bare_table_name: &str,
+    constraint: &TableConstraint,
+    index_registry: &mut IndexRegistryUpdates,
+) {
     match constraint {
         TableConstraint::PrimaryKey {
             name,
             columns,
             using_index,
+            ..
         } => {
             table.has_primary_key = true;
-            // When USING INDEX is set, IR columns are empty — resolve from the
-            // referenced index so downstream rules (e.g. PGM014) see the real columns.
-            // Expression entries are intentionally excluded (column_names() skips them)
-            // since PK constraints reference plain columns; in practice PostgreSQL
-            // rejects ADD PRIMARY KEY USING INDEX on expression indexes.
-            let resolved_columns = if columns.is_empty() {
-                using_index
-                    .as_ref()
-                    .and_then(|idx_name| {
-                        table
-                            .indexes
-                            .iter()
-                            .find(|idx| idx.name == *idx_name)
-                            .map(|idx| idx.column_names().map(str::to_string).collect())
-                    })
-                    .unwrap_or_default()
-            } else {
-                columns.clone()
-            };
-            table.constraints.push(ConstraintState::PrimaryKey {
-                name: name.clone(),
-                columns: resolved_columns,
+            let name = index_backed_constraint_name(name, using_index, || {
+                GeneratedName::primary_key(bare_table_name)
             });
-            // Only create a synthetic PK index when there's no USING INDEX.
-            // With USING INDEX, the referenced index already exists in the catalog.
-            if using_index.is_none() {
-                table.indexes.push(IndexState {
-                    name: format!("{}_pkey", table.name),
-                    entries: columns
-                        .iter()
-                        .map(|c| IndexColumn::Column(c.clone()))
-                        .collect(),
-                    unique: true,
-                    where_clause: None,
-                    only: false,
-                    access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
-                });
-            }
+            let columns = attach_backing_index(
+                table,
+                &name,
+                columns,
+                using_index.as_deref(),
+                index_registry,
+            );
+            table
+                .constraints
+                .push(ConstraintState::PrimaryKey { name, columns });
         }
         TableConstraint::ForeignKey {
             name,
@@ -794,9 +772,11 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
             not_valid,
         } => {
             table.constraints.push(ConstraintState::ForeignKey {
-                name: name.clone(),
+                name: name.clone().unwrap_or_else(|| {
+                    GeneratedName::foreign_key(bare_table_name, columns).unsuffixed()
+                }),
                 columns: columns.clone(),
-                ref_table: ref_table.catalog_key().to_string(),
+                ref_table: ref_table.relation().clone(),
                 ref_table_display: ref_table.display_name(),
                 ref_columns: ref_columns.clone(),
                 not_valid: *not_valid,
@@ -805,59 +785,46 @@ fn apply_table_constraint(table: &mut TableState, constraint: &TableConstraint) 
         TableConstraint::Unique {
             name,
             columns,
+            include_columns,
             using_index,
         } => {
-            // When USING INDEX is set, IR columns are empty — resolve from the
-            // referenced index so downstream constraint checks see the real columns.
-            let resolved_columns = if columns.is_empty() {
-                using_index
-                    .as_ref()
-                    .and_then(|idx_name| {
-                        table
-                            .indexes
-                            .iter()
-                            .find(|idx| idx.name == *idx_name)
-                            .map(|idx| idx.column_names().map(str::to_string).collect())
-                    })
-                    .unwrap_or_default()
-            } else {
-                columns.clone()
-            };
-            table.constraints.push(ConstraintState::Unique {
-                name: name.clone(),
-                columns: resolved_columns,
-                using_index: using_index.clone(),
+            let name = index_backed_constraint_name(name, using_index, || {
+                GeneratedName::unique(bare_table_name, columns, include_columns)
             });
-            // Only create a synthetic backing index when there's no USING INDEX.
-            // With USING INDEX, the referenced index already exists in the catalog.
-            if using_index.is_none() {
-                table.indexes.push(IndexState {
-                    name: unique_backing_index_name(&table.name, name, columns, using_index),
-                    entries: columns
-                        .iter()
-                        .map(|c| IndexColumn::Column(c.clone()))
-                        .collect(),
-                    unique: true,
-                    where_clause: None,
-                    only: false,
-                    access_method: IndexState::DEFAULT_ACCESS_METHOD.to_string(),
-                });
-            }
+            let columns = attach_backing_index(
+                table,
+                &name,
+                columns,
+                using_index.as_deref(),
+                index_registry,
+            );
+            table
+                .constraints
+                .push(ConstraintState::Unique { name, columns });
         }
         TableConstraint::Check {
             name,
             expression,
+            referenced_columns,
             not_valid,
         } => {
             table.constraints.push(ConstraintState::Check {
-                name: name.clone(),
+                name: name.clone().unwrap_or_else(|| {
+                    GeneratedName::check(bare_table_name, referenced_columns).unsuffixed()
+                }),
                 expression: expression.clone(),
                 not_valid: *not_valid,
             });
         }
-        TableConstraint::Exclude { name, elements } => {
+        TableConstraint::Exclude {
+            name,
+            elements,
+            include_columns,
+        } => {
             table.constraints.push(ConstraintState::Exclude {
-                name: name.clone(),
+                name: name.clone().unwrap_or_else(|| {
+                    GeneratedName::exclude(bare_table_name, elements, include_columns).unsuffixed()
+                }),
                 elements: elements.clone(),
             });
         }

@@ -181,8 +181,8 @@ pub async fn run(args: &GithubReviewArgs) -> anyhow::Result<i32> {
     // Same lint pipeline the flat CLI mode uses, restricted to the PR's
     // changed files instead of a `--changed-files` CLI value.
     let config = crate::load_config(&resolved.config)?;
-    let mut history = crate::load_migrations(&config)?;
-    let mut all_findings = crate::lint_history(&mut history, &config, Some(&changed_files));
+    let history = crate::load_migrations(&config)?;
+    let mut all_findings = crate::lint_history(history, &config, Some(&changed_files));
 
     // Must route findings against `hunks` before `crate::strip_output_prefix`
     // runs below -- `hunks`' keys are never stripped.

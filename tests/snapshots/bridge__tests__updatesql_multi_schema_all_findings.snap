@@ -40,49 +40,49 @@ expression: findings
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'auth.users': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'auth.users' without IF NOT EXISTS will fail if the table already exists."
   file: repos/liquibase-multi-schema/changelog/001-baseline.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'billing.users': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'billing.users' without IF NOT EXISTS will fail if the table already exists."
   file: repos/liquibase-multi-schema/changelog/001-baseline.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'billing.invoices': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'billing.invoices' without IF NOT EXISTS will fail if the table already exists."
   file: repos/liquibase-multi-schema/changelog/001-baseline.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'inventory.products': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'inventory.products' without IF NOT EXISTS will fail if the table already exists."
   file: repos/liquibase-multi-schema/changelog/001-baseline.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE TABLE 'orders' without IF NOT EXISTS will fail if the table already exists."
   file: repos/liquibase-multi-schema/changelog/001-baseline.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_orders_product_id': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_orders_product_id' without IF NOT EXISTS will fail if the index already exists."
   file: repos/liquibase-multi-schema/changelog/002-cross-schema-fks.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_auth_users_email': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_auth_users_email' without IF NOT EXISTS will fail if the index already exists."
   file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
   start_line: 1
   end_line: 1
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_billing_users_acct': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_billing_users_acct' without IF NOT EXISTS will fail if the index already exists."
   file: repos/liquibase-multi-schema/changelog/003-same-name-ops.xml
   start_line: 1
   end_line: 1

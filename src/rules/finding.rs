@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::{RuleId, Severity, parser::SourceSpan};
+use crate::{RuleId, Severity, names::RelationName, parser::SourceSpan};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Finding {
@@ -20,7 +20,7 @@ pub struct Finding {
     /// after suppression filtering. Used by `existing_table_check` to
     /// collapse multiple DML findings on the same table into one.
     #[serde(skip)]
-    pub dedup_key: Option<String>,
+    pub dedup_key: Option<RelationName>,
 }
 
 #[allow(clippy::ptr_arg)] // serde serialize_with requires &PathBuf, not &Path
@@ -52,7 +52,7 @@ impl Finding {
     }
 
     /// Set the dedup key, consuming and returning self.
-    pub fn with_dedup_key(mut self, key: String) -> Self {
+    pub fn with_dedup_key(mut self, key: RelationName) -> Self {
         self.dedup_key = Some(key);
         self
     }
@@ -64,7 +64,7 @@ impl Finding {
 /// Call **after** suppression filtering so that a suppressed first-occurrence
 /// does not shadow unsuppressed later occurrences.
 pub fn dedup_findings(findings: &mut Vec<Finding>) {
-    let mut seen: HashSet<(RuleId, String)> = HashSet::new();
+    let mut seen: HashSet<(RuleId, RelationName)> = HashSet::new();
     findings.retain(|f| match &f.dedup_key {
         Some(key) => seen.insert((f.rule_id, key.clone())),
         None => true,
@@ -74,7 +74,7 @@ pub fn dedup_findings(findings: &mut Vec<Finding>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::Rule;
+    use crate::{catalog::builder::rel, rules::Rule};
 
     fn make_finding(rule_id: RuleId, dedup_key: Option<&str>, line: usize) -> Finding {
         let mut f = Finding::new(
@@ -85,7 +85,7 @@ mod tests {
             &SourceSpan::at(line, line),
         );
         if let Some(key) = dedup_key {
-            f = f.with_dedup_key(key.to_string());
+            f = f.with_dedup_key(rel(key));
         }
         f
     }

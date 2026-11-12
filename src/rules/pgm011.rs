@@ -237,12 +237,13 @@ mod tests {
             id: "add_pk".to_string(),
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
-                    name: QualifiedName::unqualified("orders"),
+                    name: QualifiedName::unqualified("orders").resolve("public"),
                     actions: vec![AlterTableAction::AddConstraint(
                         TableConstraint::PrimaryKey {
                             name: None,
                             columns: vec![], // empty with USING INDEX
                             using_index: Some("idx_orders_pk".to_string()),
+                            include_columns: vec![],
                         },
                     )],
                 }),

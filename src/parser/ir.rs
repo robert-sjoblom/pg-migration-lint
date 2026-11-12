@@ -3,52 +3,60 @@
 //! The IR layer decouples the parser from the rule engine. It represents
 //! only the information needed for linting, not the full PostgreSQL AST.
 
+use crate::names::{RelationName, ResolvedName};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 /// A parsed SQL statement mapped to a high-level operation.
 /// Each variant carries only the fields rules need — not the full AST.
+///
+/// Generic over the type of its relation names. The parser produces
+/// `IrNode<QualifiedName>`, whose schemas are optional; normalization
+/// resolves that into the default `IrNode<ResolvedName>`, which is what
+/// replay and the rules see. Bare names (`RENAME TO` targets, index names in
+/// `CREATE INDEX`, constraint and column names) stay `String`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum IrNode {
-    CreateTable(CreateTable),
-    AlterTable(AlterTable),
-    CreateIndex(CreateIndex),
-    DropIndex(DropIndex),
-    DropTable(DropTable),
+pub enum IrNode<N = ResolvedName> {
+    CreateTable(CreateTable<N>),
+    AlterTable(AlterTable<N>),
+    CreateIndex(CreateIndex<N>),
+    DropIndex(DropIndex<N>),
+    DropTable(DropTable<N>),
     DropSchema(DropSchema),
-    TruncateTable(TruncateTable),
+    TruncateTable(TruncateTable<N>),
     /// DML: INSERT INTO a table.
-    InsertInto(InsertInto),
+    InsertInto(InsertInto<N>),
     /// DML: UPDATE rows in a table.
-    UpdateTable(UpdateTable),
+    UpdateTable(UpdateTable<N>),
     /// DML: DELETE FROM a table.
-    DeleteFrom(DeleteFrom),
+    DeleteFrom(DeleteFrom<N>),
     /// CLUSTER rewrites the table under ACCESS EXCLUSIVE lock.
-    Cluster(Cluster),
+    Cluster(Cluster<N>),
     /// `VACUUM FULL` rewrites the table under ACCESS EXCLUSIVE lock.
-    VacuumFull(VacuumFull),
+    VacuumFull(VacuumFull<N>),
     /// `REINDEX` without `CONCURRENTLY` acquires ACCESS EXCLUSIVE lock.
-    Reindex(Reindex),
+    Reindex(Reindex<N>),
     /// `ALTER INDEX parent ATTACH PARTITION child` — attaches a child index
     /// to a parent ON ONLY index, making it valid (recursive).
     AlterIndexAttachPartition {
-        parent_index_name: QualifiedName,
-        child_index_name: QualifiedName,
+        parent_index_name: N,
+        child_index_name: N,
     },
     /// Rename an existing table. pg_query emits `RenameStmt`, not `AlterTableStmt`.
+    /// `new_name` is bare: the grammar allows no schema, and a rename never
+    /// moves a table to another schema.
     RenameTable {
-        name: QualifiedName,
+        name: N,
         new_name: String,
     },
     /// Rename a column on an existing table. pg_query emits `RenameStmt`.
     RenameColumn {
-        table: QualifiedName,
+        table: N,
         old_name: String,
         new_name: String,
     },
     /// Rename an existing index. pg_query emits `RenameStmt`.
     RenameIndex {
-        index: QualifiedName,
+        index: N,
         new_name: String,
     },
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
@@ -60,7 +68,7 @@ pub enum IrNode {
     /// The replay engine uses `table_hint` to mark affected tables as incomplete.
     Unparseable {
         raw_sql: String,
-        table_hint: Option<String>,
+        table_hint: Option<N>,
     },
 }
 
@@ -104,31 +112,31 @@ pub enum TriggerDisableScope {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CreateTable {
-    pub name: QualifiedName,
+pub struct CreateTable<N = ResolvedName> {
+    pub name: N,
     pub columns: Vec<ColumnDef>,
-    pub constraints: Vec<TableConstraint>,
+    pub constraints: Vec<TableConstraint<N>>,
     pub persistence: TablePersistence,
     pub if_not_exists: bool,
     /// `PARTITION BY strategy (columns)` clause, if present.
     pub partition_by: Option<PartitionBy>,
     /// Parent table for `CREATE TABLE child PARTITION OF parent ...`.
-    pub partition_of: Option<QualifiedName>,
+    pub partition_of: Option<N>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AlterTable {
-    pub name: QualifiedName,
-    pub actions: Vec<AlterTableAction>,
+pub struct AlterTable<N = ResolvedName> {
+    pub name: N,
+    pub actions: Vec<AlterTableAction<N>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AlterTableAction {
+pub enum AlterTableAction<N = ResolvedName> {
     AddColumn(ColumnDef),
     DropColumn {
         name: String,
     },
-    AddConstraint(TableConstraint),
+    AddConstraint(TableConstraint<N>),
     AlterColumnType {
         column_name: String,
         new_type: TypeName,
@@ -163,11 +171,11 @@ pub enum AlterTableAction {
     },
     /// `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...`
     AttachPartition {
-        child: QualifiedName,
+        child: N,
     },
     /// `ALTER TABLE parent DETACH PARTITION child [CONCURRENTLY]`
     DetachPartition {
-        child: QualifiedName,
+        child: N,
         concurrent: bool,
     },
     /// `ALTER TABLE ... DISABLE TRIGGER [name | ALL | USER]`
@@ -181,10 +189,12 @@ pub enum AlterTableAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CreateIndex {
+pub struct CreateIndex<N = ResolvedName> {
     pub index_name: Option<String>,
-    pub table_name: QualifiedName,
+    pub table_name: N,
     pub columns: Vec<IndexColumn>,
+    /// Non-key columns from `INCLUDE (...)`, in written order.
+    pub include_columns: Vec<String>,
     pub unique: bool,
     pub concurrent: bool,
     pub if_not_exists: bool,
@@ -198,15 +208,15 @@ pub struct CreateIndex {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DropIndex {
-    pub index_name: QualifiedName,
+pub struct DropIndex<N = ResolvedName> {
+    pub index_name: N,
     pub concurrent: bool,
     pub if_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DropTable {
-    pub name: QualifiedName,
+pub struct DropTable<N = ResolvedName> {
+    pub name: N,
     pub if_exists: bool,
     pub cascade: bool,
 }
@@ -219,36 +229,36 @@ pub struct DropSchema {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TruncateTable {
-    pub name: QualifiedName,
+pub struct TruncateTable<N = ResolvedName> {
+    pub name: N,
     pub cascade: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InsertInto {
-    pub table_name: QualifiedName,
+pub struct InsertInto<N = ResolvedName> {
+    pub table_name: N,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UpdateTable {
-    pub table_name: QualifiedName,
+pub struct UpdateTable<N = ResolvedName> {
+    pub table_name: N,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeleteFrom {
-    pub table_name: QualifiedName,
+pub struct DeleteFrom<N = ResolvedName> {
+    pub table_name: N,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Cluster {
-    pub table: QualifiedName,
+pub struct Cluster<N = ResolvedName> {
+    pub table: N,
     pub index: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct VacuumFull {
+pub struct VacuumFull<N = ResolvedName> {
     /// Target table, or `None` for `VACUUM FULL;` (all tables in the database).
-    pub table: Option<QualifiedName>,
+    pub table: Option<N>,
 }
 
 /// The kind of object targeted by `REINDEX`.
@@ -275,108 +285,58 @@ impl fmt::Display for ReindexObjectKind {
 
 /// Target of a `REINDEX` statement.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ReindexTarget {
+pub enum ReindexTarget<N = ResolvedName> {
     /// TABLE or INDEX — uses a schema-qualifiable relation reference.
-    Relation(QualifiedName),
+    Relation(N),
     /// SCHEMA or DATABASE — a plain name (not schema-qualified).
     Named(String),
 }
 
 /// `REINDEX [TABLE|INDEX|SCHEMA|DATABASE] [CONCURRENTLY] name`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Reindex {
+pub struct Reindex<N = ResolvedName> {
     pub kind: ReindexObjectKind,
-    pub target: ReindexTarget,
+    pub target: ReindexTarget<N>,
     pub concurrent: bool,
 }
 
 // --- Supporting types ---
 
-/// Schema-qualified name. `schema` is None for unqualified references.
+/// A relation name as written in the SQL. `schema` is `None` for unqualified
+/// references.
 ///
-/// `PartialEq`, `Eq`, and `Hash` are implemented manually on `schema` + `name`
-/// only, excluding the pre-computed `catalog_key` cache and `schema_is_default`.
-#[derive(Debug, Clone)]
+/// This is the parser's name type. Normalization turns it into a
+/// [`ResolvedName`] with [`resolve`](Self::resolve).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QualifiedName {
     pub schema: Option<String>,
     pub name: String,
-    /// Pre-computed lookup key: `"schema.name"` when qualified, `"name"` when not.
-    /// Updated by constructors and `set_default_schema()`.
-    catalog_key: String,
-    /// True when the schema was assigned by normalization, not by the user.
-    /// Used to suppress the schema prefix in user-facing messages.
-    schema_is_default: bool,
-}
-
-impl PartialEq for QualifiedName {
-    fn eq(&self, other: &Self) -> bool {
-        self.schema == other.schema && self.name == other.name
-    }
-}
-
-impl Eq for QualifiedName {}
-
-impl Hash for QualifiedName {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.schema.hash(state);
-        self.name.hash(state);
-    }
 }
 
 impl QualifiedName {
+    /// A name written without a schema.
     pub fn unqualified(name: impl Into<String>) -> Self {
-        let name = name.into();
-        let catalog_key = name.clone();
         Self {
             schema: None,
-            name,
-            catalog_key,
-            schema_is_default: false,
+            name: name.into(),
         }
     }
 
+    /// A name written as `schema.name`.
     pub fn qualified(schema: impl Into<String>, name: impl Into<String>) -> Self {
-        let schema = schema.into();
-        let name = name.into();
-        let catalog_key = format!("{}.{}", schema, name);
         Self {
-            schema: Some(schema),
-            name,
-            catalog_key,
-            schema_is_default: false,
+            schema: Some(schema.into()),
+            name: name.into(),
         }
     }
 
-    /// Returns the pre-computed key used for catalog lookup.
-    ///
-    /// Before normalization this returns just the table name for unqualified
-    /// references. After `set_default_schema()` has been called, all names
-    /// have an explicit schema and this returns `"schema.name"`.
-    pub fn catalog_key(&self) -> &str {
-        &self.catalog_key
-    }
-
-    /// Assign a default schema to an unqualified name and recompute the catalog key.
-    ///
-    /// If the name is already schema-qualified this is a no-op.
-    pub fn set_default_schema(&mut self, default: &str) {
-        if self.schema.is_none() {
-            self.schema = Some(default.to_string());
-            self.catalog_key = format!("{}.{}", default, self.name);
-            self.schema_is_default = true;
-        }
-    }
-
-    /// Returns the user-facing name: just `name` if the schema was synthesized
-    /// by normalization, or `schema.name` if the user wrote it explicitly.
-    pub fn display_name(&self) -> String {
-        if self.schema_is_default {
-            self.name.clone()
-        } else {
-            match &self.schema {
-                Some(s) => format!("{}.{}", s, self.name),
-                None => self.name.clone(),
-            }
+    /// Resolve this name against `default_schema`, which fills in the schema
+    /// of an unqualified name. The result remembers whether the schema was
+    /// filled in, so messages can omit it.
+    pub fn resolve(self, default_schema: &str) -> ResolvedName {
+        match self.schema {
+            Some(schema) => ResolvedName::new(RelationName::new(schema, self.name), false),
+            None => ResolvedName::new(RelationName::new(default_schema, self.name), true),
         }
     }
 }
@@ -449,10 +409,12 @@ pub enum DefaultExpr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TableConstraint {
+pub enum TableConstraint<N = ResolvedName> {
     PrimaryKey {
         name: Option<String>,
         columns: Vec<String>,
+        /// Non-key columns from `INCLUDE (...)`, in written order.
+        include_columns: Vec<String>,
         /// Index name from `USING INDEX` clause, e.g. `ADD PRIMARY KEY USING INDEX idx`.
         /// When present, `columns` will be empty (PostgreSQL derives them from the index).
         using_index: Option<String>,
@@ -460,13 +422,15 @@ pub enum TableConstraint {
     ForeignKey {
         name: Option<String>,
         columns: Vec<String>,
-        ref_table: QualifiedName,
+        ref_table: N,
         ref_columns: Vec<String>,
         not_valid: bool,
     },
     Unique {
         name: Option<String>,
         columns: Vec<String>,
+        /// Non-key columns from `INCLUDE (...)`, in written order.
+        include_columns: Vec<String>,
         /// Index name from `USING INDEX` clause, e.g. `ADD UNIQUE USING INDEX idx`.
         /// When present, `columns` will be empty (PostgreSQL derives them from the index).
         using_index: Option<String>,
@@ -474,6 +438,10 @@ pub enum TableConstraint {
     Check {
         name: Option<String>,
         expression: String,
+        /// Distinct columns the expression references, in order of first
+        /// appearance. Postgres names an unnamed CHECK `{table}_{col}_check`
+        /// when there is exactly one, and `{table}_check` otherwise.
+        referenced_columns: Vec<String>,
         not_valid: bool,
     },
     /// EXCLUDE constraint. `elements` captures each `WITH`-clause entry's column
@@ -482,6 +450,8 @@ pub enum TableConstraint {
     Exclude {
         name: Option<String>,
         elements: Vec<IndexColumn>,
+        /// Non-key columns from `INCLUDE (...)`, in written order.
+        include_columns: Vec<String>,
     },
 }
 
@@ -498,10 +468,36 @@ pub enum IndexColumn {
     Expression {
         text: String,
         referenced_columns: Vec<String>,
+        /// What this element contributes to a name Postgres generates for
+        /// the index or EXCLUDE constraint, derived from the parse tree the
+        /// way `FigureIndexColname` does: a function name, a column or field
+        /// name, an internal type name, `case`, or
+        /// [`IndexColumn::UNNAMED_EXPRESSION_NAME_PART`].
+        generated_name_part: String,
     },
 }
 
 impl IndexColumn {
+    /// The name part Postgres gives an expression element it has no better
+    /// name for, such as an operator expression.
+    pub const UNNAMED_EXPRESSION_NAME_PART: &'static str = "expr";
+
+    /// What this element contributes to a name Postgres generates for the
+    /// index or EXCLUDE constraint: the column name for a plain column, or the
+    /// expression's derived name part.
+    ///
+    /// This is the name before de-duplication; Postgres appends a number to a
+    /// part that repeats an earlier element's (`a, a` becomes `a_a1`).
+    pub fn generated_name_part(&self) -> &str {
+        match self {
+            Self::Column(name) => name,
+            Self::Expression {
+                generated_name_part,
+                ..
+            } => generated_name_part,
+        }
+    }
+
     /// Returns the column name if this is a plain column, or `None` for expressions.
     pub fn column_name(&self) -> Option<&str> {
         match self {
@@ -597,7 +593,7 @@ impl ColumnDef {
 }
 
 #[cfg(test)]
-impl CreateTable {
+impl CreateTable<QualifiedName> {
     /// Minimal CREATE TABLE: no columns, no constraints, permanent, no IF NOT EXISTS, no partitions.
     pub fn test(name: QualifiedName) -> Self {
         Self {
@@ -616,7 +612,7 @@ impl CreateTable {
         self
     }
 
-    pub fn with_constraints(mut self, constraints: Vec<TableConstraint>) -> Self {
+    pub fn with_constraints(mut self, constraints: Vec<TableConstraint<QualifiedName>>) -> Self {
         self.constraints = constraints;
         self
     }
@@ -643,13 +639,14 @@ impl CreateTable {
 }
 
 #[cfg(test)]
-impl CreateIndex {
-    /// Minimal CREATE INDEX: no columns, not unique, not concurrent, no IF NOT EXISTS, no WHERE, not ONLY, btree.
+impl CreateIndex<QualifiedName> {
+    /// Minimal CREATE INDEX: no columns, no INCLUDE, not unique, not concurrent, no IF NOT EXISTS, no WHERE, not ONLY, btree.
     pub fn test(index_name: impl Into<Option<String>>, table_name: QualifiedName) -> Self {
         Self {
             index_name: index_name.into(),
             table_name,
             columns: vec![],
+            include_columns: vec![],
             unique: false,
             concurrent: false,
             if_not_exists: false,
@@ -696,7 +693,7 @@ impl CreateIndex {
 }
 
 #[cfg(test)]
-impl DropTable {
+impl DropTable<QualifiedName> {
     /// Minimal DROP TABLE: if_exists defaults to true (safe default), cascade false.
     pub fn test(name: QualifiedName) -> Self {
         Self {
@@ -718,7 +715,7 @@ impl DropTable {
 }
 
 #[cfg(test)]
-impl DropIndex {
+impl DropIndex<QualifiedName> {
     /// Minimal DROP INDEX: not concurrent, if_exists defaults to true.
     pub fn test(index_name: QualifiedName) -> Self {
         Self {
@@ -762,7 +759,7 @@ impl DropSchema {
 }
 
 #[cfg(test)]
-impl TruncateTable {
+impl TruncateTable<QualifiedName> {
     /// Minimal TRUNCATE TABLE: cascade false.
     pub fn test(name: QualifiedName) -> Self {
         Self {
@@ -778,7 +775,7 @@ impl TruncateTable {
 }
 
 #[cfg(test)]
-impl InsertInto {
+impl InsertInto<QualifiedName> {
     /// Minimal INSERT INTO.
     pub fn test(table_name: QualifiedName) -> Self {
         Self { table_name }
@@ -786,7 +783,7 @@ impl InsertInto {
 }
 
 #[cfg(test)]
-impl UpdateTable {
+impl UpdateTable<QualifiedName> {
     /// Minimal UPDATE.
     pub fn test(table_name: QualifiedName) -> Self {
         Self { table_name }
@@ -794,7 +791,7 @@ impl UpdateTable {
 }
 
 #[cfg(test)]
-impl DeleteFrom {
+impl DeleteFrom<QualifiedName> {
     /// Minimal DELETE FROM.
     pub fn test(table_name: QualifiedName) -> Self {
         Self { table_name }
@@ -802,7 +799,7 @@ impl DeleteFrom {
 }
 
 #[cfg(test)]
-impl Cluster {
+impl Cluster<QualifiedName> {
     /// Minimal CLUSTER: no index.
     pub fn test(table: QualifiedName) -> Self {
         Self { table, index: None }
@@ -815,7 +812,7 @@ impl Cluster {
 }
 
 #[cfg(test)]
-impl VacuumFull {
+impl VacuumFull<QualifiedName> {
     /// VACUUM FULL targeting a specific table.
     pub fn test(table: QualifiedName) -> Self {
         Self { table: Some(table) }
@@ -828,7 +825,7 @@ impl VacuumFull {
 }
 
 #[cfg(test)]
-impl Reindex {
+impl Reindex<QualifiedName> {
     /// Build a REINDEX TABLE (non-concurrent) for testing.
     pub fn test_table(table: QualifiedName) -> Self {
         Self {
@@ -872,94 +869,95 @@ impl Reindex {
     }
 }
 
-// Convenience conversions for test construction: builder.into() -> IrNode variant
+// Convenience conversions for test construction: builder.into() -> IrNode variant,
+// in parser form or resolved form.
 #[cfg(test)]
-impl From<CreateTable> for IrNode {
-    fn from(value: CreateTable) -> Self {
+impl<N> From<CreateTable<N>> for IrNode<N> {
+    fn from(value: CreateTable<N>) -> Self {
         IrNode::CreateTable(value)
     }
 }
 
 #[cfg(test)]
-impl From<AlterTable> for IrNode {
-    fn from(value: AlterTable) -> Self {
+impl<N> From<AlterTable<N>> for IrNode<N> {
+    fn from(value: AlterTable<N>) -> Self {
         IrNode::AlterTable(value)
     }
 }
 
 #[cfg(test)]
-impl From<CreateIndex> for IrNode {
-    fn from(value: CreateIndex) -> Self {
+impl<N> From<CreateIndex<N>> for IrNode<N> {
+    fn from(value: CreateIndex<N>) -> Self {
         IrNode::CreateIndex(value)
     }
 }
 
 #[cfg(test)]
-impl From<DropTable> for IrNode {
-    fn from(value: DropTable) -> Self {
+impl<N> From<DropTable<N>> for IrNode<N> {
+    fn from(value: DropTable<N>) -> Self {
         IrNode::DropTable(value)
     }
 }
 
 #[cfg(test)]
-impl From<DropIndex> for IrNode {
-    fn from(value: DropIndex) -> Self {
+impl<N> From<DropIndex<N>> for IrNode<N> {
+    fn from(value: DropIndex<N>) -> Self {
         IrNode::DropIndex(value)
     }
 }
 
 #[cfg(test)]
-impl From<DropSchema> for IrNode {
+impl<N> From<DropSchema> for IrNode<N> {
     fn from(value: DropSchema) -> Self {
         IrNode::DropSchema(value)
     }
 }
 
 #[cfg(test)]
-impl From<TruncateTable> for IrNode {
-    fn from(value: TruncateTable) -> Self {
+impl<N> From<TruncateTable<N>> for IrNode<N> {
+    fn from(value: TruncateTable<N>) -> Self {
         IrNode::TruncateTable(value)
     }
 }
 
 #[cfg(test)]
-impl From<InsertInto> for IrNode {
-    fn from(value: InsertInto) -> Self {
+impl<N> From<InsertInto<N>> for IrNode<N> {
+    fn from(value: InsertInto<N>) -> Self {
         IrNode::InsertInto(value)
     }
 }
 
 #[cfg(test)]
-impl From<UpdateTable> for IrNode {
-    fn from(value: UpdateTable) -> Self {
+impl<N> From<UpdateTable<N>> for IrNode<N> {
+    fn from(value: UpdateTable<N>) -> Self {
         IrNode::UpdateTable(value)
     }
 }
 
 #[cfg(test)]
-impl From<DeleteFrom> for IrNode {
-    fn from(value: DeleteFrom) -> Self {
+impl<N> From<DeleteFrom<N>> for IrNode<N> {
+    fn from(value: DeleteFrom<N>) -> Self {
         IrNode::DeleteFrom(value)
     }
 }
 
 #[cfg(test)]
-impl From<Cluster> for IrNode {
-    fn from(value: Cluster) -> Self {
+impl<N> From<Cluster<N>> for IrNode<N> {
+    fn from(value: Cluster<N>) -> Self {
         IrNode::Cluster(value)
     }
 }
 
 #[cfg(test)]
-impl From<VacuumFull> for IrNode {
-    fn from(value: VacuumFull) -> Self {
+impl<N> From<VacuumFull<N>> for IrNode<N> {
+    fn from(value: VacuumFull<N>) -> Self {
         IrNode::VacuumFull(value)
     }
 }
 
 #[cfg(test)]
-impl From<Reindex> for IrNode {
-    fn from(value: Reindex) -> Self {
+impl<N> From<Reindex<N>> for IrNode<N> {
+    fn from(value: Reindex<N>) -> Self {
         IrNode::Reindex(value)
     }
 }
@@ -969,49 +967,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_unqualified_catalog_key() {
-        let name = QualifiedName::unqualified("orders");
-        assert_eq!(name.catalog_key(), "orders");
+    fn same_name_in_different_schemas_resolves_to_distinct_relations() {
+        let public_orders = QualifiedName::qualified("public", "orders");
+        let audit_orders = QualifiedName::qualified("audit", "orders");
+        assert_ne!(public_orders, audit_orders);
+        assert_ne!(
+            public_orders.resolve("public").relation(),
+            audit_orders.resolve("public").relation()
+        );
     }
 
     #[test]
-    fn test_qualified_catalog_key() {
-        let name = QualifiedName::qualified("myschema", "orders");
-        assert_eq!(name.catalog_key(), "myschema.orders");
-    }
-
-    #[test]
-    fn test_set_default_schema_on_unqualified() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
-        assert_eq!(name.schema, Some("public".to_string()));
-        assert_eq!(name.catalog_key(), "public.orders");
-    }
-
-    #[test]
-    fn test_set_default_schema_noop_on_qualified() {
-        let mut name = QualifiedName::qualified("myschema", "orders");
-        name.set_default_schema("public");
-        // Should not change — already qualified
-        assert_eq!(name.schema, Some("myschema".to_string()));
-        assert_eq!(name.catalog_key(), "myschema.orders");
-    }
-
-    #[test]
-    fn test_different_schemas_are_distinct() {
-        let a = QualifiedName::qualified("public", "orders");
-        let b = QualifiedName::qualified("audit", "orders");
-        assert_ne!(a, b);
-        assert_ne!(a.catalog_key(), b.catalog_key());
-    }
-
-    #[test]
-    fn test_equality_ignores_catalog_key_cache() {
-        // Two names with same schema + name are equal even though
-        // catalog_key is a derived field.
-        let a = QualifiedName::qualified("public", "orders");
-        let b = QualifiedName::qualified("public", "orders");
-        assert_eq!(a, b);
+    fn unqualified_and_default_qualified_names_resolve_to_equal_names() {
+        use std::collections::HashSet;
+        let unqualified = QualifiedName::unqualified("orders").resolve("public");
+        let default_qualified = QualifiedName::qualified("public", "orders").resolve("public");
+        assert_ne!(unqualified.display_name(), default_qualified.display_name());
+        assert_eq!(unqualified, default_qualified);
+        let set = HashSet::from([unqualified]);
+        assert!(set.contains(&default_qualified));
     }
 
     #[test]
@@ -1024,36 +998,6 @@ mod tests {
     fn test_display_qualified() {
         let name = QualifiedName::qualified("myschema", "orders");
         assert_eq!(format!("{}", name), "myschema.orders");
-    }
-
-    #[test]
-    fn test_display_after_set_default_schema() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
-        // Display should now show the schema since it was set
-        assert_eq!(format!("{}", name), "public.orders");
-    }
-
-    #[test]
-    fn test_display_name_unqualified() {
-        let name = QualifiedName::unqualified("orders");
-        assert_eq!(name.display_name(), "orders");
-    }
-
-    #[test]
-    fn test_display_name_qualified() {
-        let name = QualifiedName::qualified("myschema", "orders");
-        assert_eq!(name.display_name(), "myschema.orders");
-    }
-
-    #[test]
-    fn test_display_name_after_set_default_schema() {
-        let mut name = QualifiedName::unqualified("orders");
-        name.set_default_schema("public");
-        // display_name omits the synthetic schema
-        assert_eq!(name.display_name(), "orders");
-        // Display still shows the full form
-        assert_eq!(format!("{}", name), "public.orders");
     }
 
     #[test]

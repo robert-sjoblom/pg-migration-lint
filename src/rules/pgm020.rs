@@ -19,7 +19,7 @@ pub(super) fn check(
         let IrNode::AlterTable(ref at) = stmt.node else {
             continue;
         };
-        let table_key = at.name.catalog_key();
+        let table_key = at.name.relation();
 
         // Existing table → default severity (Minor).
         // New table or unknown table → Info.

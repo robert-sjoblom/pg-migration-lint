@@ -81,7 +81,7 @@ pub(super) fn check(
                     };
 
                     // Look up column types from catalog (before or after)
-                    let table_key = at.name.catalog_key();
+                    let table_key = at.name.relation();
                     let table = ctx
                         .catalog_before
                         .get_table(table_key)
@@ -193,6 +193,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }]),
         ))];
@@ -252,6 +253,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 },
             )],
@@ -277,6 +279,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 },
             )],
@@ -303,6 +306,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["order_id".to_string(), "item_id".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 },
             )],
@@ -330,6 +334,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
+                    include_columns: vec![],
                     using_index: Some("idx_orders_pk".to_string()),
                 },
             )],
@@ -358,6 +363,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
+                    include_columns: vec![],
                     using_index: Some("idx_orders_pk".to_string()),
                 },
             )],
@@ -379,6 +385,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 },
             )],

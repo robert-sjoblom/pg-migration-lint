@@ -28,7 +28,7 @@ expression: findings
   end_line: 14
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX 'idx_stock_product': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX 'idx_stock_product' without IF NOT EXISTS will fail if the index already exists."
   file: repos/multi-schema/migrations/V002__cross_schema_fks.sql
   start_line: 17
   end_line: 17

@@ -1,6 +1,7 @@
 use super::*;
 use rstest::rstest;
 
+mod constraints;
 mod indexes;
 
 #[rstest]
@@ -578,37 +579,37 @@ fn test_source_span_statement_after_multiple_comment_lines() {
 #[test]
 fn test_extract_table_hint_alter() {
     let hint = extract_table_hint_from_raw("ALTER TABLE orders ADD COLUMN x int;");
-    assert_eq!(hint.as_deref(), Some("orders"));
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
 }
 
 #[test]
 fn test_extract_table_hint_create() {
     let hint = extract_table_hint_from_raw("CREATE TABLE IF NOT EXISTS orders (id int);");
-    assert_eq!(hint.as_deref(), Some("orders"));
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
 }
 
 #[test]
 fn test_extract_table_hint_alter_lowercase() {
     let hint = extract_table_hint_from_raw("alter table orders add column x int;");
-    assert_eq!(hint.as_deref(), Some("orders"));
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
 }
 
 #[test]
 fn test_extract_table_hint_create_if_exists() {
     let hint = extract_table_hint_from_raw("CREATE TABLE IF EXISTS orders (id int);");
-    assert_eq!(hint.as_deref(), Some("orders"));
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
 }
 
 #[test]
 fn test_extract_table_hint_alter_only() {
     let hint = extract_table_hint_from_raw("ALTER TABLE ONLY orders ADD COLUMN x int;");
-    assert_eq!(hint.as_deref(), Some("orders"));
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
 }
 
 #[test]
 fn test_extract_table_hint_schema_qualified() {
     let hint = extract_table_hint_from_raw("ALTER TABLE public.orders ADD COLUMN x int;");
-    assert_eq!(hint.as_deref(), Some("public.orders"));
+    assert_eq!(hint, Some(QualifiedName::qualified("public", "orders")));
 }
 
 #[test]
@@ -826,6 +827,7 @@ fn test_parse_add_unique_using_index() {
                 name,
                 columns,
                 using_index,
+                ..
             }) => {
                 assert_eq!(name.as_deref(), Some("uq_email"));
                 assert!(

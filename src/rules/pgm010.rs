@@ -1,6 +1,5 @@
 #![doc = include_str!("docs/pgm010.md")]
 
-use crate::catalog::replay::unique_backing_index_name;
 use crate::catalog::types::ConstraintState;
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity, drop_column_check};
@@ -21,53 +20,44 @@ pub(super) fn check(
         ctx,
         |name, at, table, stmt, ctx| {
             let mut findings = Vec::new();
-            // Backing index names of UNIQUE constraints already reported below —
-            // PostgreSQL drops a constraint and its backing index as one atomic
-            // action, so the index loop must not report the same removal again.
-            let mut backing_index_names: Vec<String> = Vec::new();
+            // Backing indexes the index loop below must skip. A backing index
+            // has its constraint's name. A PK's is PGM011's to report. A
+            // UNIQUE constraint's is reported by the constraint loop:
+            // PostgreSQL drops a constraint and its backing index as one
+            // atomic action, so the index loop must not report the same
+            // removal again.
+            let mut backing_index_names: Vec<&str> = table
+                .constraints
+                .iter()
+                .filter(|c| matches!(c, ConstraintState::PrimaryKey { .. }))
+                .map(ConstraintState::name)
+                .collect();
 
             // Check UNIQUE constraints that include this column.
             for constraint in table.constraints_involving_column(name) {
                 if let ConstraintState::Unique {
                     name: constraint_name,
-                    columns,
-                    using_index,
+                    ..
                 } = constraint
                 {
-                    let constraint_description = match constraint_name {
-                        Some(n) => format!("'{n}'"),
-                        None => format!("UNIQUE({})", columns.join(", ")),
-                    };
                     findings.push(rule.make_finding(
                         format!(
                             "Dropping column '{col}' from table '{table}' silently \
-                             removes unique constraint {constraint}. Verify that \
-                             the uniqueness guarantee is no longer needed.",
+                             removes unique constraint '{constraint_name}'. Verify \
+                             that the uniqueness guarantee is no longer needed.",
                             col = name,
                             table = at.name.display_name(),
-                            constraint = constraint_description,
                         ),
                         ctx.file,
                         &stmt.span,
                     ));
-                    backing_index_names.push(unique_backing_index_name(
-                        &table.name,
-                        constraint_name,
-                        columns,
-                        using_index,
-                    ));
+                    backing_index_names.push(constraint_name);
                 }
             }
 
             // Check unique indexes that include this column.
-            // Skip PK indexes (named *_pkey) since PGM011 handles those, and
-            // skip any index already reported above as a UNIQUE constraint's
-            // own backing index.
             for idx in table.indexes_involving_column(name) {
-                if idx.unique
-                    && !idx.name.ends_with("_pkey")
-                    && !backing_index_names.contains(&idx.name)
-                {
+                if idx.unique && !backing_index_names.contains(&idx.name.as_str()) {
                     findings.push(rule.make_finding(
                         format!(
                             "Dropping column '{col}' from table '{table}' silently \
@@ -94,8 +84,9 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
 
     #[test]
     fn test_drop_column_with_unique_constraint_fires() {
@@ -284,10 +275,11 @@ mod tests {
             id: "add_unique".to_string(),
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
-                    name: QualifiedName::unqualified("users"),
+                    name: QualifiedName::unqualified("users").resolve("public"),
                     actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
                         name: Some("uq_users_email".to_string()),
                         columns: vec!["email".to_string()],
+                        include_columns: vec![],
                         using_index: None,
                     })],
                 }),
@@ -347,11 +339,12 @@ mod tests {
             id: "add_unique".to_string(),
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
-                    name: QualifiedName::unqualified("orders"),
+                    name: QualifiedName::unqualified("orders").resolve("public"),
                     actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
                         name: Some("uq_orders_email".to_string()),
                         columns: vec![], // empty with USING INDEX
                         using_index: Some("idx_orders_email".to_string()),
+                        include_columns: vec![],
                     })],
                 }),
                 span: SourceSpan {
@@ -447,14 +440,12 @@ mod tests {
 
     #[test]
     fn test_drop_pkey_index_column_not_pgm010() {
-        // Primary key indexes (named *_pkey) should NOT fire PGM010
-        // They should be handled by PGM011 or not at all
         let before = CatalogBuilder::new()
             .table("users", |t| {
                 t.column("id", "integer", false)
                     .column("email", "text", false)
                     .pk(&["id"])
-                    .index("users_pkey", &["id"], true); // PK index with _pkey suffix
+                    .index("users_pkey", &["id"], true);
             })
             .build();
         let after = before.clone();
@@ -468,11 +459,88 @@ mod tests {
         }))];
 
         let findings = RuleId::Pgm010.check(&stmts, &ctx);
-        // PGM010 should NOT fire for _pkey indexes (those are PK, not UNIQUE constraints)
-        // This test ensures the `!idx.name.ends_with("_pkey")` filter works
         assert!(
             findings.is_empty(),
-            "PK index ending in _pkey should not trigger PGM010"
+            "the PK's backing index belongs to PGM011, got {findings:?}"
         );
+    }
+
+    #[test]
+    fn test_drop_named_pk_column_not_pgm010() {
+        let before = catalog_from_sql(
+            "CREATE TABLE users (id int, email text, CONSTRAINT pk_users PRIMARY KEY (id));",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql("ALTER TABLE users DROP COLUMN id;"));
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert!(
+            findings.is_empty(),
+            "named PK's backing index should not trigger PGM010, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn test_drop_unnamed_unique_column_of_schema_qualified_table_reported_once() {
+        let before = catalog_from_sql("CREATE TABLE analytics.users (id int, email text UNIQUE);");
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql("ALTER TABLE analytics.users DROP COLUMN email;"));
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "got {findings:?}");
+    }
+
+    #[test]
+    fn test_drop_unnamed_unique_column_names_the_generated_constraint() {
+        let before = catalog_from_sql("CREATE TABLE users (id int, email text UNIQUE);");
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql("ALTER TABLE users DROP COLUMN email;"));
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
+        assert_eq!(
+            messages,
+            [
+                "Dropping column 'email' from table 'users' silently removes unique constraint \
+              'users_email_key'. Verify that the uniqueness guarantee is no longer needed."
+            ]
+        );
+    }
+
+    #[test]
+    fn test_drop_column_of_pk_added_using_index_not_pgm010() {
+        let before = catalog_from_sql(
+            "CREATE TABLE users (id int NOT NULL);
+             CREATE UNIQUE INDEX users_id_idx ON users (id);
+             ALTER TABLE users ADD PRIMARY KEY USING INDEX users_id_idx;",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql("ALTER TABLE users DROP COLUMN id;"));
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
+    }
+
+    #[test]
+    fn test_drop_pk_column_after_table_rename_not_pgm010() {
+        let before = catalog_from_sql(
+            "CREATE TABLE orders (id int, PRIMARY KEY (id));
+             ALTER TABLE orders RENAME TO purchases;",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql("ALTER TABLE purchases DROP COLUMN id;"));
+
+        let findings = RuleId::Pgm010.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
     }
 }

@@ -9,6 +9,7 @@ pub mod config;
 #[cfg(feature = "docgen")]
 pub mod docgen;
 pub mod input;
+pub mod names;
 pub mod normalize;
 pub mod output;
 pub mod parser;
@@ -19,6 +20,7 @@ pub mod suppress;
 // Re-export commonly used types
 pub use catalog::{Catalog, TableState};
 pub use config::Config;
+pub use names::{RelationName, ResolvedName};
 pub use output::{RuleInfo, sarif_level};
 pub use parser::ir::{IrNode, Located};
 pub use pipeline::LintPipeline;

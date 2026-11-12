@@ -30,7 +30,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 
 1. **Input Layer** (`src/input/`): Loads raw SQL and Liquibase migrations
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
-3. **Normalize** (`src/normalize.rs`): Assigns `default_schema` to unqualified names so catalog keys are schema-qualified
+3. **Normalize** (`src/normalize.rs`): `resolve_units` resolves every parsed `QualifiedName` against `default_schema` into a `ResolvedName`, so replay and rules only see schema-qualified names
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
 5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
@@ -41,31 +41,35 @@ The tool converts SQL AST into a simplified IR layer to decouple rules from pars
 
 Key IR nodes (`src/parser/ir.rs`):
 ```rust
-pub enum IrNode {
-    CreateTable(CreateTable),
-    AlterTable(AlterTable),
-    CreateIndex(CreateIndex),
-    DropIndex(DropIndex),
-    DropTable(DropTable),
+pub enum IrNode<N = ResolvedName> {
+    CreateTable(CreateTable<N>),
+    AlterTable(AlterTable<N>),
+    CreateIndex(CreateIndex<N>),
+    DropIndex(DropIndex<N>),
+    DropTable(DropTable<N>),
     DropSchema(DropSchema),
-    TruncateTable(TruncateTable),
-    InsertInto(InsertInto),
-    UpdateTable(UpdateTable),
-    DeleteFrom(DeleteFrom),
-    Cluster(Cluster),
-    VacuumFull(VacuumFull),
+    TruncateTable(TruncateTable<N>),
+    InsertInto(InsertInto<N>),
+    UpdateTable(UpdateTable<N>),
+    DeleteFrom(DeleteFrom<N>),
+    Cluster(Cluster<N>),
+    VacuumFull(VacuumFull<N>),
     AlterIndexAttachPartition { parent_index_name, child_index_name },
     RenameTable { name, new_name },
     RenameColumn { table, old_name, new_name },
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
-    Unparseable { raw_sql: String, table_hint: Option<String> },
+    Unparseable { raw_sql: String, table_hint: Option<N> },
 }
 ```
+
+The IR is generic over its relation-name type `N`, and so are `CreateTable`, `AlterTable`, `AlterTableAction`, `TableConstraint`, `CreateIndex`, `DropIndex` and the other name-bearing types. The parser emits `IrNode<QualifiedName>`; normalization produces the default `IrNode<ResolvedName>`, which is what replay and the rules see. Bare names (`RENAME TO` targets, index names in `CREATE INDEX`, constraint and column names) stay `String`.
 
 `CreateTable` uses a `TablePersistence` enum (`Permanent`, `Unlogged`, `Temporary`) instead of a boolean `temporary` field.
 
 Supporting types:
-- `QualifiedName` - schema-qualified name with `catalog_key()` returning `"schema.name"` after normalization
+- `QualifiedName { schema: Option<String>, name }` - a relation name as written in the SQL (parser output); `resolve(default_schema)` turns it into a `ResolvedName`
+- `ResolvedName` (`src/names.rs`) - a resolved name: `relation()` is its catalog key, `name()` the bare name, `display_name()` the name for messages (bare when the schema came from `default_schema`, `schema.name` when the SQL wrote one)
+- `RelationName { schema, name }` (`src/names.rs`) - the catalog key; the schema is never optional, and there is no `Display` impl, so a key can't leak `public.` into messages
 - `ColumnDef { name, type_name, nullable, default_expr, is_inline_pk, is_serial }`
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
@@ -80,11 +84,12 @@ Built by replaying migrations in order. Represents schema state at each migratio
 
 ```rust
 pub struct Catalog {
-    tables: HashMap<String, TableState>,
+    tables: HashMap<RelationName, TableState>,
+    index_to_table: HashMap<String, RelationName>,  // bare index name → owning table
 }
 
 pub struct TableState {
-    pub name: String,
+    pub name: RelationName,
     pub display_name: String,
     pub columns: Vec<ColumnState>,
     pub indexes: Vec<IndexState>,
@@ -93,7 +98,7 @@ pub struct TableState {
     pub incomplete: bool,       // true if unparseable SQL touched this table
     pub is_partitioned: bool,
     pub partition_by: Option<PartitionByInfo>,
-    pub parent_table: Option<String>,
+    pub parent_table: Option<RelationName>,
 }
 ```
 
@@ -133,7 +138,7 @@ pub trait Rule: Send + Sync {
 pub struct LintContext<'a> {
     pub catalog_before: &'a Catalog,  // State BEFORE applying current unit
     pub catalog_after: &'a Catalog,   // State AFTER applying current unit
-    pub tables_created_in_change: &'a HashSet<String>,  // For "new table" detection
+    pub tables_created_in_change: &'a HashSet<RelationName>,  // For "new table" detection
     pub run_in_transaction: bool,     // From MigrationUnit metadata
     pub is_down: bool,                // Down/rollback migration flag
     pub file: &'a PathBuf,
@@ -193,6 +198,8 @@ The replay engine (`src/catalog/replay.rs`) has a single function:
 pub fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
 ```
 
+`MigrationUnit` defaults to `MigrationUnit<ResolvedName>`, so replay only accepts units that have been through `resolve_units`.
+
 The pipeline in `main.rs` drives replay:
 ```rust
 for unit in history.units {
@@ -210,7 +217,7 @@ The `apply` function handles all `IrNode` variants.
 
 ### Catalog Test Builders
 
-Use the builder pattern for catalog state assertions (defined in `src/catalog/builder.rs`):
+Use the builder pattern to set up catalog state in tests (defined in `src/catalog/builder.rs`):
 ```rust
 let catalog = CatalogBuilder::new()
     .table("orders", |t| {
@@ -222,6 +229,14 @@ let catalog = CatalogBuilder::new()
     })
     .build();
 ```
+
+Table names, including `fk`'s referenced table, are written `"orders"` (meaning `public.orders`; `TEST_DEFAULT_SCHEMA = "public"`) or `"audit.orders"`. `rel("orders")` and `rel_in("audit", "orders")` build the matching `RelationName`, and `test_relation(..)` accepts either written form.
+
+To inspect a catalog in tests, use the `#[cfg(test)]` `CatalogAssertions` trait from the same file rather than `get_table(&rel(..))`; only tests of the lookup API itself call `get_table` directly. On failure each method panics with a message listing what the catalog actually holds:
+- `catalog.table("orders") -> &TableState`
+- `assert_table("orders")` / `assert_no_table("audit.orders")`
+- `assert_partition_children("parent", &["child"])` - compared as sets
+- `assert_index_owner("idx_status", "orders")` / `assert_index_unregistered("idx_status")` - index names are bare
 
 ### Test Fixture Repos
 

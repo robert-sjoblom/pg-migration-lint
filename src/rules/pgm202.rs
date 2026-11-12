@@ -23,7 +23,7 @@ pub(super) fn check(
                 continue;
             }
 
-            let table_key = dt.name.catalog_key();
+            let table_key = dt.name.relation();
 
             if !ctx.is_existing_table(table_key) {
                 continue;
@@ -33,7 +33,7 @@ pub(super) fn check(
             let mut dependents: Vec<String> = Vec::new();
             for table in ctx.catalog_before.tables() {
                 // Skip the table being dropped itself
-                if table.name == table_key {
+                if table.name == *table_key {
                     continue;
                 }
                 for constraint in &table.constraints {

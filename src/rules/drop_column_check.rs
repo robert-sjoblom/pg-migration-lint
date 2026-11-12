@@ -30,7 +30,7 @@ where
                 return vec![];
             };
 
-            let table_key = at.name.catalog_key();
+            let table_key = at.name.relation();
             let Some(table) = ctx.catalog_before.get_table(table_key) else {
                 return vec![];
             };

@@ -23,7 +23,7 @@ pub(super) fn check(
                 continue;
             }
 
-            let table_key = ct.name.catalog_key();
+            let table_key = ct.name.relation();
 
             // Partition children inherit PK from their parent.
             if ctx.partition_child_inherits_pk(ct.partition_of.as_ref(), table_key) {
@@ -87,6 +87,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }]),
         ))];
@@ -143,11 +144,13 @@ mod tests {
                     TableConstraint::PrimaryKey {
                         name: None,
                         columns: vec!["id".to_string()],
+                        include_columns: vec![],
                         using_index: None,
                     },
                     TableConstraint::Unique {
                         name: Some("uk_email".to_string()),
                         columns: vec!["email".to_string()],
+                        include_columns: vec![],
                         using_index: None,
                     },
                 ]),
@@ -180,6 +183,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }])
                 .with_partition_of(QualifiedName::unqualified("parent")),
@@ -211,6 +215,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }])
                 .with_partition_of(QualifiedName::unqualified("parent")),
@@ -238,6 +243,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }])
                 .with_partition_of(QualifiedName::unqualified("unknown_parent")),
@@ -272,6 +278,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }]),
         ))];
@@ -302,6 +309,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }])
                 .with_partition_by(
@@ -342,6 +350,7 @@ mod tests {
                 .with_constraints(vec![TableConstraint::Unique {
                     name: Some("uq_key".to_string()),
                     columns: vec!["key".to_string()],
+                    include_columns: vec![],
                     using_index: None,
                 }]),
         ))];

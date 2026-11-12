@@ -4,7 +4,7 @@ expression: findings
 ---
 - rule_id: PGM402
   severity: Minor
-  message: "CREATE INDEX '<unnamed>': add IF NOT EXISTS for idempotent migrations."
+  message: "CREATE INDEX '<unnamed>' without IF NOT EXISTS will fail if the index already exists."
   file: migrations/003.sql
   start_line: 1
   end_line: 1

@@ -1,8 +1,7 @@
 #![doc = include_str!("docs/pgm006.md")]
 
-use crate::parser::ir::{
-    AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, QualifiedName, SourceSpan,
-};
+use crate::names::ResolvedName;
+use crate::parser::ir::{AlterTableAction, ColumnDef, DefaultExpr, IrNode, Located, SourceSpan};
 use crate::rules::fn_volatility::{self, FnVolatility};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 use std::path::Path;
@@ -31,7 +30,7 @@ pub(super) fn check(
         // CREATE TABLE is intentionally skipped — no existing rows means no rewrite.
         if let IrNode::AlterTable(at) = &stmt.node {
             // Skip tables created in this changeset — no existing rows to rewrite.
-            let table_key = at.name.catalog_key();
+            let table_key = at.name.relation();
             if ctx.tables_created_in_change.contains(table_key) {
                 continue;
             }
@@ -72,7 +71,7 @@ pub(super) fn check(
 /// Check a single column definition for a volatile default.
 fn check_column(
     col: &ColumnDef,
-    table_name: &QualifiedName,
+    table_name: &ResolvedName,
     rule: &impl Rule,
     file: &Path,
     span: &SourceSpan,
@@ -123,7 +122,7 @@ fn check_column(
                  it forces a full table rewrite under an ACCESS EXCLUSIVE lock instead \
                  of a cheap catalog-only change. Verify the function's volatility classification.",
                 col = col.name,
-                table = table_name,
+                table = table_name.display_name(),
                 fn_name = func_name,
             ),
             file,
@@ -141,7 +140,7 @@ fn check_column(
 fn check_set_default(
     column_name: &str,
     default_expr: &DefaultExpr,
-    table_name: &QualifiedName,
+    table_name: &ResolvedName,
     rule: &impl Rule,
     file: &Path,
     span: &SourceSpan,

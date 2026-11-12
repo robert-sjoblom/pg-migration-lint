@@ -146,3 +146,52 @@ BEGIN
                  ELSE format('FAIL — plan does not contain "%s": %s', pattern, plan_text) END);
 END;
 $$;
+
+--------------------------------------------------------------------------------
+-- Catalog name helpers, for asserting exact generated names.
+-- Tables are passed as text ('schema.table') and resolved with to_regclass, and
+-- the result is never NULL: a missing table reads '<no table ...>' and a missing
+-- object reads '<none>'. assert_eq rejects a NULL actual without recording a
+-- row, so a NULL here would make the assertion vanish instead of failing.
+--------------------------------------------------------------------------------
+
+-- Names of a table's constraints of one pg_constraint.contype (p, u, f, c, x, n),
+-- sorted and comma-joined.
+CREATE OR REPLACE FUNCTION constraint_names(tbl text, kind "char") RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT CASE
+        WHEN to_regclass(tbl) IS NULL THEN format('<no table %s>', tbl)
+        ELSE coalesce(
+            (SELECT string_agg(conname::text, ',' ORDER BY conname)
+               FROM pg_constraint
+              WHERE conrelid = to_regclass(tbl) AND contype = kind),
+            '<none>')
+    END;
+$$;
+
+-- Schema-qualified name of the index behind one of a table's constraints.
+CREATE OR REPLACE FUNCTION constraint_index(tbl text, con text) RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(
+        (SELECT n.nspname || '.' || i.relname
+           FROM pg_constraint k
+           JOIN pg_class i ON i.oid = k.conindid
+           JOIN pg_namespace n ON n.oid = i.relnamespace
+          WHERE k.conrelid = to_regclass(tbl) AND k.conname = con),
+        '<none>');
+$$;
+
+-- Schema-qualified names of every index on a table, sorted and comma-joined.
+CREATE OR REPLACE FUNCTION index_names(tbl text) RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT CASE
+        WHEN to_regclass(tbl) IS NULL THEN format('<no table %s>', tbl)
+        ELSE coalesce(
+            (SELECT string_agg(n.nspname || '.' || i.relname, ',' ORDER BY i.relname)
+               FROM pg_index x
+               JOIN pg_class i ON i.oid = x.indexrelid
+               JOIN pg_namespace n ON n.oid = i.relnamespace
+              WHERE x.indrelid = to_regclass(tbl)),
+            '<none>')
+    END;
+$$;

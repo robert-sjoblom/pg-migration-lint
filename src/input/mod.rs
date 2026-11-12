@@ -2,7 +2,8 @@
 //!
 //! Supports SQL files and Liquibase XML changesets.
 
-use crate::parser::ir::{IrNode, Located};
+use crate::names::ResolvedName;
+use crate::parser::ir::{IrNode, Located, QualifiedName};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -11,13 +12,17 @@ pub mod liquibase_updatesql;
 pub mod sql;
 
 /// A single migration unit: one changeset (Liquibase) or one file (go-migrate).
+///
+/// Generic over the IR's name type like [`IrNode`]: loaders produce
+/// `MigrationUnit<QualifiedName>`, and `normalize::resolve_units` turns those
+/// into the default resolved form that replay and the rules consume.
 #[derive(Debug, Clone)]
-pub struct MigrationUnit {
+pub struct MigrationUnit<N = ResolvedName> {
     /// Identifier for ordering/logging. Changeset ID or filename.
     pub id: String,
 
     /// The SQL statements as IR nodes with source locations.
-    pub statements: Vec<Located<IrNode>>,
+    pub statements: Vec<Located<IrNode<N>>>,
 
     /// The source file to report findings against.
     pub source_file: PathBuf,
@@ -35,10 +40,11 @@ pub struct MigrationUnit {
     pub is_down: bool,
 }
 
-/// An ordered sequence of migration units representing the full history.
+/// An ordered sequence of migration units representing the full history,
+/// as the loaders produce it: parsed, not yet normalized.
 #[derive(Debug)]
 pub struct MigrationHistory {
-    pub units: Vec<MigrationUnit>,
+    pub units: Vec<MigrationUnit<QualifiedName>>,
 }
 
 /// Raw migration unit with unparsed SQL text. Used by Liquibase loaders
@@ -72,7 +78,7 @@ impl RawMigrationUnit {
     /// findings point to the correct line in the original file (e.g., the
     /// XML line for Liquibase changesets). For raw SQL files the offset
     /// is 1, making this a no-op.
-    pub fn into_migration_unit(self) -> MigrationUnit {
+    pub fn into_migration_unit(self) -> MigrationUnit<QualifiedName> {
         let mut statements = crate::parser::pg_query::parse_sql(&self.sql);
 
         // Shift line numbers so they are absolute within the source file.

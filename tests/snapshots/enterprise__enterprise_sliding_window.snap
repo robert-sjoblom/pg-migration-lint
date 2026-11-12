@@ -24,11 +24,11 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'billing_lock': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'billing_lock' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 8
-      message: "CREATE TABLE 'users': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'users' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 3
@@ -78,27 +78,27 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'orders': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'orders' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 15
-      message: "CREATE TABLE 'internal_orders': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'internal_orders' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 22
-      message: "CREATE TABLE 'partner_client_orders': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'partner_client_orders' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 29
-      message: "CREATE TABLE 'order_actions': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'order_actions' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 39
-      message: "CREATE INDEX 'idx_order_actions_order_id': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_order_actions_order_id' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 40
-      message: "CREATE INDEX 'idx_orders_account_id': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_orders_account_id' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 3
@@ -140,19 +140,19 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 4
-      message: "CREATE TABLE 'subscriptions': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscriptions' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 13
-      message: "CREATE TABLE 'subscription_items': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_items' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 24
-      message: "CREATE TABLE 'subscription_invoices': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_invoices' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 33
-      message: "CREATE INDEX 'idx_subscription_items_subscription': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_subscription_items_subscription' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 24
@@ -182,7 +182,7 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'usage_events': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'usage_events' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
   step: step_04_V004__create_usage_events
@@ -244,15 +244,15 @@ expression: snapshot
       rule: PGM001
       severity: Critical
     - line: 4
-      message: "CREATE INDEX 'idx_subscriptions_account': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_subscriptions_account' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 5
-      message: "CREATE INDEX 'idx_subscriptions_status': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_subscriptions_status' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 6
-      message: "CREATE INDEX 'idx_orders_status': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_orders_status' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
   step: step_07_V007__create_index_no_concurrently
@@ -288,11 +288,11 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'products': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'products' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 15
-      message: "CREATE TABLE 'bundle_products': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'bundle_products' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
   step: step_09_V009__create_products_tables
@@ -318,15 +318,15 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 4
-      message: "CREATE TABLE 'promotions': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'promotions' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 14
-      message: "CREATE TABLE 'promotion_products': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'promotion_products' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 25
-      message: "CREATE INDEX 'idx_promotion_products_promo': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_promotion_products_promo' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 14
@@ -370,23 +370,23 @@ expression: snapshot
       rule: PGM107
       severity: Major
     - line: 4
-      message: "CREATE TABLE 'price_plans': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'price_plans' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 10
-      message: "CREATE TABLE 'price_plan_items': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'price_plan_items' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 19
-      message: "CREATE TABLE 'subscription_price_plan': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_price_plan' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 26
-      message: "CREATE INDEX 'idx_price_plan_items_plan': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_price_plan_items_plan' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 27
-      message: "CREATE INDEX 'idx_subscription_price_plan_account': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE INDEX 'idx_subscription_price_plan_account' without IF NOT EXISTS will fail if the index already exists."
       rule: PGM402
       severity: Minor
     - line: 10
@@ -496,55 +496,55 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 6
-      message: "CREATE TABLE 'partner_reports': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'partner_reports' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 15
-      message: "CREATE TABLE 'client_invitations': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'client_invitations' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 24
-      message: "CREATE TABLE 'external_access_rights': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'external_access_rights' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 33
-      message: "CREATE TABLE 'product_groups': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'product_groups' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 41
-      message: "CREATE TABLE 'account_feature_flags': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'account_feature_flags' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 49
-      message: "CREATE TABLE 'order_invoice_references': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'order_invoice_references' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 56
-      message: "CREATE TABLE 'order_skip_actions': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'order_skip_actions' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 64
-      message: "CREATE TABLE 'overdue_invoices': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'overdue_invoices' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 74
-      message: "CREATE TABLE 'usage_event_balances': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'usage_event_balances' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 83
-      message: "CREATE TABLE 'account_locks': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'account_locks' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 91
-      message: "CREATE TABLE 'subscription_locks': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_locks' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 98
-      message: "CREATE TABLE 'usage_event_metadata': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'usage_event_metadata' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 106
-      message: "CREATE TABLE 'subscription_scheduled_dates': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_scheduled_dates' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 15
@@ -674,15 +674,15 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'connector_catalog': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'connector_catalog' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 10
-      message: "CREATE TABLE 'connector_requests': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'connector_requests' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 19
-      message: "CREATE TABLE 'connector_articles': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'connector_articles' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 10
@@ -714,7 +714,7 @@ expression: snapshot
   step: step_19_V019__create_index_concurrently_batch
 - findings:
     - line: 4
-      message: "CREATE TABLE 'reseller_orders': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'reseller_orders' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 4
@@ -732,7 +732,7 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 4
-      message: "CREATE TABLE 'subscription_periods': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'subscription_periods' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 4
@@ -1052,11 +1052,11 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'cancellation_feedback': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'cancellation_feedback' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 12
-      message: "CREATE TABLE 'trial_conversions': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'trial_conversions' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 3
@@ -1094,7 +1094,7 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 3
-      message: "CREATE TABLE 'platform_audit_log': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'platform_audit_log' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
   step: step_28_V028__create_audit_tables
@@ -1120,7 +1120,7 @@ expression: snapshot
       rule: PGM108
       severity: Info
     - line: 4
-      message: "CREATE TABLE 'supplier_agreements': add IF NOT EXISTS for idempotent migrations."
+      message: "CREATE TABLE 'supplier_agreements' without IF NOT EXISTS will fail if the table already exists."
       rule: PGM402
       severity: Minor
     - line: 16
@@ -1164,11 +1164,11 @@ expression: snapshot
       rule: PGM009
       severity: Info
     - line: 8
-      message: "Dropping column 'name' from table 'products' silently removes unique constraint UNIQUE(name). Verify that the uniqueness guarantee is no longer needed."
+      message: "Dropping column 'name' from table 'products' silently removes unique constraint 'products_name_key'. Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
     - line: 11
-      message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint UNIQUE(account_id). Verify that the uniqueness guarantee is no longer needed."
+      message: "Dropping column 'account_id' from table 'account_locks' silently removes unique constraint 'account_locks_account_id_key'. Verify that the uniqueness guarantee is no longer needed."
       rule: PGM010
       severity: Minor
     - line: 5
@@ -1176,15 +1176,15 @@ expression: snapshot
       rule: PGM011
       severity: Major
     - line: 14
-      message: "Dropping column 'user_id' from table 'orders' silently removes foreign key (user_id) → users. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'user_id' from table 'orders' silently removes foreign key 'orders_user_id_fkey' referencing 'users'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
     - line: 17
-      message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key (connector_id) → connector_catalog. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'connector_id' from table 'connector_articles' silently removes foreign key 'connector_articles_connector_id_fkey' referencing 'connector_catalog'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
     - line: 20
-      message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key (subscription_id) → subscriptions. Verify that the referential integrity guarantee is no longer needed."
+      message: "Dropping column 'subscription_id' from table 'subscription_periods' silently removes foreign key 'subscription_periods_subscription_id_fkey' referencing 'subscriptions'. Verify that the referential integrity guarantee is no longer needed."
       rule: PGM012
       severity: Minor
   step: step_31_V031__drop_constrained_columns

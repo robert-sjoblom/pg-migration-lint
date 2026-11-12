@@ -7,28 +7,10 @@
 // meant to be deleted once the SchemaState rework lands and real path-based assertions replace
 // them.
 
-use std::path::PathBuf;
-
-use crate::{Catalog, TableState, catalog::replay::apply, input::MigrationUnit};
-
-/// Parse each SQL string into its own `MigrationUnit` (mirrors one migration file each),
-/// then normalize the whole batch, matching the real pipeline's load-then-normalize order.
-fn steps_from_sql(sql_steps: &[&str], default_schema: &str) -> Vec<MigrationUnit> {
-    let mut units: Vec<MigrationUnit> = sql_steps
-        .iter()
-        .enumerate()
-        .map(|(i, sql)| MigrationUnit {
-            id: format!("step_{i}"),
-            statements: crate::parser::pg_query::parse_sql(sql),
-            source_file: PathBuf::from(format!("step_{i}.sql")),
-            source_line_offset: 1,
-            run_in_transaction: true,
-            is_down: false,
-        })
-        .collect();
-    crate::normalize::normalize_schemas(&mut units, default_schema);
-    units
-}
+use super::steps_from_sql;
+use crate::{
+    Catalog, TableState, catalog::replay::apply, input::MigrationUnit, names::RelationName,
+};
 
 /// Deterministic, human-readable catalog dump for snapshotting.
 ///
@@ -52,15 +34,24 @@ fn snapshot_catalog(catalog: &Catalog) -> String {
         } else {
             index_names.join(", ")
         };
-        out.push_str(&format!("  {} (indexes: {indexes})\n", table.name));
+        out.push_str(&format!(
+            "  {} (indexes: {indexes})\n",
+            schema_dot_name(&table.name)
+        ));
     }
 
     out.push_str("index_to_table lookups:\n");
     for name in &all_index_names {
-        let owner = catalog.table_for_index(name).unwrap_or("<none>");
+        let owner = catalog
+            .table_for_index(name)
+            .map_or_else(|| "<none>".to_string(), schema_dot_name);
         out.push_str(&format!("  {name} -> {owner}\n"));
     }
     out
+}
+
+fn schema_dot_name(relation: &RelationName) -> String {
+    format!("{}.{}", relation.schema, relation.name)
 }
 
 /// Idempotent `{:#?}` dump of full catalog state (all columns/indexes/constraints,
