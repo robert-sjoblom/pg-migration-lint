@@ -148,8 +148,7 @@ Built by replaying all migration files in configured order. Represents the schem
 ```
 Catalog {
     tables: HashMap<RelationName, TableState>,     // RelationName { schema, name }; schema always set
-    index_to_table: HashMap<String, RelationName>, // reverse lookup: bare index name → table key
-    partition_children: HashMap<String, Vec<String>>, // parent key → child keys
+    index_to_table: HashMap<RelationName, RelationName>, // reverse lookup: index → table key; an index is in its table's schema
 }
 
 TableState {

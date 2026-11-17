@@ -96,7 +96,7 @@ pub(super) fn check(
                     let resolved_columns: Vec<String>;
                     let col_names: &[String] = if columns.is_empty() {
                         if let Some(idx_name) = using_index {
-                            if let Some(idx) = ctx.get_index(idx_name) {
+                            if let Some(idx) = ctx.get_index(&table_key.in_same_schema(idx_name)) {
                                 resolved_columns = idx.column_names().map(String::from).collect();
                                 &resolved_columns
                             } else {
@@ -143,7 +143,32 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::parser::pg_query::parse_sql;
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+
+    #[test]
+    fn test_add_pk_using_index_reads_columns_from_the_index_in_the_tables_schema() {
+        let before = catalog_from_sql(
+            "CREATE TABLE analytics.orders (order_id int NOT NULL);
+             CREATE UNIQUE INDEX idx_pk ON analytics.orders (order_id);
+             CREATE TABLE data.orders (id bigint NOT NULL);
+             CREATE UNIQUE INDEX idx_pk ON data.orders (id);",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql(
+            "ALTER TABLE analytics.orders ADD PRIMARY KEY USING INDEX idx_pk;",
+        ));
+
+        let findings = RuleId::Pgm107.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "got {findings:?}");
+        assert!(
+            findings[0].message.contains("'order_id' on 'analytics.orders'"),
+            "got {}",
+            findings[0].message
+        );
+    }
 
     #[test]
     fn test_inline_pk_int4_fires() {

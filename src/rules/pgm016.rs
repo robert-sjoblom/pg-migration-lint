@@ -36,7 +36,9 @@ pub(super) fn check(
 
             let message = match using_index {
                 Some(idx_name) => {
-                    match ctx.get_index(idx_name) {
+                    // USING INDEX names an index of the altered table, which
+                    // Postgres looks up in that table's schema.
+                    match ctx.get_index(&table_key.in_same_schema(idx_name)) {
                         None => format!(
                             "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
                              referenced index does not exist.",
@@ -102,7 +104,48 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::parser::pg_query::parse_sql;
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+
+    #[test]
+    fn test_add_pk_using_index_looks_up_the_index_in_the_tables_schema() {
+        let before = catalog_from_sql(
+            "CREATE TABLE analytics.orders (id int, email text NOT NULL);
+             CREATE UNIQUE INDEX idx_email ON analytics.orders (email);",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql(
+            "ALTER TABLE analytics.orders ADD CONSTRAINT con_email PRIMARY KEY USING INDEX idx_email;",
+        ));
+
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
+    }
+
+    #[test]
+    fn test_add_pk_using_index_of_a_same_named_index_in_another_schema_fires() {
+        let before = catalog_from_sql(
+            "CREATE TABLE analytics.orders (id int, email text NOT NULL);
+             CREATE UNIQUE INDEX idx_email ON analytics.orders (email);
+             CREATE TABLE data.orders (id int, email text NOT NULL);",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql(
+            "ALTER TABLE data.orders ADD CONSTRAINT con_email PRIMARY KEY USING INDEX idx_email;",
+        ));
+
+        let findings = RuleId::Pgm016.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1, "got {findings:?}");
+        assert_eq!(
+            findings[0].message,
+            "ADD PRIMARY KEY USING INDEX 'idx_email' on table 'data.orders': \
+             referenced index does not exist."
+        );
+    }
 
     fn add_pk_stmt(table: &str, columns: &[&str]) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {

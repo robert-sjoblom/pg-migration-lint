@@ -101,13 +101,13 @@ impl<'a> LintContext<'a> {
         )
     }
 
-    /// Look up an index by name, checking `catalog_before` first, then
+    /// Look up an index in its schema, checking `catalog_before` first, then
     /// falling back to `catalog_after`. This covers indexes created in the
     /// same migration unit (present only in `catalog_after`).
-    pub fn get_index(&self, name: &str) -> Option<&IndexState> {
+    pub fn get_index(&self, index: &RelationName) -> Option<&IndexState> {
         self.catalog_before
-            .get_index(name)
-            .or_else(|| self.catalog_after.get_index(name))
+            .get_index(index)
+            .or_else(|| self.catalog_after.get_index(index))
     }
 
     /// Check if a table matches the given scope filter.

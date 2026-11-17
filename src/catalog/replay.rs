@@ -40,10 +40,10 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
             old_name,
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
-        IrNode::RenameIndex { .. } => todo!("we'll fix this before release. promise"),
+        IrNode::RenameIndex { index, new_name } => apply_rename_index(catalog, index, new_name),
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
-        } => apply_alter_index_attach(catalog, parent_index_name.name()),
+        } => apply_alter_index_attach(catalog, parent_index_name.relation()),
         IrNode::DropSchema(ds) => apply_drop_schema(catalog, ds),
         IrNode::TruncateTable(_)
         | IrNode::Cluster(_)
@@ -292,8 +292,11 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
     // instead. Collision suffixes are not modelled yet, so only an explicit
     // name can meaningfully clash with an existing index.
     let index_name = created_index_name(ci);
+    // The grammar allows no schema on the index name: the index is created
+    // in its table's schema.
+    let index_key = table_key.in_same_schema(&index_name);
 
-    if ci.index_name.is_some() && catalog.get_index(&index_name).is_some() {
+    if ci.index_name.is_some() && catalog.get_index(&index_key).is_some() {
         if ci.if_not_exists {
             eprintln!(
                 "warning: CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
@@ -325,30 +328,64 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
-    catalog.register_index(&index_name, table_key);
+    catalog.register_index(&index_key, table_key);
 }
 
-/// Handle DROP INDEX: find and remove the named index from whichever table has it.
-/// If no table has the index, silently skip.
+/// Handle DROP INDEX: remove the index from the table that owns it, looked
+/// up in the index's resolved schema only. If there is no such index,
+/// silently skip.
 fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
-    let index_name = di.index_name.name();
-    let Some(table_name) = catalog.table_for_index(index_name).cloned() else {
+    let index_key = di.index_name.relation();
+    let Some(table_name) = catalog.table_for_index(index_key).cloned() else {
         return;
     };
 
-    catalog.unregister_index(index_name);
+    catalog.unregister_index(index_key);
 
     if let Some(table) = catalog.get_table_mut(&table_name) {
-        table.indexes.retain(|idx| idx.name != index_name);
+        table.indexes.retain(|idx| idx.name != index_key.name);
     }
+}
+
+/// Handle `ALTER INDEX ... RENAME TO`: the index keeps its schema and table
+/// and takes the bare `new_name`.
+///
+/// Postgres renames the constraint an index backs along with the index
+/// (`verify/tests/naming/rename.sql`: `ALTER INDEX rename_idx_pkey RENAME TO
+/// rename_idx_new_pk` leaves the PRIMARY KEY named `rename_idx_new_pk`), so a
+/// PRIMARY KEY, UNIQUE or EXCLUDE constraint of the old name follows. CHECK
+/// and FOREIGN KEY constraints are never index-backed and keep their names.
+/// A missing index is skipped, with or without `IF EXISTS`.
+fn apply_rename_index(catalog: &mut Catalog, index: &ResolvedName, new_name: &str) {
+    let old_key = index.relation();
+    let Some(table_key) = catalog.table_for_index(old_key).cloned() else {
+        return;
+    };
+    let Some(table) = catalog.get_table_mut(&table_key) else {
+        return;
+    };
+
+    for idx in table.indexes.iter_mut().filter(|idx| idx.name == old_key.name) {
+        idx.name = new_name.to_string();
+    }
+    for constraint in table
+        .constraints
+        .iter_mut()
+        .filter(|c| c.is_index_backed() && c.name() == old_key.name)
+    {
+        constraint.rename(new_name);
+    }
+
+    catalog.unregister_index(old_key);
+    catalog.register_index(&old_key.in_same_schema(new_name), &table_key);
 }
 
 /// Handle ALTER INDEX ... ATTACH PARTITION: flip `only` to `false` on the parent index.
 ///
 /// When all child partitions have their own indexes attached, the parent
 /// ON ONLY index becomes a valid recursive index covering all partitions.
-fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
-    let Some(table_key) = catalog.table_for_index(parent_index_name).cloned() else {
+fn apply_alter_index_attach(catalog: &mut Catalog, parent_index: &RelationName) {
+    let Some(table_key) = catalog.table_for_index(parent_index).cloned() else {
         return;
     };
     let Some(table) = catalog.get_table_mut(&table_key) else {
@@ -357,7 +394,7 @@ fn apply_alter_index_attach(catalog: &mut Catalog, parent_index_name: &str) {
     if let Some(idx) = table
         .indexes
         .iter_mut()
-        .find(|i| i.name == parent_index_name)
+        .find(|i| i.name == parent_index.name)
     {
         idx.only = false;
     }
@@ -446,7 +483,7 @@ fn apply_rename_table(catalog: &mut Catalog, name: &ResolvedName, new_name: &str
     let children = catalog.get_partition_children(old_key);
 
     if let Some(mut table) = catalog.remove_table(old_key) {
-        let new_key = RelationName::new(old_key.schema.clone(), new_name);
+        let new_key = old_key.in_same_schema(new_name);
 
         // Update each child's parent_table to point to the new key.
         for child_key in &children {
@@ -620,7 +657,8 @@ fn column_def_to_state(col: &ColumnDef) -> ColumnState {
 }
 
 /// Index-name reverse-map changes collected while a table is mutably
-/// borrowed, applied to the catalog once the borrow ends.
+/// borrowed, applied to the catalog once the borrow ends. The names are the
+/// bare names of the table's own indexes, which live in the table's schema.
 #[derive(Default)]
 struct IndexRegistryUpdates {
     register: Vec<String>,
@@ -635,10 +673,10 @@ impl IndexRegistryUpdates {
 
     fn apply(self, catalog: &mut Catalog, table_key: &RelationName) {
         for name in self.unregister {
-            catalog.unregister_index(&name);
+            catalog.unregister_index(&table_key.in_same_schema(name));
         }
         for name in self.register {
-            catalog.register_index(&name, table_key);
+            catalog.register_index(&table_key.in_same_schema(name), table_key);
         }
     }
 }

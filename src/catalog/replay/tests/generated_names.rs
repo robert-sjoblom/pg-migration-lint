@@ -35,7 +35,7 @@ fn assert_names(catalog: &Catalog, table_key: &str, constraints: &[&str], indexe
     assert_eq!(constraint_names(table), constraints, "constraint names");
     assert_eq!(index_names(table), indexes, "index names");
     for index_name in indexes {
-        catalog.assert_index_owner(index_name, table_key);
+        catalog.assert_index_owner(&format!("{}.{index_name}", table.name.schema), table_key);
     }
 }
 

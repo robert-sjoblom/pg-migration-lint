@@ -109,9 +109,10 @@ pub fn rel_in(schema: &str, name: &str) -> RelationName {
 }
 
 /// Catalog lookups and assertions for tests that panic with what the catalog
-/// actually holds. Table names are written as in [`CatalogBuilder`]: `"t"` is
-/// `public.t` and `"audit.t"` is `audit.t` (see [`test_relation`]). Index
-/// names are bare, as [`Catalog::table_for_index`] takes them.
+/// actually holds. Table and index names are written as in
+/// [`CatalogBuilder`]: `"t"` is `public.t` and `"audit.t"` is `audit.t` (see
+/// [`test_relation`]). An index is in its table's schema, so an index of
+/// `audit.t` is written `"audit.idx"`.
 #[cfg(test)]
 pub(crate) trait CatalogAssertions {
     /// The table `name`; panics listing the catalog's tables if it is absent.
@@ -196,16 +197,19 @@ impl CatalogAssertions for Catalog {
 
     #[track_caller]
     fn assert_index_owner(&self, index: &str, table: &str) {
+        let index = test_relation(index);
         let expected = test_relation(table);
-        match self.table_for_index(index) {
+        match self.table_for_index(&index) {
             Some(owner) if *owner == expected => {}
             Some(owner) => panic!(
-                "index {index} belongs to {}, expected {}",
+                "index {} belongs to {}, expected {}",
+                schema_dot_name(&index),
                 schema_dot_name(owner),
                 schema_dot_name(&expected)
             ),
             None => panic!(
-                "index {index} is unregistered, expected it to belong to {}",
+                "index {} is unregistered, expected it to belong to {}",
+                schema_dot_name(&index),
                 schema_dot_name(&expected)
             ),
         }
@@ -213,9 +217,11 @@ impl CatalogAssertions for Catalog {
 
     #[track_caller]
     fn assert_index_unregistered(&self, index: &str) {
-        if let Some(owner) = self.table_for_index(index) {
+        let index = test_relation(index);
+        if let Some(owner) = self.table_for_index(&index) {
             panic!(
-                "index {index} should be unregistered but belongs to {}",
+                "index {} should be unregistered but belongs to {}",
+                schema_dot_name(&index),
                 schema_dot_name(owner)
             );
         }
@@ -963,7 +969,8 @@ mod tests {
                     .index("idx_items_sku", &["sku"], false);
             })
             .table("audit.orders", |t| {
-                t.column("id", "integer", false);
+                t.column("id", "integer", false)
+                    .index("idx_orders_id", &["id"], false);
             })
             .build()
     }
@@ -1047,7 +1054,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "index idx_items_sku belongs to public.items, expected audit.orders")]
+    fn test_assert_index_owner_reads_the_schema_from_a_qualified_index_name() {
+        catalog_with_public_items_and_audit_orders()
+            .assert_index_owner("audit.idx_orders_id", "audit.orders");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "index public.idx_items_sku belongs to public.items, expected audit.orders"
+    )]
     fn test_assert_index_owner_panic_shows_actual_owner() {
         catalog_with_public_items_and_audit_orders()
             .assert_index_owner("idx_items_sku", "audit.orders");
@@ -1055,7 +1070,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "index idx_missing is unregistered, expected it to belong to public.items"
+        expected = "index public.idx_missing is unregistered, expected it to belong to public.items"
     )]
     fn test_assert_index_owner_panic_reports_unregistered_index() {
         catalog_with_public_items_and_audit_orders().assert_index_owner("idx_missing", "items");
@@ -1067,8 +1082,13 @@ mod tests {
     }
 
     #[test]
+    fn test_assert_index_unregistered_looks_up_a_bare_index_name_in_public() {
+        catalog_with_public_items_and_audit_orders().assert_index_unregistered("idx_orders_id");
+    }
+
+    #[test]
     #[should_panic(
-        expected = "index idx_items_sku should be unregistered but belongs to public.items"
+        expected = "index public.idx_items_sku should be unregistered but belongs to public.items"
     )]
     fn test_assert_index_unregistered_panic_shows_owner() {
         catalog_with_public_items_and_audit_orders().assert_index_unregistered("idx_items_sku");

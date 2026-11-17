@@ -6,5 +6,5 @@ tables:
   public.events (indexes: events_pkey, events_pkey)
   public.metrics (indexes: metrics_pkey, metrics_pkey)
 index_to_table lookups:
-  events_pkey -> public.events
-  metrics_pkey -> public.metrics
+  public.events_pkey -> public.events
+  public.metrics_pkey -> public.metrics

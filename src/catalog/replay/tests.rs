@@ -48,6 +48,16 @@ fn steps_from_sql(sql_steps: &[&str], default_schema: &str) -> Vec<MigrationUnit
     resolve_units(units, default_schema)
 }
 
+/// Replay each SQL string as its own migration file, with `public` as the
+/// default schema, into an empty catalog.
+fn replay_sql(sql_steps: &[&str]) -> Catalog {
+    let mut catalog = Catalog::new();
+    for unit in steps_from_sql(sql_steps, TEST_DEFAULT_SCHEMA) {
+        apply(&mut catalog, &unit);
+    }
+    catalog
+}
+
 /// Helper: shorthand for creating a QualifiedName with just a table name.
 fn qname(name: &str) -> QualifiedName {
     QualifiedName::unqualified(name)
@@ -3121,7 +3131,7 @@ fn test_drop_unique_constraint_removes_backing_index() {
     );
     // Verify the reverse map is also cleaned up.
     assert!(
-        catalog.get_index("uq_email").is_none(),
+        catalog.get_index(&rel("uq_email")).is_none(),
         "index should be unregistered from reverse map"
     );
 }
@@ -3418,6 +3428,7 @@ fn test_replay_preserves_access_method() {
     assert!(!idx.is_btree(), "GIN index should not be btree");
 }
 
-mod catalog_rework;
 mod generated_names;
 mod implicit_index_names;
+mod rename_index;
+mod schema_scoped_indexes;

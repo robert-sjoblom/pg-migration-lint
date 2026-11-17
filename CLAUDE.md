@@ -85,7 +85,7 @@ Built by replaying migrations in order. Represents schema state at each migratio
 ```rust
 pub struct Catalog {
     tables: HashMap<RelationName, TableState>,
-    index_to_table: HashMap<String, RelationName>,  // bare index name → owning table
+    index_to_table: HashMap<RelationName, RelationName>,  // index → owning table, both in the table's schema
 }
 
 pub struct TableState {
