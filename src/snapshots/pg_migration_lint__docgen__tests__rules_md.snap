@@ -88,6 +88,8 @@ DROP INDEX idx_orders_status;
 DROP INDEX CONCURRENTLY idx_orders_status;
 ```
 
+Does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes. PostgreSQL rejects the whole statement and drops nothing; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+
 See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
 ---
@@ -112,6 +114,8 @@ Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ...
   <sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>
 </changeSet>
 ```
+
+Does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
 
 See also [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001), [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), and [PGM022](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm022).
 
@@ -710,7 +714,7 @@ ALTER TABLE archive RENAME TO orders_archive;
 ALTER TABLE orders DROP CONSTRAINT orders_pkey;
 ```
 
-A statement this rule reports is not reported by [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017) or [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504), since it never takes effect.
+A statement this rule reports is not reported by [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003), [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017), [PGM107](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm107), [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401), [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501) or [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504), since it never takes effect.
 
 ---
 
@@ -853,6 +857,8 @@ CREATE TABLE orders (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
 );
 ```
+
+`ALTER TABLE ... ADD PRIMARY KEY` reads the column types as they stand just before the statement, so a column added or retyped earlier in the same migration counts with its new type.
 
 ---
 
@@ -1092,6 +1098,8 @@ DROP TABLE IF EXISTS orders;
 DROP INDEX IF EXISTS idx_orders_status;
 ```
 
+Does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it with or without `IF EXISTS`; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+
 ---
 
 ### PGM402 — Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX
@@ -1176,7 +1184,7 @@ ALTER TABLE order_items
 DROP INDEX CONCURRENTLY idx_order_items_order_id;
 ```
 
-It does not fire when the same file drops the foreign key too, when another usable index still covers it, or when the same file adds the foreign key, which the first check already reports once. When several statements in a file drop covering indexes of one foreign key, the finding goes to the last of them.
+It does not fire when the same file drops the foreign key too, when another usable index still covers it, or when the same file adds the foreign key, which the first check already reports once. Nor does it fire on a statement PostgreSQL rejects, such as a `DROP INDEX` that also names the index behind a PRIMARY KEY or UNIQUE constraint: nothing is dropped, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it. When several statements in a file drop covering indexes of one foreign key, the finding goes to the last of them.
 
 **Column matching**: FK columns `(a, b)` are covered by any usable index that contains at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some of the FK columns still avoids a sequential scan (via a Filter or Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here. The check uses the catalog state after the entire file is processed, so creating the index later in the same file avoids a false positive.
 

@@ -1,6 +1,7 @@
 #![doc = include_str!("docs/pgm002.md")]
 
 use crate::parser::ir::{IrNode, Located};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing CONCURRENTLY on DROP INDEX";
@@ -15,6 +16,7 @@ pub(super) fn check(
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
 
     for stmt in statements {
         if let IrNode::DropIndex(ref di) = stmt.node {
@@ -47,6 +49,12 @@ pub(super) fn check(
             if is_partitioned && idx_is_only {
                 // Case A: ON ONLY stub on partitioned parent — safe to drop without
                 // CONCURRENTLY; it only affects the invalid parent stub.
+                continue;
+            }
+
+            // Postgres rejects a DROP INDEX naming a constraint's index and
+            // drops nothing; PGM027 reports the failure.
+            if rejected.contains(&stmt.span) {
                 continue;
             }
 

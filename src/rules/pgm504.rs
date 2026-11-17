@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::names::RelationName;
 use crate::parser::ir::{IrNode, Located};
-use crate::rules::rejected_statements::rejections;
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "RENAME TABLE on existing table";
@@ -30,15 +30,9 @@ pub(super) fn check(
 
     // Pass 2: find RenameTable on existing tables.
     let mut findings = Vec::new();
-    if !statements
-        .iter()
-        .any(|stmt| matches!(stmt.node, IrNode::RenameTable { .. }))
-    {
-        return findings;
-    }
-    let rejected = rejections(ctx.catalog_before, statements);
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
 
-    for (stmt, rejection) in statements.iter().zip(&rejected) {
+    for stmt in statements {
         if let IrNode::RenameTable {
             ref name,
             ref new_name,
@@ -59,7 +53,7 @@ pub(super) fn check(
 
             // Postgres rejects a rename onto a taken name, so nothing is
             // renamed and nothing breaks; PGM027 reports the failure.
-            if rejection.is_some() {
+            if rejected.contains(&stmt.span) {
                 continue;
             }
 

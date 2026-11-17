@@ -1,6 +1,7 @@
 #![doc = include_str!("docs/pgm003.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "CONCURRENTLY inside transaction";
@@ -19,6 +20,7 @@ pub(super) fn check(
     }
 
     let mut findings = Vec::new();
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
 
     for stmt in statements {
         let is_concurrent = match &stmt.node {
@@ -37,7 +39,10 @@ pub(super) fn check(
             _ => false,
         };
 
-        if is_concurrent {
+        // A DROP INDEX CONCURRENTLY naming a constraint's index fails in or
+        // out of a transaction, and PGM027's fix, dropping the constraint
+        // instead, needs no CONCURRENTLY.
+        if is_concurrent && !rejected.contains(&stmt.span) {
             findings.push(
                 rule.make_finding(
                     "CONCURRENTLY cannot run inside a transaction. \

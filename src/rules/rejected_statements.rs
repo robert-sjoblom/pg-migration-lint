@@ -1,6 +1,6 @@
 //! Statements PostgreSQL rejects against the schema the catalog holds just
-//! before them. PGM027 reports them, and PGM504 leaves a rejected
-//! `RENAME TO` to it.
+//! before them. PGM027 reports them, and the rules that would report what
+//! such a statement does leave it to PGM027 ([`RejectedStatements`]).
 //!
 //! Each statement is judged against `catalog_before` with the unit's earlier
 //! statements replayed on top ([`map_with_state_before`]), so a name an
@@ -8,12 +8,53 @@
 //! evidence rejects a statement: an object the catalog does not have may
 //! exist outside the tracked migrations.
 
+use std::cell::OnceCell;
+
 use crate::catalog::Catalog;
 use crate::catalog::replay::map_with_state_before;
 use crate::catalog::types::{NamedRelation, RenameClash};
 use crate::names::{RelationName, ResolvedName};
-use crate::parser::ir::{AlterTable, IrNode, Located};
+use crate::parser::ir::{AlterTable, IrNode, Located, SourceSpan};
 use crate::rules::using_index::{UsingIndex, has_using_index, using_index_constraints};
+
+/// The statements of a unit PostgreSQL rejects, as [`rejections`] judges
+/// them, for a rule that leaves those statements to PGM027. The unit is
+/// judged on the first [`RejectedStatements::contains`], so a rule that asks
+/// only before reporting replays nothing when it has nothing to report.
+pub(super) struct RejectedStatements<'a> {
+    catalog_before: &'a Catalog,
+    statements: &'a [Located<IrNode>],
+    rejected_spans: OnceCell<Vec<&'a SourceSpan>>,
+}
+
+impl<'a> RejectedStatements<'a> {
+    /// The rejected statements among `statements`, judged against
+    /// `catalog_before` once a rule asks.
+    pub(super) fn new(catalog_before: &'a Catalog, statements: &'a [Located<IrNode>]) -> Self {
+        Self {
+            catalog_before,
+            statements,
+            rejected_spans: OnceCell::new(),
+        }
+    }
+
+    /// True when PostgreSQL rejects the statement at `span`. `DROP INDEX a, b`
+    /// is one statement split into one node per index, all with the
+    /// statement's span, and PostgreSQL rejects all of it when it rejects one
+    /// index (`verify/tests/other/pgm027_drop_constraint_index.sql`).
+    pub(super) fn contains(&self, span: &SourceSpan) -> bool {
+        self.rejected_spans
+            .get_or_init(|| {
+                self.statements
+                    .iter()
+                    .zip(rejections(self.catalog_before, self.statements))
+                    .filter(|(_, rejection)| rejection.is_some())
+                    .map(|(stmt, _)| &stmt.span)
+                    .collect()
+            })
+            .contains(&span)
+    }
+}
 
 /// Why PostgreSQL rejects a statement, with the names a message needs. Table
 /// names are display names.
@@ -204,4 +245,71 @@ fn drop_index_of_constraint(state: &Catalog, index: &ResolvedName) -> Option<Rej
         constraint: constraint.name().to_string(),
         table: table.display_name.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::parser::pg_query::parse_sql;
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, normalized};
+    use crate::rules::{Rule, RuleId};
+
+    const ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK: &str = "
+        CREATE TABLE customers (id bigint PRIMARY KEY);
+        CREATE TABLE orders (
+            id bigint PRIMARY KEY,
+            code text CONSTRAINT orders_code_key UNIQUE,
+            customer_id bigint CONSTRAINT orders_customer_fk REFERENCES customers (id));
+        CREATE INDEX orders_customer_id_idx ON orders (customer_id);
+        CREATE TABLE archive (id bigint PRIMARY KEY);";
+
+    fn messages_for_change(rule: RuleId, change: &str) -> Vec<String> {
+        let history = ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK;
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        rule.check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    #[rstest]
+    #[case::pgm002(RuleId::Pgm002, "DROP INDEX orders_pkey;", "DROP INDEX orders_customer_id_idx;")]
+    #[case::pgm002_constraint_index_named_with_a_plain_one(
+        RuleId::Pgm002,
+        "DROP INDEX orders_customer_id_idx, orders_code_key;",
+        "DROP INDEX orders_customer_id_idx;"
+    )]
+    #[case::pgm003(
+        RuleId::Pgm003,
+        "DROP INDEX CONCURRENTLY orders_code_key;",
+        "DROP INDEX CONCURRENTLY orders_customer_id_idx;"
+    )]
+    #[case::pgm401(RuleId::Pgm401, "DROP INDEX orders_pkey;", "DROP INDEX orders_customer_id_idx;")]
+    #[case::pgm501_constraint_index_named_with_the_covering_one(
+        RuleId::Pgm501,
+        "DROP INDEX orders_customer_id_idx, orders_code_key;",
+        "DROP INDEX orders_customer_id_idx;"
+    )]
+    #[case::pgm504(
+        RuleId::Pgm504,
+        "ALTER TABLE archive RENAME TO customers;",
+        "ALTER TABLE archive RENAME TO archive_old;"
+    )]
+    fn rule_leaves_a_statement_postgres_rejects_to_pgm027(
+        #[case] rule: RuleId,
+        #[case] rejected: &str,
+        #[case] accepted_of_the_same_shape: &str,
+    ) {
+        let rule_on_rejected = messages_for_change(rule, rejected);
+        assert!(rule_on_rejected.is_empty(), "got {rule_on_rejected:?}");
+        assert_eq!(messages_for_change(RuleId::Pgm027, rejected).len(), 1);
+
+        let rule_on_accepted = messages_for_change(rule, accepted_of_the_same_shape);
+        assert_eq!(rule_on_accepted.len(), 1, "got {rule_on_accepted:?}");
+        let pgm027_on_accepted = messages_for_change(RuleId::Pgm027, accepted_of_the_same_shape);
+        assert!(pgm027_on_accepted.is_empty(), "got {pgm027_on_accepted:?}");
+    }
 }

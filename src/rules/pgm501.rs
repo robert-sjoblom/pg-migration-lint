@@ -3,6 +3,7 @@
 use crate::catalog::{Catalog, IndexState, TableState};
 use crate::names::RelationName;
 use crate::parser::ir::{AlterTableAction, IrNode, Located, SourceSpan, TableConstraint};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Foreign key without covering index on referencing columns";
@@ -108,13 +109,16 @@ fn added_fks_without_coverage(
 /// must exist before and after the unit, be covered before it and not after.
 /// A key the unit adds is left to [`added_fks_without_coverage`]. When more
 /// than one statement drops a covering index, the finding goes to the last,
-/// which removes the coverage that was left.
+/// which removes the coverage that was left. A statement PostgreSQL rejects
+/// drops nothing: `DROP INDEX covering_idx, constraint_idx` fails as a whole,
+/// though replay drops `covering_idx`, and PGM027 reports it.
 fn fks_left_without_coverage_by_drops(
     rule: &impl Rule,
     statements: &[Located<IrNode>],
     added_fks: &[FkInfo],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
     let mut findings: Vec<((&RelationName, &str), Finding)> = Vec::new();
     for drop in index_drops(statements, ctx.catalog_before) {
         for (fk_table, fk_name, fk_columns) in fks_coverable_by(drop.table, ctx.catalog_after) {
@@ -143,7 +147,7 @@ fn fks_left_without_coverage_by_drops(
             let coverage_lost = !covering_names.is_empty()
                 && fk_coverage(ctx.catalog_before, table_before, fk_columns_before) == Some(true)
                 && fk_coverage(ctx.catalog_after, fk_table, fk_columns) == Some(false);
-            if !coverage_lost {
+            if !coverage_lost || rejected.contains(drop.span) {
                 continue;
             }
 

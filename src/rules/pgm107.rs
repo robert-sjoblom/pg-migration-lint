@@ -1,8 +1,10 @@
 #![doc = include_str!("docs/pgm107.md")]
 
+use crate::catalog::Catalog;
+use crate::catalog::replay::map_with_state_before;
 use crate::catalog::types::TableState;
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::using_index::{UsingIndex, using_indexes_by_statement};
+use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
+use crate::rules::using_index::UsingIndex;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
@@ -33,9 +35,9 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    for (stmt, using_indexes) in statements
+    for (stmt, added_pk_columns) in statements
         .iter()
-        .zip(using_indexes_by_statement(ctx.catalog_before, statements))
+        .zip(small_int_pk_columns_by_statement(ctx.catalog_before, statements))
     {
         match &stmt.node {
             IrNode::CreateTable(ct) => {
@@ -74,65 +76,19 @@ pub(super) fn check(
                 }
             }
             IrNode::AlterTable(at) => {
-                for action in &at.actions {
-                    let AlterTableAction::AddConstraint {
-                        constraint:
-                            TableConstraint::PrimaryKey {
-                                columns,
-                                using_index,
-                                ..
-                            },
-                        ..
-                    } = action
-                    else {
-                        continue;
-                    };
-
-                    // With USING INDEX the constraint's columns are empty: the
-                    // PK columns are the referenced index's, typed as the table
-                    // stands just before the statement. Only an index of the
-                    // altered table has them: Postgres rejects another table's
-                    // index (PGM027).
-                    let (table, col_names): (&TableState, Vec<&str>) = match using_index {
-                        Some(idx_name) => {
-                            let Some(UsingIndex::OfTable { index, table }) =
-                                using_indexes.get(idx_name)
-                            else {
-                                continue;
-                            };
-                            (table, index.column_names().collect())
-                        }
-                        None => {
-                            let table_key = at.name.relation();
-                            let Some(table) = ctx
-                                .catalog_before
-                                .get_table(table_key)
-                                .or_else(|| ctx.catalog_after.get_table(table_key))
-                            else {
-                                continue;
-                            };
-                            (table, columns.iter().map(String::as_str).collect())
-                        }
-                    };
-
-                    for col_name in col_names {
-                        if let Some(col) = table.get_column(col_name)
-                            && is_small_int_type(&col.type_name.name)
-                        {
-                            findings.push(rule.make_finding(
-                                format!(
-                                    "Primary key column '{}' on '{}' uses {}. \
-                                     Consider using bigint to avoid exhausting the \
-                                     integer range on high-write tables.",
-                                    col_name,
-                                    at.name.display_name(),
-                                    display_type(&col.type_name.name),
-                                ),
-                                ctx.file,
-                                &stmt.span,
-                            ));
-                        }
-                    }
+                for column in added_pk_columns {
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Primary key column '{}' on '{}' uses {}. \
+                             Consider using bigint to avoid exhausting the \
+                             integer range on high-write tables.",
+                            column.name,
+                            at.name.display_name(),
+                            display_type(&column.type_name),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
             _ => {}
@@ -140,6 +96,90 @@ pub(super) fn check(
     }
 
     findings
+}
+
+/// A column of a primary key that `ALTER TABLE ... ADD PRIMARY KEY` adds,
+/// with the name of its type as the table holds it just before the statement.
+struct AddedPkColumn {
+    name: String,
+    type_name: String,
+}
+
+/// For each of `statements`, the columns of the primary keys it adds with
+/// `ALTER TABLE ... ADD PRIMARY KEY` that have a small integer type. The types
+/// are read as the table stands just before the statement: `catalog_before`
+/// with the earlier statements of the unit replayed on top, so a column
+/// added or retyped earlier in the unit counts. A unit that adds no primary
+/// key that way needs no replay.
+fn small_int_pk_columns_by_statement(
+    catalog_before: &Catalog,
+    statements: &[Located<IrNode>],
+) -> Vec<Vec<AddedPkColumn>> {
+    let adds_a_primary_key = statements.iter().any(|stmt| {
+        matches!(&stmt.node, IrNode::AlterTable(at) if added_primary_keys(at).next().is_some())
+    });
+    if !adds_a_primary_key {
+        return statements.iter().map(|_| Vec::new()).collect();
+    }
+    map_with_state_before(catalog_before, statements, |state, stmt| match &stmt.node {
+        IrNode::AlterTable(at) => small_int_pk_columns(state, at),
+        _ => Vec::new(),
+    })
+}
+
+/// The `(columns, USING INDEX index)` of each `ADD PRIMARY KEY` in `at`. With
+/// `USING INDEX` the columns are empty: they are the index's.
+fn added_primary_keys(at: &AlterTable) -> impl Iterator<Item = (&[String], Option<&str>)> {
+    at.actions.iter().filter_map(|action| match action {
+        AlterTableAction::AddConstraint {
+            constraint:
+                TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
+            ..
+        } => Some((columns.as_slice(), using_index.as_deref())),
+        _ => None,
+    })
+}
+
+/// The columns of the primary keys `at` adds that have a small integer type
+/// in `state`. With `USING INDEX` they are the referenced index's columns.
+/// Only an index of the altered table has them: Postgres rejects another
+/// table's index (PGM027).
+fn small_int_pk_columns(state: &Catalog, at: &AlterTable) -> Vec<AddedPkColumn> {
+    let table_key = at.name.relation();
+    added_primary_keys(at)
+        .flat_map(|(columns, using_index)| match using_index {
+            Some(index_name) => match UsingIndex::in_catalog(state, table_key, index_name) {
+                UsingIndex::OfTable { index, table } => {
+                    small_int_columns(&table, index.column_names())
+                }
+                UsingIndex::OfAnotherTable { .. } | UsingIndex::Missing => Vec::new(),
+            },
+            None => state.get_table(table_key).map_or_else(Vec::new, |table| {
+                small_int_columns(table, columns.iter().map(String::as_str))
+            }),
+        })
+        .collect()
+}
+
+/// The columns of `table` named in `column_names` that have a small integer
+/// type, in that order.
+fn small_int_columns<'n>(
+    table: &TableState,
+    column_names: impl Iterator<Item = &'n str>,
+) -> Vec<AddedPkColumn> {
+    column_names
+        .filter_map(|name| {
+            let column = table.get_column(name)?;
+            is_small_int_type(&column.type_name.name).then(|| AddedPkColumn {
+                name: name.to_string(),
+                type_name: column.type_name.name.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -151,6 +191,7 @@ mod tests {
     use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+    use rstest::rstest;
 
     #[test]
     fn test_add_pk_using_index_reads_columns_from_the_index_in_the_tables_schema() {
@@ -229,6 +270,43 @@ mod tests {
              ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
         );
         assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn test_add_pk_reads_a_column_widened_to_bigint_earlier_in_the_unit_as_bigint() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);",
+            "ALTER TABLE orders ALTER COLUMN id TYPE bigint;
+             ALTER TABLE orders ADD PRIMARY KEY (id);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[rstest]
+    #[case::narrowed_to_integer(
+        "CREATE TABLE orders (id bigint NOT NULL);",
+        "ALTER TABLE orders ALTER COLUMN id TYPE int;
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    #[case::added_as_integer(
+        "CREATE TABLE orders (note text);",
+        "ALTER TABLE orders ADD COLUMN id int NOT NULL;
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    #[case::table_created_as_integer(
+        "",
+        "CREATE TABLE orders (id int NOT NULL);
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    fn test_add_pk_reads_a_column_made_integer_earlier_in_the_unit_as_integer(
+        #[case] history: &str,
+        #[case] change: &str,
+    ) {
+        assert_eq!(
+            messages_for_change(history, change),
+            ["Primary key column 'id' on 'orders' uses integer. Consider using bigint to avoid \
+              exhausting the integer range on high-write tables."]
+        );
     }
 
     #[test]

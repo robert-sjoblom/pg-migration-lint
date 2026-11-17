@@ -249,6 +249,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - **Recursive/attached index on partitioned parent**: Emits the partition-specific message. PostgreSQL does NOT support `DROP INDEX CONCURRENTLY` on partitioned parent indexes; the standard advice does not apply.
   - **Non-partitioned table**: Standard CONCURRENTLY advice.
   - `ALTER INDEX ... ATTACH PARTITION` flips an ON ONLY index to recursive, so the suppression vs. warning is correctly distinguished even across migrations.
+- **Does not fire when**:
+  - The statement names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes (`DROP INDEX a, b`), as PGM027 judges it. PostgreSQL rejects the whole statement and drops nothing; PGM027 reports it.
 
 #### PGM003 — `CONCURRENTLY` inside transaction
 
@@ -256,6 +258,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a context that implies transactional execution:
   - Liquibase changeset without `runInTransaction="false"`
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
+- **Does not fire when**:
+  - `DROP INDEX CONCURRENTLY` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
 
 #### PGM004 — `DETACH PARTITION` on existing table without `CONCURRENTLY`
@@ -562,7 +566,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Message (USING INDEX)**: `ADD {PRIMARY KEY|UNIQUE} USING INDEX '{index}' on table '{table}' fails: the index belongs to table '{owner}'.`
 - **Message (rename)**: `Renaming table '{table}' to '{new_name}' fails: {reason}.`, `Renaming index '{index}' to '{new_name}' fails: {reason}.` or `Renaming constraint '{constraint}' on table '{table}' to '{new_name}' fails: {reason}.`, where `{reason}` is `table '{holder}' already has that name`, `index '{new_name}' on table '{holder}' already has that name` or `table '{holder}' already has a constraint named '{new_name}'`. An index backing a constraint, renamed onto a constraint name of its table, adds `the index backs a constraint that is renamed with it, and ` before the reason; an index-backed constraint renamed onto a relation name adds `the constraint's index is renamed with it, and `.
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' fails: constraint '{constraint}' on table '{table}' requires it. Drop the constraint instead.`
-- **Other rules**: PGM504 does not fire on a rename this rule reports. PGM016 and PGM017 do not fire on a `USING INDEX` of another table's index, and PGM107 does not read that index's columns.
+- **Other rules**: PGM504 does not fire on a rename this rule reports. PGM016 and PGM017 do not fire on a `USING INDEX` of another table's index, and PGM107 does not read that index's columns. PGM002, PGM003, PGM401 and PGM501 do not fire on a `DROP INDEX` this rule reports, including the other indexes it names.
 
 #### PGM201 — `DROP TABLE` on existing table
 
@@ -664,6 +668,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
 - **Does not fire when**:
   - The statement already includes `IF EXISTS`
+  - `DROP INDEX` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it with or without `IF EXISTS`; PGM027 reports it.
 - **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 
@@ -685,6 +690,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Another usable index still contains one of the key's columns.
   - The unit adds a foreign key on the same table and columns, including one dropped and added back under its name. Trigger 1 reports it once.
   - The statement is `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint, which PostgreSQL rejects. Replay keeps the index, and PGM027 reports the statement.
+  - The statement is one PostgreSQL rejects, as PGM027 judges it, such as `DROP INDEX` of a covering index together with the index behind a PRIMARY KEY or UNIQUE constraint (`DROP INDEX covering_idx, orders_pkey`). It drops nothing, though replay drops the covering index; PGM027 reports it.
   - The dropped index was created in the same unit, so the key was not covered by it before.
   - The dropped constraint is an EXCLUDE constraint. The catalog records no index for it, so it never counts as coverage.
 - **Message (trigger 1)**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
@@ -840,11 +846,12 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 #### PGM107 — Primary key column uses `integer` or `smallint` instead of `bigint`
 
 - **Severity**: MAJOR
-- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index, and their types from the table, as both stand just before the statement (`catalog_before` with the earlier statements of the unit replayed on top).
+- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint), whose own column definitions give the types, and `ALTER TABLE ... ADD PRIMARY KEY`, which reads the types from the table as it stands just before the statement (`catalog_before` with the earlier statements of the unit replayed on top), so a column added or retyped earlier in the unit counts with its new type. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index as it stands then too.
 - **Does not fire when**:
   - The PK column type is `int8` / `bigint`
   - The column is not part of a primary key
-  - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog
+  - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog just before the statement
+  - `ALTER TABLE ... ADD PRIMARY KEY (cols)` after an earlier statement of the unit changed the columns to `bigint`
   - `ADD PRIMARY KEY USING INDEX` names an index that is missing just before the statement or belongs to another table (PostgreSQL rejects the latter; PGM027 reports it)
 - **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
 
