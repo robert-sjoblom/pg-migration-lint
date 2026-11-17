@@ -1,7 +1,9 @@
 #![doc = include_str!("docs/pgm107.md")]
 
+use crate::catalog::types::TableState;
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, UsingIndex};
+use crate::rules::using_index::{UsingIndex, using_indexes_by_statement};
+use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
     "Primary key column uses integer or smallint instead of bigint";
@@ -31,7 +33,10 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    for stmt in statements {
+    for (stmt, using_indexes) in statements
+        .iter()
+        .zip(using_indexes_by_statement(ctx.catalog_before, statements))
+    {
         match &stmt.node {
             IrNode::CreateTable(ct) => {
                 // The parser promotes an inline PRIMARY KEY to the table's
@@ -83,33 +88,31 @@ pub(super) fn check(
                         continue;
                     };
 
-                    // Look up column types from catalog (before or after)
-                    let table_key = at.name.relation();
-                    let table = ctx
-                        .catalog_before
-                        .get_table(table_key)
-                        .or_else(|| ctx.catalog_after.get_table(table_key));
-
-                    let Some(table) = table else {
-                        continue;
-                    };
-
-                    // When USING INDEX is specified, columns is empty — resolve
-                    // the PK columns from the referenced index instead. Only
-                    // an index of the altered table has them: Postgres
-                    // rejects another table's index (PGM027).
-                    let resolved_columns: Vec<String>;
-                    let col_names: &[String] = if columns.is_empty() {
-                        let Some(idx_name) = using_index else {
-                            continue;
-                        };
-                        let UsingIndex::OfTable(idx) = ctx.using_index(table_key, idx_name) else {
-                            continue;
-                        };
-                        resolved_columns = idx.column_names().map(String::from).collect();
-                        &resolved_columns
-                    } else {
-                        columns
+                    // With USING INDEX the constraint's columns are empty: the
+                    // PK columns are the referenced index's, typed as the table
+                    // stands just before the statement. Only an index of the
+                    // altered table has them: Postgres rejects another table's
+                    // index (PGM027).
+                    let (table, col_names): (&TableState, Vec<&str>) = match using_index {
+                        Some(idx_name) => {
+                            let Some(UsingIndex::OfTable { index, table }) =
+                                using_indexes.get(idx_name)
+                            else {
+                                continue;
+                            };
+                            (table, index.column_names().collect())
+                        }
+                        None => {
+                            let table_key = at.name.relation();
+                            let Some(table) = ctx
+                                .catalog_before
+                                .get_table(table_key)
+                                .or_else(|| ctx.catalog_after.get_table(table_key))
+                            else {
+                                continue;
+                            };
+                            (table, columns.iter().map(String::as_str).collect())
+                        }
                     };
 
                     for col_name in col_names {
@@ -189,6 +192,43 @@ mod tests {
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         assert!(findings.is_empty(), "got {findings:?}");
+    }
+
+    fn messages_for_change(history: &str, change: &str) -> Vec<String> {
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        RuleId::Pgm107
+            .check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    #[test]
+    fn test_add_pk_using_an_index_created_earlier_in_the_unit_reads_its_columns() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);",
+            "CREATE UNIQUE INDEX orders_id_idx ON orders (id);
+             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
+        );
+        assert_eq!(messages.len(), 1, "got {messages:?}");
+        assert!(
+            messages[0].contains("'id' on 'orders' uses integer"),
+            "got {messages:?}"
+        );
+    }
+
+    #[test]
+    fn test_add_pk_using_index_reads_column_types_as_the_earlier_statements_of_the_unit_leave_them()
+    {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);
+             CREATE UNIQUE INDEX orders_id_idx ON orders (id);",
+            "ALTER TABLE orders ALTER COLUMN id TYPE bigint;
+             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
     }
 
     #[test]

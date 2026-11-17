@@ -1,22 +1,7 @@
 use std::{collections::HashSet, path::Path};
 
-use crate::catalog::types::IndexState;
 use crate::names::{RelationName, ResolvedName};
 use crate::{Catalog, rules::TableScope};
-
-/// What the index name in `ALTER TABLE ... ADD ... USING INDEX` refers to,
-/// from [`LintContext::using_index`].
-#[derive(Debug, Clone, Copy)]
-pub enum UsingIndex<'a> {
-    /// An index of the altered table.
-    OfTable(&'a IndexState),
-    /// An index of another table in the altered table's schema. Postgres
-    /// rejects the statement, which PGM027 reports.
-    OfAnotherTable,
-    /// No index of that name in the altered table's schema, as far as the
-    /// catalog knows.
-    Missing,
-}
 
 /// Context available to rules during linting.
 pub struct LintContext<'a> {
@@ -113,27 +98,6 @@ impl<'a> LintContext<'a> {
                 .get_table(parent_key)
                 .map_or_else(|| parent_key.name.clone(), |p| p.display_name.clone()),
         )
-    }
-
-    /// The index `ALTER TABLE table ADD ... USING INDEX index_name` names.
-    /// Postgres looks the name up in the table's schema and rejects an index
-    /// of another table there (PGM027). Looked up in `catalog_before` first,
-    /// then in `catalog_after`, which covers an index created in the same
-    /// migration unit.
-    pub fn using_index(&self, table: &RelationName, index_name: &str) -> UsingIndex<'_> {
-        let index = table.in_same_schema(index_name);
-        for catalog in [self.catalog_before, self.catalog_after] {
-            match catalog.table_for_index(&index) {
-                Some(owner) if owner != table => return UsingIndex::OfAnotherTable,
-                Some(_) => {
-                    if let Some(state) = catalog.get_index(&index) {
-                        return UsingIndex::OfTable(state);
-                    }
-                }
-                None => {}
-            }
-        }
-        UsingIndex::Missing
     }
 
     /// Check if a table matches the given scope filter.

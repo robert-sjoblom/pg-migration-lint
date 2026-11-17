@@ -12,7 +12,8 @@ use crate::catalog::Catalog;
 use crate::catalog::replay::map_with_state_before;
 use crate::catalog::types::{NamedRelation, RenameClash};
 use crate::names::{RelationName, ResolvedName};
-use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
+use crate::parser::ir::{AlterTable, IrNode, Located};
+use crate::rules::using_index::{UsingIndex, has_using_index, using_index_constraints};
 
 /// Why PostgreSQL rejects a statement, with the names a message needs. Table
 /// names are display names.
@@ -88,8 +89,7 @@ fn can_be_rejected(node: &IrNode) -> bool {
         | IrNode::RenameIndex { .. }
         | IrNode::RenameConstraint { .. }
         | IrNode::DropIndex(_) => true,
-        IrNode::AlterTable(at) => using_index_constraints(at).next().is_some(),
-        _ => false,
+        _ => has_using_index(node),
     }
 }
 
@@ -144,46 +144,20 @@ fn rejection(state: &Catalog, node: &IrNode) -> Option<Rejection> {
     }
 }
 
-/// The `(constraint kind, index name)` of each `ADD PRIMARY KEY` or
-/// `ADD UNIQUE ... USING INDEX` in `at`, in statement order.
-fn using_index_constraints(at: &AlterTable) -> impl Iterator<Item = (&'static str, &str)> {
-    at.actions.iter().filter_map(|action| match action {
-        AlterTableAction::AddConstraint {
-            constraint:
-                TableConstraint::PrimaryKey {
-                    using_index: Some(index),
-                    ..
-                },
-            ..
-        } => Some(("PRIMARY KEY", index.as_str())),
-        AlterTableAction::AddConstraint {
-            constraint:
-                TableConstraint::Unique {
-                    using_index: Some(index),
-                    ..
-                },
-            ..
-        } => Some(("UNIQUE", index.as_str())),
-        _ => None,
-    })
-}
-
-/// The first `USING INDEX` in `at` that names an index of another table.
-/// Postgres looks the name up in the altered table's schema. The altered
-/// table need not be in the catalog: whichever table it is, it is not the
-/// index's.
+/// The first `USING INDEX` in `at` that names an index of another table, as
+/// [`UsingIndex::in_catalog`] tells it for PGM016, PGM017 and PGM107 too.
 fn using_index_of_another_table(state: &Catalog, at: &AlterTable) -> Option<Rejection> {
-    let table = at.name.relation();
     using_index_constraints(at).find_map(|(constraint_kind, index)| {
-        let owner = state.table_for_index(&table.in_same_schema(index))?;
-        if owner == table {
+        let UsingIndex::OfAnotherTable { owner } =
+            UsingIndex::in_catalog(state, at.name.relation(), index)
+        else {
             return None;
-        }
+        };
         Some(Rejection::UsingIndexOfAnotherTable {
             constraint_kind,
             index: index.to_string(),
             table: at.name.display_name(),
-            owner: state.get_table(owner)?.display_name.clone(),
+            owner,
         })
     })
 }

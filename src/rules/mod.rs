@@ -5,7 +5,7 @@
 
 use crate::parser::ir::{IrNode, Located, SourceSpan};
 pub use crate::rules::finding::{Finding, dedup_findings};
-pub use crate::rules::lint_context::{LintContext, UsingIndex};
+pub use crate::rules::lint_context::LintContext;
 pub use crate::rules::rule_id::RuleId;
 pub use crate::rules::severity::Severity;
 
@@ -35,6 +35,7 @@ mod rule_id;
 mod severity;
 #[cfg(test)]
 mod test_helpers;
+mod using_index;
 
 // 0xx — Unsafe DDL
 mod pgm001;

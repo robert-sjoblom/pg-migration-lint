@@ -332,12 +332,12 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM016 — `ADD PRIMARY KEY` on existing table without `USING INDEX`
 
 - **Severity**: MAJOR
-- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns.
+- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns. The index and its columns are judged as they stand just before the statement, as PGM027 judges them: `catalog_before` with the earlier statements of the unit replayed on top. An index created, dropped or renamed earlier in the unit counts, and so does a column made NOT NULL or nullable there.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
-  - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL
-  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it. The index is looked up in `catalog_before`, then `catalog_after`.
+  - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL, also when the index was created, or the columns made NOT NULL, earlier in the same unit
+  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
 - **Message (no USING INDEX)**: `ADD PRIMARY KEY on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
 - **Message (index not found)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
 - **Message (index not unique)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
@@ -448,7 +448,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Table doesn't exist in `catalog_before`
   - The constraint columns already have a covering unique index (exact column match)
   - The constraint columns already have a `UNIQUE` constraint (exact column match)
-  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it. The index is looked up in `catalog_before`, then `catalog_after`.
+  - `USING INDEX` references a UNIQUE btree index of the table as it stands just before the statement, as PGM027 judges it: `catalog_before` with the earlier statements of the unit replayed on top. An index created earlier in the same unit counts.
+  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
 - **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
 
 #### PGM018 — `CLUSTER` on existing table
@@ -839,12 +840,12 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 #### PGM107 — Primary key column uses `integer` or `smallint` instead of `bigint`
 
 - **Severity**: MAJOR
-- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index.
+- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index, and their types from the table, as both stand just before the statement (`catalog_before` with the earlier statements of the unit replayed on top).
 - **Does not fire when**:
   - The PK column type is `int8` / `bigint`
   - The column is not part of a primary key
   - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog
-  - `ADD PRIMARY KEY USING INDEX` names an index that is missing from the catalog or belongs to another table (PostgreSQL rejects the latter; PGM027 reports it)
+  - `ADD PRIMARY KEY USING INDEX` names an index that is missing just before the statement or belongs to another table (PostgreSQL rejects the latter; PGM027 reports it)
 - **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
 
 #### PGM108 — Column uses `varchar(n)` instead of `text`
