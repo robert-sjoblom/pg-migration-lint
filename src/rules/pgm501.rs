@@ -253,7 +253,8 @@ struct IndexDrop<'a> {
 /// index-backed constraint, and `DROP COLUMN`. An index the unit itself
 /// creates is not in `catalog_before`, so dropping it again drops nothing
 /// here. Neither does `DROP INDEX` of a constraint's index, which PostgreSQL
-/// rejects (`cannot drop index ... because constraint ... requires it`).
+/// rejects (`cannot drop index ... because constraint ... requires it`):
+/// replay keeps the index, and PGM027 reports the statement.
 fn index_drops<'a>(
     statements: &'a [Located<IrNode>],
     catalog_before: &'a Catalog,
@@ -269,11 +270,7 @@ fn index_drops<'a>(
                 else {
                     continue;
                 };
-                let backs_a_constraint = table
-                    .constraints
-                    .iter()
-                    .any(|c| c.is_index_backed() && c.name() == index.name);
-                if backs_a_constraint {
+                if table.constraint_backed_by(&index.name).is_some() {
                     continue;
                 }
                 drops.push(IndexDrop {

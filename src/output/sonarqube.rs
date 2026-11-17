@@ -55,6 +55,13 @@ fn sonarqube_meta(rule_id: RuleId) -> SonarQubeRuleMeta {
             software_quality: "RELIABILITY",
             impact_severity: "HIGH",
         },
+        // Statement PostgreSQL rejects: the deploy fails
+        RuleId::Pgm027 => SonarQubeRuleMeta {
+            clean_code_attribute: "LOGICAL",
+            issue_type: "BUG",
+            software_quality: "RELIABILITY",
+            impact_severity: "HIGH",
+        },
         // Combinable ALTER TABLEs: minor lock contention improvement
         RuleId::Pgm023 => SonarQubeRuleMeta {
             clean_code_attribute: "EFFICIENT",
@@ -262,6 +269,8 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
         RuleId::Pgm001 | RuleId::Pgm002 | RuleId::Pgm003 | RuleId::Pgm004 => 5,
         // Index/constraint additions
         RuleId::Pgm016 | RuleId::Pgm017 | RuleId::Pgm501 => 15,
+        // Statement PostgreSQL rejects: point it at the right object or name
+        RuleId::Pgm027 => 10,
         // Table rewrites / schema changes need more thought
         RuleId::Pgm005
         | RuleId::Pgm006

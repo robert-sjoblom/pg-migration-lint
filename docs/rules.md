@@ -6,9 +6,9 @@ title: Rule Reference
 # Rule Reference
 {: #rule-reference}
 
-`pg-migration-lint` ships with 54 lint rules across seven categories:
+`pg-migration-lint` ships with 55 lint rules across seven categories:
 
-- **Unsafe DDL** (PGM001-PGM025) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
+- **Unsafe DDL** (PGM001-PGM027) — detect locking, rewrites, runtime failures, and silent side effects in DDL migrations.
 - **Type Anti-patterns** (PGM101-PGM109) — flag column types that should be avoided per PostgreSQL best practice.
 - **Destructive Operations** (PGM201-PGM205) — flag data-loss operations.
 - **DML in Migrations** (PGM301-PGM303) — flag data manipulation statements on existing tables.
@@ -662,6 +662,47 @@ ALTER TABLE bookings DROP COLUMN room;
 **Fix**: Verify that the exclusion guarantee is no longer needed before dropping the column.
 
 See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm010), [PGM011](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm011), [PGM012](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm012).
+
+---
+
+### PGM027 — Statement fails against the schema from earlier migrations
+{: #pgm027}
+
+**Severity**: Major
+
+Detects a statement that PostgreSQL will reject, given the schema built from the earlier migrations and the earlier statements of the same migration. The deploy breaks at that statement. Inside a transaction the whole migration rolls back; outside one, the statements before it stay applied and the migration is left half-done, so a rerun starts from a state nobody planned for.
+
+Each statement is checked against the schema as it stands just before it, so a name freed or taken earlier in the same migration counts. The rule fires only on positive evidence: an object the migration history does not show may exist outside it, so a missing table, index or constraint is never reported.
+
+It currently detects:
+
+- `ADD PRIMARY KEY` or `ADD UNIQUE ... USING INDEX idx` where `idx` belongs to another table. PostgreSQL looks the index up in the altered table's schema and requires it to be one of that table's indexes.
+- Renaming a table, index or constraint onto a name that is taken. A table or index needs the name free among the schema's tables and indexes. A constraint needs it free among its table's constraints. Renaming a PRIMARY KEY, UNIQUE or EXCLUDE constraint renames its index too, and the other way round, so those need both.
+- `DROP INDEX` of the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL refuses with or without `CONCURRENTLY`, `IF EXISTS` or `CASCADE`; the constraint has to be dropped instead.
+
+**Example** (bad):
+```sql
+-- V001
+CREATE TABLE customers (id bigint PRIMARY KEY, email text);
+CREATE UNIQUE INDEX customers_email_idx ON customers (email);
+CREATE TABLE orders (id bigint PRIMARY KEY, email text);
+CREATE TABLE archive (id bigint PRIMARY KEY);
+
+-- V002: each statement fails
+ALTER TABLE orders ADD CONSTRAINT orders_email_key UNIQUE USING INDEX customers_email_idx;
+ALTER TABLE archive RENAME TO orders;
+DROP INDEX orders_pkey;
+```
+
+**Fix**: build the index on the table the constraint is for, pick a free name (or drop or rename the object that holds it first), and remove a constraint's index with `ALTER TABLE ... DROP CONSTRAINT`:
+```sql
+CREATE UNIQUE INDEX CONCURRENTLY orders_email_idx ON orders (email);
+ALTER TABLE orders ADD CONSTRAINT orders_email_key UNIQUE USING INDEX orders_email_idx;
+ALTER TABLE archive RENAME TO orders_archive;
+ALTER TABLE orders DROP CONSTRAINT orders_pkey;
+```
+
+A statement this rule reports is not reported by [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017) or [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504), since it never takes effect.
 
 ---
 
@@ -1389,6 +1430,7 @@ This rule cannot be suppressed (it is applied automatically by the pipeline).
 | [PGM023](#pgm023) | Minor | Multiple ALTER TABLE statements on the same table can be combined |
 | [PGM024](#pgm024) | Critical | DROP TABLE or CREATE TABLE PARTITION OF locks the parent partitioned table |
 | [PGM025](#pgm025) | Minor | DROP COLUMN silently removes EXCLUDE constraint |
+| [PGM027](#pgm027) | Major | Statement fails against the schema from earlier migrations |
 | [PGM101](#pgm101) | Minor | Column uses timestamp without time zone |
 | [PGM102](#pgm102) | Minor | Column uses timestamp or timestamptz with precision 0 |
 | [PGM103](#pgm103) | Minor | Column uses char(n) type |

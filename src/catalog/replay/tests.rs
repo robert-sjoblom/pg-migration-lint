@@ -3464,6 +3464,7 @@ fn test_replay_preserves_access_method() {
 }
 
 mod collision_suffixes;
+mod drop_index_of_constraint;
 mod generated_names;
 mod implicit_index_names;
 mod inline_primary_key;

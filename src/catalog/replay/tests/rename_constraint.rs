@@ -137,19 +137,26 @@ fn drop_constraint_by_the_new_name_drops_a_renamed_constraint(
 #[rstest]
 #[case::primary_key("CREATE TABLE t (id int PRIMARY KEY);", "t_pkey")]
 #[case::unique("CREATE TABLE t (a int UNIQUE);", "t_a_key")]
-fn drop_index_by_the_new_name_finds_the_renamed_index(
+fn drop_index_by_the_new_name_is_rejected_as_the_renamed_constraint_requires_it(
     #[case] create_sql: &str,
     #[case] constraint_name: &str,
 ) {
-    let catalog = replay_sql(&[
-        create_sql,
-        &format!("ALTER TABLE t RENAME CONSTRAINT {constraint_name} TO t_renamed;"),
+    let (before, after) = before_and_after(
+        &[
+            create_sql,
+            &format!("ALTER TABLE t RENAME CONSTRAINT {constraint_name} TO t_renamed;"),
+        ],
         "DROP INDEX t_renamed;",
-    ]);
+    );
 
-    assert_eq!(index_names(catalog.table("t")), Vec::<&str>::new());
-    catalog.assert_index_unregistered("t_renamed");
-    catalog.assert_index_unregistered(constraint_name);
+    before.assert_index_owner("t_renamed", "t");
+    assert!(
+        before
+            .table("t")
+            .constraint_backed_by("t_renamed")
+            .is_some()
+    );
+    after.assert_same_state_as(&before);
 }
 
 #[rstest]

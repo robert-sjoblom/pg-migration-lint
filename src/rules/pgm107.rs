@@ -1,7 +1,7 @@
 #![doc = include_str!("docs/pgm107.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity};
+use crate::rules::{Finding, LintContext, Rule, Severity, UsingIndex};
 
 pub(super) const DESCRIPTION: &str =
     "Primary key column uses integer or smallint instead of bigint";
@@ -95,19 +95,19 @@ pub(super) fn check(
                     };
 
                     // When USING INDEX is specified, columns is empty — resolve
-                    // the PK columns from the referenced index instead.
+                    // the PK columns from the referenced index instead. Only
+                    // an index of the altered table has them: Postgres
+                    // rejects another table's index (PGM027).
                     let resolved_columns: Vec<String>;
                     let col_names: &[String] = if columns.is_empty() {
-                        if let Some(idx_name) = using_index {
-                            if let Some(idx) = ctx.get_index(&table_key.in_same_schema(idx_name)) {
-                                resolved_columns = idx.column_names().map(String::from).collect();
-                                &resolved_columns
-                            } else {
-                                continue;
-                            }
-                        } else {
+                        let Some(idx_name) = using_index else {
                             continue;
-                        }
+                        };
+                        let UsingIndex::OfTable(idx) = ctx.using_index(table_key, idx_name) else {
+                            continue;
+                        };
+                        resolved_columns = idx.column_names().map(String::from).collect();
+                        &resolved_columns
                     } else {
                         columns
                     };
@@ -171,6 +171,24 @@ mod tests {
             "got {}",
             findings[0].message
         );
+    }
+
+    #[test]
+    fn test_add_pk_using_index_of_another_table_reads_none_of_its_columns() {
+        let before = catalog_from_sql(
+            "CREATE TABLE customers (id int NOT NULL);
+             CREATE UNIQUE INDEX idx_customers_id ON customers (id);
+             CREATE TABLE orders (id int NOT NULL);",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql(
+            "ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_customers_id;",
+        ));
+
+        let findings = RuleId::Pgm107.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
     }
 
     #[test]

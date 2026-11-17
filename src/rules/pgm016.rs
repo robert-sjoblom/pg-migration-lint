@@ -1,7 +1,9 @@
 #![doc = include_str!("docs/pgm016.md")]
 
 use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::{Finding, LintContext, Rule, Severity, TableScope, alter_table_check};
+use crate::rules::{
+    Finding, LintContext, Rule, Severity, TableScope, UsingIndex, alter_table_check,
+};
 
 pub(super) const DESCRIPTION: &str = "ADD PRIMARY KEY on existing table without USING INDEX";
 
@@ -40,27 +42,28 @@ pub(super) fn check(
 
             let message = match using_index {
                 Some(idx_name) => {
-                    // USING INDEX names an index of the altered table, which
-                    // Postgres looks up in that table's schema.
-                    match ctx.get_index(&table_key.in_same_schema(idx_name)) {
-                        None => format!(
+                    match ctx.using_index(table_key, idx_name) {
+                        // Postgres rejects the statement and builds nothing,
+                        // so there is no lock to report; PGM027 reports it.
+                        UsingIndex::OfAnotherTable => return vec![],
+                        UsingIndex::Missing => format!(
                             "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
                              referenced index does not exist.",
                             table = at.name.display_name(),
                         ),
-                        Some(idx) if !idx.unique => format!(
+                        UsingIndex::OfTable(idx) if !idx.unique => format!(
                             "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
                              referenced index is not UNIQUE.",
                             table = at.name.display_name(),
                         ),
-                        Some(idx) if !idx.is_btree() => format!(
+                        UsingIndex::OfTable(idx) if !idx.is_btree() => format!(
                             "ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': \
                              referenced index uses access method '{}', but only btree \
                              indexes can back a PRIMARY KEY constraint.",
                             idx.access_method,
                             table = at.name.display_name(),
                         ),
-                        Some(idx) => {
+                        UsingIndex::OfTable(idx) => {
                             // Check nullability using the INDEX's columns (constraint
                             // columns are empty with USING INDEX).
                             if let Some(table) = ctx.catalog_before.get_table(table_key) {
@@ -110,6 +113,7 @@ mod tests {
     use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+    use rstest::rstest;
 
     #[test]
     fn test_add_pk_using_index_looks_up_the_index_in_the_tables_schema() {
@@ -125,6 +129,32 @@ mod tests {
         ));
 
         let findings = RuleId::Pgm016.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
+    }
+
+    #[rstest]
+    #[case::index_in_catalog_before(
+        "CREATE TABLE customers (id int NOT NULL);
+         CREATE UNIQUE INDEX idx_customers_id ON customers (id);
+         CREATE TABLE orders (id int);",
+        ""
+    )]
+    #[case::index_created_in_the_same_unit(
+        "CREATE TABLE customers (id int NOT NULL);
+         CREATE TABLE orders (id int);",
+        "CREATE UNIQUE INDEX idx_customers_id ON customers (id);"
+    )]
+    fn test_add_pk_using_index_of_another_tables_index_is_left_to_pgm027(
+        #[case] history: &str,
+        #[case] earlier_in_unit: &str,
+    ) {
+        let change =
+            format!("{earlier_in_unit}\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_customers_id;");
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let findings = RuleId::Pgm016.check(&normalized(parse_sql(&change)), &ctx);
         assert!(findings.is_empty(), "got {findings:?}");
     }
 

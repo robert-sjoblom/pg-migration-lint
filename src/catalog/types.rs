@@ -133,11 +133,31 @@ impl Catalog {
         {
             return Some(RenameClash::Relation);
         }
-        let backs_a_constraint = table
-            .get_constraint(&index.name)
-            .is_some_and(ConstraintState::is_index_backed);
+        let backs_a_constraint = table.constraint_backed_by(&index.name).is_some();
         (backs_a_constraint && table.get_constraint(new_name).is_some())
             .then_some(RenameClash::Constraint)
+    }
+
+    /// The relation `relation` names, as far as the catalog records
+    /// relations: a table, a registered index, or the index behind an
+    /// index-backed constraint, which Postgres always gives the constraint's
+    /// name (the catalog registers none for EXCLUDE).
+    pub(crate) fn relation_named(&self, relation: &RelationName) -> Option<NamedRelation<'_>> {
+        if let Some(table) = self.tables.get(relation) {
+            return Some(NamedRelation::Table(table));
+        }
+        if let Some(table) = self
+            .index_to_table
+            .get(relation)
+            .and_then(|table| self.tables.get(table))
+        {
+            return Some(NamedRelation::Index { table });
+        }
+        self.tables
+            .values()
+            .filter(|table| table.name.schema == relation.schema)
+            .find(|table| table.constraint_backed_by(&relation.name).is_some())
+            .map(|table| NamedRelation::Index { table })
     }
 
     /// Why `ALTER TABLE table RENAME CONSTRAINT constraint TO new_name`
@@ -204,6 +224,16 @@ pub enum RenameClash {
     Constraint,
 }
 
+/// A relation the catalog records under a name, from
+/// [`Catalog::relation_named`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum NamedRelation<'a> {
+    /// The table of that name.
+    Table(&'a TableState),
+    /// An index of that name, on `table`.
+    Index { table: &'a TableState },
+}
+
 /// The constraint and relation names one schema uses, as far as the catalog
 /// records them. Sequences, views and composite types are `pg_class`
 /// relations too, but the catalog does not record them.
@@ -231,12 +261,9 @@ impl TakenNames for SchemaNames<'_> {
     /// index-backed constraint: Postgres always gives it the constraint's
     /// name, and the catalog registers none for EXCLUDE.
     fn relation_taken(&self, name: &str) -> bool {
-        let relation = RelationName::new(self.schema, name);
-        self.catalog.tables.contains_key(&relation)
-            || self.catalog.index_to_table.contains_key(&relation)
-            || self
-                .constraints()
-                .any(|c| c.is_index_backed() && c.name() == name)
+        self.catalog
+            .relation_named(&RelationName::new(self.schema, name))
+            .is_some()
     }
 }
 
@@ -279,6 +306,16 @@ impl TableState {
     /// The constraint named `name` on this table, of any kind.
     pub fn get_constraint(&self, name: &str) -> Option<&ConstraintState> {
         self.constraints.iter().find(|c| c.name() == name)
+    }
+
+    /// The PRIMARY KEY, UNIQUE or EXCLUDE constraint backed by this table's
+    /// index `index_name`: the one of the same name, which Postgres always
+    /// gives the index. `DROP INDEX` of that index fails with 2BP01
+    /// (`verify/tests/other/pgm027_drop_constraint_index.sql`).
+    pub fn constraint_backed_by(&self, index_name: &str) -> Option<&ConstraintState> {
+        self.constraints
+            .iter()
+            .find(|c| c.is_index_backed() && c.name() == index_name)
     }
 
     pub(crate) fn remove_column(&mut self, name: &str) {

@@ -408,9 +408,8 @@ fn if_not_exists_skips(catalog: &Catalog, ci: &CreateIndex) -> bool {
 /// skips because its name is taken ([`if_not_exists_skips`]). A generated
 /// name, and whether a name is taken, depend on every relation created or
 /// dropped before the statement, in the schema and earlier in `statements`,
-/// so those are replayed on a copy of `catalog` when either question comes
-/// up. That replay's warnings are dropped: the pipeline's own replay of the
-/// same statements reports them.
+/// so each is judged against the state [`map_with_state_before`] gives it
+/// when either question comes up.
 pub(crate) fn created_index_names(
     catalog: &Catalog,
     statements: &[Located<IrNode>],
@@ -428,30 +427,51 @@ pub(crate) fn created_index_names(
             .collect();
     }
 
+    map_with_state_before(catalog, statements, |state, stmt| match &stmt.node {
+        IrNode::CreateIndex(ci) if !if_not_exists_skips(state, ci) => {
+            Some(created_index_name(state, ci))
+        }
+        _ => None,
+    })
+}
+
+/// Call `visit` on each of `statements` with the catalog just before it:
+/// `catalog` with the statements before it replayed on top, as the
+/// pipeline's replay of the unit leaves it at that point. The replay runs on
+/// a copy of `catalog`, and its warnings are dropped: the pipeline's own
+/// replay of the same statements reports them.
+pub(crate) fn map_with_state_before<'s, T>(
+    catalog: &Catalog,
+    statements: &'s [Located<IrNode>],
+    mut visit: impl FnMut(&Catalog, &'s Located<IrNode>) -> T,
+) -> Vec<T> {
     let mut replayed = catalog.clone();
     statements
         .iter()
         .map(|stmt| {
-            let name = match &stmt.node {
-                IrNode::CreateIndex(ci) if !if_not_exists_skips(&replayed, ci) => {
-                    Some(created_index_name(&replayed, ci))
-                }
-                _ => None,
-            };
+            let visited = visit(&replayed, stmt);
             let _warning = apply_node(&mut replayed, &stmt.node);
-            name
+            visited
         })
         .collect()
 }
 
 /// Handle DROP INDEX: remove the index from the table that owns it, looked
 /// up in the index's resolved schema only. If there is no such index,
-/// silently skip.
+/// silently skip. Postgres rejects dropping the index of a PRIMARY KEY,
+/// UNIQUE or EXCLUDE constraint (2BP01, [`TableState::constraint_backed_by`])
+/// and changes nothing, so that is skipped too.
 fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
     let index_key = di.index_name.relation();
     let Some(table_name) = catalog.table_for_index(index_key).cloned() else {
         return;
     };
+    let required_by_a_constraint = catalog
+        .get_table(&table_name)
+        .is_some_and(|table| table.constraint_backed_by(&index_key.name).is_some());
+    if required_by_a_constraint {
+        return;
+    }
 
     catalog.unregister_index(index_key, &table_name);
 
