@@ -5,12 +5,16 @@
 //! single-pass replay strategy: the pipeline calls [`apply`] for each
 //! migration unit, and the catalog accumulates state over time.
 
-use crate::catalog::generated_names::{GeneratedName, created_index_name};
+use std::borrow::Cow;
+
+use crate::catalog::generated_names::GeneratedName;
 use crate::catalog::types::*;
 use crate::input::MigrationUnit;
 use crate::names::{RelationName, ResolvedName};
 use crate::parser::ir::*;
+use statement_names::{ConstraintStatement, constraint_names};
 
+mod statement_names;
 #[cfg(test)]
 mod tests;
 
@@ -22,16 +26,19 @@ mod tests;
 /// to a different schema or be managed outside the tracked migrations).
 pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit) {
     for located in &unit.statements {
-        apply_node(catalog, &located.node);
+        if let Some(warning) = apply_node(catalog, &located.node) {
+            eprintln!("warning: {warning}");
+        }
     }
 }
 
-/// Apply a single IR node to the catalog.
-fn apply_node(catalog: &mut Catalog, node: &IrNode) {
+/// Apply a single IR node to the catalog. Returns a warning when the
+/// statement contradicts what the catalog holds, for the caller to report.
+fn apply_node(catalog: &mut Catalog, node: &IrNode) -> Option<String> {
     match node {
-        IrNode::CreateTable(ct) => apply_create_table(catalog, ct),
+        IrNode::CreateTable(ct) => return apply_create_table(catalog, ct),
         IrNode::AlterTable(at) => apply_alter_table(catalog, at),
-        IrNode::CreateIndex(ci) => apply_create_index(catalog, ci),
+        IrNode::CreateIndex(ci) => return apply_create_index(catalog, ci),
         IrNode::DropIndex(di) => apply_drop_index(catalog, di),
         IrNode::DropTable(dt) => apply_drop_table(catalog, dt),
         IrNode::RenameTable { name, new_name } => apply_rename_table(catalog, name, new_name),
@@ -55,6 +62,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
         IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint.as_ref()),
         IrNode::Ignored { .. } => { /* no-op */ }
     }
+    None
 }
 
 /// Handle CREATE TABLE: insert a new table into the catalog with columns,
@@ -62,25 +70,29 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) {
 ///
 /// When `IF NOT EXISTS` is used and the table already exists, the statement
 /// is a no-op in PostgreSQL. We mirror that by keeping the existing catalog
-/// state and emitting a warning — the migration chain is ambiguous at that
-/// point (which definition is the truth?).
-fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
+/// state and returning a warning — the migration chain is ambiguous at that
+/// point (which definition is the truth?). Replacing an existing table
+/// returns a warning too.
+fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) -> Option<String> {
     let table_key = ct.name.relation().clone();
 
+    let mut warning = None;
     if catalog.has_table(&table_key) {
         if ct.if_not_exists {
-            eprintln!(
-                "warning: CREATE TABLE IF NOT EXISTS `{}` skipped — table already exists in catalog. \
+            return Some(format!(
+                "CREATE TABLE IF NOT EXISTS `{}` skipped — table already exists in catalog. \
                  The migration chain may be inconsistent.",
                 ct.name.display_name()
-            );
-            return;
+            ));
         }
-        eprintln!(
-            "warning: CREATE TABLE `{}` overwrites existing table in catalog. \
+        warning = Some(format!(
+            "CREATE TABLE `{}` overwrites existing table in catalog. \
              The table may have been dropped outside tracked migrations, or this is a duplicate definition.",
             ct.name.display_name()
-        );
+        ));
+        // The replaced table's indexes and constraints go with it, which
+        // frees their names for the new table's.
+        catalog.remove_table(&table_key);
     }
 
     let parent_key = ct.partition_of.as_ref().map(|p| p.relation().clone());
@@ -110,43 +122,57 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) {
         }
     }
 
+    // Explicit columns on the child, or regular table columns.
+    table
+        .columns
+        .extend(ct.columns.iter().map(column_def_to_state));
+
+    let constraints: Vec<Cow<'_, TableConstraint>> = ct
+        .columns
+        .iter()
+        .filter(|col| col.is_inline_pk)
+        .map(|col| Cow::Owned(inline_primary_key(col)))
+        .chain(ct.constraints.iter().map(Cow::Borrowed))
+        .collect();
+    let constraints: Vec<&TableConstraint> = constraints.iter().map(Cow::as_ref).collect();
+    let names = constraint_names(
+        ConstraintStatement::CreateTable,
+        ct.name.name(),
+        &constraints,
+        catalog.names_in_schema(&table_key.schema),
+    );
+
     // `insert_table` registers every index the new table ends up with, so
     // these updates need not be applied.
     let mut index_registry = IndexRegistryUpdates::default();
-
-    // Convert columns (explicit columns on the child, or regular table columns)
-    for col in &ct.columns {
-        table.columns.push(column_def_to_state(col));
-
-        // Handle inline PK on the column definition
-        if col.is_inline_pk {
-            apply_table_constraint(
-                &mut table,
-                ct.name.name(),
-                &TableConstraint::PrimaryKey {
-                    name: None,
-                    columns: vec![col.name.clone()],
-                    include_columns: vec![],
-                    using_index: None,
-                },
-                &mut index_registry,
-            );
-        }
-    }
-
-    // Convert table-level constraints
-    for constraint in &ct.constraints {
-        apply_table_constraint(&mut table, ct.name.name(), constraint, &mut index_registry);
+    for (constraint, name) in constraints.into_iter().zip(names) {
+        apply_table_constraint(&mut table, constraint, name, &mut index_registry);
     }
 
     catalog.insert_table(table);
+    warning
+}
+
+/// The PRIMARY KEY a column's `is_inline_pk` stands for.
+fn inline_primary_key(col: &ColumnDef) -> TableConstraint {
+    TableConstraint::PrimaryKey {
+        name: None,
+        columns: vec![col.name.clone()],
+        include_columns: vec![],
+        using_index: None,
+    }
 }
 
 /// Handle ALTER TABLE: apply each action to the existing table.
 /// If the table does not exist in the catalog, silently skip.
+///
+/// Postgres runs the subcommands in passes rather than in textual order, and
+/// replay follows the passes that change what a statement leaves behind:
+/// drops first, then column changes, then the added constraints, then
+/// VALIDATE CONSTRAINT. A name dropped anywhere in the statement is free for
+/// a constraint it adds (`verify/tests/naming/collision_order.sql`).
 fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     let table_key = at.name.relation();
-    let bare_table_name = at.name.name();
 
     // If the table doesn't exist, silently skip. It may be in a different
     // schema or managed outside our tracked migrations.
@@ -154,115 +180,58 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
         return;
     }
 
-    // Collect indexes to register/unregister so we can update the reverse map
-    // after releasing the mutable borrow on the table.
-    let mut index_registry = IndexRegistryUpdates::default();
-
-    {
-        let Some(table) = catalog.get_table_mut(table_key) else {
-            return;
-        };
-
+    update_table(catalog, table_key, |table, index_registry| {
         for action in &at.actions {
             match action {
-                AlterTableAction::AddColumn(col_def) => {
-                    table.columns.push(column_def_to_state(col_def));
-
-                    // Handle inline PK on the added column
-                    if col_def.is_inline_pk {
-                        apply_table_constraint(
-                            table,
-                            bare_table_name,
-                            &TableConstraint::PrimaryKey {
-                                name: None,
-                                columns: vec![col_def.name.clone()],
-                                include_columns: vec![],
-                                using_index: None,
-                            },
-                            &mut index_registry,
-                        );
-                    }
-                }
                 AlterTableAction::DropColumn { name } => {
-                    // Collect index names that will be removed by the column drop.
-                    // Uses references_column() to also detect expression indexes
-                    // that reference the dropped column (e.g. `lower(email)`).
-                    for idx in &table.indexes {
-                        if idx.references_column(name) {
-                            index_registry.unregister.push(idx.name.clone());
-                        }
-                    }
-                    table.remove_column(name);
-                }
-                AlterTableAction::AddConstraint(constraint) => {
-                    apply_table_constraint(table, bare_table_name, constraint, &mut index_registry);
-                }
-                AlterTableAction::AlterColumnType {
-                    column_name,
-                    new_type,
-                    ..
-                } => {
-                    if let Some(col) = table.get_column_mut(column_name) {
-                        col.type_name = new_type.clone();
-                    }
-                }
-                AlterTableAction::SetNotNull { column_name } => {
-                    if let Some(col) = table.get_column_mut(column_name) {
-                        col.nullable = false;
-                    }
-                }
-                AlterTableAction::DropNotNull { column_name } => {
-                    if let Some(col) = table.get_column_mut(column_name) {
-                        col.nullable = true;
-                    }
-                }
-                AlterTableAction::SetDefault {
-                    column_name,
-                    default_expr,
-                } => {
-                    if let Some(col) = table.get_column_mut(column_name) {
-                        col.has_default = true;
-                        col.default_expr = Some(default_expr.clone());
-                    }
-                }
-                AlterTableAction::DropDefault { column_name } => {
-                    if let Some(col) = table.get_column_mut(column_name) {
-                        col.has_default = false;
-                        col.default_expr = None;
-                    }
+                    drop_column(table, name, index_registry);
                 }
                 AlterTableAction::DropConstraint { constraint_name } => {
-                    drop_constraint(table, constraint_name, &mut index_registry);
+                    drop_constraint(table, constraint_name, index_registry);
                 }
-                AlterTableAction::ValidateConstraint { constraint_name } => {
-                    for c in &mut table.constraints {
-                        match c {
-                            ConstraintState::ForeignKey {
-                                name, not_valid, ..
-                            }
-                            | ConstraintState::Check {
-                                name, not_valid, ..
-                            } if name == constraint_name => {
-                                *not_valid = false;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                AlterTableAction::AttachPartition { .. }
-                | AlterTableAction::DetachPartition { .. } => {
-                    // Handled below, outside the table mutable borrow.
-                }
-                AlterTableAction::DisableTrigger { .. } => { /* triggers not tracked */ }
-                AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
+                _ => {}
             }
         }
-    }
+    });
 
-    // Update reverse map outside the table borrow.
-    index_registry.apply(catalog, table_key);
+    update_table(catalog, table_key, |table, _| {
+        for action in &at.actions {
+            apply_column_change(table, action);
+        }
+    });
 
-    // Handle partition attach/detach outside the table borrow scope.
+    let constraints: Vec<Cow<'_, TableConstraint>> = at
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            AlterTableAction::AddColumn(col) if col.is_inline_pk => {
+                Some(Cow::Owned(inline_primary_key(col)))
+            }
+            AlterTableAction::AddConstraint(constraint) => Some(Cow::Borrowed(constraint)),
+            _ => None,
+        })
+        .collect();
+    let constraints: Vec<&TableConstraint> = constraints.iter().map(Cow::as_ref).collect();
+    let names = constraint_names(
+        ConstraintStatement::AlterTable,
+        at.name.name(),
+        &constraints,
+        catalog.names_in_schema(&table_key.schema),
+    );
+    update_table(catalog, table_key, |table, index_registry| {
+        for (constraint, name) in constraints.into_iter().zip(names) {
+            apply_table_constraint(table, constraint, name, index_registry);
+        }
+    });
+
+    update_table(catalog, table_key, |table, _| {
+        for action in &at.actions {
+            if let AlterTableAction::ValidateConstraint { constraint_name } = action {
+                validate_constraint(table, constraint_name);
+            }
+        }
+    });
+
     for action in &at.actions {
         match action {
             AlterTableAction::AttachPartition { child } => {
@@ -280,40 +249,139 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     }
 }
 
+/// Apply `update` to the table `table_key`, then the index registry changes
+/// it collected. The table stays mutably borrowed for the whole update, so
+/// the registry, which lives in the catalog, can only change afterwards.
+fn update_table(
+    catalog: &mut Catalog,
+    table_key: &RelationName,
+    update: impl FnOnce(&mut TableState, &mut IndexRegistryUpdates),
+) {
+    let Some(table) = catalog.get_table_mut(table_key) else {
+        return;
+    };
+    let mut index_registry = IndexRegistryUpdates::default();
+    update(table, &mut index_registry);
+    index_registry.apply(catalog, table_key);
+}
+
+/// Apply an ALTER TABLE action that changes the table's columns. Drops,
+/// added constraints, VALIDATE CONSTRAINT and partitions have passes of
+/// their own in [`apply_alter_table`].
+fn apply_column_change(table: &mut TableState, action: &AlterTableAction) {
+    match action {
+        AlterTableAction::AddColumn(col_def) => {
+            table.columns.push(column_def_to_state(col_def));
+        }
+        AlterTableAction::AlterColumnType {
+            column_name,
+            new_type,
+            ..
+        } => {
+            if let Some(col) = table.get_column_mut(column_name) {
+                col.type_name = new_type.clone();
+            }
+        }
+        AlterTableAction::SetNotNull { column_name } => {
+            if let Some(col) = table.get_column_mut(column_name) {
+                col.nullable = false;
+            }
+        }
+        AlterTableAction::DropNotNull { column_name } => {
+            if let Some(col) = table.get_column_mut(column_name) {
+                col.nullable = true;
+            }
+        }
+        AlterTableAction::SetDefault {
+            column_name,
+            default_expr,
+        } => {
+            if let Some(col) = table.get_column_mut(column_name) {
+                col.has_default = true;
+                col.default_expr = Some(default_expr.clone());
+            }
+        }
+        AlterTableAction::DropDefault { column_name } => {
+            if let Some(col) = table.get_column_mut(column_name) {
+                col.has_default = false;
+                col.default_expr = None;
+            }
+        }
+        AlterTableAction::DropColumn { .. }
+        | AlterTableAction::DropConstraint { .. }
+        | AlterTableAction::AddConstraint(_)
+        | AlterTableAction::ValidateConstraint { .. }
+        | AlterTableAction::AttachPartition { .. }
+        | AlterTableAction::DetachPartition { .. } => {}
+        AlterTableAction::DisableTrigger { .. } => { /* triggers not tracked */ }
+        AlterTableAction::Other { .. } => { /* ignore unmodeled actions */ }
+    }
+}
+
+/// Handle `ALTER TABLE ... DROP COLUMN`: remove the column, and with it every
+/// index and constraint that references it. Expression indexes count too
+/// (`lower(email)` references `email`).
+fn drop_column(table: &mut TableState, name: &str, index_registry: &mut IndexRegistryUpdates) {
+    for idx in &table.indexes {
+        if idx.references_column(name) {
+            index_registry.unregister.push(idx.name.clone());
+        }
+    }
+    table.remove_column(name);
+}
+
+/// Handle `ALTER TABLE ... VALIDATE CONSTRAINT`: a NOT VALID foreign key or
+/// CHECK of that name becomes valid.
+fn validate_constraint(table: &mut TableState, constraint_name: &str) {
+    for c in &mut table.constraints {
+        match c {
+            ConstraintState::ForeignKey {
+                name, not_valid, ..
+            }
+            | ConstraintState::Check {
+                name, not_valid, ..
+            } if name == constraint_name => {
+                *not_valid = false;
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Handle CREATE INDEX: add an index to the target table.
 /// If the table does not exist in the catalog, silently skip.
 ///
 /// When `IF NOT EXISTS` is used and a same-named index already exists,
-/// PostgreSQL treats it as a no-op. We keep the existing index and warn.
-fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
+/// PostgreSQL treats it as a no-op. We keep the existing index and return a
+/// warning, as for replacing an existing index.
+fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) -> Option<String> {
     let table_key = ci.table_name.relation();
 
-    // Postgres never lets a generated name collide: it appends a number
-    // instead. Collision suffixes are not modelled yet, so only an explicit
-    // name can meaningfully clash with an existing index.
-    let index_name = created_index_name(ci);
+    // A generated name never clashes: it gets a collision suffix instead.
+    // Only an explicit name can already be taken.
+    let index_name = created_index_name(catalog, ci);
     // The grammar allows no schema on the index name: the index is created
     // in its table's schema.
     let index_key = table_key.in_same_schema(&index_name);
 
+    let mut warning = None;
     if ci.index_name.is_some() && catalog.get_index(&index_key).is_some() {
         if ci.if_not_exists {
-            eprintln!(
-                "warning: CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
+            return Some(format!(
+                "CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
                  The migration chain may be inconsistent.",
                 index_name
-            );
-            return;
+            ));
         }
-        eprintln!(
-            "warning: CREATE INDEX `{}` overwrites existing index in catalog. \
+        warning = Some(format!(
+            "CREATE INDEX `{}` overwrites existing index in catalog. \
              The index may have been dropped outside tracked migrations, or this is a duplicate definition.",
             index_name
-        );
+        ));
     }
 
     let Some(table) = catalog.get_table_mut(table_key) else {
-        return;
+        return warning;
     };
 
     let entries: Vec<IndexColumn> = ci.columns.to_vec();
@@ -329,6 +397,55 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) {
 
     // Register after confirming the table exists, to avoid ghost entries.
     catalog.register_index(&index_key, table_key);
+    warning
+}
+
+/// The name of the index `ci` creates on top of `catalog`: its own name, or
+/// the generated `{table}_{elements}_idx` with the first collision suffix
+/// that no relation in the table's schema has.
+fn created_index_name(catalog: &Catalog, ci: &CreateIndex) -> String {
+    match &ci.index_name {
+        Some(name) => name.clone(),
+        None => GeneratedName::index(ci.table_name.name(), &ci.columns, &ci.include_columns)
+            .choose(&catalog.names_in_schema(&ci.table_name.relation().schema)),
+    }
+}
+
+/// For each of `statements`, the name of the index it creates if it is a
+/// `CREATE INDEX`, as replaying them on top of `catalog` names it. A
+/// generated name depends on every relation created before it, in the
+/// schema and earlier in `statements`, so those are replayed on a copy of
+/// `catalog` when any name is generated. That replay's warnings are dropped:
+/// the pipeline's own replay of the same statements reports them.
+pub(crate) fn created_index_names(
+    catalog: &Catalog,
+    statements: &[Located<IrNode>],
+) -> Vec<Option<String>> {
+    let generates_a_name = statements
+        .iter()
+        .any(|stmt| matches!(&stmt.node, IrNode::CreateIndex(ci) if ci.index_name.is_none()));
+    if !generates_a_name {
+        return statements
+            .iter()
+            .map(|stmt| match &stmt.node {
+                IrNode::CreateIndex(ci) => ci.index_name.clone(),
+                _ => None,
+            })
+            .collect();
+    }
+
+    let mut replayed = catalog.clone();
+    statements
+        .iter()
+        .map(|stmt| {
+            let name = match &stmt.node {
+                IrNode::CreateIndex(ci) => Some(created_index_name(&replayed, ci)),
+                _ => None,
+            };
+            let _warning = apply_node(&mut replayed, &stmt.node);
+            name
+        })
+        .collect()
 }
 
 /// Handle DROP INDEX: remove the index from the table that owns it, looked
@@ -340,7 +457,7 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
         return;
     };
 
-    catalog.unregister_index(index_key);
+    catalog.unregister_index(index_key, &table_name);
 
     if let Some(table) = catalog.get_table_mut(&table_name) {
         table.indexes.retain(|idx| idx.name != index_key.name);
@@ -376,7 +493,7 @@ fn apply_rename_index(catalog: &mut Catalog, index: &ResolvedName, new_name: &st
         constraint.rename(new_name);
     }
 
-    catalog.unregister_index(old_key);
+    catalog.unregister_index(old_key, &table_key);
     catalog.register_index(&old_key.in_same_schema(new_name), &table_key);
 }
 
@@ -673,7 +790,7 @@ impl IndexRegistryUpdates {
 
     fn apply(self, catalog: &mut Catalog, table_key: &RelationName) {
         for name in self.unregister {
-            catalog.unregister_index(&table_key.in_same_schema(name));
+            catalog.unregister_index(&table_key.in_same_schema(name), table_key);
         }
         for name in self.register {
             catalog.register_index(&table_key.in_same_schema(name), table_key);
@@ -758,39 +875,21 @@ fn attach_backing_index(
     index.column_names().map(str::to_string).collect()
 }
 
-/// The name of an index-backed PRIMARY KEY or UNIQUE constraint: the given
-/// name, else the `USING INDEX` index's name, else the generated one.
-fn index_backed_constraint_name(
-    name: &Option<String>,
-    using_index: &Option<String>,
-    generate: impl FnOnce() -> GeneratedName,
-) -> String {
-    name.clone()
-        .or_else(|| using_index.clone())
-        .unwrap_or_else(|| generate().unsuffixed())
-}
-
-/// Apply a table constraint to the table state, updating constraints list
-/// and has_primary_key flag as needed. `bare_table_name` is the table's
-/// unqualified name, which unnamed constraints and their backing indexes
-/// are named after.
+/// Apply a table constraint, named `name`, to the table state, updating the
+/// constraints list and has_primary_key flag as needed.
 fn apply_table_constraint(
     table: &mut TableState,
-    bare_table_name: &str,
     constraint: &TableConstraint,
+    name: String,
     index_registry: &mut IndexRegistryUpdates,
 ) {
     match constraint {
         TableConstraint::PrimaryKey {
-            name,
             columns,
             using_index,
             ..
         } => {
             table.has_primary_key = true;
-            let name = index_backed_constraint_name(name, using_index, || {
-                GeneratedName::primary_key(bare_table_name)
-            });
             let columns = attach_backing_index(
                 table,
                 &name,
@@ -803,16 +902,14 @@ fn apply_table_constraint(
                 .push(ConstraintState::PrimaryKey { name, columns });
         }
         TableConstraint::ForeignKey {
-            name,
             columns,
             ref_table,
             ref_columns,
             not_valid,
+            ..
         } => {
             table.constraints.push(ConstraintState::ForeignKey {
-                name: name.clone().unwrap_or_else(|| {
-                    GeneratedName::foreign_key(bare_table_name, columns).unsuffixed()
-                }),
+                name,
                 columns: columns.clone(),
                 ref_table: ref_table.relation().clone(),
                 ref_table_display: ref_table.display_name(),
@@ -821,14 +918,10 @@ fn apply_table_constraint(
             });
         }
         TableConstraint::Unique {
-            name,
             columns,
-            include_columns,
             using_index,
+            ..
         } => {
-            let name = index_backed_constraint_name(name, using_index, || {
-                GeneratedName::unique(bare_table_name, columns, include_columns)
-            });
             let columns = attach_backing_index(
                 table,
                 &name,
@@ -841,28 +934,19 @@ fn apply_table_constraint(
                 .push(ConstraintState::Unique { name, columns });
         }
         TableConstraint::Check {
-            name,
             expression,
-            referenced_columns,
             not_valid,
+            ..
         } => {
             table.constraints.push(ConstraintState::Check {
-                name: name.clone().unwrap_or_else(|| {
-                    GeneratedName::check(bare_table_name, referenced_columns).unsuffixed()
-                }),
+                name,
                 expression: expression.clone(),
                 not_valid: *not_valid,
             });
         }
-        TableConstraint::Exclude {
-            name,
-            elements,
-            include_columns,
-        } => {
+        TableConstraint::Exclude { elements, .. } => {
             table.constraints.push(ConstraintState::Exclude {
-                name: name.clone().unwrap_or_else(|| {
-                    GeneratedName::exclude(bare_table_name, elements, include_columns).unsuffixed()
-                }),
+                name,
                 elements: elements.clone(),
             });
         }

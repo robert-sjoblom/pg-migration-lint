@@ -1290,7 +1290,7 @@ CREATE INDEX idx_orders_cust_short ON orders (customer_id);
 - Either index is partial (has a WHERE clause).
 - Either index has expression entries.
 - The indexes use different access methods (btree vs GIN vs ...).
-- Another index on the table has the new index's name. This happens when an unnamed index's generated name (`{table}_{columns}_idx`) is already taken: PostgreSQL then adds a numeric suffix, which the linter does not track, so it cannot tell which index the statement created.
+- Another index on the table has the new index's name, so the linter cannot tell which one the statement created. An unnamed index never does: when its generated name (`{table}_{columns}_idx`) is taken, PostgreSQL adds a numeric suffix (`orders_customer_id_idx1`), and the finding uses that name. It takes an explicit name that repeats one the table already has, which PostgreSQL rejects.
 
 **Fix**: Drop the redundant index:
 ```sql

@@ -3426,6 +3426,7 @@ fn test_replay_preserves_access_method() {
     assert!(!idx.is_btree(), "GIN index should not be btree");
 }
 
+mod collision_suffixes;
 mod generated_names;
 mod implicit_index_names;
 mod rename_index;

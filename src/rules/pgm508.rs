@@ -1,6 +1,6 @@
 #![doc = include_str!("docs/pgm508.md")]
 
-use crate::catalog::generated_names::created_index_name;
+use crate::catalog::replay::created_index_names;
 use crate::parser::ir::{IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
@@ -18,8 +18,9 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    for stmt in statements {
-        let IrNode::CreateIndex(ci) = &stmt.node else {
+    let created_names = created_index_names(ctx.catalog_before, statements);
+    for (stmt, index_name) in statements.iter().zip(created_names) {
+        let (IrNode::CreateIndex(ci), Some(index_name)) = (&stmt.node, index_name) else {
             continue;
         };
 
@@ -28,12 +29,11 @@ pub(super) fn check(
             None => continue,
         };
 
-        // Two indexes on the table share a name when an unnamed index's
-        // generated name was already taken (Postgres would add a collision
-        // suffix, which the catalog does not model) or an explicit name
-        // clashed. Which one this statement created is then unknown, so skip
-        // rather than report on the wrong index.
-        let index_name = created_index_name(ci);
+        // A generated name is unique in its schema, so two indexes on the
+        // table share a name only when an explicit name repeats one it
+        // already has, which Postgres rejects. Which of the two this
+        // statement created is then unknown, so skip rather than report on
+        // the wrong index.
         let mut same_named = table.indexes.iter().filter(|idx| idx.name == index_name);
         let (Some(new_idx), None) = (same_named.next(), same_named.next()) else {
             continue;
@@ -420,17 +420,46 @@ mod tests {
     }
 
     #[test]
-    fn second_unnamed_index_with_the_same_generated_name_is_skipped() {
+    fn second_unnamed_index_on_the_same_column_is_an_exact_duplicate_under_its_suffixed_name() {
         let messages = messages_for_change(
             "CREATE TABLE orders (a int);
              CREATE INDEX ON orders (a);",
             "CREATE INDEX ON orders (a);",
         );
+        assert_eq!(
+            messages,
+            ["Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'orders_a_idx'."]
+        );
+    }
+
+    #[test]
+    fn two_unnamed_indexes_on_the_same_column_in_one_change_each_name_the_other() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int);",
+            "CREATE INDEX ON orders (a);
+             CREATE INDEX ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'orders_a_idx' on 'orders' (a) is an exact duplicate of index 'orders_a_idx1'.",
+                "Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'orders_a_idx'.",
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_name_repeating_an_index_of_the_same_table_is_skipped() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders ON orders (a, b);",
+            "CREATE INDEX idx_orders ON orders (a);",
+        );
         assert!(messages.is_empty(), "got {messages:?}");
     }
 
     #[test]
-    fn unnamed_index_is_not_confused_with_an_earlier_unnamed_index_of_the_same_name() {
+    fn second_unnamed_index_on_a_column_is_judged_by_its_own_access_method() {
         let messages = messages_for_change(
             "CREATE TABLE orders (a int, b int);
              CREATE INDEX ON orders (a);
@@ -452,11 +481,43 @@ mod tests {
     }
 
     #[test]
-    fn unnamed_index_fires_when_its_generated_name_is_held_by_another_tables_index() {
+    fn unnamed_index_duplicating_another_while_an_explicit_index_holds_its_generated_name_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX orders_a_idx ON orders (b);
+             CREATE INDEX idx_orders_a ON orders (a);",
+            "CREATE INDEX ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            ["Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'idx_orders_a'."]
+        );
+    }
+
+    #[test]
+    fn unnamed_index_takes_a_suffix_when_another_tables_index_holds_its_generated_name() {
         let messages = messages_for_change(
             "CREATE TABLE orders (a int, b int);
              CREATE TABLE refunds (a int);
              CREATE INDEX orders_a_idx ON refunds (a);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'orders_a_idx1' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn unnamed_index_in_another_schema_keeps_its_unsuffixed_name() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE TABLE archive.refunds (a int);
+             CREATE INDEX orders_a_idx ON archive.refunds (a);
              CREATE INDEX idx_orders_a_b ON orders (a, b);",
             "CREATE INDEX ON orders (a);",
         );

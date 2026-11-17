@@ -3,6 +3,7 @@
 //! The catalog represents the database schema state at a point in migration history.
 //! It's built by replaying migrations in order.
 
+use crate::catalog::generated_names::TakenNames;
 use crate::names::RelationName;
 use crate::parser::ir::{DefaultExpr, IndexColumn, PartitionStrategy, TypeName};
 use std::collections::HashMap;
@@ -48,10 +49,7 @@ impl Catalog {
     pub(crate) fn remove_table(&mut self, name: &RelationName) -> Option<TableState> {
         let table = self.tables.remove(name)?;
         for idx in &table.indexes {
-            let index_key = table.name.in_same_schema(&idx.name);
-            if self.index_to_table.get(&index_key) == Some(&table.name) {
-                self.index_to_table.remove(&index_key);
-            }
+            self.unregister_index(&table.name.in_same_schema(&idx.name), &table.name);
         }
         Some(table)
     }
@@ -66,9 +64,13 @@ impl Catalog {
         self.index_to_table.insert(index.clone(), table.clone());
     }
 
-    /// Remove `index` from the reverse lookup.
-    pub(crate) fn unregister_index(&mut self, index: &RelationName) {
-        self.index_to_table.remove(index);
+    /// Remove `index` from the reverse lookup if it belongs to `table`. An
+    /// entry another table registered under the same key stays: removing
+    /// `table`'s index must not unregister someone else's.
+    pub(crate) fn unregister_index(&mut self, index: &RelationName, table: &RelationName) {
+        if self.index_to_table.get(index) == Some(table) {
+            self.index_to_table.remove(index);
+        }
     }
 
     /// The table that owns `index`, looked up in `index`'s schema only. O(1).
@@ -85,6 +87,14 @@ impl Catalog {
 
     pub fn tables(&self) -> impl Iterator<Item = &TableState> {
         self.tables.values()
+    }
+
+    /// The names `schema` already uses, for choosing a generated name in it.
+    pub(crate) fn names_in_schema<'a>(&'a self, schema: &'a str) -> SchemaNames<'a> {
+        SchemaNames {
+            catalog: self,
+            schema,
+        }
     }
 
     /// Returns the names of all partition children of the given parent.
@@ -107,6 +117,42 @@ impl Catalog {
             .get(table)
             .and_then(|t| t.parent_table.as_ref())
             .is_some()
+    }
+}
+
+/// The constraint and relation names one schema uses, as far as the catalog
+/// records them. Sequences, views and composite types are `pg_class`
+/// relations too, but the catalog does not record them.
+pub(crate) struct SchemaNames<'a> {
+    catalog: &'a Catalog,
+    schema: &'a str,
+}
+
+impl SchemaNames<'_> {
+    fn constraints(&self) -> impl Iterator<Item = &ConstraintState> {
+        self.catalog
+            .tables
+            .values()
+            .filter(|table| table.name.schema == self.schema)
+            .flat_map(|table| &table.constraints)
+    }
+}
+
+impl TakenNames for SchemaNames<'_> {
+    fn constraint_taken(&self, name: &str) -> bool {
+        self.constraints().any(|c| c.name() == name)
+    }
+
+    /// Tables and registered indexes, plus the index behind every
+    /// index-backed constraint: Postgres always gives it the constraint's
+    /// name, and the catalog registers none for EXCLUDE.
+    fn relation_taken(&self, name: &str) -> bool {
+        let relation = RelationName::new(self.schema, name);
+        self.catalog.tables.contains_key(&relation)
+            || self.catalog.index_to_table.contains_key(&relation)
+            || self
+                .constraints()
+                .any(|c| c.is_index_backed() && c.name() == name)
     }
 }
 

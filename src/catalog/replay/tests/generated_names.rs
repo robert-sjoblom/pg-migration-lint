@@ -30,7 +30,15 @@ fn index_names(table: &TableState) -> Vec<&str> {
     table.indexes.iter().map(|idx| idx.name.as_str()).collect()
 }
 
-fn assert_names(catalog: &Catalog, table_key: &str, constraints: &[&str], indexes: &[&str]) {
+/// Panics unless `table_key` has exactly these constraint and index names, in
+/// order, and the reverse lookup maps each index back to it.
+#[track_caller]
+pub(super) fn assert_names(
+    catalog: &Catalog,
+    table_key: &str,
+    constraints: &[&str],
+    indexes: &[&str],
+) {
     let table = table(catalog, table_key);
     assert_eq!(constraint_names(table), constraints, "constraint names");
     assert_eq!(index_names(table), indexes, "index names");
