@@ -19,11 +19,15 @@ pub(super) fn check(
         ctx,
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                columns,
-                using_index,
+            let AlterTableAction::AddConstraint {
+                constraint:
+                    TableConstraint::PrimaryKey {
+                        columns,
+                        using_index,
+                        ..
+                    },
                 ..
-            }) = action
+            } = action
             else {
                 return vec![];
             };
@@ -150,7 +154,7 @@ mod tests {
     fn add_pk_stmt(table: &str, columns: &[&str]) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: columns.iter().map(|s| s.to_string()).collect(),
@@ -164,7 +168,7 @@ mod tests {
     fn add_pk_using_index_stmt(table: &str, idx_name: &str) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![], // empty with USING INDEX

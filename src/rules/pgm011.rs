@@ -251,7 +251,7 @@ mod tests {
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
                     name: QualifiedName::unqualified("orders").resolve("public"),
-                    actions: vec![AlterTableAction::AddConstraint(
+                    actions: vec![AlterTableAction::add_constraint(
                         TableConstraint::PrimaryKey {
                             name: None,
                             columns: vec![], // empty with USING INDEX

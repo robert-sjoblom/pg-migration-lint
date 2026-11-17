@@ -19,10 +19,12 @@ pub(super) fn check(
         ctx,
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            if let AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
-                not_valid: false,
+            if let AlterTableAction::AddConstraint {
+                constraint: TableConstraint::ForeignKey {
+                    not_valid: false, ..
+                },
                 ..
-            }) = action
+            } = action
             {
                 vec![rule.make_finding(
                     format!(
@@ -57,7 +59,7 @@ mod tests {
     fn add_fk_stmt(table: &str, not_valid: bool) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_customer".to_string()),
                     columns: vec!["customer_id".to_string()],

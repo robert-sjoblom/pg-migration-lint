@@ -1,5 +1,6 @@
 use super::*;
 use rstest::rstest;
+use crate::parser::ir::ConstraintOrigin;
 
 mod constraints;
 mod indexes;
@@ -386,7 +387,10 @@ fn test_parse_alter_table_add_constraint() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint(tc) => match tc {
+                AlterTableAction::AddConstraint {
+                    constraint: tc,
+                    ..
+                } => match tc {
                     TableConstraint::ForeignKey {
                         name,
                         columns,
@@ -780,11 +784,14 @@ fn test_parse_alter_table_add_primary_key() {
     let nodes = parse_sql(sql);
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
-            AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                columns,
-                using_index,
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
                 ..
-            }) => {
+            } => {
                 assert_eq!(columns, &["id"]);
                 assert_eq!(*using_index, None);
             }
@@ -800,11 +807,14 @@ fn test_parse_add_pk_using_index() {
     let nodes = parse_sql(sql);
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
-            AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                columns,
-                using_index,
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
                 ..
-            }) => {
+            } => {
                 assert!(
                     columns.is_empty(),
                     "columns should be empty with USING INDEX"
@@ -823,12 +833,15 @@ fn test_parse_add_unique_using_index() {
     let nodes = parse_sql(sql);
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
-            AlterTableAction::AddConstraint(TableConstraint::Unique {
-                name,
-                columns,
-                using_index,
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::Unique {
+                    name,
+                    columns,
+                    using_index,
+                    ..
+                },
                 ..
-            }) => {
+            } => {
                 assert_eq!(name.as_deref(), Some("uq_email"));
                 assert!(
                     columns.is_empty(),
@@ -848,11 +861,14 @@ fn test_parse_add_pk_without_using_index() {
     let nodes = parse_sql(sql);
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
-            AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                columns,
-                using_index,
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
                 ..
-            }) => {
+            } => {
                 assert_eq!(columns, &["id"]);
                 assert_eq!(*using_index, None);
             }
@@ -920,13 +936,16 @@ fn test_parse_add_fk_not_valid() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
-                    name,
-                    columns,
-                    ref_table,
-                    ref_columns,
-                    not_valid,
-                }) => {
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::ForeignKey {
+                        name,
+                        columns,
+                        ref_table,
+                        ref_columns,
+                        not_valid,
+                    },
+                    ..
+                } => {
                     assert_eq!(name.as_deref(), Some("fk_customer"));
                     assert_eq!(columns, &["customer_id"]);
                     assert_eq!(ref_table, &QualifiedName::unqualified("customers"));
@@ -949,9 +968,12 @@ fn test_parse_add_fk_without_not_valid() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint(TableConstraint::ForeignKey {
-                    not_valid, ..
-                }) => {
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::ForeignKey {
+                        not_valid, ..
+                    },
+                    ..
+                } => {
                     assert!(!*not_valid, "Expected not_valid to be false");
                 }
                 other => panic!("Expected AddConstraint ForeignKey, got: {:?}", other),
@@ -970,9 +992,12 @@ fn test_parse_add_check_not_valid() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint(TableConstraint::Check {
-                    name, not_valid, ..
-                }) => {
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::Check {
+                        name, not_valid, ..
+                    },
+                    ..
+                } => {
                     assert_eq!(name.as_deref(), Some("chk_amount"));
                     assert!(*not_valid, "Expected not_valid to be true");
                 }
@@ -992,7 +1017,10 @@ fn test_parse_add_check_without_not_valid() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint(TableConstraint::Check { not_valid, .. }) => {
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::Check { not_valid, .. },
+                    ..
+                } => {
                     assert!(!*not_valid, "Expected not_valid to be false");
                 }
                 other => panic!("Expected AddConstraint Check, got: {:?}", other),
@@ -1498,7 +1526,10 @@ fn test_parse_alter_table_add_column_with_inline_fk() {
             assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
             assert!(matches!(
                 at.actions[1],
-                AlterTableAction::AddConstraint(TableConstraint::ForeignKey { .. })
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::ForeignKey { .. },
+                    origin: ConstraintOrigin::AddColumn,
+                }
             ));
         }
         other => panic!("Expected AlterTable, got: {:?}", other),
@@ -1515,7 +1546,10 @@ fn test_parse_alter_table_add_column_with_inline_unique() {
             assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
             assert!(matches!(
                 at.actions[1],
-                AlterTableAction::AddConstraint(TableConstraint::Unique { .. })
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::Unique { .. },
+                    origin: ConstraintOrigin::AddColumn,
+                }
             ));
         }
         other => panic!("Expected AlterTable, got: {:?}", other),
@@ -1532,11 +1566,89 @@ fn test_parse_alter_table_add_column_with_inline_check() {
             assert!(matches!(at.actions[0], AlterTableAction::AddColumn(_)));
             assert!(matches!(
                 at.actions[1],
-                AlterTableAction::AddConstraint(TableConstraint::Check { .. })
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::Check { .. },
+                    origin: ConstraintOrigin::AddColumn,
+                }
             ));
         }
         other => panic!("Expected AlterTable, got: {:?}", other),
     }
+}
+
+#[rstest]
+#[case::unique("ALTER TABLE t ADD UNIQUE (a);")]
+#[case::named_primary_key("ALTER TABLE t ADD CONSTRAINT t_pk PRIMARY KEY (a);")]
+#[case::primary_key_using_index("ALTER TABLE t ADD PRIMARY KEY USING INDEX t_a_idx;")]
+#[case::check("ALTER TABLE t ADD CHECK (a > 0);")]
+#[case::foreign_key("ALTER TABLE t ADD FOREIGN KEY (a) REFERENCES ref;")]
+#[case::exclude("ALTER TABLE t ADD EXCLUDE USING gist (a WITH &&);")]
+fn add_constraint_subcommand_has_add_constraint_origin(#[case] sql: &str) {
+    let nodes = parse_sql(sql);
+    let IrNode::AlterTable(at) = &nodes[0].node else {
+        panic!("Expected AlterTable for `{sql}`, got: {:?}", nodes[0].node);
+    };
+    assert!(
+        matches!(
+            at.actions.as_slice(),
+            [AlterTableAction::AddConstraint {
+                origin: ConstraintOrigin::AddConstraint,
+                ..
+            }]
+        ),
+        "{:?}",
+        at.actions
+    );
+}
+
+#[test]
+fn add_column_inline_constraints_follow_their_column_in_written_order_with_add_column_origin() {
+    let nodes = parse_sql(
+        "ALTER TABLE t ADD COLUMN c int REFERENCES ref UNIQUE CHECK (c > 0),
+            ADD CONSTRAINT t_a_key UNIQUE (a),
+            ADD COLUMN d int PRIMARY KEY;",
+    );
+    let IrNode::AlterTable(at) = &nodes[0].node else {
+        panic!("Expected AlterTable, got: {:?}", nodes[0].node);
+    };
+    assert_eq!(
+        at.actions,
+        [
+            AlterTableAction::AddColumn(ColumnDef::test("c", "int4")),
+            AlterTableAction::add_column_constraint(TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["c".to_string()],
+                ref_table: QualifiedName::unqualified("ref"),
+                ref_columns: vec![],
+                not_valid: false,
+            }),
+            AlterTableAction::add_column_constraint(TableConstraint::Unique {
+                name: None,
+                columns: vec!["c".to_string()],
+                include_columns: vec![],
+                using_index: None,
+            }),
+            AlterTableAction::add_column_constraint(TableConstraint::Check {
+                name: None,
+                expression: "c > 0".to_string(),
+                referenced_columns: vec!["c".to_string()],
+                not_valid: false,
+            }),
+            AlterTableAction::add_constraint(TableConstraint::Unique {
+                name: Some("t_a_key".to_string()),
+                columns: vec!["a".to_string()],
+                include_columns: vec![],
+                using_index: None,
+            }),
+            AlterTableAction::AddColumn(ColumnDef::test("d", "int4").with_inline_pk()),
+            AlterTableAction::add_column_constraint(TableConstraint::PrimaryKey {
+                name: None,
+                columns: vec!["d".to_string()],
+                include_columns: vec![],
+                using_index: None,
+            }),
+        ]
+    );
 }
 
 #[test]

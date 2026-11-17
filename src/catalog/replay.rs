@@ -10,7 +10,7 @@ use crate::catalog::types::*;
 use crate::input::MigrationUnit;
 use crate::names::{RelationName, ResolvedName};
 use crate::parser::ir::*;
-use statement_names::{ConstraintStatement, constraint_names};
+use statement_names::{alter_table_constraint_names, create_table_constraint_names};
 
 mod statement_names;
 #[cfg(test)]
@@ -127,18 +127,16 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) -> Option<String>
 
     // The parser promotes inline column constraints, PRIMARY KEY included,
     // to `ct.constraints`, so a column's `is_inline_pk` adds no constraint.
-    let constraints: Vec<&TableConstraint> = ct.constraints.iter().collect();
-    let names = constraint_names(
-        ConstraintStatement::CreateTable,
+    let named_constraints = create_table_constraint_names(
         ct.name.name(),
-        &constraints,
+        &ct.constraints,
         catalog.names_in_schema(&table_key.schema),
     );
 
     // `insert_table` registers every index the new table ends up with, so
     // these updates need not be applied.
     let mut index_registry = IndexRegistryUpdates::default();
-    for (constraint, name) in constraints.into_iter().zip(names) {
+    for (constraint, name) in named_constraints {
         apply_table_constraint(&mut table, constraint, name, &mut index_registry);
     }
 
@@ -184,23 +182,14 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     });
 
     // An `ADD COLUMN`'s inline constraints, PRIMARY KEY included, arrive as
-    // `AddConstraint` actions of their own.
-    let constraints: Vec<&TableConstraint> = at
-        .actions
-        .iter()
-        .filter_map(|action| match action {
-            AlterTableAction::AddConstraint(constraint) => Some(constraint),
-            _ => None,
-        })
-        .collect();
-    let names = constraint_names(
-        ConstraintStatement::AlterTable,
+    // `AddConstraint` actions of their own, with origin `AddColumn`.
+    let named_constraints = alter_table_constraint_names(
         at.name.name(),
-        &constraints,
+        &at.actions,
         catalog.names_in_schema(&table_key.schema),
     );
     update_table(catalog, table_key, |table, index_registry| {
-        for (constraint, name) in constraints.into_iter().zip(names) {
+        for (constraint, name) in named_constraints {
             apply_table_constraint(table, constraint, name, index_registry);
         }
     });
@@ -290,7 +279,7 @@ fn apply_column_change(table: &mut TableState, action: &AlterTableAction) {
         }
         AlterTableAction::DropColumn { .. }
         | AlterTableAction::DropConstraint { .. }
-        | AlterTableAction::AddConstraint(_)
+        | AlterTableAction::AddConstraint { .. }
         | AlterTableAction::ValidateConstraint { .. }
         | AlterTableAction::AttachPartition { .. }
         | AlterTableAction::DetachPartition { .. } => {}

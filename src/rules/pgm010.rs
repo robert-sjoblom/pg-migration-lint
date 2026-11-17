@@ -276,7 +276,7 @@ mod tests {
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
                     name: QualifiedName::unqualified("users").resolve("public"),
-                    actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                    actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                         name: Some("uq_users_email".to_string()),
                         columns: vec!["email".to_string()],
                         include_columns: vec![],
@@ -340,7 +340,7 @@ mod tests {
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
                     name: QualifiedName::unqualified("orders").resolve("public"),
-                    actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+                    actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                         name: Some("uq_orders_email".to_string()),
                         columns: vec![], // empty with USING INDEX
                         using_index: Some("idx_orders_email".to_string()),

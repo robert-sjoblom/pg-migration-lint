@@ -460,6 +460,62 @@ fn create_table_names_constraints_in_creation_order_and_keeps_textual_order(
     &["t_a_key"],
     &["t_a_key"]
 )]
+// collision_order.sql:102
+#[case::add_column_check_before_add_check(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD CHECK (a > 0), ADD COLUMN c int CONSTRAINT t_a_check CHECK (c > 0);",
+    &["t_a_check1", "t_a_check"],
+    &[]
+)]
+// collision_order.sql:108
+#[case::add_column_unique_before_add_unique(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD UNIQUE (b) DEFERRABLE, ADD COLUMN b int UNIQUE;",
+    &["t_b_key1", "t_b_key"],
+    &["t_b_key1", "t_b_key"]
+)]
+// collision_order.sql:114
+#[case::add_column_generated_check_before_add_check(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD CHECK (b > 0), ADD COLUMN b int CHECK (b > 1);",
+    &["t_b_check1", "t_b_check"],
+    &[]
+)]
+// collision_order.sql:120
+#[case::add_column_foreign_key_before_add_foreign_key(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD FOREIGN KEY (b) REFERENCES ref ON DELETE CASCADE, ADD COLUMN b int REFERENCES ref;",
+    &["t_b_fkey1", "t_b_fkey"],
+    &[]
+)]
+// collision_order.sql:126
+#[case::add_column_foreign_key_before_add_check(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD CHECK (a > 0), ADD COLUMN c int CONSTRAINT t_a_check REFERENCES ref;",
+    &["t_a_check1", "t_a_check"],
+    &[]
+)]
+// collision_order.sql:132
+#[case::add_constraint_unique_before_add_column_check(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD CONSTRAINT t_c_check UNIQUE (a), ADD COLUMN c int CHECK (c > 0);",
+    &["t_c_check", "t_c_check1"],
+    &["t_c_check"]
+)]
+// collision_order.sql:137
+#[case::check_before_foreign_key_within_one_add_column(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD COLUMN c int REFERENCES ref CONSTRAINT t_c_fkey CHECK (c > 0);",
+    &["t_c_fkey1", "t_c_fkey"],
+    &[]
+)]
+// collision_order.sql:142
+#[case::earlier_add_column_foreign_key_before_later_add_column_check(
+    "CREATE TABLE t (a int);",
+    "ALTER TABLE t ADD COLUMN c int CONSTRAINT t_d_check REFERENCES ref, ADD COLUMN d int CHECK (d > 0);",
+    &["t_d_check", "t_d_check1"],
+    &[]
+)]
 fn alter_table_names_constraints_in_creation_order_and_keeps_textual_order(
     #[case] create_sql: &str,
     #[case] alter_sql: &str,

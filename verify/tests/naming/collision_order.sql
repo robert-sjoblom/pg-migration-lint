@@ -1,8 +1,9 @@
 -- @claim: Within one statement, a generated name avoids the names Postgres has already created in that statement, in creation order, not textual order
 -- @claim: CREATE TABLE names its CHECKs first, then the PRIMARY KEY, then UNIQUE and EXCLUDE in textual order, then FOREIGN KEYs in textual order
--- @claim: ALTER TABLE names index-backed constraints first, in textual order, then CHECKs and FOREIGN KEYs together in textual order
+-- @claim: ALTER TABLE names index-backed constraints first, then CHECKs and FOREIGN KEYs together; the ADD CONSTRAINTs of one pass are named in textual order
 -- @claim: ALTER TABLE attaches USING INDEX constraints before it creates any other index-backed constraint
--- @claim: ALTER TABLE names the constraints of every ADD COLUMN before those of any ADD CONSTRAINT, whatever the textual order
+-- @claim: Within one pass, ALTER TABLE names the constraints written inline in ADD COLUMN before those of any ADD CONSTRAINT, whatever the textual order; an ADD COLUMN's constraint still comes after every constraint of an earlier pass
+-- @claim: Within one ADD COLUMN, ALTER TABLE names CHECKs before FOREIGN KEYs, whatever the textual order; across ADD COLUMNs, the one written first comes first
 -- @claim: ALTER TABLE runs DROP CONSTRAINT before any ADD, so a name dropped in the same statement is free whatever the textual order
 -- @min_version: 14
 
@@ -10,6 +11,15 @@ CREATE SCHEMA app;
 SET search_path = app, public;
 
 CREATE TABLE ref (id int PRIMARY KEY);
+
+-- Each constraint of a table as name=definition, sorted by name; never NULL.
+CREATE FUNCTION constraint_defs(tbl text) RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(
+        (SELECT string_agg(conname || '=' || pg_get_constraintdef(oid), '; ' ORDER BY conname)
+           FROM pg_constraint WHERE conrelid = to_regclass(tbl)),
+        '<none>');
+$$;
 
 -- CREATE TABLE
 CREATE TABLE ct_check_first (a int UNIQUE, CONSTRAINT ct_check_first_a_key CHECK (a > 0));
@@ -91,8 +101,46 @@ SELECT assert_eq(constraint_index('app.at_using_first', 'at_using_first_a_key'),
 
 CREATE TABLE at_add_column_first (a int);
 ALTER TABLE at_add_column_first ADD CHECK (a > 0), ADD COLUMN c int CONSTRAINT at_add_column_first_a_check CHECK (c > 0);
-SELECT assert_eq(
-    coalesce((SELECT string_agg(conname || '=' || pg_get_constraintdef(oid), '; ' ORDER BY conname)
-                FROM pg_constraint WHERE conrelid = to_regclass('app.at_add_column_first')), '<none>'),
+SELECT assert_eq(constraint_defs('app.at_add_column_first'),
     'at_add_column_first_a_check=CHECK ((c > 0)); at_add_column_first_a_check1=CHECK ((a > 0))',
     'ALTER TABLE: an ADD COLUMN written after ADD CHECK has its CHECK named first, so ADD CHECK gets _check1');
+
+CREATE TABLE at_column_unique_first (a int);
+ALTER TABLE at_column_unique_first ADD UNIQUE (b) DEFERRABLE, ADD COLUMN b int UNIQUE;
+SELECT assert_eq(constraint_defs('app.at_column_unique_first'),
+    'at_column_unique_first_b_key=UNIQUE (b); at_column_unique_first_b_key1=UNIQUE (b) DEFERRABLE',
+    'ALTER TABLE: an ADD COLUMN''s UNIQUE is named before an ADD UNIQUE written earlier, so ADD UNIQUE gets _key1');
+
+CREATE TABLE at_column_check_first (a int);
+ALTER TABLE at_column_check_first ADD CHECK (b > 0), ADD COLUMN b int CHECK (b > 1);
+SELECT assert_eq(constraint_defs('app.at_column_check_first'),
+    'at_column_check_first_b_check=CHECK ((b > 1)); at_column_check_first_b_check1=CHECK ((b > 0))',
+    'ALTER TABLE: an ADD COLUMN''s CHECK is named before an ADD CHECK written earlier, so ADD CHECK gets _check1');
+
+CREATE TABLE at_column_fkey_first (a int);
+ALTER TABLE at_column_fkey_first ADD FOREIGN KEY (b) REFERENCES ref ON DELETE CASCADE, ADD COLUMN b int REFERENCES ref;
+SELECT assert_eq(constraint_defs('app.at_column_fkey_first'),
+    'at_column_fkey_first_b_fkey=FOREIGN KEY (b) REFERENCES ref(id); at_column_fkey_first_b_fkey1=FOREIGN KEY (b) REFERENCES ref(id) ON DELETE CASCADE',
+    'ALTER TABLE: an ADD COLUMN''s FOREIGN KEY is named before an ADD FOREIGN KEY written earlier, so ADD FOREIGN KEY gets _fkey1');
+
+CREATE TABLE at_column_fkey_before_add_check (a int);
+ALTER TABLE at_column_fkey_before_add_check ADD CHECK (a > 0),
+    ADD COLUMN c int CONSTRAINT at_column_fkey_before_add_check_a_check REFERENCES ref;
+SELECT assert_eq(constraint_names('app.at_column_fkey_before_add_check', 'c'), 'at_column_fkey_before_add_check_a_check1',
+    'ALTER TABLE: an ADD COLUMN''s FOREIGN KEY is created before an ADD CHECK written earlier, so the CHECK gets _check1');
+
+CREATE TABLE at_pass_before_column (a int);
+ALTER TABLE at_pass_before_column ADD CONSTRAINT at_pass_before_column_c_check UNIQUE (a), ADD COLUMN c int CHECK (c > 0);
+SELECT assert_eq(constraint_names('app.at_pass_before_column', 'c'), 'at_pass_before_column_c_check1',
+    'ALTER TABLE: an ADD CONSTRAINT UNIQUE is created in an earlier pass than an ADD COLUMN''s CHECK, so the CHECK gets _check1');
+
+CREATE TABLE at_column_check_before_fkey (a int);
+ALTER TABLE at_column_check_before_fkey ADD COLUMN c int REFERENCES ref CONSTRAINT at_column_check_before_fkey_c_fkey CHECK (c > 0);
+SELECT assert_eq(constraint_names('app.at_column_check_before_fkey', 'f'), 'at_column_check_before_fkey_c_fkey1',
+    'ALTER TABLE: within one ADD COLUMN a CHECK written after a FOREIGN KEY is created first, so the FOREIGN KEY gets _fkey1');
+
+CREATE TABLE at_columns_textual (a int);
+ALTER TABLE at_columns_textual ADD COLUMN c int CONSTRAINT at_columns_textual_d_check REFERENCES ref,
+    ADD COLUMN d int CHECK (d > 0);
+SELECT assert_eq(constraint_names('app.at_columns_textual', 'c'), 'at_columns_textual_d_check1',
+    'ALTER TABLE: a FOREIGN KEY of an earlier ADD COLUMN is created before a CHECK of a later one, so the CHECK gets _check1');

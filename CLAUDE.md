@@ -76,7 +76,8 @@ Supporting types:
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
 - `TableConstraint` - enum: `PrimaryKey`, `ForeignKey`, `Unique`, `Check`, `Exclude`
-- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `Other`
+- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `Other`
+- `ConstraintOrigin` - enum: `AddColumn` (written inline in an `ADD COLUMN`; directly follows that `AddColumn`), `AddConstraint` (an `ADD CONSTRAINT` subcommand). Rules ignore it; replay uses it to name constraints in Postgres's creation order. Build with `AlterTableAction::add_constraint` / `add_column_constraint`
 
 Each statement is wrapped in `Located<IrNode>` with `SourceSpan` for line number tracking.
 

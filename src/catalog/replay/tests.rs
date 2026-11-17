@@ -667,25 +667,25 @@ fn test_add_constraint_via_alter_table() {
         AlterTable {
             name: qname("t"),
             actions: vec![
-                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                AlterTableAction::add_constraint(TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
                     include_columns: vec![],
                     using_index: None,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Unique {
+                AlterTableAction::add_constraint(TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
                     include_columns: vec![],
                     using_index: None,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Check {
+                AlterTableAction::add_constraint(TableConstraint::Check {
                     name: Some("ck_email".to_string()),
                     expression: "email <> ''".to_string(),
                     referenced_columns: vec!["email".to_string()],
                     not_valid: false,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Exclude {
+                AlterTableAction::add_constraint(TableConstraint::Exclude {
                     name: Some("excl_email".to_string()),
                     elements: vec![],
                     include_columns: vec![],
@@ -1295,7 +1295,7 @@ fn test_add_pk_using_index_resolves_columns_from_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec![], // empty with USING INDEX
@@ -1336,7 +1336,7 @@ fn test_add_unique_using_index_resolves_columns_from_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![], // empty with USING INDEX
             using_index: Some("idx_orders_email".to_string()),
@@ -1374,7 +1374,7 @@ fn test_add_unique_constraint_creates_named_backing_index() {
             .into(),
         AlterTable {
             name: qname("users"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                 name: Some("uq_users_email".to_string()),
                 columns: vec!["email".to_string()],
                 include_columns: vec![],
@@ -1412,7 +1412,7 @@ fn test_add_unique_constraint_unnamed_uses_default_index_name() {
             .into(),
         AlterTable {
             name: qname("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                 name: None,
                 columns: vec!["customer_id".to_string(), "external_ref".to_string()],
                 include_columns: vec![],
@@ -1446,7 +1446,7 @@ fn test_add_unique_using_index_does_not_create_second_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: qname("orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![],
             include_columns: vec![],
@@ -1539,7 +1539,7 @@ fn test_drop_unique_using_index_removes_backing_index() {
     // Add UNIQUE constraint referencing the existing index.
     let add_unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![],
             include_columns: vec![],
@@ -1693,7 +1693,7 @@ fn test_add_pk_using_index_missing_index_stays_empty() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec![],
@@ -3092,7 +3092,7 @@ fn test_drop_unique_constraint_removes_backing_index() {
 
     let unit3 = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: qname("users"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_email".to_string()),
             columns: vec![],
             include_columns: vec![],

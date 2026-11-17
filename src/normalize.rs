@@ -202,8 +202,11 @@ fn resolve_alter_table_action(
     match action {
         AlterTableAction::AddColumn(column) => AlterTableAction::AddColumn(column),
         AlterTableAction::DropColumn { name } => AlterTableAction::DropColumn { name },
-        AlterTableAction::AddConstraint(constraint) => {
-            AlterTableAction::AddConstraint(resolve_constraint(constraint, default_schema))
+        AlterTableAction::AddConstraint { constraint, origin } => {
+            AlterTableAction::AddConstraint {
+                constraint: resolve_constraint(constraint, default_schema),
+                origin,
+            }
         }
         AlterTableAction::AlterColumnType {
             column_name,
@@ -541,19 +544,53 @@ mod tests {
     fn alter_table_add_foreign_key_ref_table_is_resolved() {
         let IrNode::AlterTable(at) = resolved(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(foreign_key_to(
+            actions: vec![AlterTableAction::add_constraint(foreign_key_to(
                 QualifiedName::unqualified("customers"),
             ))],
         }) else {
             panic!("expected AlterTable");
         };
 
-        let [AlterTableAction::AddConstraint(TableConstraint::ForeignKey { ref_table, .. })] =
+        let [AlterTableAction::AddConstraint {
+            constraint: TableConstraint::ForeignKey { ref_table, .. },
+            ..
+        }] =
             at.actions.as_slice()
         else {
             panic!("expected one AddConstraint ForeignKey action");
         };
         assert_resolved_into_default_schema(ref_table, "customers");
+    }
+
+    #[test]
+    fn alter_table_constraint_origin_survives_resolution() {
+        let IrNode::AlterTable(at) = resolved(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![
+                AlterTableAction::AddColumn(ColumnDef::test("customer_id", "int")),
+                AlterTableAction::add_column_constraint(foreign_key_to(
+                    QualifiedName::unqualified("customers"),
+                )),
+                AlterTableAction::add_constraint(foreign_key_to(QualifiedName::unqualified(
+                    "customers",
+                ))),
+            ],
+        }) else {
+            panic!("expected AlterTable");
+        };
+
+        let origins: Vec<ConstraintOrigin> = at
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                AlterTableAction::AddConstraint { origin, .. } => Some(*origin),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            origins,
+            [ConstraintOrigin::AddColumn, ConstraintOrigin::AddConstraint]
+        );
     }
 
     #[test]

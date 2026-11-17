@@ -31,15 +31,15 @@ pub(super) fn check(
                         });
                     }
                 }
-                // Also check inline FK from column definitions (is_inline_pk is for PK;
-                // inline FK would be in constraints). The IR puts inline FKs into
-                // the constraints list, so they are already handled above.
+                // The parser promotes a column's inline REFERENCES into
+                // `ct.constraints`, so the loop above covers it.
             }
             IrNode::AlterTable(at) => {
                 for action in &at.actions {
-                    if let crate::parser::ir::AlterTableAction::AddConstraint(
-                        TableConstraint::ForeignKey { columns, .. },
-                    ) = action
+                    if let crate::parser::ir::AlterTableAction::AddConstraint {
+                        constraint: TableConstraint::ForeignKey { columns, .. },
+                        ..
+                    } = action
                     {
                         fks.push(FkInfo {
                             table_name: at.name.relation().clone(),
@@ -145,7 +145,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_parent".to_string()),
                     columns: vec!["pid".to_string()],
@@ -173,7 +173,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_parent".to_string()),
                     columns: vec!["pid".to_string()],
@@ -227,7 +227,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_parent".to_string()),
                     columns: vec!["pid".to_string()],
@@ -295,7 +295,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_composite".to_string()),
                     columns: vec!["a".to_string(), "b".to_string()],
@@ -328,7 +328,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -365,7 +365,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -440,7 +440,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_parent".to_string()),
                     columns: vec!["pid".to_string()],
@@ -474,7 +474,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_parent".to_string()),
                     columns: vec!["pid".to_string()],
@@ -512,7 +512,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -557,7 +557,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("postings"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_txn".to_string()),
                     columns: vec!["transaction_id".to_string(), "partition_key".to_string()],
@@ -595,7 +595,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -634,7 +634,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -671,7 +671,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -714,7 +714,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_cust".to_string()),
                     columns: vec!["customer_id".to_string()],
@@ -761,7 +761,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_cust".to_string()),
                     columns: vec!["customer_id".to_string()],
@@ -804,7 +804,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders_child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],
@@ -846,7 +846,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders_child"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::ForeignKey {
                     name: Some("fk_ref".to_string()),
                     columns: vec!["ref_id".to_string()],

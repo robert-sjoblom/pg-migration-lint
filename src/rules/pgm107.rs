@@ -70,11 +70,15 @@ pub(super) fn check(
             }
             IrNode::AlterTable(at) => {
                 for action in &at.actions {
-                    let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                        columns,
-                        using_index,
+                    let AlterTableAction::AddConstraint {
+                        constraint:
+                            TableConstraint::PrimaryKey {
+                                columns,
+                                using_index,
+                                ..
+                            },
                         ..
-                    }) = action
+                    } = action
                     else {
                         continue;
                     };
@@ -255,7 +259,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
@@ -281,7 +285,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
@@ -308,7 +312,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("order_items"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["order_id".to_string(), "item_id".to_string()],
@@ -336,7 +340,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
@@ -365,7 +369,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
@@ -387,7 +391,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("nonexistent"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
