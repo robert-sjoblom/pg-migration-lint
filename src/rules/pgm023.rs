@@ -135,6 +135,9 @@ fn table_key_of(node: &IrNode) -> Option<&RelationName> {
         IrNode::Reindex(_) => None,
         IrNode::RenameTable { name, .. } => Some(name.relation()),
         IrNode::RenameColumn { table, .. } => Some(table.relation()),
+        // Breaks no chain, as when the parser still read it as `Ignored`;
+        // whether it should, like the other renames, is the rule's call.
+        IrNode::RenameConstraint { .. } => None,
         // These don't have a table name to extract
         IrNode::AlterTable(_)
         | IrNode::DropIndex(_)

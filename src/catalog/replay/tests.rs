@@ -3438,5 +3438,7 @@ mod collision_suffixes;
 mod generated_names;
 mod implicit_index_names;
 mod inline_primary_key;
+mod rename_constraint;
 mod rename_index;
+mod rename_onto_taken_name;
 mod schema_scoped_indexes;

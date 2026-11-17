@@ -6,4 +6,6 @@ pub mod types;
 
 pub mod builder;
 
-pub use types::{Catalog, ColumnState, ConstraintState, IndexState, PartitionByInfo, TableState};
+pub use types::{
+    Catalog, ColumnState, ConstraintState, IndexState, PartitionByInfo, RenameClash, TableState,
+};

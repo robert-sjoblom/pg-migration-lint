@@ -184,6 +184,15 @@ pub(crate) fn resolve_node(node: IrNode<QualifiedName>, default_schema: &str) ->
             index: resolve(index),
             new_name,
         },
+        IrNode::RenameConstraint {
+            table,
+            old_name,
+            new_name,
+        } => IrNode::RenameConstraint {
+            table: resolve(table),
+            old_name,
+            new_name,
+        },
         IrNode::Ignored { raw_sql } => IrNode::Ignored { raw_sql },
         IrNode::Unparseable {
             raw_sql,
@@ -857,6 +866,42 @@ mod tests {
 
         assert_resolved_into_default_schema(&index, "idx_orders_status");
         assert_eq!(new_name, "idx_orders_state");
+    }
+
+    fn resolved_rename_constraint(table: QualifiedName) -> (ResolvedName, String, String) {
+        let IrNode::RenameConstraint {
+            table,
+            old_name,
+            new_name,
+        } = resolved(IrNode::RenameConstraint {
+            table,
+            old_name: "orders_pkey".to_string(),
+            new_name: "purchases_pkey".to_string(),
+        })
+        else {
+            panic!("expected RenameConstraint");
+        };
+        (table, old_name, new_name)
+    }
+
+    #[test]
+    fn rename_constraint_table_is_resolved_and_constraint_names_stay_bare() {
+        let (table, old_name, new_name) =
+            resolved_rename_constraint(QualifiedName::unqualified("orders"));
+
+        assert_resolved_into_default_schema(&table, "orders");
+        assert_eq!(old_name, "orders_pkey");
+        assert_eq!(new_name, "purchases_pkey");
+    }
+
+    #[test]
+    fn qualified_rename_constraint_table_keeps_its_schema() {
+        let (table, old_name, new_name) =
+            resolved_rename_constraint(QualifiedName::qualified("billing", "orders"));
+
+        assert_resolved_into_written_schema(&table, "billing", "orders");
+        assert_eq!(old_name, "orders_pkey");
+        assert_eq!(new_name, "purchases_pkey");
     }
 
     #[test]

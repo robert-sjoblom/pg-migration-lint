@@ -2,6 +2,9 @@
 -- @claim: ALTER TABLE ... RENAME COLUMN keeps generated names that contain the old column name
 -- @claim: The old names stay taken, so a new table reusing the old table name gets suffixed names (orders_pkey1)
 -- @claim: Renaming an index-backed constraint renames its index, and renaming the index renames the constraint
+-- @claim: RENAME CONSTRAINT on a PRIMARY KEY, UNIQUE or EXCLUDE renames the index with it; on a CHECK or FOREIGN KEY it renames the constraint only
+-- @claim: After RENAME TO and RENAME CONSTRAINT, DROP CONSTRAINT by the new name drops the constraint and its index
+-- @claim: RENAME CONSTRAINT with IF EXISTS on a missing table does nothing; without it, or on a missing constraint even with IF EXISTS, it fails
 -- @min_version: 14
 
 CREATE SCHEMA app;
@@ -60,3 +63,55 @@ CREATE TABLE rename_idx (id int PRIMARY KEY);
 ALTER INDEX rename_idx_pkey RENAME TO rename_idx_new_pk;
 SELECT assert_eq(constraint_names('app.rename_idx', 'p'), 'rename_idx_new_pk',
     'ALTER INDEX ... RENAME on a PK index renames the constraint too');
+
+CREATE TABLE rename_kinds (
+    id int PRIMARY KEY,
+    code text UNIQUE,
+    qty int CHECK (qty > 0),
+    customer_id int REFERENCES customers,
+    slot int,
+    EXCLUDE USING btree (slot WITH =));
+ALTER TABLE rename_kinds RENAME CONSTRAINT rename_kinds_pkey TO rk_pk;
+ALTER TABLE rename_kinds RENAME CONSTRAINT rename_kinds_code_key TO rk_code;
+ALTER TABLE rename_kinds RENAME CONSTRAINT rename_kinds_slot_excl TO rk_slot;
+ALTER TABLE rename_kinds RENAME CONSTRAINT rename_kinds_qty_check TO rk_qty;
+ALTER TABLE rename_kinds RENAME CONSTRAINT rename_kinds_customer_id_fkey TO rk_customer;
+SELECT assert_eq(constraint_index('app.rename_kinds', 'rk_pk'), 'app.rk_pk',
+    'RENAME CONSTRAINT on a PRIMARY KEY renames the constraint and its index');
+SELECT assert_eq(constraint_index('app.rename_kinds', 'rk_code'), 'app.rk_code',
+    'RENAME CONSTRAINT on a UNIQUE renames the constraint and its index');
+SELECT assert_eq(constraint_index('app.rename_kinds', 'rk_slot'), 'app.rk_slot',
+    'RENAME CONSTRAINT on an EXCLUDE renames the constraint and its index');
+SELECT assert_eq(constraint_names('app.rename_kinds', 'c') || ',' || constraint_names('app.rename_kinds', 'f'),
+    'rk_qty,rk_customer', 'RENAME CONSTRAINT renames a CHECK and a FOREIGN KEY');
+SELECT assert_eq(index_names('app.rename_kinds'), 'app.rk_code,app.rk_pk,app.rk_slot',
+    'CHECK and FOREIGN KEY renames leave the index names alone');
+
+CREATE SCHEMA billing;
+CREATE TABLE billing.legacy (id int PRIMARY KEY);
+ALTER TABLE billing.legacy RENAME TO modern;
+ALTER TABLE billing.modern RENAME CONSTRAINT legacy_pkey TO modern_pkey;
+SELECT assert_eq(constraint_index('billing.modern', 'modern_pkey'), 'billing.modern_pkey',
+    'RENAME CONSTRAINT on a schema-qualified table renames the index in that schema');
+ALTER TABLE billing.modern DROP CONSTRAINT modern_pkey;
+SELECT assert_eq(constraint_names('billing.modern', 'p') || ' ' || index_names('billing.modern'), '<none> <none>',
+    'DROP CONSTRAINT by the new name drops the renamed constraint and its index');
+
+CREATE FUNCTION statement_error(stmt text) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+    EXECUTE stmt;
+    RETURN '<no error>';
+EXCEPTION WHEN OTHERS THEN
+    RETURN SQLSTATE || ' ' || SQLERRM;
+END;
+$$;
+
+SELECT assert_eq(statement_error('ALTER TABLE IF EXISTS no_such_table RENAME CONSTRAINT a TO b'), '<no error>',
+    'RENAME CONSTRAINT with IF EXISTS on a missing table does nothing');
+SELECT assert_eq(statement_error('ALTER TABLE no_such_table RENAME CONSTRAINT a TO b'),
+    '42P01 relation "no_such_table" does not exist',
+    'RENAME CONSTRAINT on a missing table fails without IF EXISTS');
+SELECT assert_eq(statement_error('ALTER TABLE IF EXISTS rename_kinds RENAME CONSTRAINT no_such_con TO b'),
+    '42704 constraint "no_such_con" for table "rename_kinds" does not exist',
+    'RENAME CONSTRAINT on a missing constraint fails even with IF EXISTS');

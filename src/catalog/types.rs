@@ -78,6 +78,14 @@ impl Catalog {
         self.index_to_table.get(index)
     }
 
+    /// Every registered index with the table that owns it, in no order.
+    #[cfg(test)]
+    pub(crate) fn registered_indexes(
+        &self,
+    ) -> impl Iterator<Item = (&RelationName, &RelationName)> {
+        self.index_to_table.iter()
+    }
+
     /// The state of `index`, looked up in `index`'s schema only.
     pub(crate) fn get_index(&self, index: &RelationName) -> Option<&IndexState> {
         let table = self.index_to_table.get(index)?;
@@ -95,6 +103,69 @@ impl Catalog {
             catalog: self,
             schema,
         }
+    }
+
+    /// Why `ALTER TABLE table RENAME TO new_name` fails, if it does: a
+    /// relation in the table's schema already has `new_name`, the table
+    /// itself included. Constraint names are free. `None` when the catalog
+    /// has no such table. A type of that name also makes Postgres fail the
+    /// rename, but the catalog does not record types.
+    pub fn table_rename_clash(&self, table: &RelationName, new_name: &str) -> Option<RenameClash> {
+        if !self.has_table(table) {
+            return None;
+        }
+        self.names_in_schema(&table.schema)
+            .relation_taken(new_name)
+            .then_some(RenameClash::Relation)
+    }
+
+    /// Why `ALTER INDEX index RENAME TO new_name` fails, if it does: a
+    /// relation in the index's schema already has `new_name`, the index
+    /// itself included. An index backing a PRIMARY KEY, UNIQUE or EXCLUDE
+    /// constraint renames the constraint too, so it also fails when another
+    /// constraint of its table has `new_name`. `None` when the catalog has
+    /// no such index.
+    pub fn index_rename_clash(&self, index: &RelationName, new_name: &str) -> Option<RenameClash> {
+        let table = self.get_table(self.table_for_index(index)?)?;
+        if self
+            .names_in_schema(&index.schema)
+            .relation_taken(new_name)
+        {
+            return Some(RenameClash::Relation);
+        }
+        let backs_a_constraint = table
+            .get_constraint(&index.name)
+            .is_some_and(ConstraintState::is_index_backed);
+        (backs_a_constraint && table.get_constraint(new_name).is_some())
+            .then_some(RenameClash::Constraint)
+    }
+
+    /// Why `ALTER TABLE table RENAME CONSTRAINT constraint TO new_name`
+    /// fails, if it does: another constraint of the same table already has
+    /// `new_name`, the constraint itself included. Other tables' constraint
+    /// names are free. A PRIMARY KEY, UNIQUE or EXCLUDE constraint renames
+    /// its index too, so it fails first when a relation in the table's
+    /// schema has `new_name`. `None` when the catalog has no such table or
+    /// constraint.
+    pub fn constraint_rename_clash(
+        &self,
+        table: &RelationName,
+        constraint: &str,
+        new_name: &str,
+    ) -> Option<RenameClash> {
+        let table_state = self.get_table(table)?;
+        let renamed = table_state.get_constraint(constraint)?;
+        if renamed.is_index_backed()
+            && self
+                .names_in_schema(&table.schema)
+                .relation_taken(new_name)
+        {
+            return Some(RenameClash::Relation);
+        }
+        table_state
+            .get_constraint(new_name)
+            .is_some()
+            .then_some(RenameClash::Constraint)
     }
 
     /// Returns the names of all partition children of the given parent.
@@ -118,6 +189,19 @@ impl Catalog {
             .and_then(|t| t.parent_table.as_ref())
             .is_some()
     }
+}
+
+/// Why Postgres rejects a rename: the new name is already in use where the
+/// renamed object needs it free (`verify/tests/naming/rename_taken.sql`).
+/// The statement fails and changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenameClash {
+    /// A relation in the schema has the name:
+    /// `42P07 relation "..." already exists`.
+    Relation,
+    /// Another constraint of the same table has the name:
+    /// `42710 constraint "..." for relation "..." already exists`.
+    Constraint,
 }
 
 /// The constraint and relation names one schema uses, as far as the catalog
@@ -190,6 +274,11 @@ impl TableState {
 
     pub(crate) fn get_column_mut(&mut self, name: &str) -> Option<&mut ColumnState> {
         self.columns.iter_mut().find(|c| c.name == name)
+    }
+
+    /// The constraint named `name` on this table, of any kind.
+    pub fn get_constraint(&self, name: &str) -> Option<&ConstraintState> {
+        self.constraints.iter().find(|c| c.name() == name)
     }
 
     pub(crate) fn remove_column(&mut self, name: &str) {

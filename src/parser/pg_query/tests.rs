@@ -25,6 +25,7 @@ mod indexes;
     "CREATE TRIGGER trg BEFORE INSERT ON foo FOR EACH ROW EXECUTE FUNCTION bar();"
 )]
 #[case::alter_sequence_rename("ALTER SEQUENCE my_seq RENAME TO new_seq;")]
+#[case::alter_domain_rename_constraint("ALTER DOMAIN positive_int RENAME CONSTRAINT c TO d;")]
 #[case::drop_function("DROP FUNCTION my_func(int);")]
 #[case::create_schema("CREATE SCHEMA myschema;")]
 #[case::alter_sequence("ALTER SEQUENCE order_seq RESTART WITH 1000;")]
@@ -1061,6 +1062,54 @@ fn test_parse_rename_column() {
         }
         other => panic!("Expected RenameColumn, got: {:?}", other),
     }
+}
+
+#[rstest]
+#[case::unqualified(
+    "ALTER TABLE orders RENAME CONSTRAINT orders_pkey TO purchases_pkey;",
+    QualifiedName::unqualified("orders"),
+    "orders_pkey",
+    "purchases_pkey"
+)]
+#[case::schema_qualified(
+    "ALTER TABLE billing.orders RENAME CONSTRAINT orders_pkey TO purchases_pkey;",
+    QualifiedName::qualified("billing", "orders"),
+    "orders_pkey",
+    "purchases_pkey"
+)]
+#[case::if_exists_and_only(
+    "ALTER TABLE IF EXISTS ONLY orders RENAME CONSTRAINT orders_pkey TO purchases_pkey;",
+    QualifiedName::unqualified("orders"),
+    "orders_pkey",
+    "purchases_pkey"
+)]
+#[case::quoted_names_keep_their_case(
+    r#"ALTER TABLE orders RENAME CONSTRAINT "Orders_PK" TO "Purchases_PK";"#,
+    QualifiedName::unqualified("orders"),
+    "Orders_PK",
+    "Purchases_PK"
+)]
+fn test_parse_rename_constraint(
+    #[case] sql: &str,
+    #[case] expected_table: QualifiedName,
+    #[case] expected_old_name: &str,
+    #[case] expected_new_name: &str,
+) {
+    let nodes = parse_sql(sql);
+    let [located] = nodes.as_slice() else {
+        panic!("Expected one node for `{sql}`, got: {nodes:?}");
+    };
+    let IrNode::RenameConstraint {
+        table,
+        old_name,
+        new_name,
+    } = &located.node
+    else {
+        panic!("Expected RenameConstraint, got: {:?}", located.node);
+    };
+    assert_eq!(table, &expected_table);
+    assert_eq!(old_name, expected_old_name);
+    assert_eq!(new_name, expected_new_name);
 }
 
 // Schema-qualified DROP INDEX: see test_parse_drop_index_flags rstest.

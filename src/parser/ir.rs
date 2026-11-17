@@ -59,6 +59,14 @@ pub enum IrNode<N = ResolvedName> {
         index: N,
         new_name: String,
     },
+    /// `ALTER TABLE ... RENAME CONSTRAINT`. pg_query emits `RenameStmt`.
+    /// The constraint names are bare: a constraint belongs to its table.
+    /// `ALTER DOMAIN ... RENAME CONSTRAINT` is `Ignored`.
+    RenameConstraint {
+        table: N,
+        old_name: String,
+        new_name: String,
+    },
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
     Ignored {

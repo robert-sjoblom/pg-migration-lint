@@ -751,7 +751,9 @@ fn convert_alter_index(
 ///
 /// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
 /// - `ObjectType::ObjectColumn` → `IrNode::RenameColumn`
-/// - Everything else → `IrNode::Ignored`
+/// - `ObjectType::ObjectIndex` → `IrNode::RenameIndex`
+/// - `ObjectType::ObjectTabconstraint` → `IrNode::RenameConstraint`
+/// - Everything else, domain constraints included → `IrNode::Ignored`
 fn convert_rename_stmt(
     rename: &pg_query::protobuf::RenameStmt,
     raw_sql: &str,
@@ -776,6 +778,14 @@ fn convert_rename_stmt(
             let index = relation_to_qualified_name(rename.relation.as_ref());
             IrNode::RenameIndex {
                 index,
+                new_name: rename.newname.clone(),
+            }
+        }
+        pg_query::protobuf::ObjectType::ObjectTabconstraint => {
+            let table = relation_to_qualified_name(rename.relation.as_ref());
+            IrNode::RenameConstraint {
+                table,
+                old_name: rename.subname.clone(),
                 new_name: rename.newname.clone(),
             }
         }

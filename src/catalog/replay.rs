@@ -46,6 +46,11 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) -> Option<String> {
             new_name,
         } => apply_rename_column(catalog, table, old_name, new_name),
         IrNode::RenameIndex { index, new_name } => apply_rename_index(catalog, index, new_name),
+        IrNode::RenameConstraint {
+            table,
+            old_name,
+            new_name,
+        } => apply_rename_constraint(catalog, table, old_name, new_name),
         IrNode::AlterIndexAttachPartition {
             parent_index_name, ..
         } => apply_alter_index_attach(catalog, parent_index_name.relation()),
@@ -442,29 +447,85 @@ fn apply_drop_index(catalog: &mut Catalog, di: &DropIndex) {
 /// rename_idx_new_pk` leaves the PRIMARY KEY named `rename_idx_new_pk`), so a
 /// PRIMARY KEY, UNIQUE or EXCLUDE constraint of the old name follows. CHECK
 /// and FOREIGN KEY constraints are never index-backed and keep their names.
-/// A missing index is skipped, with or without `IF EXISTS`.
+/// A missing index is skipped, with or without `IF EXISTS`, and so is a
+/// rename Postgres rejects because the new name is taken
+/// ([`Catalog::index_rename_clash`]).
 fn apply_rename_index(catalog: &mut Catalog, index: &ResolvedName, new_name: &str) {
     let old_key = index.relation();
     let Some(table_key) = catalog.table_for_index(old_key).cloned() else {
         return;
     };
-    let Some(table) = catalog.get_table_mut(&table_key) else {
+    if catalog.index_rename_clash(old_key, new_name).is_some() {
+        return;
+    }
+    rename_index_and_its_constraint(catalog, &table_key, &old_key.name, new_name);
+}
+
+/// Handle `ALTER TABLE ... RENAME CONSTRAINT`. Renaming a PRIMARY KEY,
+/// UNIQUE or EXCLUDE constraint renames its index too
+/// (`verify/tests/naming/rename.sql`), as `ALTER INDEX ... RENAME` does the
+/// other way round. A CHECK or FOREIGN KEY constraint renames alone. A
+/// missing table or constraint is skipped, with or without `IF EXISTS`, and
+/// so is a rename Postgres rejects because the new name is taken
+/// ([`Catalog::constraint_rename_clash`]).
+fn apply_rename_constraint(
+    catalog: &mut Catalog,
+    table: &ResolvedName,
+    old_name: &str,
+    new_name: &str,
+) {
+    let table_key = table.relation();
+    let Some(is_index_backed) = catalog
+        .get_table(table_key)
+        .and_then(|t| t.get_constraint(old_name))
+        .map(ConstraintState::is_index_backed)
+    else {
         return;
     };
-
-    for idx in table.indexes.iter_mut().filter(|idx| idx.name == old_key.name) {
-        idx.name = new_name.to_string();
-    }
-    for constraint in table
-        .constraints
-        .iter_mut()
-        .filter(|c| c.is_index_backed() && c.name() == old_key.name)
+    if catalog
+        .constraint_rename_clash(table_key, old_name, new_name)
+        .is_some()
     {
-        constraint.rename(new_name);
+        return;
     }
 
-    catalog.unregister_index(old_key, &table_key);
-    catalog.register_index(&old_key.in_same_schema(new_name), &table_key);
+    if is_index_backed {
+        rename_index_and_its_constraint(catalog, table_key, old_name, new_name);
+    } else {
+        update_table(catalog, table_key, |table, _| {
+            if let Some(constraint) = table.constraints.iter_mut().find(|c| c.name() == old_name)
+            {
+                constraint.rename(new_name);
+            }
+        });
+    }
+}
+
+/// Rename the index `old_name` of `table_key`, and the PRIMARY KEY, UNIQUE
+/// or EXCLUDE constraint of that name, to `new_name`: Postgres keeps an
+/// index-backed constraint and its index under one name whichever of the
+/// two is renamed. The catalog records no index for an EXCLUDE constraint,
+/// so only the constraint is renamed and no index is registered under the
+/// new name; [`Catalog::names_in_schema`] still counts it as a relation.
+fn rename_index_and_its_constraint(
+    catalog: &mut Catalog,
+    table_key: &RelationName,
+    old_name: &str,
+    new_name: &str,
+) {
+    update_table(catalog, table_key, |table, index_registry| {
+        for idx in table.indexes.iter_mut().filter(|idx| idx.name == old_name) {
+            idx.name = new_name.to_string();
+            index_registry.rename(old_name, new_name);
+        }
+        for constraint in table
+            .constraints
+            .iter_mut()
+            .filter(|c| c.is_index_backed() && c.name() == old_name)
+        {
+            constraint.rename(new_name);
+        }
+    });
 }
 
 /// Handle ALTER INDEX ... ATTACH PARTITION: flip `only` to `false` on the parent index.
@@ -563,8 +624,14 @@ fn collect_partition_subtree(catalog: &Catalog, root_key: &RelationName) -> Vec<
 ///   `parent_table` to point to the new key.
 /// - If the renamed table is a partition child: `parent_table` is preserved
 ///   automatically (carried over on the `TableState`).
+///
+/// A rename Postgres rejects because the new name is taken
+/// ([`Catalog::table_rename_clash`]) is skipped.
 fn apply_rename_table(catalog: &mut Catalog, name: &ResolvedName, new_name: &str) {
     let old_key = name.relation();
+    if catalog.table_rename_clash(old_key, new_name).is_some() {
+        return;
+    }
 
     // Compute children before remove_table removes the table from the HashMap.
     let children = catalog.get_partition_children(old_key);
