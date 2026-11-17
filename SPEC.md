@@ -647,7 +647,9 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM501 — Foreign key without covering index on referencing columns
 
 - **Severity**: MAJOR
-- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+- **Triggers**:
+  1. `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+  2. A statement that drops a usable index covering a foreign key that exists before and after the unit, so the key is covered in `catalog_before` and not in `catalog_after`: `DROP INDEX [CONCURRENTLY]`; `ALTER TABLE ... DROP CONSTRAINT` of a PRIMARY KEY or UNIQUE constraint, which drops its index; `ALTER TABLE ... DROP COLUMN` of any column of the index, which drops the index while a key on its other columns stays. The key is matched by table and constraint name. A partition child's key covered by its parent's recursive index loses that coverage when the parent's index is dropped. When several statements in the unit drop covering indexes of the same key, the one finding goes to the last of them.
 - **Column matching**: FK columns `(a, b)` are covered by any usable index containing at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some FK columns still avoids a genuine sequential scan (Index Scan with a Filter, or Bitmap Heap Scan with a Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here (contrast with PGM508's prefix-based redundant-index check, which does care about order).
 - **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
 - **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage.
@@ -655,7 +657,17 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - **Partitioned parent tables**: Checks `has_indexed_fk_column` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
   - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).
   - `ALTER INDEX ... ATTACH PARTITION` flips `only` to `false`, so after all children are attached, the parent index correctly satisfies FK coverage.
-- **Message**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Does not fire (trigger 2) when**:
+  - The foreign key is dropped in the same unit, with `DROP CONSTRAINT`, by dropping one of its columns, or with its table.
+  - Another usable index still contains one of the key's columns.
+  - The unit adds a foreign key on the same table and columns, including one dropped and added back under its name. Trigger 1 reports it once.
+  - The statement is `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint, which PostgreSQL rejects.
+  - The dropped index was created in the same unit, so the key was not covered by it before.
+  - The dropped constraint is an EXCLUDE constraint. The catalog records no index for it, so it never counts as coverage.
+- **Message (trigger 1)**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Message (trigger 2, DROP INDEX)**: `Dropping index '{index}' leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Message (trigger 2, DROP CONSTRAINT)**: `Dropping constraint '{constraint}' drops its index, which leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining ...` (same closing sentence)
+- **Message (trigger 2, DROP COLUMN)**: `Dropping column '{column}' drops index '{index}', which leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining ...` (same closing sentence; `drops indexes 'a', 'b'` when it drops more than one that covered the key)
 - **Accepted false negative**: an FK whose only indexed column is low-cardinality (e.g. 10 distinct values over 1M rows) produces no warning, even though the RI check still degrades to a Bitmap Heap Scan touching a large fraction of the table. This cannot be distinguished from a genuinely selective index using shape alone — the catalog has no column statistics, and requiring the covering index to also be UNIQUE does not rescue it, since the false-negative case is not unique in the referencing table either.
 
 #### PGM502 — Table without primary key

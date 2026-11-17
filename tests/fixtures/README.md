@@ -10,7 +10,7 @@ This directory contains test fixtures for pg-migration-lint.
   - `catalog-ops/` - Tests catalog operations: DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes
   - `clean/` - All migrations correct, expect 0 findings
   - `enterprise/` - Realistic 31-file migration history based on anonymized production schema
-  - `fk-with-later-index/` - Tests PGM501 FK detection across migration boundaries
+  - `fk-with-later-index/` - Tests PGM501 FK detection across migration boundaries: an FK added before its covering index, and the index dropped again later
   - `go-migrate/` - Tests go-migrate convention (.up.sql / .down.sql pairs)
   - `liquibase-fresh/` - Liquibase fixture for the bridge fresh-repo test (every changeset changed, expect only PGM402)
   - `liquibase-multi-schema/` - Tests Liquibase bridge with multi-schema changelogs

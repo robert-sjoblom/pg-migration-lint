@@ -33,9 +33,15 @@ use rstest::rstest;
     // All files are changed (empty changed set). V001 creates tables (no FK,
     // no finding). V002 adds FK without covering index -> PGM501 fires.
     // V003 adds the covering index -> no additional PGM501.
+    // V004 drops the covering index again -> PGM501 fires a second time.
     &[],
-    1,
+    2,
     Some("customer_id"),
+)]
+#[case::only_the_drop_of_the_covering_index_changed(
+    &["V004__drop_index.sql"],
+    1,
+    Some("Dropping index 'idx_orders_customer_id' leaves foreign key 'fk_orders_customer'"),
 )]
 fn test_fk_cross_file(
     #[case] changed_files: &[&str],

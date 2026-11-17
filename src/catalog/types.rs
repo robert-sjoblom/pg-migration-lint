@@ -330,12 +330,18 @@ impl TableState {
     /// Expression entries never match, since an expression cannot equal a
     /// plain FK column name.
     pub fn has_indexed_fk_column(&self, fk_columns: &[String]) -> bool {
-        self.indexes.iter().any(|idx| {
-            if idx.is_partial() || idx.only || !idx.supports_equality_lookup() {
-                return false;
+        self.indexes
+            .iter()
+            .any(|idx| idx.covers_fk_column(fk_columns))
+    }
+
+    /// The foreign keys on this table, as `(name, columns)`.
+    pub fn foreign_keys(&self) -> impl Iterator<Item = (&str, &[String])> {
+        self.constraints.iter().filter_map(|c| match c {
+            ConstraintState::ForeignKey { name, columns, .. } => {
+                Some((name.as_str(), columns.as_slice()))
             }
-            idx.column_names()
-                .any(|name| fk_columns.iter().any(|fc| fc == name))
+            _ => None,
         })
     }
 
@@ -486,6 +492,19 @@ impl IndexState {
     /// (GIN, GiST) or lossy range summaries (BRIN).
     pub fn supports_equality_lookup(&self) -> bool {
         self.is_btree() || self.access_method == "hash"
+    }
+
+    /// True if this index counts as coverage for a foreign key over
+    /// `fk_columns`: it is usable for the lookups and contains at least one
+    /// of the columns, in any position. See
+    /// [`TableState::has_indexed_fk_column`] for which indexes are usable.
+    pub fn covers_fk_column(&self, fk_columns: &[String]) -> bool {
+        !self.is_partial()
+            && !self.only
+            && self.supports_equality_lookup()
+            && self
+                .column_names()
+                .any(|name| fk_columns.iter().any(|fc| fc == name))
     }
 }
 

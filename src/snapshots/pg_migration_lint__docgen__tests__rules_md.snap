@@ -1122,6 +1122,17 @@ ALTER TABLE order_items
   FOREIGN KEY (order_id) REFERENCES orders(id);
 ```
 
+**Dropping the covering index**: the rule also fires when a migration removes the last usable index covering a foreign key that already exists and stays. That happens with `DROP INDEX` (with or without `CONCURRENTLY`), with `ALTER TABLE ... DROP CONSTRAINT` of a PRIMARY KEY or UNIQUE constraint, whose index goes with it, and with `ALTER TABLE ... DROP COLUMN` of any column of the index, even one the foreign key does not use. A partition's foreign key covered by its parent's index loses that coverage when the parent's index is dropped.
+
+**Example** (bad):
+```sql
+-- order_items has FOREIGN KEY (order_id) REFERENCES orders(id),
+-- covered only by idx_order_items_order_id.
+DROP INDEX CONCURRENTLY idx_order_items_order_id;
+```
+
+It does not fire when the same file drops the foreign key too, when another usable index still covers it, or when the same file adds the foreign key, which the first check already reports once. When several statements in a file drop covering indexes of one foreign key, the finding goes to the last of them.
+
 **Column matching**: FK columns `(a, b)` are covered by any usable index that contains at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some of the FK columns still avoids a sequential scan (via a Filter or Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here. The check uses the catalog state after the entire file is processed, so creating the index later in the same file avoids a false positive.
 
 **Known limitation**: an FK whose only indexed column is low-cardinality (e.g. 10 distinct values over 1M rows) produces no warning, even though the check still degrades to a Bitmap Heap Scan touching a large fraction of the table. Index shape alone can't tell a selective index from an unselective one — the catalog has no column statistics, and requiring the index to also be UNIQUE would not help, since the false-negative case is not unique in the referencing table either.

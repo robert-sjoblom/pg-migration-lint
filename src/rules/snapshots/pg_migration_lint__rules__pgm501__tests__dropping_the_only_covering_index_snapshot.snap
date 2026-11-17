@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm501.rs
+expression: findings
+---
+- rule_id: PGM501
+  severity: Major
+  message: "Dropping index 'idx_orders_customer_id' leaves foreign key 'fk_orders_customer' on 'orders(customer_id)' without a covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1
