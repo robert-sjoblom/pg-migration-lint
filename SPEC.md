@@ -146,7 +146,7 @@ IR node types (non-exhaustive):
 
 `ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
 
-`TableConstraint` variants: `PrimaryKey { columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, using_index }`, `Check { name, expression, not_valid }`, `Exclude { name, elements }`.
+`TableConstraint` variants: `PrimaryKey { name, columns, include_columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, include_columns, using_index }`, `Check { name, expression, referenced_columns, not_valid }`, `Exclude { name, elements, include_columns }`.
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 
@@ -438,8 +438,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
 
 - **Severity**: CRITICAL
-- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns)` where the table exists in `catalog_before` (not created in the same set of changed files) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
-- **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the constraint columns exactly (set equality). If neither exists, fire.
+- **Triggers**: `ALTER TABLE ... ADD [CONSTRAINT ...] UNIQUE` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, or is not btree. Without `USING INDEX` the rule fires even when a unique index or `UNIQUE` constraint on the same columns already exists, since PostgreSQL builds a new index anyway. The index is judged as it stands just before the statement, as PGM027 judges it: `catalog_before` with the earlier statements of the unit replayed on top. An index created, dropped or renamed earlier in the unit counts.
 - **Safe alternative**:
   ```sql
   -- Step 1: build the unique index concurrently (no lock)
@@ -450,11 +449,12 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
-  - The constraint columns already have a covering unique index (exact column match)
-  - The constraint columns already have a `UNIQUE` constraint (exact column match)
-  - `USING INDEX` references a UNIQUE btree index of the table as it stands just before the statement, as PGM027 judges it: `catalog_before` with the earlier statements of the unit replayed on top. An index created earlier in the same unit counts.
+  - `USING INDEX` references a UNIQUE btree index of the table, also when the index was created earlier in the same unit
   - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
-- **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
+- **Message (no USING INDEX)**: `ADD UNIQUE on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
+- **Message (index not found)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
+- **Message (index not unique)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
+- **Message (non-btree)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index uses access method '{method}', but only btree indexes can back a UNIQUE constraint.`
 
 #### PGM018 — `CLUSTER` on existing table
 
@@ -676,11 +676,11 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 
 - **Severity**: MAJOR
 - **Triggers**:
-  1. `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+  1. `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree or hash, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
   2. A statement that drops a usable index covering a foreign key that exists before and after the unit, so the key is covered in `catalog_before` and not in `catalog_after`: `DROP INDEX [CONCURRENTLY]`; `ALTER TABLE ... DROP CONSTRAINT` of a PRIMARY KEY or UNIQUE constraint, which drops its index; `ALTER TABLE ... DROP COLUMN` of any column of the index, which drops the index while a key on its other columns stays. The key is matched by table and constraint name. A partition child's key covered by its parent's recursive index loses that coverage when the parent's index is dropped. When several statements in the unit drop covering indexes of the same key, the one finding goes to the last of them.
 - **Column matching**: FK columns `(a, b)` are covered by any usable index containing at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some FK columns still avoids a genuine sequential scan (Index Scan with a Filter, or Bitmap Heap Scan with a Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here (contrast with PGM508's prefix-based redundant-index check, which does care about order).
 - **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
-- **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage.
+- **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage. Only B-tree and hash indexes count: GIN, GiST, BRIN and other access methods don't serve the equality lookups FK enforcement needs.
 - **Partition behavior**:
   - **Partitioned parent tables**: Checks `has_indexed_fk_column` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
   - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).

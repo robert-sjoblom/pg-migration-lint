@@ -32,7 +32,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): `resolve_units` resolves every parsed `QualifiedName` against `default_schema` into a `ResolvedName`, so replay and rules only see schema-qualified names
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM027, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
@@ -59,6 +59,7 @@ pub enum IrNode<N = ResolvedName> {
     RenameTable { name, new_name },
     RenameColumn { table, old_name, new_name },
     RenameIndex { index, new_name },
+    RenameConstraint { table, old_name, new_name },
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<N> },
 }
@@ -76,7 +77,7 @@ Supporting types:
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
 - `TableConstraint` - enum: `PrimaryKey`, `ForeignKey`, `Unique`, `Check`, `Exclude`
-- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `Other`
+- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`
 - `ConstraintOrigin` - enum: `AddColumn` (written inline in an `ADD COLUMN`; directly follows that `AddColumn`), `AddConstraint` (an `ADD CONSTRAINT` subcommand). Rules ignore it; replay uses it to name constraints in Postgres's creation order. Build with `AlterTableAction::add_constraint` / `add_column_constraint`
 
 Each statement is wrapped in `Located<IrNode>` with `SourceSpan` for line number tracking.
@@ -107,8 +108,9 @@ pub struct TableState {
 
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
-- `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (skips non-btree, partial, ONLY indexes); used by PGM501
+- `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (btree and hash count; skips other access methods, partial and ON ONLY indexes); used by PGM501
 - `has_unique_not_null(&self) -> bool` - for PGM503 detection (btree-only, skips partial/expression indexes)
+- `constraint_backed_by(&self, index_name: &str) -> Option<&ConstraintState>` - the PRIMARY KEY, UNIQUE or EXCLUDE constraint the index backs (they share a name); replay keeps such an index on `DROP INDEX`, as PostgreSQL rejects it, and PGM027 reports the statement
 
 The catalog tracks:
 - Table creation/deletion
@@ -155,6 +157,8 @@ pub struct LintContext<'a> {
 
 Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM501/502/503). The two-catalog approach enables single-pass replay without needing separate replay runs.
 
+A rule that needs the schema as it stands just before one statement, rather than before or after the whole unit, gets it from `replay::map_with_state_before`, which replays the unit's earlier statements on a copy of `catalog_before`. `src/rules/using_index.rs` uses it to resolve the index of `ADD PRIMARY KEY` / `ADD UNIQUE ... USING INDEX` (PGM016, PGM017, PGM107), and `src/rules/rejected_statements.rs` to find the statements PostgreSQL rejects: PGM027 reports them, and rules that would report what such a statement does skip it through `RejectedStatements::contains` (PGM002, PGM003, PGM401, PGM501, PGM504).
+
 #### Rule Severities
 Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical < Blocker`:
 - **BLOCKER**: Reserved for user severity overrides; no rule defaults to it.
@@ -163,9 +167,9 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 - **MINOR**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules (54 total)
+#### Rules (55 total, plus PGM901)
 
-**0xx — Unsafe DDL** (PGM001–PGM025): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
+**0xx — Unsafe DDL** (PGM001–PGM025, PGM027): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations, statements that fail against the schema from earlier migrations.
 **1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
 **2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
 **3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.
@@ -191,7 +195,8 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 4. Add unit tests with positive and negative cases in the rule file's `#[cfg(test)] mod tests`, using `CatalogBuilder` plus `lint_ctx!` and `located` from `src/rules/test_helpers.rs`, calling `RuleId::PgmXXX.check(..)` and snapshotting the findings with `insta`
 5. Add a violation to fixture repo `tests/fixtures/repos/all-rules/` and a suppressed one to `tests/fixtures/repos/suppressed/`; `tests/baseline.rs` fails if any lint rule does not fire in either
 6. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
-7. Run `cargo test --features docgen`, accept the `rules_md` snapshot along with the rule's own and the SonarQube `all_rules_metadata_snapshot` (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
+7. Update the hand-written rule count and family ranges: the count in `README.md` (twice), `docs/index.md` and the Rules heading above, and the family's range in `README.md`, `docs/rules.md.j2` and this file when the new ID extends it. `docs/rules.md` fills in its count from `{{ rule_count }}`.
+8. Run `cargo test --features docgen`, accept the `rules_md` snapshot along with the rule's own and the SonarQube `all_rules_metadata_snapshot` (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
 
 ### Working with IR
 
@@ -202,7 +207,7 @@ When modifying the IR layer (`src/parser/ir.rs`):
 
 ### Catalog Replay
 
-The replay engine (`src/catalog/replay.rs`) has a single function:
+The replay engine (`src/catalog/replay.rs`) applies a unit with:
 ```rust
 pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
 ```
@@ -259,7 +264,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `catalog-ops/` - Catalog operations (DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes)
 - `clean/` - All migrations correct, expect 0 findings
 - `enterprise/` - Realistic 31-file migration history
-- `fk-with-later-index/` - PGM501 FK detection across migration boundaries
+- `fk-with-later-index/` - PGM501 FK detection across migration boundaries; `V004__drop_index.sql` drops the covering index again, the drop-coverage case
 - `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
 - `liquibase-fresh/` - Liquibase bridge on a fresh repo with every changeset changed, expect only PGM402
 - `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs

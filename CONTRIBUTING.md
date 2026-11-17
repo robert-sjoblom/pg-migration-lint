@@ -122,7 +122,11 @@ The file has to satisfy rustdoc, a terminal and Jekyll at once, so `src/rules/ru
 - cross-references use the absolute docs URL, `[PGM004](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004)`, never a bare `#pgm004` anchor, so they resolve in the terminal, in GitHub comments and in rustdoc
 - the file ends with exactly one newline
 
-### 7. Run tests and review snapshots
+### 7. Update the rule count and family range
+
+The rule count and the family ranges are written by hand in a few places. Bump the count in `README.md` (it appears twice) and `docs/index.md`. If the new ID extends its family's range, update the range in `README.md` and `docs/rules.md.j2`. `docs/rules.md` fills in its count from `{{ rule_count }}`, so the template's count needs no change.
+
+### 8. Run tests and review snapshots
 
 ```bash
 cargo test --features docgen
@@ -170,8 +174,8 @@ Provided to every rule's `check()` function:
 `Catalog` query methods:
 
 - `catalog.has_table(key)` / `catalog.get_table(key)` — look up a table by its `&RelationName` key
-- `catalog.get_index(name)` — look up an index across all tables
-- `catalog.table_for_index(name)` — find which table owns an index
+- `catalog.get_index(key)` — look up an index by its `&RelationName` key, in that key's schema only
+- `catalog.table_for_index(key)` — find which table owns an index, looked up the same way
 
 `TableState` query methods:
 
