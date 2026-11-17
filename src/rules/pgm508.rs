@@ -537,6 +537,96 @@ mod tests {
     }
 
     #[test]
+    fn if_not_exists_on_an_existing_index_name_with_another_definition_is_silent() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a ON orders (a);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (b);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn if_not_exists_on_a_fresh_name_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_a' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn if_not_exists_on_a_name_a_table_holds_is_silent() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE TABLE idx_orders_a (id int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn if_not_exists_on_a_name_a_table_in_another_schema_holds_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE TABLE archive.idx_orders_a (id int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_a' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn if_not_exists_repeating_a_name_created_earlier_in_the_unit_is_reported_once() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX idx_orders_a ON orders (a);
+             CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (b);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_a' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
+    fn if_not_exists_on_a_name_dropped_earlier_in_the_unit_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a ON orders (b);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "DROP INDEX idx_orders_a;
+             CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_a' on 'orders' (a) is redundant — index 'idx_orders_a_b' \
+                 (a, b) covers the same prefix."
+            ]
+        );
+    }
+
+    #[test]
     fn unnamed_index_in_another_schema_keeps_its_unsuffixed_name() {
         let messages = messages_for_change(
             "CREATE TABLE orders (a int, b int);

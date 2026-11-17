@@ -1683,6 +1683,35 @@ fn test_if_not_exists_creates_when_new(#[case] is_table: bool) {
     }
 }
 
+#[rstest]
+#[case::table_in_the_same_schema("CREATE TABLE idx_orders_a (id int);", false)]
+#[case::index_of_another_table_in_the_same_schema(
+    "CREATE TABLE refunds (a int); CREATE INDEX idx_orders_a ON refunds (a);",
+    false
+)]
+#[case::unique_constraint_in_the_same_schema(
+    "CREATE TABLE refunds (a int CONSTRAINT idx_orders_a UNIQUE);",
+    false
+)]
+#[case::table_in_another_schema("CREATE TABLE archive.idx_orders_a (id int);", true)]
+fn create_index_if_not_exists_is_skipped_when_any_relation_in_its_schema_has_the_name(
+    #[case] holder_of_the_name: &str,
+    #[case] creates_the_index: bool,
+) {
+    let catalog = replay_sql(&[
+        "CREATE TABLE orders (a int);",
+        holder_of_the_name,
+        "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+    ]);
+
+    let orders_has_the_index = catalog
+        .table("orders")
+        .indexes
+        .iter()
+        .any(|idx| idx.name == "idx_orders_a");
+    assert_eq!(orders_has_the_index, creates_the_index);
+}
+
 #[test]
 fn test_add_pk_using_index_missing_index_stays_empty() {
     let mut catalog = CatalogBuilder::new()

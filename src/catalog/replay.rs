@@ -5,7 +5,7 @@
 //! single-pass replay strategy: the pipeline calls [`apply`] for each
 //! migration unit, and the catalog accumulates state over time.
 
-use crate::catalog::generated_names::GeneratedName;
+use crate::catalog::generated_names::{GeneratedName, TakenNames};
 use crate::catalog::types::*;
 use crate::input::MigrationUnit;
 use crate::names::{RelationName, ResolvedName};
@@ -326,8 +326,9 @@ fn validate_constraint(table: &mut TableState, constraint_name: &str) {
 /// Handle CREATE INDEX: add an index to the target table.
 /// If the table does not exist in the catalog, silently skip.
 ///
-/// When `IF NOT EXISTS` is used and a same-named index already exists,
-/// PostgreSQL treats it as a no-op. We keep the existing index and return a
+/// When `IF NOT EXISTS` is used and a relation of that name already exists in
+/// the table's schema, PostgreSQL skips the statement with a notice (see
+/// [`if_not_exists_skips`]). We keep the catalog as it is and return a
 /// warning, as for replacing an existing index.
 fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) -> Option<String> {
     let table_key = ci.table_name.relation();
@@ -339,15 +340,16 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) -> Option<String>
     // in its table's schema.
     let index_key = table_key.in_same_schema(&index_name);
 
+    if if_not_exists_skips(catalog, ci) {
+        return Some(format!(
+            "CREATE INDEX IF NOT EXISTS `{}` skipped: a relation of that name already exists \
+             in catalog. The migration chain may be inconsistent.",
+            index_name
+        ));
+    }
+
     let mut warning = None;
     if ci.index_name.is_some() && catalog.get_index(&index_key).is_some() {
-        if ci.if_not_exists {
-            return Some(format!(
-                "CREATE INDEX IF NOT EXISTS `{}` skipped — index already exists in catalog. \
-                 The migration chain may be inconsistent.",
-                index_name
-            ));
-        }
         warning = Some(format!(
             "CREATE INDEX `{}` overwrites existing index in catalog. \
              The index may have been dropped outside tracked migrations, or this is a duplicate definition.",
@@ -386,20 +388,37 @@ fn created_index_name(catalog: &Catalog, ci: &CreateIndex) -> String {
     }
 }
 
-/// For each of `statements`, the name of the index it creates if it is a
-/// `CREATE INDEX`, as replaying them on top of `catalog` names it. A
-/// generated name depends on every relation created before it, in the
-/// schema and earlier in `statements`, so those are replayed on a copy of
-/// `catalog` when any name is generated. That replay's warnings are dropped:
-/// the pipeline's own replay of the same statements reports them.
+/// True if `ci` is a `CREATE INDEX IF NOT EXISTS` that PostgreSQL skips on
+/// top of `catalog`, creating nothing: a relation in the table's schema
+/// already has its name. Any relation counts, a table as much as an index
+/// (`index_create` looks the name up in `pg_class`). The grammar requires a
+/// name with `IF NOT EXISTS`.
+fn if_not_exists_skips(catalog: &Catalog, ci: &CreateIndex) -> bool {
+    ci.if_not_exists
+        && ci.index_name.as_deref().is_some_and(|name| {
+            catalog
+                .names_in_schema(&ci.table_name.relation().schema)
+                .relation_taken(name)
+        })
+}
+
+/// For each of `statements`, the name of the index it creates, as replaying
+/// them on top of `catalog` names it. `None` when it creates none: it is not
+/// a `CREATE INDEX`, or it is a `CREATE INDEX IF NOT EXISTS` that PostgreSQL
+/// skips because its name is taken ([`if_not_exists_skips`]). A generated
+/// name, and whether a name is taken, depend on every relation created or
+/// dropped before the statement, in the schema and earlier in `statements`,
+/// so those are replayed on a copy of `catalog` when either question comes
+/// up. That replay's warnings are dropped: the pipeline's own replay of the
+/// same statements reports them.
 pub(crate) fn created_index_names(
     catalog: &Catalog,
     statements: &[Located<IrNode>],
 ) -> Vec<Option<String>> {
-    let generates_a_name = statements
-        .iter()
-        .any(|stmt| matches!(&stmt.node, IrNode::CreateIndex(ci) if ci.index_name.is_none()));
-    if !generates_a_name {
+    let depends_on_earlier_statements = statements.iter().any(|stmt| {
+        matches!(&stmt.node, IrNode::CreateIndex(ci) if ci.index_name.is_none() || ci.if_not_exists)
+    });
+    if !depends_on_earlier_statements {
         return statements
             .iter()
             .map(|stmt| match &stmt.node {
@@ -414,7 +433,9 @@ pub(crate) fn created_index_names(
         .iter()
         .map(|stmt| {
             let name = match &stmt.node {
-                IrNode::CreateIndex(ci) => Some(created_index_name(&replayed, ci)),
+                IrNode::CreateIndex(ci) if !if_not_exists_skips(&replayed, ci) => {
+                    Some(created_index_name(&replayed, ci))
+                }
                 _ => None,
             };
             let _warning = apply_node(&mut replayed, &stmt.node);
