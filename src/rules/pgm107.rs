@@ -1,7 +1,7 @@
 #![doc = include_str!("docs/pgm107.md")]
 
 use crate::catalog::Catalog;
-use crate::catalog::replay::map_with_state_before;
+use crate::catalog::replay::map_with_state_before_if_needed;
 use crate::catalog::types::TableState;
 use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
 use crate::rules::using_index::UsingIndex;
@@ -33,98 +33,95 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let mut findings = Vec::new();
-
-    for (stmt, added_pk_columns) in statements.iter().zip(small_int_pk_columns_by_statement(
+    map_with_state_before_if_needed(
         ctx.catalog_before,
         statements,
-    )) {
-        match &stmt.node {
-            IrNode::CreateTable(ct) => {
-                // The parser promotes an inline PRIMARY KEY to the table's
-                // constraints, so these cover both spellings.
-                let pk_columns: Vec<&str> = ct
-                    .constraints
-                    .iter()
-                    .filter_map(|c| match c {
-                        TableConstraint::PrimaryKey { columns, .. } => Some(columns.as_slice()),
-                        _ => None,
-                    })
-                    .flatten()
-                    .map(String::as_str)
-                    .collect();
+        adds_a_primary_key,
+        |state, stmt| statement_findings(&rule, state, stmt, ctx),
+    )
+    .into_iter()
+    .flatten()
+    .collect()
+}
 
-                for col in &ct.columns {
-                    if !is_small_int_type(&col.type_name.name) {
-                        continue;
-                    }
+/// The findings for `stmt`, where `state` is the catalog just before it.
+fn statement_findings(
+    rule: &impl Rule,
+    state: &Catalog,
+    stmt: &Located<IrNode>,
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-                    if pk_columns.contains(&col.name.as_str()) {
-                        findings.push(rule.make_finding(
-                            format!(
-                                "Primary key column '{}' on '{}' uses {}. \
-                                 Consider using bigint to avoid exhausting the \
-                                 integer range on high-write tables.",
-                                col.name,
-                                ct.name.display_name(),
-                                display_type(&col.type_name.name),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+    match &stmt.node {
+        IrNode::CreateTable(ct) => {
+            // The parser promotes an inline PRIMARY KEY to the table's
+            // constraints, so these cover both spellings.
+            let pk_columns: Vec<&str> = ct
+                .constraints
+                .iter()
+                .filter_map(|c| match c {
+                    TableConstraint::PrimaryKey { columns, .. } => Some(columns.as_slice()),
+                    _ => None,
+                })
+                .flatten()
+                .map(String::as_str)
+                .collect();
+
+            for col in &ct.columns {
+                if !is_small_int_type(&col.type_name.name) {
+                    continue;
                 }
-            }
-            IrNode::AlterTable(at) => {
-                for column in added_pk_columns {
+
+                if pk_columns.contains(&col.name.as_str()) {
                     findings.push(rule.make_finding(
                         format!(
                             "Primary key column '{}' on '{}' uses {}. \
                              Consider using bigint to avoid exhausting the \
                              integer range on high-write tables.",
-                            column.name,
-                            at.name.display_name(),
-                            display_type(&column.type_name),
+                            col.name,
+                            ct.name.display_name(),
+                            display_type(&col.type_name.name),
                         ),
                         ctx.file,
                         &stmt.span,
                     ));
                 }
             }
-            _ => {}
         }
+        IrNode::AlterTable(at) => {
+            for column in small_int_pk_columns(state, at) {
+                findings.push(rule.make_finding(
+                    format!(
+                        "Primary key column '{}' on '{}' uses {}. \
+                         Consider using bigint to avoid exhausting the \
+                         integer range on high-write tables.",
+                        column.name,
+                        at.name.display_name(),
+                        display_type(column.type_name),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                ));
+            }
+        }
+        _ => {}
     }
-
     findings
 }
 
 /// A column of a primary key that `ALTER TABLE ... ADD PRIMARY KEY` adds,
 /// with the name of its type as the table holds it just before the statement.
-struct AddedPkColumn {
-    name: String,
-    type_name: String,
+struct AddedPkColumn<'a> {
+    name: &'a str,
+    type_name: &'a str,
 }
 
-/// For each of `statements`, the columns of the primary keys it adds with
-/// `ALTER TABLE ... ADD PRIMARY KEY` that have a small integer type. The types
-/// are read as the table stands just before the statement: `catalog_before`
-/// with the earlier statements of the unit replayed on top, so a column
-/// added or retyped earlier in the unit counts. A unit that adds no primary
-/// key that way needs no replay.
-fn small_int_pk_columns_by_statement(
-    catalog_before: &Catalog,
-    statements: &[Located<IrNode>],
-) -> Vec<Vec<AddedPkColumn>> {
-    let adds_a_primary_key = statements.iter().any(|stmt| {
-        matches!(&stmt.node, IrNode::AlterTable(at) if added_primary_keys(at).next().is_some())
-    });
-    if !adds_a_primary_key {
-        return statements.iter().map(|_| Vec::new()).collect();
-    }
-    map_with_state_before(catalog_before, statements, |state, stmt| match &stmt.node {
-        IrNode::AlterTable(at) => small_int_pk_columns(state, at),
-        _ => Vec::new(),
-    })
+/// True for an `ALTER TABLE` that adds a primary key, the only statement
+/// [`small_int_pk_columns`] reads the catalog for. A unit without one needs
+/// no replay.
+fn adds_a_primary_key(node: &IrNode) -> bool {
+    matches!(node, IrNode::AlterTable(at) if added_primary_keys(at).next().is_some())
 }
 
 /// The `(columns, USING INDEX index)` of each `ADD PRIMARY KEY` in `at`. With
@@ -145,16 +142,18 @@ fn added_primary_keys(at: &AlterTable) -> impl Iterator<Item = (&[String], Optio
 }
 
 /// The columns of the primary keys `at` adds that have a small integer type
-/// in `state`. With `USING INDEX` they are the referenced index's columns.
-/// Only an index of the altered table has them: Postgres rejects another
-/// table's index (PGM027).
-fn small_int_pk_columns(state: &Catalog, at: &AlterTable) -> Vec<AddedPkColumn> {
+/// in `state`, the catalog just before `at`: `catalog_before` with the
+/// earlier statements of the unit replayed on top, so a column added or
+/// retyped earlier in the unit counts. With `USING INDEX` they are the
+/// referenced index's columns. Only an index of the altered table has them:
+/// Postgres rejects another table's index (PGM027).
+fn small_int_pk_columns<'a>(state: &'a Catalog, at: &'a AlterTable) -> Vec<AddedPkColumn<'a>> {
     let table_key = at.name.relation();
     added_primary_keys(at)
         .flat_map(|(columns, using_index)| match using_index {
             Some(index_name) => match UsingIndex::in_catalog(state, table_key, index_name) {
                 UsingIndex::OfTable { index, table } => {
-                    small_int_columns(&table, index.column_names())
+                    small_int_columns(table, index.column_names())
                 }
                 UsingIndex::OfAnotherTable { .. } | UsingIndex::Missing => Vec::new(),
             },
@@ -167,16 +166,16 @@ fn small_int_pk_columns(state: &Catalog, at: &AlterTable) -> Vec<AddedPkColumn> 
 
 /// The columns of `table` named in `column_names` that have a small integer
 /// type, in that order.
-fn small_int_columns<'n>(
-    table: &TableState,
-    column_names: impl Iterator<Item = &'n str>,
-) -> Vec<AddedPkColumn> {
+fn small_int_columns<'a>(
+    table: &'a TableState,
+    column_names: impl Iterator<Item = &'a str>,
+) -> Vec<AddedPkColumn<'a>> {
     column_names
         .filter_map(|name| {
             let column = table.get_column(name)?;
-            is_small_int_type(&column.type_name.name).then(|| AddedPkColumn {
-                name: name.to_string(),
-                type_name: column.type_name.name.clone(),
+            is_small_int_type(&column.type_name.name).then_some(AddedPkColumn {
+                name,
+                type_name: &column.type_name.name,
             })
         })
         .collect()

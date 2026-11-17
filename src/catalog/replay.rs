@@ -456,6 +456,22 @@ pub(crate) fn map_with_state_before<'s, T>(
         .collect()
 }
 
+/// [`map_with_state_before`] for a `visit` that reads the catalog only for
+/// the statements `needs_state` holds for. A unit without such a statement
+/// needs no replay, so `visit` then gets `catalog` itself for every
+/// statement.
+pub(crate) fn map_with_state_before_if_needed<'s, T>(
+    catalog: &Catalog,
+    statements: &'s [Located<IrNode>],
+    needs_state: impl Fn(&IrNode) -> bool,
+    mut visit: impl FnMut(&Catalog, &'s Located<IrNode>) -> T,
+) -> Vec<T> {
+    if statements.iter().any(|stmt| needs_state(&stmt.node)) {
+        return map_with_state_before(catalog, statements, visit);
+    }
+    statements.iter().map(|stmt| visit(catalog, stmt)).collect()
+}
+
 /// Handle DROP INDEX: remove the index from the table that owns it, looked
 /// up in the index's resolved schema only. If there is no such index,
 /// silently skip. Postgres rejects dropping the index of a PRIMARY KEY,

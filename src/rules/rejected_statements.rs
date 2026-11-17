@@ -198,7 +198,7 @@ fn using_index_of_another_table(state: &Catalog, at: &AlterTable) -> Option<Reje
             constraint_kind,
             index: index.to_string(),
             table: at.name.display_name(),
-            owner,
+            owner: owner.to_string(),
         })
     })
 }

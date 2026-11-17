@@ -7,41 +7,40 @@
 //! constraint's name, so `catalog_after` may no longer have it under the name
 //! the statement uses. Each statement is therefore judged against
 //! `catalog_before` with the unit's earlier statements replayed on top
-//! ([`map_with_state_before`]). PGM027 judges a `USING INDEX` the same way
-//! with the same [`UsingIndex::in_catalog`], so PGM016, PGM017 and PGM107
-//! never see an index of the altered table where PGM027 reports another
-//! table's.
+//! ([`map_with_state_before`](crate::catalog::replay::map_with_state_before)).
+//! PGM027 judges a `USING INDEX` the same way with the same
+//! [`UsingIndex::in_catalog`], so PGM016, PGM017 and PGM107 never see an index
+//! of the altered table where PGM027 reports another table's.
 
 use crate::catalog::Catalog;
-use crate::catalog::replay::map_with_state_before;
 use crate::catalog::types::{IndexState, TableState};
 use crate::names::RelationName;
-use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
+use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, TableConstraint};
 
 /// What the index name in `ALTER TABLE ... ADD ... USING INDEX` refers to in
-/// a catalog.
-#[derive(Debug, Clone)]
-pub(super) enum UsingIndex {
+/// a catalog, borrowed from that catalog.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum UsingIndex<'a> {
     /// An index of the altered table, with the table as the catalog holds it.
     OfTable {
-        index: IndexState,
-        table: TableState,
+        index: &'a IndexState,
+        table: &'a TableState,
     },
     /// An index of another table in the altered table's schema. PostgreSQL
     /// rejects the statement, which PGM027 reports. `owner` is that table's
     /// display name.
-    OfAnotherTable { owner: String },
+    OfAnotherTable { owner: &'a str },
     /// No index of that name in the altered table's schema, as far as the
     /// catalog knows.
     Missing,
 }
 
-impl UsingIndex {
+impl<'a> UsingIndex<'a> {
     /// What `index_name` refers to in `ALTER TABLE table ADD ... USING INDEX
     /// index_name` against `catalog`. PostgreSQL looks the name up in
     /// `table`'s schema. The altered table need not be in the catalog for an
     /// index of another table: whichever table it is, it is not the index's.
-    pub(super) fn in_catalog(catalog: &Catalog, table: &RelationName, index_name: &str) -> Self {
+    pub(super) fn in_catalog(catalog: &'a Catalog, table: &RelationName, index_name: &str) -> Self {
         let index_key = table.in_same_schema(index_name);
         let Some(owner_key) = catalog.table_for_index(&index_key) else {
             return Self::Missing;
@@ -51,13 +50,13 @@ impl UsingIndex {
         };
         if owner_key != table {
             return Self::OfAnotherTable {
-                owner: owner.display_name.clone(),
+                owner: &owner.display_name,
             };
         }
         match owner.indexes.iter().find(|idx| idx.name == index_name) {
             Some(index) => Self::OfTable {
-                index: index.clone(),
-                table: owner.clone(),
+                index,
+                table: owner,
             },
             None => Self::Missing,
         }
@@ -146,6 +145,8 @@ pub(super) fn using_index_constraints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::replay::map_with_state_before_if_needed;
+    use crate::parser::ir::Located;
     use crate::parser::pg_query::parse_sql;
     use crate::rules::rejected_statements::rejections;
     use crate::rules::test_helpers::{catalog_from_sql, normalized};
@@ -162,7 +163,25 @@ mod tests {
         CREATE UNIQUE INDEX shared_idx ON orders (id);
         ALTER TABLE orders ADD UNIQUE USING INDEX shared_idx;";
 
-    fn summary(using_index: Option<&UsingIndex>) -> String {
+    fn judge_shared_idx_per_statement<T>(
+        before: &Catalog,
+        statements: &[Located<IrNode>],
+        judge: impl Fn(Option<UsingIndex<'_>>) -> T,
+    ) -> Vec<T> {
+        map_with_state_before_if_needed(before, statements, has_using_index, |state, stmt| {
+            let shared_idx = match &stmt.node {
+                IrNode::AlterTable(at) => using_index_constraints(at)
+                    .find(|(_, index_name)| *index_name == "shared_idx")
+                    .map(|(_, index_name)| {
+                        UsingIndex::in_catalog(state, at.name.relation(), index_name)
+                    }),
+                _ => None,
+            };
+            judge(shared_idx)
+        })
+    }
+
+    fn summary(using_index: Option<UsingIndex<'_>>) -> String {
         match using_index {
             None => "-".to_string(),
             Some(UsingIndex::Missing) => "Missing".to_string(),
@@ -178,10 +197,7 @@ mod tests {
         let before = catalog_from_sql(CUSTOMERS_AND_ORDERS);
         let statements = normalized(parse_sql(SHARED_IDX_CHANGING_HANDS));
 
-        let seen: Vec<String> = using_indexes_by_statement(&before, &statements)
-            .iter()
-            .map(|using_indexes| summary(using_indexes.get("shared_idx")))
-            .collect();
+        let seen: Vec<String> = judge_shared_idx_per_statement(&before, &statements, summary);
         assert_eq!(
             seen,
             [
@@ -204,15 +220,10 @@ mod tests {
             .iter()
             .map(Option::is_some)
             .collect();
-        let of_another_table: Vec<bool> = using_indexes_by_statement(&before, &statements)
-            .iter()
-            .map(|using_indexes| {
-                matches!(
-                    using_indexes.get("shared_idx"),
-                    Some(UsingIndex::OfAnotherTable { .. })
-                )
-            })
-            .collect();
+        let of_another_table: Vec<bool> =
+            judge_shared_idx_per_statement(&before, &statements, |using_index| {
+                matches!(using_index, Some(UsingIndex::OfAnotherTable { .. }))
+            });
         assert_eq!(rejected, of_another_table);
         assert_eq!(rejected, [false, false, true, false, false, false]);
     }

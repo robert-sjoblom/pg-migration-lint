@@ -1,7 +1,9 @@
 #![doc = include_str!("docs/pgm016.md")]
 
+use crate::catalog::Catalog;
+use crate::catalog::replay::map_with_state_before_if_needed;
 use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
-use crate::rules::using_index::{UsingIndex, using_indexes_by_statement};
+use crate::rules::using_index::{UsingIndex, has_using_index};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "ADD PRIMARY KEY on existing table without USING INDEX";
@@ -15,46 +17,61 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
+    map_with_state_before_if_needed(
+        ctx.catalog_before,
+        statements,
+        has_using_index,
+        |state, stmt| statement_findings(&rule, state, stmt, ctx),
+    )
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// The findings for `stmt`, where `state` is the catalog just before it.
+fn statement_findings(
+    rule: &impl Rule,
+    state: &Catalog,
+    stmt: &Located<IrNode>,
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
-    for (stmt, using_indexes) in statements
-        .iter()
-        .zip(using_indexes_by_statement(ctx.catalog_before, statements))
-    {
-        let IrNode::AlterTable(at) = &stmt.node else {
+    let IrNode::AlterTable(at) = &stmt.node else {
+        return findings;
+    };
+    if !ctx.is_existing_table(at.name.relation()) {
+        return findings;
+    }
+    for action in &at.actions {
+        let AlterTableAction::AddConstraint {
+            constraint:
+                TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
+            ..
+        } = action
+        else {
             continue;
         };
-        if !ctx.is_existing_table(at.name.relation()) {
-            continue;
-        }
-        for action in &at.actions {
-            let AlterTableAction::AddConstraint {
-                constraint:
-                    TableConstraint::PrimaryKey {
-                        columns,
-                        using_index,
-                        ..
-                    },
-                ..
-            } = action
-            else {
-                continue;
-            };
 
-            let message = match using_index {
-                Some(idx_name) => using_indexes
-                    .get(idx_name)
-                    .and_then(|target| using_index_message(at, idx_name, target)),
-                None => Some(format!(
-                    "ADD PRIMARY KEY on existing table '{table}' without USING INDEX \
-                     on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY \
-                     first, then use ADD PRIMARY KEY USING INDEX.",
-                    table = at.name.display_name(),
-                    columns = columns.join(", "),
-                )),
-            };
-            if let Some(message) = message {
-                findings.push(rule.make_finding(message, ctx.file, &stmt.span));
-            }
+        let message = match using_index {
+            Some(idx_name) => using_index_message(
+                at,
+                idx_name,
+                UsingIndex::in_catalog(state, at.name.relation(), idx_name),
+            ),
+            None => Some(format!(
+                "ADD PRIMARY KEY on existing table '{table}' without USING INDEX \
+                 on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY \
+                 first, then use ADD PRIMARY KEY USING INDEX.",
+                table = at.name.display_name(),
+                columns = columns.join(", "),
+            )),
+        };
+        if let Some(message) = message {
+            findings.push(rule.make_finding(message, ctx.file, &stmt.span));
         }
     }
     findings
@@ -64,7 +81,7 @@ pub(super) fn check(
 /// where `target` is what `idx_name` refers to just before the statement.
 /// `None` when there is nothing to report: attaching the index takes no long
 /// lock, or PostgreSQL rejects the statement and PGM027 reports it.
-fn using_index_message(at: &AlterTable, idx_name: &str, target: &UsingIndex) -> Option<String> {
+fn using_index_message(at: &AlterTable, idx_name: &str, target: UsingIndex<'_>) -> Option<String> {
     let table = at.name.display_name();
     match target {
         // Postgres rejects the statement and builds nothing, so there is no
