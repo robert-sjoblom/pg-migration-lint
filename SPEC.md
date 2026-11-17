@@ -89,6 +89,11 @@ Input Files
 └────┬─────┘
      │
      ▼
+┌───────────┐
+│ Normalize │  Resolves names against default_schema (§3.2)
+└────┬──────┘
+     │
+     ▼
 ┌──────────────┐
 │ Replay Engine│  Builds Table Catalog (§3.3)
 └────┬─────────┘
@@ -121,7 +126,10 @@ IR node types (non-exhaustive):
 | `AlterIndexAttachPartition { parent_index_name, child_index_name }` | `AlterTableStmt` (objtype = ObjectIndex, AT_AttachPartition) |
 | `RenameTable { name, new_name }` | `RenameStmt` (ObjectTable) |
 | `RenameColumn { table, old_name, new_name }` | `RenameStmt` (ObjectColumn) |
+| `RenameIndex { index, new_name }` | `RenameStmt` (ObjectIndex) |
 | `Cluster { table, index }` | `ClusterStmt` |
+| `VacuumFull { table }` | `VacuumStmt` (FULL option) |
+| `Reindex { kind, target, concurrent }` | `ReindexStmt` |
 | `InsertInto { table_name }` | `InsertStmt` |
 | `UpdateTable { table_name }` | `UpdateStmt` |
 | `DeleteFrom { table_name }` | `DeleteStmt` |
@@ -135,7 +143,7 @@ IR node types (non-exhaustive):
 
 `ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
 
-`TableConstraint` variants: `PrimaryKey { columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, using_index }`, `Check { name, expression, not_valid }`.
+`TableConstraint` variants: `PrimaryKey { columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, using_index }`, `Check { name, expression, not_valid }`, `Exclude { name, elements }`.
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 

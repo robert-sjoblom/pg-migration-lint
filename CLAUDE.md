@@ -37,7 +37,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 
 ### Intermediate Representation (IR)
 
-The tool converts SQL AST into a simplified IR layer to decouple rules from parser internals. The IR types are fully defined in `phase_0_type_trait_definitions.md`.
+The tool converts SQL AST into a simplified IR layer to decouple rules from parser internals.
 
 Key IR nodes (`src/parser/ir.rs`):
 ```rust
@@ -54,9 +54,11 @@ pub enum IrNode<N = ResolvedName> {
     DeleteFrom(DeleteFrom<N>),
     Cluster(Cluster<N>),
     VacuumFull(VacuumFull<N>),
+    Reindex(Reindex<N>),
     AlterIndexAttachPartition { parent_index_name, child_index_name },
     RenameTable { name, new_name },
     RenameColumn { table, old_name, new_name },
+    RenameIndex { index, new_name },
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<N> },
 }
@@ -121,15 +123,20 @@ The catalog tracks:
 
 ### Rule System
 
-Each rule implements the `Rule` trait (`src/rules/mod.rs`):
+`RuleId` implements the `Rule` trait (`src/rules/mod.rs`); the `dispatch_rules!` macro in `src/rules/rule_id.rs` forwards each variant to its rule module:
 
 ```rust
 pub trait Rule: Send + Sync {
-    fn id(&self) -> &'static str;
+    fn id(&self) -> RuleId;
     fn default_severity(&self) -> Severity;
     fn description(&self) -> &'static str;
     fn explain(&self) -> &'static str;  // For --explain output
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>;
+
+    // Provided: a Finding with this rule's ID and default severity
+    fn make_finding(&self, message: String, file: &std::path::Path, span: &SourceSpan) -> Finding {
+        Finding::new(self.id(), self.default_severity(), message, file, span)
+    }
 }
 ```
 
@@ -141,7 +148,7 @@ pub struct LintContext<'a> {
     pub tables_created_in_change: &'a HashSet<RelationName>,  // For "new table" detection
     pub run_in_transaction: bool,     // From MigrationUnit metadata
     pub is_down: bool,                // Down/rollback migration flag
-    pub file: &'a PathBuf,
+    pub file: &'a Path,
 }
 ```
 
@@ -169,20 +176,21 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 
 ### Adding a New Rule
 
-1. Define rule in `src/rules/pgmXXX.rs`, starting with `#![doc = include_str!("docs/pgmXXX.md")]`
+1. Define rule in `src/rules/pgmXXX.rs`, starting with `#![doc = include_str!("docs/pgmXXX.md")]`. The module does not implement `Rule`; it exposes `pub(super)` items that `dispatch_rules!` wires up:
+   - `DESCRIPTION: &str` - short summary; the only copy of the rule's title
+   - `EXPLAIN: &str` - `include_str!("docs/pgmXXX.md")`
+   - `DEFAULT_SEVERITY: Severity` - Critical, Major, Minor, Info
+   - `fn check(rule: impl Rule, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>` - main rule logic; build findings with `rule.make_finding(..)`
 2. Write `src/rules/docs/pgmXXX.md`, the rule's markdown body. It is the module doc, the `--explain` output (printed verbatim) and the `docs/rules.md` body. No title line, no headings, a language tag on every fence, absolute docs URLs for cross-references; `src/rules/rule_docs_tests.rs` enforces this.
-3. Implement the `Rule` trait with all methods:
-   - `id()` - stable identifier like "PGM001"
-   - `default_severity()` - Critical, Major, Minor, Info
-   - `description()` - short summary; the only copy of the rule's title
-   - `explain()` - `include_str!` of the markdown file
-   - `check()` - main rule logic
-4. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/rule_id.rs` (`default_severity`, `description`, `explain`, `check`)
-5. Add component test fixtures in `tests/fixtures/` with positive and negative cases
-6. Add unit tests for helper functions in the rule file
-7. Add integration test in fixture repo `tests/fixtures/repos/all-rules/`
-8. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
-9. Run `cargo test --features docgen`, accept the `rules_md` snapshot (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
+3. Register the rule:
+   - `src/rules/rule_id.rs`: add a `PgmXXX` variant to `RuleId` in its family section (doc comment plus `#[strum(serialize = "PGMXXX")]`), and a `PgmXXX => pgmXXX,` line to the `dispatch_rules!` invocation
+   - `src/rules/mod.rs`: add `mod pgmXXX;`, and bump the `RuleId::iter().count()` assertion in `test_rule_id_display_round_trip`
+   - `src/output/sonarqube.rs`: add the variant to the exhaustive `sonarqube_meta()` and `effort_minutes()` matches
+   - Opt-in rules only: add the variant to `RuleId::default_enabled()`
+4. Add unit tests with positive and negative cases in the rule file's `#[cfg(test)] mod tests`, using `CatalogBuilder` plus `lint_ctx!` and `located` from `src/rules/test_helpers.rs`, calling `RuleId::PgmXXX.check(..)` and snapshotting the findings with `insta`
+5. Add a violation to fixture repo `tests/fixtures/repos/all-rules/` and a suppressed one to `tests/fixtures/repos/suppressed/`; `tests/baseline.rs` fails if any lint rule does not fire in either
+6. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
+7. Run `cargo test --features docgen`, accept the `rules_md` snapshot along with the rule's own and the SonarQube `all_rules_metadata_snapshot` (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
 
 ### Working with IR
 
@@ -195,20 +203,24 @@ When modifying the IR layer (`src/parser/ir.rs`):
 
 The replay engine (`src/catalog/replay.rs`) has a single function:
 ```rust
-pub fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
+pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
 ```
 
 `MigrationUnit` defaults to `MigrationUnit<ResolvedName>`, so replay only accepts units that have been through `resolve_units`.
 
-The pipeline in `main.rs` drives replay:
+`LintPipeline` (`src/pipeline.rs`) drives replay. It owns the catalog and `tables_created_in_change`; `main.rs` feeds it the resolved units in order, calling `lint` for changed files and `replay` for the rest:
 ```rust
-for unit in history.units {
-    if unit.source_file is in changed_files {
-        let catalog_before = catalog.clone();
-        apply(&mut catalog, &unit);
-        lint(&unit, &catalog_before, &catalog);  // catalog_after is current catalog
-    } else {
-        apply(&mut catalog, &unit);
+impl LintPipeline {
+    fn replay(&mut self, unit: &MigrationUnit) {
+        apply(&mut self.catalog, unit);
+    }
+
+    fn lint(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
+        let catalog_before = self.catalog.clone();
+        apply(&mut self.catalog, unit);
+        record tables the unit creates in self.tables_created_in_change;
+        run rules with (&catalog_before, &self.catalog);  // catalog_after is current catalog
+        cap findings to INFO if unit.is_down;             // PGM901
     }
 }
 ```
@@ -225,7 +237,7 @@ let catalog = CatalogBuilder::new()
          .column("status", "text", true)
          .index("idx_status", &["status"], false)
          .pk(&["id"])
-         .fk("fk_customer", &["customer_id"], "customers", &["id"])
+         .fk("fk_customer", &["customer_id"], "customers", &["id"]);
     })
     .build();
 ```
@@ -242,14 +254,17 @@ To inspect a catalog in tests, use the `#[cfg(test)]` `CatalogAssertions` trait 
 
 Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `all-rules/` - One violation per rule
+- `bridge-table/` - PGM501 negative case: a bridge table whose composite PK `(x_id, y_id)` covers both FKs
 - `catalog-ops/` - Catalog operations (DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes)
 - `clean/` - All migrations correct, expect 0 findings
 - `enterprise/` - Realistic 31-file migration history
 - `fk-with-later-index/` - PGM501 FK detection across migration boundaries
 - `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
+- `liquibase-fresh/` - Liquibase bridge on a fresh repo with every changeset changed, expect only PGM402
 - `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs
 - `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
 - `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
+- `partition-lock-hazard/` - PGM024: a repartition of 5 partitioned parents in one transaction (one finding per parent), and the safe DETACH CONCURRENTLY then DROP
 - `schema-qualified/` - Schema-qualified names and cross-schema references
 - `suppressed/` - All violations suppressed, expect 0 findings
 
