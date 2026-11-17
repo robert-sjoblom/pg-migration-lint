@@ -5,8 +5,6 @@
 //! single-pass replay strategy: the pipeline calls [`apply`] for each
 //! migration unit, and the catalog accumulates state over time.
 
-use std::borrow::Cow;
-
 use crate::catalog::generated_names::GeneratedName;
 use crate::catalog::types::*;
 use crate::input::MigrationUnit;
@@ -127,14 +125,9 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) -> Option<String>
         .columns
         .extend(ct.columns.iter().map(column_def_to_state));
 
-    let constraints: Vec<Cow<'_, TableConstraint>> = ct
-        .columns
-        .iter()
-        .filter(|col| col.is_inline_pk)
-        .map(|col| Cow::Owned(inline_primary_key(col)))
-        .chain(ct.constraints.iter().map(Cow::Borrowed))
-        .collect();
-    let constraints: Vec<&TableConstraint> = constraints.iter().map(Cow::as_ref).collect();
+    // The parser promotes inline column constraints, PRIMARY KEY included,
+    // to `ct.constraints`, so a column's `is_inline_pk` adds no constraint.
+    let constraints: Vec<&TableConstraint> = ct.constraints.iter().collect();
     let names = constraint_names(
         ConstraintStatement::CreateTable,
         ct.name.name(),
@@ -151,16 +144,6 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) -> Option<String>
 
     catalog.insert_table(table);
     warning
-}
-
-/// The PRIMARY KEY a column's `is_inline_pk` stands for.
-fn inline_primary_key(col: &ColumnDef) -> TableConstraint {
-    TableConstraint::PrimaryKey {
-        name: None,
-        columns: vec![col.name.clone()],
-        include_columns: vec![],
-        using_index: None,
-    }
 }
 
 /// Handle ALTER TABLE: apply each action to the existing table.
@@ -200,18 +183,16 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
         }
     });
 
-    let constraints: Vec<Cow<'_, TableConstraint>> = at
+    // An `ADD COLUMN`'s inline constraints, PRIMARY KEY included, arrive as
+    // `AddConstraint` actions of their own.
+    let constraints: Vec<&TableConstraint> = at
         .actions
         .iter()
         .filter_map(|action| match action {
-            AlterTableAction::AddColumn(col) if col.is_inline_pk => {
-                Some(Cow::Owned(inline_primary_key(col)))
-            }
-            AlterTableAction::AddConstraint(constraint) => Some(Cow::Borrowed(constraint)),
+            AlterTableAction::AddConstraint(constraint) => Some(constraint),
             _ => None,
         })
         .collect();
-    let constraints: Vec<&TableConstraint> = constraints.iter().map(Cow::as_ref).collect();
     let names = constraint_names(
         ConstraintStatement::AlterTable,
         at.name.name(),
@@ -800,24 +781,14 @@ impl IndexRegistryUpdates {
 
 /// Handle `ALTER TABLE ... DROP CONSTRAINT`: remove the constraint with that
 /// name, and the index of the same name when the constraint is index-backed.
-///
-/// A table has at most one primary key, so dropping it removes every
-/// PRIMARY KEY entry; an inline PK can be registered twice (see TODO.md).
 fn drop_constraint(
     table: &mut TableState,
     constraint_name: &str,
     index_registry: &mut IndexRegistryUpdates,
 ) {
-    let dropping_pk = table
-        .constraints
-        .iter()
-        .any(|c| matches!(c, ConstraintState::PrimaryKey { .. }) && c.name() == constraint_name);
     let (dropped, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut table.constraints)
         .into_iter()
-        .partition(|c| {
-            c.name() == constraint_name
-                || (dropping_pk && matches!(c, ConstraintState::PrimaryKey { .. }))
-        });
+        .partition(|c| c.name() == constraint_name);
     table.constraints = kept;
     table.has_primary_key = table
         .constraints

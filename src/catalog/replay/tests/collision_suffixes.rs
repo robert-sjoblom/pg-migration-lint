@@ -375,7 +375,7 @@ fn create_table_overwriting_a_table_frees_the_old_tables_names() {
 }
 
 #[test]
-fn inline_primary_key_gets_one_name_however_often_the_parser_registers_it() {
+fn inline_primary_key_whose_pkey_name_is_taken_is_registered_once_as_pkey1() {
     let catalog = replay_sql(&[
         "CREATE TABLE t_pkey (x int);",
         "CREATE TABLE t (id int PRIMARY KEY);",
@@ -383,14 +383,8 @@ fn inline_primary_key_gets_one_name_however_often_the_parser_registers_it() {
         "CREATE TABLE u (a int);",
         "ALTER TABLE u ADD COLUMN id int PRIMARY KEY;",
     ]);
-    for (table, pkey) in [("t", "t_pkey1"), ("u", "u_pkey1")] {
-        let names = constraint_names(&catalog, table);
-        assert!(
-            !names.is_empty() && names.iter().all(|name| *name == pkey),
-            "{table}: expected every constraint to be {pkey}, got {names:?}"
-        );
-        catalog.assert_index_owner(pkey, table);
-    }
+    assert_names(&catalog, "t", &["t_pkey1"], &["t_pkey1"]);
+    assert_names(&catalog, "u", &["u_pkey1"], &["u_pkey1"]);
 }
 
 #[rstest]
@@ -530,5 +524,5 @@ fn long_tables_sharing_a_truncated_prefix_collide_into_pkey1() {
     let second = "z23456789012345678901234567890123456789012345678901234567_pkey1";
     catalog.assert_index_owner(first, aaa);
     catalog.assert_index_owner(second, bbb);
-    assert!(constraint_names(&catalog, bbb).iter().all(|name| *name == second));
+    assert_eq!(constraint_names(&catalog, bbb), [second]);
 }

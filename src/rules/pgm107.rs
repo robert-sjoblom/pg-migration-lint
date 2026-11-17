@@ -34,7 +34,8 @@ pub(super) fn check(
     for stmt in statements {
         match &stmt.node {
             IrNode::CreateTable(ct) => {
-                // Collect PK column names from table-level constraints
+                // The parser promotes an inline PRIMARY KEY to the table's
+                // constraints, so these cover both spellings.
                 let pk_columns: Vec<&str> = ct
                     .constraints
                     .iter()
@@ -51,9 +52,7 @@ pub(super) fn check(
                         continue;
                     }
 
-                    let is_pk = col.is_inline_pk || pk_columns.iter().any(|&pk| pk == col.name);
-
-                    if is_pk {
+                    if pk_columns.contains(&col.name.as_str()) {
                         findings.push(rule.make_finding(
                             format!(
                                 "Primary key column '{}' on '{}' uses {}. \
@@ -176,13 +175,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
-                ColumnDef::test("id", "int4")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE orders (id int4 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -194,13 +187,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("counters")).with_columns(vec![
-                ColumnDef::test("id", "int2")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE counters (id int2 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -234,13 +221,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
-                ColumnDef::test("id", "int8")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE orders (id int8 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         assert!(findings.is_empty());

@@ -394,6 +394,30 @@ mod tests {
     }
 
     #[test]
+    fn index_duplicating_an_inline_primary_key_is_reported_once() {
+        let messages = messages_for_change(
+            "CREATE TABLE t (id int PRIMARY KEY);",
+            "CREATE INDEX ON t (id);",
+        );
+        assert_eq!(
+            messages,
+            ["Index 't_id_idx' on 't' (id) is an exact duplicate of index 't_pkey'."]
+        );
+    }
+
+    #[test]
+    fn index_duplicating_a_named_inline_primary_key_is_reported_once_against_that_name() {
+        let messages = messages_for_change(
+            "CREATE TABLE t (id int CONSTRAINT foo PRIMARY KEY);",
+            "CREATE INDEX ON t (id);",
+        );
+        assert_eq!(
+            messages,
+            ["Index 't_id_idx' on 't' (id) is an exact duplicate of index 'foo'."]
+        );
+    }
+
+    #[test]
     fn unnamed_index_on_schema_qualified_table_is_named_after_the_bare_table() {
         let messages = messages_for_change(
             "CREATE TABLE sales.orders (a int, b int);

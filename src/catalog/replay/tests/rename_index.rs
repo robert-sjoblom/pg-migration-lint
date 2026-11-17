@@ -1,19 +1,17 @@
 //! `ALTER INDEX ... RENAME TO`. The Postgres behaviour pinned here is
 //! measured in `verify/tests/naming/rename.sql`.
 
-use std::collections::BTreeSet;
-
 use rstest::rstest;
 
 use super::replay_sql;
 use crate::catalog::builder::CatalogAssertions;
 use crate::catalog::types::{ConstraintState, TableState};
 
-fn index_names(table: &TableState) -> BTreeSet<&str> {
+fn index_names(table: &TableState) -> Vec<&str> {
     table.indexes.iter().map(|idx| idx.name.as_str()).collect()
 }
 
-fn constraint_names(table: &TableState) -> BTreeSet<&str> {
+fn constraint_names(table: &TableState) -> Vec<&str> {
     table.constraints.iter().map(ConstraintState::name).collect()
 }
 
@@ -26,7 +24,7 @@ fn rename_index_then_drop_by_the_new_name_removes_it() {
         "DROP INDEX idx_buyer;",
     ]);
 
-    assert_eq!(index_names(catalog.table("orders")), BTreeSet::new());
+    assert_eq!(index_names(catalog.table("orders")), Vec::<&str>::new());
     catalog.assert_index_unregistered("idx_buyer");
     catalog.assert_index_unregistered("idx_customer");
 }
@@ -64,7 +62,7 @@ fn drop_index_by_the_old_name_after_a_rename_changes_nothing() {
 
     assert_eq!(
         index_names(catalog.table("orders")),
-        BTreeSet::from(["idx_buyer"])
+        ["idx_buyer"]
     );
     catalog.assert_index_owner("idx_buyer", "orders");
 }
@@ -99,13 +97,13 @@ fn rename_index_in_one_schema_leaves_the_same_named_index_in_another(
     let untouched_schema = &catalog.table(untouched_on).name.schema;
     assert_eq!(
         index_names(catalog.table(renamed_on)),
-        BTreeSet::from(["idx_buyer"])
+        ["idx_buyer"]
     );
     catalog.assert_index_owner(&format!("{renamed_schema}.idx_buyer"), renamed_on);
     catalog.assert_index_unregistered(&format!("{renamed_schema}.idx_customer"));
     assert_eq!(
         index_names(catalog.table(untouched_on)),
-        BTreeSet::from(["idx_customer"])
+        ["idx_customer"]
     );
     catalog.assert_index_owner(&format!("{untouched_schema}.idx_customer"), untouched_on);
     catalog.assert_index_unregistered(&format!("{untouched_schema}.idx_buyer"));
@@ -145,8 +143,8 @@ fn rename_index_renames_the_constraint_it_backs(
     ]);
 
     let table = catalog.table("t");
-    assert_eq!(constraint_names(table), BTreeSet::from(["t_renamed"]));
-    assert_eq!(index_names(table), BTreeSet::from(["t_renamed"]));
+    assert_eq!(constraint_names(table), ["t_renamed"]);
+    assert_eq!(index_names(table), ["t_renamed"]);
     catalog.assert_index_owner("t_renamed", "t");
     catalog.assert_index_unregistered(index_name);
 }
@@ -165,8 +163,8 @@ fn drop_constraint_by_the_new_name_drops_a_renamed_constraint_index(
     ]);
 
     let table = catalog.table("t");
-    assert_eq!(constraint_names(table), BTreeSet::new());
-    assert_eq!(index_names(table), BTreeSet::new());
+    assert_eq!(constraint_names(table), Vec::<&str>::new());
+    assert_eq!(index_names(table), Vec::<&str>::new());
     assert!(!table.has_primary_key);
     catalog.assert_index_unregistered("t_renamed");
 }
@@ -180,8 +178,8 @@ fn rename_index_keeps_a_check_constraint_of_the_same_name() {
     ]);
 
     let table = catalog.table("ix");
-    assert_eq!(constraint_names(table), BTreeSet::from(["ix_a_idx"]));
-    assert_eq!(index_names(table), BTreeSet::from(["ix_a_renamed"]));
+    assert_eq!(constraint_names(table), ["ix_a_idx"]);
+    assert_eq!(index_names(table), ["ix_a_renamed"]);
 }
 
 #[rstest]
@@ -200,7 +198,7 @@ fn rename_of_an_index_missing_from_its_schema_changes_nothing(#[case] rename_sql
 
     assert_eq!(
         index_names(catalog.table("analytics.orders")),
-        BTreeSet::from(["idx_customer"])
+        ["idx_customer"]
     );
     catalog.assert_index_owner("analytics.idx_customer", "analytics.orders");
     catalog.assert_index_unregistered("analytics.idx_new");

@@ -356,7 +356,10 @@ pub struct ColumnDef {
     pub type_name: TypeName,
     pub nullable: bool, // true = nullable (default), false = NOT NULL
     pub default_expr: Option<DefaultExpr>,
-    /// True if this column has an inline PRIMARY KEY constraint.
+    /// True if this column has an inline PRIMARY KEY constraint. The parser
+    /// also promotes that key to a `TableConstraint::PrimaryKey` (in
+    /// `CreateTable::constraints`, or as an `AddConstraint` action after
+    /// `AddColumn`), and replay and the rules read only that.
     pub is_inline_pk: bool,
     /// True if this column was declared as `serial`, `bigserial`, or `smallserial`.
     pub is_serial: bool,

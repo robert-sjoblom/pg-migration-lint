@@ -84,7 +84,6 @@ struct StatementNames<S> {
     schema: S,
     constraints: HashSet<String>,
     relations: HashSet<String>,
-    generated_primary_key: Option<String>,
 }
 
 impl<S: TakenNames> StatementNames<S> {
@@ -95,7 +94,6 @@ impl<S: TakenNames> StatementNames<S> {
             schema,
             constraints: HashSet::new(),
             relations: HashSet::from([table.to_string()]),
-            generated_primary_key: None,
         }
     }
 
@@ -126,7 +124,7 @@ impl<S: TakenNames> StatementNames<S> {
                 using_index: Some(name),
                 ..
             } => name.clone(),
-            TableConstraint::PrimaryKey { .. } => self.generated_primary_key(table),
+            TableConstraint::PrimaryKey { .. } => GeneratedName::primary_key(table).choose(self),
             TableConstraint::Unique {
                 columns,
                 include_columns,
@@ -153,19 +151,6 @@ impl<S: TakenNames> StatementNames<S> {
             self.relations.insert(name.clone());
         }
         self.constraints.insert(name.clone());
-        name
-    }
-
-    /// A table has one primary key, so every unnamed PRIMARY KEY in a
-    /// statement is the same key, with one generated name. The parser hands
-    /// an inline `PRIMARY KEY` over twice (the inline-PK double registration
-    /// in TODO.md), and the second copy must not get `_pkey1`.
-    fn generated_primary_key(&mut self, table: &str) -> String {
-        if let Some(name) = &self.generated_primary_key {
-            return name.clone();
-        }
-        let name = GeneratedName::primary_key(table).choose(self);
-        self.generated_primary_key = Some(name.clone());
         name
     }
 }
