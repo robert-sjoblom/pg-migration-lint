@@ -16,7 +16,7 @@ This directory contains test fixtures for pg-migration-lint.
   - `liquibase-multi-schema/` - Tests Liquibase bridge with multi-schema changelogs
   - `liquibase-xml/` - Liquibase XML fixture for bridge tests
   - `multi-schema/` - Tests catalog tracking across multiple schemas (cross-schema FKs, name isolation, drop isolation)
-  - `partition-lock-hazard/` - Tests PGM024 on a repartition of 5 partitioned parents in one transaction (one finding per parent), and the safe DETACH CONCURRENTLY then DROP
+  - `partition-lock-hazard/` - Tests PGM024 and PGM026 on a repartition of 5 partitioned parents in one transaction (PGM024: one finding per parent; PGM026: one finding naming all five), and the safe DETACH CONCURRENTLY then DROP
   - `schema-qualified/` - Tests schema-qualified names and cross-schema references
   - `suppressed/` - All violations suppressed via inline comments, expect 0 findings
 

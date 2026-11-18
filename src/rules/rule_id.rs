@@ -92,6 +92,9 @@ pub enum RuleId {
     /// Dropping a column that participates in an EXCLUDE constraint.
     #[strum(serialize = "PGM025")]
     Pgm025,
+    /// One transaction locking several pre-existing partitioned parents.
+    #[strum(serialize = "PGM026")]
+    Pgm026,
     /// A statement PostgreSQL rejects against the schema from earlier migrations.
     #[strum(serialize = "PGM027")]
     Pgm027,
@@ -343,6 +346,7 @@ dispatch_rules! {
     Pgm023 => pgm023,
     Pgm024 => pgm024,
     Pgm025 => pgm025,
+    Pgm026 => pgm026,
     Pgm027 => pgm027,
     // 1xx — Type anti-patterns
     Pgm101 => pgm101,

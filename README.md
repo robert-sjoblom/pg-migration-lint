@@ -8,7 +8,7 @@ Static analyzer for PostgreSQL migration files.
 
 ## What it does
 
-pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 55 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
+pg-migration-lint replays your full migration history to build an internal table catalog, then lints only new or changed migration files against 56 safety and correctness rules. It catches dangerous operations -- missing `CONCURRENTLY`, table rewrites, missing indexes on foreign keys, unsafe constraint additions, silent constraint removal, risky renames, type anti-patterns -- before they reach production.
 
 Output formats include SARIF (for GitHub Code Scanning inline PR annotations), SonarQube Generic Issue Import JSON, and human-readable text.
 
@@ -121,7 +121,7 @@ pg-migration-lint targets currently supported PostgreSQL versions (14+). Rule ad
 
 ## Rules
 
-pg-migration-lint ships with 55 rules across seven categories:
+pg-migration-lint ships with 56 rules across seven categories:
 
 - **Unsafe DDL (PGM001-PGM027)** -- mostly Critical/Major (a few Minor/Info). Missing `CONCURRENTLY`, table rewrites, unsafe constraint additions, silent side effects from `DROP COLUMN`,
 `VACUUM FULL`, `CLUSTER`, statements that fail against the schema from earlier migrations.

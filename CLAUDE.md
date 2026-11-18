@@ -32,7 +32,7 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): `resolve_units` resolves every parsed `QualifiedName` against `default_schema` into a `ResolvedName`, so replay and rules only see schema-qualified names
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM027, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM027, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 Between rules and output, `lint_history` in `src/main.rs` applies suppression comments and `dedup_findings` per unit, then `group_repeated_findings` (`src/rules/finding.rs`) merges one rule's findings at one severity in one file into one `Finding` with `additional_locations` once there are `output.group_threshold` (default 5) of them. Every reporter renders those locations.
@@ -178,9 +178,9 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 - **MINOR**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules (55 total, plus PGM901)
+#### Rules (56 total, plus PGM901)
 
-**0xx — Unsafe DDL** (PGM001–PGM025, PGM027): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations, statements that fail against the schema from earlier migrations.
+**0xx — Unsafe DDL** (PGM001–PGM027): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations, several partitioned parents locked in one transaction, statements that fail against the schema from earlier migrations.
 **1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
 **2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
 **3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.
@@ -282,7 +282,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs
 - `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
 - `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
-- `partition-lock-hazard/` - PGM024: a repartition of 5 partitioned parents in one transaction (one finding per parent), and the safe DETACH CONCURRENTLY then DROP
+- `partition-lock-hazard/` - PGM024 and PGM026: a repartition of 5 partitioned parents in one transaction (PGM024: one finding per parent; PGM026: one finding naming all five), and the safe DETACH CONCURRENTLY then DROP
 - `repeated-findings/` - Grouping: 20 `DROP TABLE` without IF EXISTS in one file (PGM201 and PGM401 floods), and a file where one suppressed statement keeps PGM401 below `group_threshold`
 - `schema-qualified/` - Schema-qualified names and cross-schema references
 - `suppressed/` - All violations suppressed, expect 0 findings

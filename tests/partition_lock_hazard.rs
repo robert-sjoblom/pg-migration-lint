@@ -30,6 +30,37 @@ fn test_repartition_reports_one_pgm024_finding_per_parent() {
     }
 }
 
+#[test]
+fn test_repartition_reports_one_pgm026_finding_naming_all_five_parents() {
+    let findings = common::lint_fixture_rules(
+        "partition-lock-hazard",
+        &["V002__repartition.sql"],
+        &["PGM026"],
+    );
+
+    let [finding] = findings.as_slice() else {
+        panic!(
+            "one BEGIN/COMMIT block locking 5 parents is one transaction, so exactly one \
+             PGM026 finding. Got:\n  {}",
+            common::format_findings(&findings)
+        );
+    };
+    assert_eq!(
+        finding.start_line, 5,
+        "PGM026 belongs on the first DROP TABLE, not on BEGIN"
+    );
+    assert_eq!(finding.severity, pg_migration_lint::Severity::Critical);
+    assert!(
+        finding.message.contains(
+            "on 5 partitioned parents ('preliminary_postings', 'transaction_references', \
+             'booking_information', 'preliminary_vouchers', 'transactions')"
+        ),
+        "the message names each parent once, in the order the transaction first locks it. \
+         Got:\n  {}",
+        finding.message
+    );
+}
+
 /// End-to-end regression test for the same-unit DETACH-then-DROP guard,
 /// run through the real parser and `normalize::resolve_units` rather than
 /// hand-built IR, so it can catch a regression in name resolution's handling

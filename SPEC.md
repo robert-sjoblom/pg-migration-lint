@@ -560,6 +560,21 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes EXCLUDE constraint '{constraint}'. Verify that the exclusion guarantee is no longer needed.`
 
+#### PGM026 — One transaction locks several partitioned parent tables
+
+- **Severity**: CRITICAL
+- **Triggers**: One transaction whose statements lock two or more distinct partitioned parents, through `DROP TABLE child` where `child` is a partition (per the catalog's `parent_table`), or `CREATE TABLE child PARTITION OF parent`, where the parent exists in `catalog_before` and is not created in the same set of changed files. PGM024 flags the same statements (one finding per parent in the unit). A transaction is one of the unit's transaction windows (`LintContext::transaction_windows`): the whole unit under `run_in_transaction`, a `BEGIN` through the `COMMIT` or `ROLLBACK` that ends it, or one SQL statement outside a transaction block. `DROP TABLE a, b` is one statement, so it triggers alone when `a` and `b` are partitions of different parents.
+- **One finding per transaction**: at the first statement that locks a parent, naming each parent once, in the order the transaction first locks them.
+- **Does not fire when**:
+  - The transaction locks one parent, however many of its statements lock it
+  - Each parent is locked in a different transaction: statements outside a transaction block without `run_in_transaction`, or separate `BEGIN ... COMMIT` blocks
+  - A parent is created in the same set of changed files or is not in `catalog_before`; it does not count
+  - The other statements on a parent are `ATTACH PARTITION` or `DETACH PARTITION`; they do not count
+  - The dropped child is `DETACH`ed in the same migration unit (as for PGM024)
+- **Other rules**: PGM024 flags the same statements (one finding per parent in the unit), and both fire; this rule fires once per transaction.
+- **Known limitation**: under `run_in_transaction`, the statements after a `COMMIT` or `ROLLBACK` in the file count as autocommit, one transaction each, as `psql --single-transaction` runs them. JDBC runners with autocommit off (Flyway, Liquibase) run them in a new transaction, and golang-migrate's single `Exec` of the file runs them as a new implicit transaction, so this rule can miss parents that such a runner locks together after the file's `COMMIT`. With `run_in_transaction = false`, golang-migrate's default single `Exec` runs the whole file as one implicit transaction, which this rule does not model: it counts each statement outside a `BEGIN` block as a transaction of its own, so it misses two parents locked in such a file.
+- **Message**: `One transaction takes ACCESS EXCLUSIVE on {count} partitioned parents ('{parent}', '{parent}', ...) and holds each lock until it ends. While it waits for the next parent's lock, all reads and writes on the parents it already locked are blocked, and if a lock times out, the work on every parent rolls back. Change one parent per transaction, for example one migration per parent.`
+
 #### PGM027 — Statement fails against the schema from earlier migrations
 
 - **Severity**: MAJOR
@@ -1213,3 +1228,4 @@ pg-migration-lint/
 | 1.21    | 2026-09-18 | Added PGM025 (DROP COLUMN silently removes EXCLUDE constraint, MINOR). Same shape as PGM010/011/012: shares `drop_column_check::check_drop_column_constraints`, matches `ConstraintState::Exclude`. No IR or catalog changes required — `ConstraintState::Exclude` and its `involves_column`/`remove_column` handling already existed. |
 | 1.22    | 2026-11-17 | Added PGM027 (statement fails against the schema from earlier migrations, MAJOR): `USING INDEX` of another table's index, renames onto a taken name, and `DROP INDEX` of a constraint's index. Each statement is judged against the catalog just before it (`catalog_before` with the unit's earlier statements replayed, `replay::map_with_state_before`). PGM504 skips a rename PGM027 reports; PGM016/017 skip, and PGM107 ignores, a `USING INDEX` of another table's index. Replay keeps the index on a rejected `DROP INDEX`. |
 | 1.23    | 2026-11-18 | Grouped findings (§7.4): once one rule reports `output.group_threshold` (default 5) findings at one severity in one file, they are reported as one finding with `additional_locations`, after suppression and per-unit dedup. SARIF renders a group as one result with every finding in `locations` (split per 1,000 locations, GitHub's limit), SonarQube as one issue with `secondaryLocations`, text and `github-review` as one finding naming each other line once; `github-review` anchors a group at its first location in the diff. §7.1 example updated to the 10.3+ format the reporter emits. |
+| 1.24    | 2026-11-18 | Added PGM026 (one transaction locks several partitioned parent tables, CRITICAL): counts the distinct pre-existing parents that `DROP TABLE` of a partition and `CREATE TABLE ... PARTITION OF` lock in each transaction window (`LintContext::transaction_windows`), and fires once per window with two or more, at the first statement that locks one. Shares `partition_parent_lock::ParentLocks` with PGM024, which flags the same statements. No IR or catalog changes required. |

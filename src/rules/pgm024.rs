@@ -1,9 +1,7 @@
 #![doc = include_str!("docs/pgm024.md")]
 
-use std::collections::HashSet;
-
-use crate::names::RelationName;
-use crate::parser::ir::{AlterTableAction, IrNode, Located};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::partition_parent_lock::{ParentLockingStatement, ParentLocks};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
@@ -18,92 +16,35 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    // Children detached earlier in this same unit — DROP TABLE on one of
-    // these is the safe pattern PGM004 recommends, not the hazard this
-    // rule exists to catch. Order-insensitive: DROP TABLE <child> before
-    // its own DETACH is not valid SQL, so it can't occur the other way.
-    let detached_in_unit: HashSet<&RelationName> = statements
+    let parent_locks = ParentLocks::of_unit(statements);
+    statements
         .iter()
-        .filter_map(|stmt| match &stmt.node {
-            IrNode::AlterTable(at) => at.actions.iter().find_map(|action| match action {
-                AlterTableAction::DetachPartition { child, .. } => Some(child.relation()),
-                _ => None,
-            }),
-            _ => None,
+        .filter_map(|stmt| {
+            let lock = parent_locks.taken_by(&stmt.node, ctx)?;
+            let child = lock.child.display_name();
+            let parent = &lock.parent.display_name;
+            let message = match lock.statement {
+                ParentLockingStatement::DropPartition => format!(
+                    "DROP TABLE '{child}' is a partition of '{parent}': this acquires ACCESS \
+                     EXCLUSIVE on '{parent}' for the duration, blocking all reads and writes \
+                     routed through it until commit — and the data is permanently lost. \
+                     DETACH PARTITION '{child}' CONCURRENTLY first, then drop the \
+                     now-standalone table.",
+                ),
+                ParentLockingStatement::CreatePartitionOf => format!(
+                    "CREATE TABLE '{child}' PARTITION OF '{parent}' acquires ACCESS EXCLUSIVE on \
+                     '{parent}' for the duration, blocking all reads and writes routed \
+                     through it until commit. Create '{child}' as a standalone table and \
+                     ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE \
+                     EXCLUSIVE on the parent.",
+                ),
+            };
+            Some(
+                rule.make_finding(message, ctx.file, &stmt.span)
+                    .with_dedup_key(lock.parent.key),
+            )
         })
-        .collect();
-
-    let mut findings = Vec::new();
-    for stmt in statements {
-        match &stmt.node {
-            IrNode::DropTable(dt) => {
-                let child_key = dt.name.relation();
-                if detached_in_unit.contains(child_key) {
-                    continue;
-                }
-                let Some(parent_key) = ctx
-                    .catalog_before
-                    .get_table(child_key)
-                    .and_then(|t| t.parent_table.clone())
-                else {
-                    continue;
-                };
-                if !ctx.is_existing_table(&parent_key) {
-                    continue;
-                }
-                let Some(parent_name) = ctx.parent_display_name(child_key) else {
-                    continue;
-                };
-                findings.push(
-                    rule.make_finding(
-                        format!(
-                            "DROP TABLE '{}' is a partition of '{}': this acquires ACCESS \
-                             EXCLUSIVE on '{}' for the duration, blocking all reads and writes \
-                             routed through it until commit — and the data is permanently lost. \
-                             DETACH PARTITION '{}' CONCURRENTLY first, then drop the \
-                             now-standalone table.",
-                            dt.name.display_name(),
-                            parent_name,
-                            parent_name,
-                            dt.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )
-                    .with_dedup_key(parent_key),
-                );
-            }
-            IrNode::CreateTable(ct) => {
-                let Some(parent_name) = &ct.partition_of else {
-                    continue;
-                };
-                let parent_key = parent_name.relation();
-                if !ctx.is_existing_table(parent_key) {
-                    continue;
-                }
-                findings.push(
-                    rule.make_finding(
-                        format!(
-                            "CREATE TABLE '{}' PARTITION OF '{}' acquires ACCESS EXCLUSIVE on \
-                             '{}' for the duration, blocking all reads and writes routed \
-                             through it until commit. Create '{}' as a standalone table and \
-                             ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE \
-                             EXCLUSIVE on the parent.",
-                            ct.name.display_name(),
-                            parent_name.display_name(),
-                            parent_name.display_name(),
-                            ct.name.display_name(),
-                        ),
-                        ctx.file,
-                        &stmt.span,
-                    )
-                    .with_dedup_key(parent_key.clone()),
-                );
-            }
-            _ => {}
-        }
-    }
-    findings
+        .collect()
 }
 
 #[cfg(test)]
