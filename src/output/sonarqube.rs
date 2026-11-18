@@ -5,7 +5,7 @@
 //! See: <https://docs.sonarsource.com/sonarqube-server/10.3/analyzing-source-code/importing-external-issues/generic-issue-import-format/>
 
 use crate::output::{ReportError, Reporter, SonarQubeReporter};
-use crate::rules::{DOCS_BASE_URL, Finding, RuleId};
+use crate::rules::{DOCS_BASE_URL, Finding, FindingLocation, RuleId};
 use serde::Serialize;
 use std::collections::HashSet;
 
@@ -233,21 +233,39 @@ struct SonarQubeImpact {
 }
 
 /// A slim issue entry (10.3+ format — metadata lives on the rule).
+///
+/// A grouped finding is one issue: its first statement is the primary
+/// location and the others are secondary locations.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SonarQubeIssue {
     rule_id: String,
     effort_minutes: u32,
-    primary_location: SonarQubePrimaryLocation,
+    primary_location: SonarQubeLocation,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    secondary_locations: Vec<SonarQubeLocation>,
 }
 
-/// Primary location for a SonarQube issue.
+/// A primary or secondary location of a SonarQube issue.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SonarQubePrimaryLocation {
+struct SonarQubeLocation {
     message: String,
     file_path: String,
     text_range: SonarQubeTextRange,
+}
+
+impl SonarQubeLocation {
+    fn new(file_path: &str, location: &FindingLocation) -> Self {
+        Self {
+            message: location.message.clone(),
+            file_path: file_path.to_string(),
+            text_range: SonarQubeTextRange {
+                start_line: location.start_line,
+                end_line: location.end_line,
+            },
+        }
+    }
 }
 
 /// Text range (line range) for a SonarQube issue location.
@@ -319,6 +337,13 @@ fn effort_minutes(rule_id: RuleId) -> u32 {
     }
 }
 
+/// The rule's [`effort_minutes`] for every finding in the group, so grouping
+/// findings does not shrink the technical debt SonarQube adds up.
+fn effort_minutes_for(finding: &Finding) -> u32 {
+    let statements = u32::try_from(finding.additional_locations.len() + 1).unwrap_or(u32::MAX);
+    effort_minutes(finding.rule_id).saturating_mul(statements)
+}
+
 impl Reporter for SonarQubeReporter {
     /// Render findings as a SonarQube 10.3+ Generic Issue Import JSON string.
     ///
@@ -354,17 +379,18 @@ impl Reporter for SonarQubeReporter {
         // Build slim issues array
         let issues: Vec<SonarQubeIssue> = findings
             .iter()
-            .map(|f| SonarQubeIssue {
-                rule_id: f.rule_id.to_string(),
-                effort_minutes: effort_minutes(f.rule_id),
-                primary_location: SonarQubePrimaryLocation {
-                    message: f.message.clone(),
-                    file_path: super::normalize_path(&f.file),
-                    text_range: SonarQubeTextRange {
-                        start_line: f.start_line,
-                        end_line: f.end_line,
-                    },
-                },
+            .map(|f| {
+                let file_path = super::normalize_path(&f.file);
+                SonarQubeIssue {
+                    rule_id: f.rule_id.to_string(),
+                    effort_minutes: effort_minutes_for(f),
+                    primary_location: SonarQubeLocation::new(&file_path, &f.primary_location()),
+                    secondary_locations: f
+                        .additional_locations
+                        .iter()
+                        .map(|location| SonarQubeLocation::new(&file_path, location))
+                        .collect(),
+                }
             })
             .collect();
 
@@ -382,7 +408,7 @@ impl Reporter for SonarQubeReporter {
 mod tests {
     use super::*;
     use crate::output::RuleInfo;
-    use crate::output::test_helpers::test_finding;
+    use crate::output::test_helpers::{grouped_test_finding, test_finding};
     use crate::parser::SourceSpan;
     use crate::rules::{Finding, Rule, RuleId, Severity};
     use std::path::Path;
@@ -422,6 +448,40 @@ mod tests {
 
         let parsed = emit_and_parse(&findings);
         insta::assert_json_snapshot!(parsed);
+    }
+
+    #[test]
+    fn grouped_finding_is_one_issue_with_secondary_locations() {
+        let parsed = emit_and_parse(&[grouped_test_finding(4)]);
+
+        insta::assert_json_snapshot!(parsed);
+    }
+
+    #[test]
+    fn grouped_issue_effort_covers_every_statement() {
+        let parsed = emit_and_parse(&[grouped_test_finding(5)]);
+
+        assert_eq!(
+            parsed["issues"][0]["effortMinutes"],
+            5 * effort_minutes(RuleId::Pgm401)
+        );
+    }
+
+    #[test]
+    fn grouped_issue_primary_message_is_the_first_statement_message() {
+        let parsed = emit_and_parse(&[grouped_test_finding(3)]);
+
+        assert_eq!(
+            parsed["issues"][0]["primaryLocation"]["message"],
+            "DROP TABLE 'legacy_report_01' without IF EXISTS will fail if the table does not exist."
+        );
+    }
+
+    #[test]
+    fn ungrouped_issue_has_no_secondary_locations() {
+        let parsed = emit_and_parse(&[test_finding()]);
+
+        assert!(parsed["issues"][0].get("secondaryLocations").is_none());
     }
 
     #[test]

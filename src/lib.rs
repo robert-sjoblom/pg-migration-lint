@@ -24,4 +24,4 @@ pub use names::{RelationName, ResolvedName};
 pub use output::{RuleInfo, sarif_level};
 pub use parser::ir::{IrNode, Located};
 pub use pipeline::LintPipeline;
-pub use rules::{Finding, Rule, RuleId, Severity};
+pub use rules::{Finding, FindingLocation, Rule, RuleId, Severity};

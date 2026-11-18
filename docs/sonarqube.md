@@ -47,3 +47,7 @@ In your GitHub Actions workflow, run the linter before the SonarQube scanner ste
 ```
 
 When using the config file, the `--format` flag is not needed -- the tool reads formats from `[output].formats` in the config.
+
+## Repeated findings
+
+When one rule fires at least `group_threshold` times in one file (default 5, set under `[output]`), the findings are imported as one issue. The lowest-line finding is the primary location and the others are secondary locations, each with its own message. The issue's effort is the rule's effort times the number of findings in the group. Set `group_threshold = 0` to import one issue per finding.

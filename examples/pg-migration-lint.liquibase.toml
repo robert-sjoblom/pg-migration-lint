@@ -40,6 +40,12 @@ dir = "build/reports/migration-lint"
 # Uncomment to strip a path prefix from findings (useful for monorepos):
 # strip_prefix = "impl/"
 
+# One rule's findings at one severity in one file are reported as one finding
+# once there are this many (default 5). A single-file changelog may want 0: a
+# new changeset's violation can join an existing group instead of showing up
+# as a new alert or issue.
+# group_threshold = 5
+
 [cli]
 # Exit non-zero when any finding is CRITICAL or above.
 # Set to "none" to always exit 0.

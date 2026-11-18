@@ -388,3 +388,112 @@ fn unique_rule_ids_dedups_and_sorts() {
 fn unique_rule_ids_of_no_findings_is_empty() {
     assert!(unique_rule_ids(&[]).is_empty());
 }
+
+fn grouped_drops(lines: &[usize]) -> Finding {
+    let findings = lines
+        .iter()
+        .map(|&line| {
+            Finding::new(
+                RuleId::Pgm401,
+                Severity::Minor,
+                format!("DROP TABLE at line {line}"),
+                Path::new("a.sql"),
+                &SourceSpan::at(line, line),
+            )
+        })
+        .collect();
+    let mut grouped = pg_migration_lint::rules::group_repeated_findings(findings, lines.len());
+    grouped.remove(0)
+}
+
+fn other_lines(finding: &Finding) -> Vec<usize> {
+    finding
+        .additional_locations
+        .iter()
+        .map(|location| location.start_line)
+        .collect()
+}
+
+#[test]
+fn group_is_one_inline_entry_anchored_at_its_first_statement() {
+    let findings = vec![grouped_drops(&[12, 30, 40])];
+    let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
+
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
+
+    assert!(summary.is_empty());
+    assert_eq!(inline.len(), 1);
+    assert_eq!(inline[0].anchor_line, 12);
+    assert_eq!(inline[0].finding.start_line, 12);
+    assert_eq!(other_lines(&inline[0].finding), vec![30, 40]);
+}
+
+#[test]
+fn group_whose_first_statement_is_outside_the_diff_is_anchored_at_its_first_statement_inside_it() {
+    let findings = vec![grouped_drops(&[2, 12, 14])];
+    let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
+
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
+
+    assert!(summary.is_empty());
+    assert_eq!(inline.len(), 1);
+    let anchored = &inline[0].finding;
+    assert_eq!(inline[0].anchor_line, 12);
+    assert_eq!((anchored.start_line, anchored.end_line), (12, 12));
+    assert_eq!(anchored.message, "DROP TABLE at line 12");
+    assert_eq!(other_lines(anchored), vec![2, 14]);
+    assert_eq!(
+        anchored.additional_locations[0].message,
+        "DROP TABLE at line 2"
+    );
+}
+
+#[test]
+fn group_anchor_is_its_lowest_statement_inside_the_diff_whatever_the_hunk_order() {
+    let findings = vec![grouped_drops(&[2, 25, 40])];
+    let hunks = hunks_for(
+        "a.sql",
+        vec![
+            LineRange { start: 38, end: 45 },
+            LineRange { start: 20, end: 30 },
+        ],
+    );
+
+    let (inline, _) = split_findings(&findings, &hunks, &default_working_directory_paths());
+
+    assert_eq!(inline[0].anchor_line, 25);
+    assert_eq!(other_lines(&inline[0].finding), vec![2, 40]);
+}
+
+#[test]
+fn group_with_no_statement_in_the_diff_goes_to_the_summary() {
+    let findings = vec![grouped_drops(&[2, 4, 30])];
+    let hunks = hunks_for("a.sql", vec![LineRange { start: 10, end: 16 }]);
+
+    let (inline, summary) = split_findings(&findings, &hunks, &default_working_directory_paths());
+
+    assert!(inline.is_empty());
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].reason, SummaryReason::OutsideDiff);
+    assert_eq!(summary[0].finding.start_line, 2);
+    assert_eq!(other_lines(&summary[0].finding), vec![4, 30]);
+}
+
+#[test]
+fn severity_counts_count_a_group_once() {
+    let findings = vec![
+        grouped_drops(&[1, 2, 3, 4, 5]),
+        finding_at(RuleId::Pgm001, Severity::Critical, "a.sql", 9),
+    ];
+
+    let counts = count_by_severity(&findings);
+
+    assert_eq!(
+        counts,
+        SeverityCounts {
+            error: 1,
+            warning: 0,
+            note: 1,
+        }
+    );
+}

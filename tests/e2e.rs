@@ -1773,3 +1773,140 @@ fail_on = "critical"
         stderr
     );
 }
+
+/// Lints the `repeated-findings` fixture's changed files with PGM401 enabled,
+/// writing SARIF and SonarQube reports to `<tmp>/output`. `extra_output_toml`
+/// is added to the config's `[output]` section.
+fn lint_repeated_findings(tmp: &Path, extra_output_toml: &str, fail_on: &str) -> Output {
+    let migrations_dir = fixture_path("repeated-findings").join("migrations");
+    let config_path = tmp.join("pg-migration-lint.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            "[migrations]\npaths = [\"{}\"]\n\n\
+             [output]\nformats = [\"sarif\", \"sonarqube\"]\ndir = \"{}\"\n{extra_output_toml}\n\n\
+             [cli]\nfail_on = \"{fail_on}\"\n\n\
+             [rules]\nenabled = [\"PGM401\"]\n",
+            migrations_dir.to_string_lossy(),
+            tmp.join("output").to_string_lossy(),
+        ),
+    )
+    .expect("write config");
+
+    run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        &comma_join(&changed_migration_files("repeated-findings")),
+    ])
+}
+
+fn read_json_report(tmp: &Path, filename: &str) -> serde_json::Value {
+    let content = std::fs::read_to_string(tmp.join("output").join(filename)).expect("read report");
+    serde_json::from_str(&content).expect("parse report")
+}
+
+#[test]
+fn test_repeated_findings_are_grouped_by_default() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = lint_repeated_findings(tmp.path(), "", "none");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "stderr: {stderr}");
+    assert!(
+        stderr.contains("pg-migration-lint: 7 finding(s)"),
+        "20 PGM201 and 20 PGM401 in V002 make 2 groups; in V003 5 PGM201 make 1 group \
+         and 4 PGM401 stay below the threshold. stderr: {stderr}"
+    );
+
+    let sarif = read_json_report(tmp.path(), "findings.sarif");
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results array");
+    let location_counts: Vec<(&str, usize)> = results
+        .iter()
+        .map(|r| {
+            (
+                r["ruleId"].as_str().expect("ruleId"),
+                r["locations"].as_array().expect("locations").len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        location_counts,
+        vec![
+            ("PGM201", 20),
+            ("PGM401", 20),
+            ("PGM201", 5),
+            ("PGM401", 1),
+            ("PGM401", 1),
+            ("PGM401", 1),
+            ("PGM401", 1),
+        ]
+    );
+
+    let sonarqube = read_json_report(tmp.path(), "findings.json");
+    let secondary_counts: Vec<usize> = sonarqube["issues"]
+        .as_array()
+        .expect("issues array")
+        .iter()
+        .map(|issue| {
+            issue
+                .get("secondaryLocations")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len)
+        })
+        .collect();
+    assert_eq!(secondary_counts, vec![19, 19, 4, 0, 0, 0, 0]);
+}
+
+#[test]
+fn test_group_threshold_zero_reports_every_statement() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = lint_repeated_findings(tmp.path(), "group_threshold = 0", "none");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pg-migration-lint: 49 finding(s)"),
+        "stderr: {stderr}"
+    );
+    let sarif = read_json_report(tmp.path(), "findings.sarif");
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results array");
+    assert_eq!(results.len(), 49);
+    assert!(
+        results
+            .iter()
+            .all(|r| r["locations"].as_array().map(Vec::len) == Some(1))
+    );
+}
+
+#[test]
+fn test_group_threshold_is_configurable() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = lint_repeated_findings(tmp.path(), "group_threshold = 4", "none");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pg-migration-lint: 4 finding(s)"),
+        "with a threshold of 4 the 4 PGM401 findings in V003 group too. stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_grouped_finding_keeps_its_severity_for_fail_on() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let output = lint_repeated_findings(tmp.path(), "", "minor");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "the MINOR groups meet --fail-on minor. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

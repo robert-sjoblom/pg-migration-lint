@@ -32,7 +32,7 @@ outputs:
     description: 'Exit code returned by the pg-migration-lint CLI (0 = clean, 1 = findings at/above threshold, 2 = tool/config error).'
     value: ${{ steps.github-review.outputs.exit-code }}
   findings-count:
-    description: 'Total number of findings reported by pg-migration-lint.'
+    description: 'Total number of findings reported by pg-migration-lint. Repeated findings grouped into one (output.group_threshold) count once.'
     value: ${{ steps.github-review.outputs.findings-count }}
 
 runs:

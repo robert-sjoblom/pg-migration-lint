@@ -20,6 +20,10 @@ use std::path::Path;
 /// SEVERITY RULE_ID file:line
 ///   message
 /// ```
+/// A grouped finding adds a line naming its other locations:
+/// ```text
+///   Also at lines 5, 7, 9.
+/// ```
 fn format_finding(finding: &Finding) -> String {
     let file_str = super::normalize_path(&finding.file);
     let mut buf = String::new();
@@ -29,6 +33,9 @@ fn format_finding(finding: &Finding) -> String {
         "{} {} {}:{}\n  {}\n",
         finding.severity, finding.rule_id, file_str, finding.start_line, finding.message
     );
+    if let Some(also_at) = super::also_at_lines(finding.start_line, &finding.additional_locations) {
+        let _ = writeln!(buf, "  {also_at}");
+    }
     buf
 }
 
@@ -77,7 +84,9 @@ impl Reporter for TextReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::test_helpers::test_finding;
+    use crate::output::test_helpers::{
+        grouped_test_finding, grouped_test_finding_at, test_finding,
+    };
     use crate::parser::SourceSpan;
     use crate::rules::{Finding, RuleId, Severity};
     use std::path::Path;
@@ -113,6 +122,33 @@ mod tests {
 
         let content = reporter.render(&findings).expect("render");
         insta::assert_snapshot!(content);
+    }
+
+    #[test]
+    fn grouped_finding_lists_the_other_lines_under_its_message() {
+        let reporter = TextReporter { use_stdout: false };
+        let findings = vec![test_finding(), grouped_test_finding(5)];
+
+        let content = reporter.render(&findings).expect("render");
+
+        insta::assert_snapshot!(content);
+    }
+
+    #[test]
+    fn grouped_finding_reports_its_first_line() {
+        let content = format_finding(&grouped_test_finding(3));
+
+        assert!(
+            content.starts_with("MINOR PGM401 db/migrations/V043__drop_legacy_reports.sql:1\n")
+        );
+        assert!(content.ends_with("\n  Also at lines 2, 3.\n"));
+    }
+
+    #[test]
+    fn grouped_findings_on_one_statement_name_each_line_once() {
+        let content = format_finding(&grouped_test_finding_at(&[3, 3, 15, 22, 22]));
+
+        assert!(content.ends_with("\n  Also at lines 15, 22 (4 more findings).\n"));
     }
 
     #[test]

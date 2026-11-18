@@ -4,7 +4,9 @@
 //! Rules receive IR nodes and catalog state, returning findings with severity levels.
 
 use crate::parser::ir::{IrNode, Located, SourceSpan};
-pub use crate::rules::finding::{Finding, dedup_findings};
+pub use crate::rules::finding::{
+    Finding, FindingLocation, dedup_findings, group_repeated_findings,
+};
 pub use crate::rules::lint_context::LintContext;
 pub use crate::rules::rule_id::RuleId;
 pub use crate::rules::severity::Severity;

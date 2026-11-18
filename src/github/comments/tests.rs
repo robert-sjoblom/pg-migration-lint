@@ -13,6 +13,15 @@ fn finding(rule_id: RuleId, severity: Severity, file: &str, start: usize, end: u
     )
 }
 
+fn grouped_finding(lines: &[usize]) -> Finding {
+    let findings = lines
+        .iter()
+        .map(|&line| finding(RuleId::Pgm401, Severity::Minor, "a.sql", line, line))
+        .collect();
+    let mut grouped = pg_migration_lint::rules::group_repeated_findings(findings, lines.len());
+    grouped.remove(0)
+}
+
 /// Builds an [`InlineEntry`] the way [`super::super::filter::split_findings`]
 /// would: with the GitHub-spelled `path` and the hunk-clamped
 /// `anchor_line` carried explicitly, not re-derived from the finding.
@@ -53,6 +62,54 @@ mod pure_body_tests {
             !body.contains("<details>"),
             "inline bodies are terse -- no rich --explain text"
         );
+    }
+
+    #[test]
+    fn inline_comment_body_of_a_group_lists_the_other_lines() {
+        let body = inline_comment_body(&grouped_finding(&[3, 8, 13]));
+
+        assert!(body.starts_with("**note** PGM401 test finding (PGM401)\n\n"));
+        assert!(body.contains("Also at lines 8, 13."));
+        assert!(body.ends_with(INLINE_MARKER));
+    }
+
+    #[test]
+    fn inline_comment_body_of_a_group_anchored_inside_the_diff_names_the_lines_around_it() {
+        use crate::github::files::LineRange;
+        use crate::github::filter::{PathNormalizer, split_findings};
+
+        let hunks = std::collections::HashMap::from([(
+            std::path::PathBuf::from("a.sql"),
+            vec![LineRange { start: 10, end: 16 }],
+        )]);
+        let paths = PathNormalizer::new(Path::new("/repo"), Path::new("/repo"));
+
+        let (inline, _) = split_findings(&[grouped_finding(&[2, 12, 14])], &hunks, &paths);
+        let body = inline_comment_body(&inline[0].finding);
+
+        assert!(body.contains("Also at lines 2, 14."), "body: {body}");
+    }
+
+    #[test]
+    fn inline_comment_body_of_an_ungrouped_finding_names_no_other_lines() {
+        let f = finding(RuleId::Pgm401, Severity::Minor, "a.sql", 3, 3);
+
+        assert!(!inline_comment_body(&f).contains("Also at"));
+    }
+
+    #[test]
+    fn summary_body_entry_of_a_group_lists_the_other_lines() {
+        let summary = vec![SummaryEntry {
+            finding: grouped_finding(&[3, 8, 13]),
+            reason: SummaryReason::OutsideDiff,
+        }];
+
+        let body = summary_comment_body(&summary, SeverityCounts::default(), &[], None);
+
+        assert!(body.contains(
+            "- **note** `PGM401` a.sql:3-3 -- PGM401 test finding Also at lines 8, 13. \
+             (outside this pull request's diff)"
+        ));
     }
 
     #[test]
