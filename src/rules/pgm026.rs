@@ -255,6 +255,20 @@ mod tests {
     }
 
     #[test]
+    fn no_finding_when_a_drop_and_a_plain_detach_lock_the_same_parent() {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql");
+
+        let stmts = vec![
+            drop_table("measurements_2023", 1),
+            detach_partition("measurements", "measurements_2024", 2),
+        ];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
     fn no_finding_when_each_parent_is_locked_by_its_own_autocommit_statement() {
         let before = measurements_and_readings_partitioned();
         lint_ctx!(ctx, &before, &before, "migrations/002.sql", txn: false);
@@ -287,14 +301,59 @@ mod tests {
     }
 
     #[test]
-    fn no_finding_when_the_transaction_only_attaches_and_detaches_partitions() {
+    fn fires_on_plain_detaches_from_two_parents_in_one_transaction() {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql");
+
+        let stmts = vec![
+            detach_partition("measurements", "measurements_2023", 1),
+            detach_partition("readings", "readings_2023", 2),
+        ];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn fires_on_detaching_and_dropping_a_partition_of_each_of_two_parents_in_one_begin_block() {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql", txn: false);
+
+        let stmts = vec![
+            begin(1),
+            detach_partition("measurements", "measurements_2023", 2),
+            drop_table("measurements_2023", 3),
+            detach_partition("readings", "readings_2023", 4),
+            drop_table("readings_2023", 5),
+            commit(6),
+        ];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn plain_detach_on_a_second_parent_counts() {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql");
+
+        let stmts = vec![
+            drop_table("measurements_2023", 1),
+            detach_partition("readings", "readings_2023", 2),
+        ];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn no_finding_when_the_transaction_only_attaches_partitions() {
         let before = measurements_and_readings_partitioned();
         lint_ctx!(ctx, &before, &before, "migrations/002.sql");
 
         let stmts = vec![
             attach_partition("measurements", "measurements_2025", 1),
             attach_partition("readings", "readings_2025", 2),
-            detach_partition("readings", "readings_2023", 3),
         ];
 
         let findings = RuleId::Pgm026.check(&stmts, &ctx);
@@ -303,8 +362,38 @@ mod tests {
 
     #[rstest]
     #[case::attach(attach_partition("readings", "readings_2025", 2))]
+    #[case::concurrent_detach(detach_partition_concurrently("readings", "readings_2023", 2))]
+    fn attach_or_concurrent_detach_on_a_second_parent_does_not_count(
+        #[case] second_parent_statement: Located<IrNode>,
+    ) {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql");
+
+        let stmts = vec![drop_table("measurements_2023", 1), second_parent_statement];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[rstest]
+    #[case::create_partition_of(create_partition_of("readings_2025", "readings", 2))]
     #[case::plain_detach(detach_partition("readings", "readings_2023", 2))]
-    fn attach_or_detach_on_a_second_parent_does_not_count(
+    fn no_finding_when_the_second_parent_is_created_in_the_change(
+        #[case] second_parent_statement: Located<IrNode>,
+    ) {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql", created: ["readings"]);
+
+        let stmts = vec![drop_table("measurements_2023", 1), second_parent_statement];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[rstest]
+    #[case::create_partition_of(create_partition_of("sensors_2025", "sensors", 2))]
+    #[case::plain_detach(detach_partition("sensors", "sensors_2023", 2))]
+    fn no_finding_when_the_second_parent_is_not_in_the_catalog(
         #[case] second_parent_statement: Located<IrNode>,
     ) {
         let before = measurements_and_readings_partitioned();
@@ -317,27 +406,13 @@ mod tests {
     }
 
     #[test]
-    fn no_finding_when_the_second_parent_is_created_in_the_change() {
-        let before = measurements_and_readings_partitioned();
-        lint_ctx!(ctx, &before, &before, "migrations/002.sql", created: ["readings"]);
-
-        let stmts = vec![
-            drop_table("measurements_2023", 1),
-            create_partition_of("readings_2025", "readings", 2),
-        ];
-
-        let findings = RuleId::Pgm026.check(&stmts, &ctx);
-        assert!(findings.is_empty(), "{findings:?}");
-    }
-
-    #[test]
-    fn no_finding_when_the_second_parent_is_not_in_the_catalog() {
+    fn plain_detach_from_a_table_that_is_not_partitioned_does_not_count() {
         let before = measurements_and_readings_partitioned();
         lint_ctx!(ctx, &before, &before, "migrations/002.sql");
 
         let stmts = vec![
             drop_table("measurements_2023", 1),
-            create_partition_of("sensors_2025", "sensors", 2),
+            detach_partition("readings_2023", "readings_2023_h1", 2),
         ];
 
         let findings = RuleId::Pgm026.check(&stmts, &ctx);
@@ -359,6 +434,52 @@ mod tests {
 
         let findings = RuleId::Pgm026.check(&stmts, &ctx);
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn a_plain_detach_in_its_own_transaction_leaves_the_later_drop_of_its_child_locking_no_parent()
+    {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql", txn: false);
+
+        let stmts = vec![
+            begin(1),
+            detach_partition("readings", "readings_2023", 2),
+            commit(3),
+            begin(4),
+            drop_table("readings_2023", 5),
+            drop_table("measurements_2023", 6),
+            commit(7),
+        ];
+
+        let findings = RuleId::Pgm026.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[rstest]
+    #[case::plain(
+        "BEGIN; \
+         ALTER TABLE measurements DETACH PARTITION measurements_2023; \
+         ALTER TABLE readings DETACH PARTITION readings_2023; \
+         COMMIT;",
+        1
+    )]
+    #[case::concurrently(
+        "BEGIN; \
+         ALTER TABLE measurements DETACH PARTITION measurements_2023 CONCURRENTLY; \
+         ALTER TABLE readings DETACH PARTITION readings_2023 CONCURRENTLY; \
+         COMMIT;",
+        0
+    )]
+    fn parsed_detaches_from_two_parents_in_a_begin_block(
+        #[case] sql: &str,
+        #[case] expected_findings: usize,
+    ) {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql", txn: false);
+
+        let findings = RuleId::Pgm026.check(&normalized(parse_sql(sql)), &ctx);
+        assert_eq!(findings.len(), expected_findings, "{findings:?}");
     }
 
     #[rstest]
