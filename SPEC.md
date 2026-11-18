@@ -185,8 +185,9 @@ IndexState {
 ```
 
 - `CREATE TABLE` → insert into catalog; if `PARTITION OF`, record parent relationship
-- `DROP TABLE` → remove from catalog entirely; CASCADE recursively removes partition children
-- `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking; an `ALTER TABLE` with `ADD PRIMARY KEY` or `ADD UNIQUE ... USING INDEX idx`, where `idx` is a registered index of another table in the altered table's schema → no change to any table, as PostgreSQL rejects the whole statement (55000); an `idx` the catalog does not have there may exist outside the tracked migrations, so the constraint is still added
+- `DROP TABLE` → remove from catalog entirely; dropping a partitioned parent recursively removes its partitions, with or without CASCADE, as PostgreSQL does
+- `DROP SCHEMA ... CASCADE` → remove every table in the schema; without CASCADE → no change, as PostgreSQL rejects dropping a non-empty schema
+- `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking
 - `CREATE INDEX` → add to table's index list (preserving `only` flag); `CREATE INDEX IF NOT EXISTS` whose name a relation in the table's schema already has (an index on any table, a table, or an index-backed constraint) → no change, as PostgreSQL skips it
 - `DROP INDEX` → remove the index from its table; `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint → no change, as PostgreSQL rejects it (2BP01)
 - `ALTER INDEX ATTACH PARTITION` → flip parent index's `only` from `true` to `false`

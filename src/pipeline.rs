@@ -53,7 +53,8 @@ impl LintPipeline {
         // Apply unit to catalog
         replay::apply(&mut self.catalog, unit);
 
-        // Track tables created in this change (for PGM001/002 "new table" detection).
+        // Record the tables this unit creates, so `LintContext::is_existing_table`
+        // treats them as new.
         // Skip IF NOT EXISTS when the table already existed — that is a no-op,
         // not a genuine creation, and must not mask rules on later statements.
         for stmt in &unit.statements {

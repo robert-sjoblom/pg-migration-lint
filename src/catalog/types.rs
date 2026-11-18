@@ -397,10 +397,12 @@ impl TableState {
     }
 
     /// Check if this table has a UNIQUE constraint or unique index where all
-    /// columns are NOT NULL. Used for PGM503 (UNIQUE NOT NULL substitute for PK).
+    /// columns are NOT NULL. PGM503 fires on such a table (UNIQUE NOT NULL
+    /// substitute for PK), and PGM502 stays silent on it so the two rules do
+    /// not both report one table.
     ///
-    /// Partial indexes and expression indexes are excluded — they cannot serve
-    /// as a PK substitute.
+    /// Only btree indexes count; partial and expression indexes are excluded,
+    /// as they cannot serve as a PK substitute.
     pub fn has_unique_not_null(&self) -> bool {
         let constraint_match = self.constraints.iter().any(|c| {
             if let ConstraintState::Unique { columns, .. } = c {
