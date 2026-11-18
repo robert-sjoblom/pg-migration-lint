@@ -118,6 +118,10 @@ The catalog tracks:
 - Index creation/deletion (with column order preserved)
 - Constraints: additions, drops (`DROP CONSTRAINT`, or dropping a column they involve), renames, and `VALIDATE CONSTRAINT` clearing NOT VALID. An unnamed constraint gets the name PostgreSQL would generate. A PRIMARY KEY or UNIQUE constraint shares its name with its backing index, and replay drops and renames the two together
 - Primary key existence
+- Partitions: `PARTITION BY` sets `is_partitioned` and `partition_by`. `PARTITION OF` (which copies the parent's columns) and `ATTACH PARTITION` set the child's `parent_table`, and `DETACH PARTITION` clears it. `ALTER INDEX ... ATTACH PARTITION` sets the parent index's `only` (ON ONLY) flag to false. Dropping a partitioned parent drops its partitions too
+- Table, column and index renames. A renamed table stays in its schema and its partitions' `parent_table` follows it. A renamed column is renamed in its table's indexes, constraints and partition key. A table or index rename PostgreSQL rejects because the new name is taken changes nothing
+- `incomplete` on a table that an unparseable statement names (its `table_hint`)
+- `DROP SCHEMA ... CASCADE`, which drops every table in the schema. Without CASCADE it changes nothing
 
 **Single-pass replay strategy**: The pipeline iterates through migration history once. For each unit:
 - If in changed files: clone catalog, apply unit, lint with both before/after catalogs

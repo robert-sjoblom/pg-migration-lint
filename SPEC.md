@@ -519,7 +519,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Table doesn't exist in `catalog_before`
   - Two `ALTER TABLE` statements with different lock levels
   - Statements on the same table are separated by a chain-breaking statement
-- **Message**: `Table '{table}' has multiple ALTER TABLE statements with the same lock level in this migration (first occurrence at line {line}). Combine them into a single ALTER TABLE to reduce lock contention.`
+- **Message**: `Table '{table}' has multiple ALTER TABLE statements with the same lock level in this migration (preceding statement at line {line}). Combine them into a single ALTER TABLE to reduce lock contention.`
 
 #### PGM024 — `DROP TABLE` or `CREATE TABLE PARTITION OF` locks the parent partitioned table
 
@@ -788,7 +788,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 
 Rules derived from the [PostgreSQL "Don't Do This" wiki](https://wiki.postgresql.org/wiki/Don%27t_Do_This). These detect column type anti-patterns in `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and `ALTER TABLE ... ALTER COLUMN TYPE` statements.
 
-All type rules share a common detection pattern: inspect `TypeName` on `ColumnDef` in `CreateTable` columns, `AddColumn` actions, and `AlterColumnType` actions.
+PGM101–PGM104, PGM106, PGM108 and PGM109 share a common detection pattern: inspect `TypeName` on `ColumnDef` in `CreateTable` columns, `AddColumn` actions, and `AlterColumnType` actions.
 
 **Type name canonicalization** (verified against `pg_query` output):
 
