@@ -268,7 +268,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Severity**: CRITICAL
 - **Triggers**: `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a context that implies transactional execution:
   - Liquibase changeset without `runInTransaction="false"`
-  - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
+  - Plain SQL file while `[migrations] run_in_transaction` is true (the default)
 - **Does not fire when**:
   - `DROP INDEX CONCURRENTLY` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`

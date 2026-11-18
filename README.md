@@ -190,8 +190,17 @@ exclude = ["**/test/**"]
 # Default: "public"
 default_schema = "public"
 
-# Whether plain SQL files run inside a transaction by default.
-# Set to false for golang-migrate repos where files run outside transactions.
+# Whether plain SQL files run inside a transaction by default. PGM003
+# (CONCURRENTLY inside a transaction) and PGM026 (one transaction locks
+# several partitioned parents) read it.
+#   golang-migrate, default mode: leave it true. golang-migrate sends the
+#     whole file as one query, and PostgreSQL runs a query of several
+#     statements as one transaction.
+#   golang-migrate with x-multi-statement=true: set it to false. The
+#     statements are sent one at a time, each in a transaction of its own
+#     unless the file opens one with BEGIN.
+#   Other runners: leave it true if the runner runs each file in a
+#     transaction; set it to false if it runs each statement on its own.
 # Default: true
 run_in_transaction = true
 
@@ -262,6 +271,8 @@ enabled = []
 # Default: "critical"
 fail_on = "critical"
 ```
+
+In golang-migrate's default mode, a file that holds a single statement runs outside a transaction block, which is why golang-migrate's documentation says to give `CREATE INDEX CONCURRENTLY` a file of its own when multi-statement mode is off. PGM003 still reports such a file under `run_in_transaction = true`; suppress it there with `-- pgm-lint:suppress-file PGM003`.
 
 ## Suppression
 

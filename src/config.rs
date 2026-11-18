@@ -61,9 +61,9 @@ pub struct MigrationsConfig {
     #[serde(default = "default_schema")]
     pub default_schema: String,
 
-    /// Default `run_in_transaction` for plain SQL files.
+    /// Default `run_in_transaction` for plain SQL files: whether they run
+    /// inside a transaction by default.
     /// When `None`, defaults to `true` (backward compatible).
-    /// Set to `false` for golang-migrate repos where files run outside transactions.
     #[serde(default)]
     pub run_in_transaction: Option<bool>,
 }
@@ -262,7 +262,6 @@ const SECTION_MIGRATIONS: &str = "\
 
   run_in_transaction = true
     Whether plain SQL files run inside a transaction by default.
-    Set to false for golang-migrate repos where files run outside transactions.
     Type: boolean (optional)
     Default: true (when absent)
 ";
