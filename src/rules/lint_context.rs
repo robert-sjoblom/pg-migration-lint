@@ -1,7 +1,9 @@
 use std::{collections::HashSet, path::Path};
 
+use crate::Catalog;
 use crate::names::{RelationName, ResolvedName};
-use crate::{Catalog, rules::TableScope};
+use crate::parser::ir::{IrNode, Located};
+use crate::rules::{TableScope, TransactionWindows};
 
 /// Context available to rules during linting.
 pub struct LintContext<'a> {
@@ -109,13 +111,29 @@ impl<'a> LintContext<'a> {
             TableScope::AnyPreExisting => self.catalog_before.has_table(table_key),
         }
     }
+
+    /// The transaction windows of `statements`, the statements of the unit
+    /// this context lints, with `run_in_transaction` saying whether the
+    /// migration tool runs them in a transaction. See [`TransactionWindows`]
+    /// for how statements are windowed.
+    ///
+    /// Built on each call, in one pass over `statements`, so a rule that does
+    /// not ask builds none. Nothing is cached on the context: it does not hold
+    /// the statements, and a cache could not tell a different list from the
+    /// one it was built from.
+    pub fn transaction_windows(&self, statements: &[Located<IrNode>]) -> TransactionWindows {
+        TransactionWindows::new(statements, self.run_in_transaction)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::catalog::builder::{CatalogBuilder, rel};
-    use crate::rules::test_helpers::lint_ctx;
+    use crate::parser::pg_query::parse_sql;
+    use crate::rules::test_helpers::{lint_ctx, normalized};
 
     #[test]
     fn test_parent_display_name_resolves_tracked_parent() {
@@ -174,5 +192,24 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/test.sql");
 
         assert_eq!(ctx.parent_display_name(&rel("nonexistent")), None);
+    }
+
+    #[rstest]
+    fn transaction_windows_follow_run_in_transaction(
+        #[values(true, false)] run_in_transaction: bool,
+    ) {
+        let catalog = Catalog::new();
+        lint_ctx!(ctx, &catalog, &catalog, "migrations/test.sql", txn: run_in_transaction);
+        let statements = normalized(parse_sql(
+            "DROP TABLE a;
+             BEGIN;
+             DROP TABLE b;
+             COMMIT;",
+        ));
+
+        assert_eq!(
+            ctx.transaction_windows(&statements),
+            TransactionWindows::new(&statements, run_in_transaction)
+        );
     }
 }
