@@ -56,6 +56,14 @@ CREATE TABLE measurements_2024 (
     value double precision
 );
 
+-- Second partitioned table for the PGM026 test
+CREATE TABLE readings (
+    sensor_id bigint NOT NULL,
+    ts timestamptz NOT NULL,
+    reading numeric NOT NULL,
+    PRIMARY KEY (sensor_id, ts)
+) PARTITION BY RANGE (ts);
+
 -- Schema setup for PGM205 test
 CREATE SCHEMA myschema;
 CREATE TABLE myschema.orders (id bigint PRIMARY KEY, total numeric);

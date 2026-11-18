@@ -310,6 +310,19 @@ for (index, stmt) in statements.iter().enumerate() {
 
 Look a statement up by its index, not its span: the two nodes of `COMMIT AND CHAIN` share a span but not a window. The windows are built on each call, in one pass, and not cached on the context, so a test can reuse one `lint_ctx!` context for several statement lists. Because `located` puts every node at the same span, a test that needs separate autocommit statements builds them with `located_at` on distinct lines, or parses SQL. They are not for deciding whether a table is new to the change; `ctx.is_existing_table` and `tables_created_in_change` do that.
 
+### `partition_parent_lock`
+
+For rules about the ACCESS EXCLUSIVE lock that `DROP TABLE` of a partition and `CREATE TABLE ... PARTITION OF` take on the partition's parent (PGM024 and PGM026). `ParentLocks::of_unit(statements)` notes the children the unit detaches, since dropping one of those locks no parent. `taken_by(node, ctx)` then gives the `ParentLock` a statement takes, or `None`: `statement` (`DropPartition` or `CreatePartitionOf`), the `child` it drops or creates, and the `parent` (`LockedParent { key, display_name }`). A parent counts only when it is in `catalog_before` and not created in the change (`ctx.is_existing_table`):
+
+```rust
+let parent_locks = ParentLocks::of_unit(statements);
+for stmt in statements {
+    if let Some(lock) = parent_locks.taken_by(&stmt.node, ctx) {
+        // lock.statement, lock.child.display_name(), lock.parent.key, lock.parent.display_name
+    }
+}
+```
+
 ### Lookup tables
 
 `fn_volatility::lookup(name)` gives a built-in function's volatility (PGM006), and `reserved_keywords::is_reserved(name)` says whether a lowercase name is a reserved keyword (PGM509). Both files are generated from PostgreSQL by scripts under `verify/`; do not edit them by hand.
