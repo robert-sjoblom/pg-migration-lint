@@ -40,6 +40,11 @@
 #                      action's `github-token` input).
 #   GITHUB_PATH        Runner-provided file; appended to so the extracted
 #                      binary's directory ends up on PATH.
+#   RUNNER_OS          Runner-provided, like GITHUB_PATH. Releases ship
+#   RUNNER_ARCH        only a Linux x86_64 binary, for runners such as
+#                      `ubuntu-latest`, so anything but `Linux` / `X64`
+#                      exits with an error before any `gh` call. Outside a
+#                      runner, set them by hand.
 #
 # Optional environment:
 #   RUNNER_TEMP               Preferred scratch directory. Falls back to
@@ -58,11 +63,20 @@
 set -euo pipefail
 
 readonly ASSET_PATTERN='pg-migration-lint-x86_64-linux.tar.gz'
+readonly ASSET_RUNNER_OS='Linux'
+readonly ASSET_RUNNER_ARCH='X64'
 readonly BINARY_NAME='pg-migration-lint'
 
 : "${ACTION_REPOSITORY:?ACTION_REPOSITORY is required — see header comment}"
 : "${ACTION_REF:?ACTION_REF is required — see header comment}"
 : "${GITHUB_PATH:?GITHUB_PATH is required (normally set by the GitHub Actions runner)}"
+: "${RUNNER_OS:?RUNNER_OS is required (normally set by the GitHub Actions runner)}"
+: "${RUNNER_ARCH:?RUNNER_ARCH is required (normally set by the GitHub Actions runner)}"
+
+if [[ "$RUNNER_OS" != "$ASSET_RUNNER_OS" || "$RUNNER_ARCH" != "$ASSET_RUNNER_ARCH" ]]; then
+  echo "ERROR: the ${BINARY_NAME} action supports only Linux x86_64 runners (got RUNNER_OS=${RUNNER_OS}, RUNNER_ARCH=${RUNNER_ARCH}). Run the job on a Linux x86_64 runner such as ubuntu-latest." >&2
+  exit 1
+fi
 
 # Resolve the release tag to download. Prefer the ref the action itself was
 # pinned to (e.g. a version tag like `v1.2.3`); if that ref isn't itself a

@@ -89,7 +89,9 @@ jobs:
           fail-on: major
 ```
 
-Four details matter here:
+Five details matter here:
+
+- **The action requires a Linux x86_64 runner, such as `ubuntu-latest`.** It installs the Linux x86_64 release binary, so on a macOS, Windows or ARM runner it stops with an error before downloading anything.
 
 - **Pin to a released tag, and bump it when you want a newer version.** Releases are tagged `vX.Y.Z` only; there is no moving `v1`/`v2` major-version alias to track. Check [the releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) for the newest tag. Pinning `@main` also works (the action falls back to the latest release when its ref isn't a release tag), but it tracks unreleased commits rather than a stable version.
 
