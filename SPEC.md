@@ -650,6 +650,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause.
 - **Does not fire when**:
   - The statement already includes `IF NOT EXISTS`
+  - The `CREATE INDEX` has no name. PostgreSQL generates one that is free in the schema (`{table}_{cols}_idx`, then `_idx1`, `_idx2`, ...; `verify/tests/naming/collisions.sql`), so the statement cannot fail on an existing index, and `IF NOT EXISTS` requires a name
 - **Message (CREATE TABLE)**: `CREATE TABLE '{table}' without IF NOT EXISTS will fail if the table already exists.`
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 

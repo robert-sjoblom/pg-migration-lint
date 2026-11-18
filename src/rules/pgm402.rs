@@ -1,6 +1,6 @@
 #![doc = include_str!("docs/pgm402.md")]
 
-use crate::parser::ir::{IrNode, Located};
+use crate::parser::ir::{CreateIndex, IrNode, Located};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX";
@@ -28,8 +28,11 @@ pub(super) fn check(
                     &stmt.span,
                 ));
             }
-            IrNode::CreateIndex(ci) if !ci.if_not_exists => {
-                let index_name = ci.index_name.as_deref().unwrap_or("<unnamed>");
+            IrNode::CreateIndex(CreateIndex {
+                index_name: Some(index_name),
+                if_not_exists: false,
+                ..
+            }) => {
                 findings.push(rule.make_finding(
                     format!(
                         "CREATE INDEX '{}' without IF NOT EXISTS will fail if the index already exists.",
@@ -98,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn create_index_unnamed_without_if_not_exists_fires() {
+    fn test_create_index_unnamed_without_if_not_exists_no_finding() {
         let before = Catalog::new();
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/003.sql");
@@ -109,7 +112,7 @@ mod tests {
         )))];
 
         let findings = RuleId::Pgm402.check(&stmts, &ctx);
-        insta::assert_yaml_snapshot!(findings);
+        assert!(findings.is_empty());
     }
 
     #[test]
