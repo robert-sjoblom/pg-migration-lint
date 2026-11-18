@@ -483,6 +483,38 @@ mod tests {
     }
 
     #[rstest]
+    #[case::both_parents_after_the_commit(
+        "ALTER TABLE measurements ADD COLUMN note text;\n\
+         COMMIT;\n\
+         DROP TABLE measurements_2023;\n\
+         DROP TABLE readings_2023;",
+        &[3]
+    )]
+    #[case::one_parent_on_each_side_of_the_commit(
+        "DROP TABLE measurements_2023;\n\
+         COMMIT;\n\
+         DROP TABLE readings_2023;",
+        &[]
+    )]
+    #[case::one_parent_on_each_side_of_a_rollback(
+        "DROP TABLE measurements_2023;\n\
+         ROLLBACK;\n\
+         DROP TABLE readings_2023;",
+        &[]
+    )]
+    fn parsed_statements_after_an_end_under_run_in_transaction_are_one_new_transaction(
+        #[case] sql: &str,
+        #[case] expected_finding_lines: &[usize],
+    ) {
+        let before = measurements_and_readings_partitioned();
+        lint_ctx!(ctx, &before, &before, "migrations/002.sql", txn: true);
+
+        let findings = RuleId::Pgm026.check(&normalized(parse_sql(sql)), &ctx);
+        let finding_lines: Vec<usize> = findings.iter().map(|f| f.start_line).collect();
+        assert_eq!(finding_lines, expected_finding_lines, "{findings:?}");
+    }
+
+    #[rstest]
     #[case::one_statement("DROP TABLE measurements_2023, readings_2023;", 1)]
     #[case::two_statements_on_one_line(
         "DROP TABLE measurements_2023; DROP TABLE readings_2023;",

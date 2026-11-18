@@ -99,9 +99,13 @@ See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm00
 
 **Severity**: Critical
 
-Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a migration unit that runs in a transaction. PostgreSQL does not allow any of these CONCURRENTLY operations inside a transaction block — the command will fail at runtime.
+Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` that runs inside a transaction block. PostgreSQL does not allow any of these CONCURRENTLY operations inside a transaction block: the command fails at runtime with SQLSTATE 25001.
 
-**Example** (bad — Liquibase changeset with default `runInTransaction`):
+A statement runs inside a transaction block when the migration tool runs the migration in a transaction (a Liquibase changeset without `runInTransaction="false"`, or a plain SQL file while `run_in_transaction` is true), or when the file opens one itself with `BEGIN` or `START TRANSACTION`.
+
+A `COMMIT` in a migration the tool runs in a transaction does not get the statements after it out of one. It ends the tool's transaction, and the statements after it run in a new one: a JDBC runner such as Flyway or Liquibase starts one before the next statement, and golang-migrate's default mode sends the file as one query, in which PostgreSQL runs the statements after the `COMMIT` as a new implicit transaction. Give the `CONCURRENTLY` statement a migration of its own that runs outside a transaction instead.
+
+**Example** (bad, a Liquibase changeset with the default `runInTransaction`):
 ```xml
 <changeSet id="1" author="dev">
   <sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>
@@ -113,6 +117,18 @@ Detects `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ...
 <changeSet id="1" author="dev" runInTransaction="false">
   <sql>CREATE INDEX CONCURRENTLY idx_foo ON bar (col);</sql>
 </changeSet>
+```
+
+**Example** (bad, a plain SQL file with `run_in_transaction = false` that opens a transaction block itself):
+```sql
+BEGIN;
+CREATE INDEX CONCURRENTLY idx_foo ON bar (col);
+COMMIT;
+```
+
+**Fix**: drop the `BEGIN` and `COMMIT`, so the statement runs on its own:
+```sql
+CREATE INDEX CONCURRENTLY idx_foo ON bar (col);
 ```
 
 Does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
@@ -688,11 +704,11 @@ See also [PGM010](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm01
 
 Detects one transaction that takes ACCESS EXCLUSIVE on two or more partitioned parent tables that existed before the change. `DROP TABLE` of a partition and `CREATE TABLE ... PARTITION OF` each lock the partition's parent ([PGM024](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm024)), as does a plain `ALTER TABLE ... DETACH PARTITION` ([PGM004](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004)), and a transaction holds every lock it takes until it ends. Once the transaction has locked the first parent, reads and writes routed through it wait, and they go on waiting while the transaction queues for the next parent's lock behind the traffic already running there. Each further parent adds its wait to the time the earlier ones stay blocked. If one of those locks cannot be taken, because a `lock_timeout` expires or the transaction deadlocks with application traffic that touches two of the parents, the transaction aborts: the work on every parent rolls back, after the earlier parents were blocked for nothing.
 
-The rule looks at each transaction of the migration on its own: the whole file when the migration tool runs it in a transaction, a `BEGIN ... COMMIT` block, or one statement outside a transaction block. `DROP TABLE a, b` is one statement, and so one transaction, that locks the parents of both `a` and `b`: it holds the lock on `a`'s parent while it waits for `b`'s. The rule fires once per transaction that locks two or more parents, at the first statement that locks one, and names them all. With `run_in_transaction = false`, golang-migrate's default single `Exec` runs the whole file as one implicit transaction, which the rule does not model, so it misses two parents locked in such a file.
+The rule looks at each transaction of the migration on its own: the whole file when the migration tool runs it in a transaction, a `BEGIN ... COMMIT` block, or one statement outside a transaction block. A `COMMIT` in a file the tool runs in a transaction ends the tool's transaction, and the statements after it run in a new one, which the rule counts on its own. `DROP TABLE a, b` is one statement, and so one transaction, that locks the parents of both `a` and `b`: it holds the lock on `a`'s parent while it waits for `b`'s. The rule fires once per transaction that locks two or more parents, at the first statement that locks one, and names them all. golang-migrate's default mode runs a file of several statements as one implicit transaction, which `run_in_transaction = true` models; with `false`, the rule counts each statement on its own and misses two parents locked in such a file.
 
 `ATTACH PARTITION` and `DETACH PARTITION ... CONCURRENTLY` do not count. They take only SHARE UPDATE EXCLUSIVE on the parent, which lets reads and writes go on, and `DETACH ... CONCURRENTLY` cannot run inside a transaction block at all. Dropping a partition that the migration detached earlier locks no parent either, as the table is no longer a partition, but a plain `DETACH` before the drop has already locked the parent and counts. A parent created in the same change does not count, as nothing uses it yet.
 
-PGM024 flags the same `DROP TABLE` and `CREATE TABLE ... PARTITION OF` statements (one finding per parent in the unit), and PGM004 each plain `DETACH PARTITION`: they say that each parent gets locked, this rule that one transaction holds several of those locks at once. Their fixes (detach the partition concurrently, then drop it; create the new table standalone, then attach it) avoid the ACCESS EXCLUSIVE lock and so clear this rule as well. Where the ACCESS EXCLUSIVE locks are acceptable, change one parent per transaction, so that each lock is held only for that parent's own work. A separate migration per parent is the safest way to get there. Don't split with a `COMMIT` inside a migration the tool already runs in a transaction: runners differ on what runs after it.
+PGM024 flags the same `DROP TABLE` and `CREATE TABLE ... PARTITION OF` statements (one finding per parent in the unit), and PGM004 each plain `DETACH PARTITION`: they say that each parent gets locked, this rule that one transaction holds several of those locks at once. Their fixes (detach the partition concurrently, then drop it; create the new table standalone, then attach it) avoid the ACCESS EXCLUSIVE lock and so clear this rule as well. Where the ACCESS EXCLUSIVE locks are acceptable, change one parent per transaction, so that each lock is held only for that parent's own work. A separate migration per parent is the safest way to get there. A `COMMIT` inside a migration the tool runs in a transaction does split it, but if a statement after the `COMMIT` fails, the migration is left half applied.
 
 **Example** (bad):
 ```sql

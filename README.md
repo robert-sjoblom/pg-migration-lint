@@ -192,7 +192,9 @@ default_schema = "public"
 
 # Whether plain SQL files run inside a transaction by default. PGM003
 # (CONCURRENTLY inside a transaction) and PGM026 (one transaction locks
-# several partitioned parents) read it.
+# several partitioned parents) read it, along with the file's own BEGIN,
+# COMMIT and ROLLBACK. With true, a COMMIT in the file ends the
+# transaction, and the statements after it run in a new one.
 #   golang-migrate, default mode: leave it true. golang-migrate sends the
 #     whole file as one query, and PostgreSQL runs a query of several
 #     statements as one transaction.
@@ -272,7 +274,7 @@ enabled = []
 fail_on = "critical"
 ```
 
-In golang-migrate's default mode, a file that holds a single statement runs outside a transaction block, which is why golang-migrate's documentation says to give `CREATE INDEX CONCURRENTLY` a file of its own when multi-statement mode is off. PGM003 still reports such a file under `run_in_transaction = true`; suppress it there with `-- pgm-lint:suppress-file PGM003`.
+In golang-migrate's default mode, a file that holds a single statement runs outside a transaction block, which is why golang-migrate's documentation says to give `CREATE INDEX CONCURRENTLY` a file of its own when multi-statement mode is off. PGM003 still reports such a file under `run_in_transaction = true`; suppress it there with `-- pgm-lint:suppress-file PGM003`. A `COMMIT` before the statement in a file of several statements does not get it out of a transaction: PostgreSQL runs the statements after the `COMMIT` as a new implicit transaction, and PGM003 reports it.
 
 ## Suppression
 
