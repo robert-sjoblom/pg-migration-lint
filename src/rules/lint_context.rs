@@ -6,12 +6,14 @@ use crate::{Catalog, rules::TableScope};
 /// Context available to rules during linting.
 pub struct LintContext<'a> {
     /// The catalog state BEFORE the current unit was applied.
-    /// Clone taken just before apply(). Used by PGM001/002 to check
-    /// if a table is pre-existing.
+    /// Clone taken just before apply(). Most rules read it, directly or
+    /// through `is_existing_table` and the shared helpers, to tell a
+    /// pre-existing table from one created in this change and to look up the
+    /// schema the unit's statements run against.
     pub catalog_before: &'a Catalog,
 
     /// The catalog state AFTER the current unit was applied.
-    /// Used for post-file checks (PGM501, PGM502, PGM503).
+    /// Used for post-file checks (PGM501, PGM502, PGM503, PGM508).
     pub catalog_after: &'a Catalog,
 
     /// Set of table names created in the current set of changed files.

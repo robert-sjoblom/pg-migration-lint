@@ -181,7 +181,7 @@ Provided to every rule's `check()` function:
 
 - `table.get_column(name)` — look up a column by name
 - `table.has_indexed_fk_column(fk_columns)` — true if any usable index contains at least one FK column, in any position (PGM501)
-- `table.has_unique_not_null()` — detect UNIQUE NOT NULL substitute for PK (PGM503)
+- `table.has_unique_not_null()` — detect UNIQUE NOT NULL substitute for PK (PGM503 reports it, PGM502 skips such a table)
 - `table.constraints_involving_column(name)` — find constraints that reference a column
 - `table.indexes_involving_column(name)` — find indexes that reference a column
 
@@ -214,6 +214,20 @@ where
     F: FnMut(&AlterTable, &AlterTableAction, &Located<IrNode>, &LintContext<'_>) -> Vec<Finding>,
 ```
 
+### `drop_column_check::check_drop_column_constraints`
+
+For rules that report what `ALTER TABLE ... DROP COLUMN` silently removes along with the column (PGM010–PGM012 and PGM025). It calls `check` for each `DROP COLUMN` on a table in `catalog_before` (`TableScope::AnyPreExisting`), with the dropped column's name and the table's state before the unit:
+
+```rust
+pub fn check_drop_column_constraints<F>(
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+    check: F,
+) -> Vec<Finding>
+where
+    F: FnMut(&str, &AlterTable, &TableState, &Located<IrNode>, &LintContext<'_>) -> Vec<Finding>,
+```
+
 ### `column_type_check::check_column_types`
 
 For rules that flag specific column types across `CREATE TABLE`, `ADD COLUMN`, and `ALTER COLUMN TYPE` (PGM101–PGM104, PGM106, PGM108 and PGM109):
@@ -227,6 +241,53 @@ pub fn check_column_types(
     message_fn: impl Fn(&str, &ResolvedName, &TypeName) -> String,
 ) -> Vec<Finding>
 ```
+
+### `existing_table_check::check_existing_table`
+
+For rules that flag one kind of statement on a pre-existing table (PGM201, PGM203, PGM301–PGM303 and PGM505). `extract` matches the `IrNode` variant the rule cares about and returns the table name with the finding's message, or `None` for every other statement. A finding is emitted when `ctx.is_existing_table()` holds, and carries the table as its dedup key, so the rule reports each table at most once per unit:
+
+```rust
+pub fn check_existing_table(
+    statements: &[Located<IrNode>],
+    ctx: &LintContext<'_>,
+    rule: impl Rule,
+    extract: impl FnMut(&IrNode) -> Option<(&ResolvedName, String)>,
+) -> Vec<Finding>
+```
+
+### `using_index`
+
+For rules that look at `ALTER TABLE ... ADD PRIMARY KEY USING INDEX` or `ADD UNIQUE USING INDEX` (PGM016, PGM017, PGM107 and PGM027):
+
+- `using_index_constraints(at)`: the `(constraint kind, index name)` of each `USING INDEX` constraint in an `AlterTable`, in statement order
+- `has_using_index(node)`: true for an `ALTER TABLE` with a `USING INDEX` constraint
+- `UsingIndex::in_catalog(catalog, table, index_name)`: what the index name refers to in the altered table's schema, one of `OfTable { index, table }`, `OfAnotherTable { owner }` (PostgreSQL rejects the statement and PGM027 reports it) or `Missing`
+
+PostgreSQL looks the index up when the statement runs, and attaching it renames it to the constraint's name, so judge each statement against the catalog just before it. `replay::map_with_state_before_if_needed` replays the unit's earlier statements on a copy of `catalog_before`, and only when some statement passes the filter:
+
+```rust
+map_with_state_before_if_needed(ctx.catalog_before, statements, has_using_index, |state, stmt| {
+    // UsingIndex::in_catalog(state, at.name.relation(), index_name)
+})
+```
+
+### `rejected_statements`
+
+For statements PostgreSQL rejects against the schema just before them: a `USING INDEX` of another table's index, a rename onto a taken name, and `DROP INDEX` of the index behind a PRIMARY KEY or UNIQUE constraint. PGM027 reports them through `rejections(catalog_before, statements)`, which gives each statement's `Option<Rejection>`. A rule that would report what such a statement does leaves it to PGM027 (PGM002, PGM003, PGM401, PGM501 and PGM504):
+
+```rust
+let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+// ...
+if rejected.contains(&stmt.span) {
+    continue;
+}
+```
+
+The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report.
+
+### Lookup tables
+
+`fn_volatility::lookup(name)` gives a built-in function's volatility (PGM006), and `reserved_keywords::is_reserved(name)` says whether a lowercase name is a reserved keyword (PGM509). Both files are generated from PostgreSQL by scripts under `verify/`; do not edit them by hand.
 
 ## Testing patterns
 
@@ -248,7 +309,14 @@ let catalog = CatalogBuilder::new()
     .build();
 ```
 
-Methods: `column()`, `column_with_default()`, `index()`, `pk()`, `fk()`, `unique()`, `incomplete()`.
+Methods of the table builder the closure receives:
+
+- columns: `column()`, `column_with_default()`
+- indexes: `index()`, `index_with_method()` (an access method such as `"gin"`), `only_index()` (`ON ONLY`), `partial_index()` (with a `WHERE` clause), `expression_index()` (entries prefixed `"expr:"` are expressions)
+- constraints: `pk()` (named `{table}_pkey`), `named_pk()`, `fk()`, `unique()`, `check_constraint()`, `exclude_constraint()`. An unnamed CHECK or EXCLUDE constraint gets the name PostgreSQL would generate. None of them adds a backing index
+- table state: `incomplete()`, `partitioned_by()`, `partition_of()`, `display_name()`
+
+To inspect a catalog in a test, use the `CatalogAssertions` trait from the same file: `table()`, `assert_table()`, `assert_no_table()`, `assert_partition_children()`, `assert_index_owner()`, `assert_index_unregistered()` and `assert_same_state_as()`. Each panics with what the catalog actually holds.
 
 Table names, including `fk()`'s referenced table, are written `"orders"` (meaning `public.orders`) or `"audit.orders"`. `lint_ctx!` takes tables created in the same change in that written form, e.g. `lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders", "audit.orders"]);`. When a test needs a `RelationName` itself, `rel("orders")` and `rel_in("audit", "orders")` from `src/catalog/builder.rs` build it.
 
@@ -258,6 +326,9 @@ Table names, including `fk()`'s referenced table, are written `"orders"` (meanin
 - `make_ctx(before, after, file, created)` — build a `LintContext` with default settings (in transaction, not a down migration)
 - `make_ctx_with_txn(before, after, file, created, run_in_transaction)` — same but with explicit transaction flag
 - `located(node)` — take a parser-form `IrNode<QualifiedName>`, resolve its names against `public` as the pipeline would, and wrap it in a `Located` with a dummy span at line 1
+- `located_at(node, line)`: same as `located`, with the span at `line`, for tests whose findings depend on statement lines
+- `normalized(statements)`: resolve a `Vec` of statements against `public`, either parser output such as `parse_sql(sql)` or statements `located` already resolved
+- `catalog_from_sql(sql)`: the catalog the pipeline builds from `sql`, parsed, resolved against `public` and replayed into an empty catalog
 
 ### Insta snapshots
 

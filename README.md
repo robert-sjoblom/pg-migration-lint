@@ -123,7 +123,7 @@ pg-migration-lint ships with 55 rules across seven categories:
 
 - **Unsafe DDL (PGM001-PGM027)** -- mostly Critical/Major (a few Minor/Info). Missing `CONCURRENTLY`, table rewrites, unsafe constraint additions, silent side effects from `DROP COLUMN`,
 `VACUUM FULL`, `CLUSTER`, statements that fail against the schema from earlier migrations.
-- **Type Anti-patterns (PGM101-PGM109)** -- Minor/Info. `timestamp` without time zone, `char(n)`, `money`, `serial`, `json`, `varchar(n)`, floating-point columns.
+- **Type Anti-patterns (PGM101-PGM109)** -- mostly Minor/Info (PGM107 is Major). `timestamp` without time zone, `char(n)`, `money`, `serial`, `json`, `integer` primary keys, `varchar(n)`, floating-point columns.
 Derived from the PostgreSQL wiki "Don't Do This" page.
 - **Destructive Operations (PGM201-PGM205)** -- Minor/Major/Critical. `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA CASCADE`.
 - **DML in Migrations (PGM301-PGM303)** -- Info/Minor. `INSERT`, `UPDATE`, `DELETE` on existing tables.

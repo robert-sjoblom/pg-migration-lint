@@ -20,8 +20,9 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    // Tracks the first ALTER TABLE seen per table key, per lock level:
-    // key = (table, LockLevel), value = SourceSpan of first occurrence.
+    // Tracks the most recent ALTER TABLE seen per table key, per lock level:
+    // key = (table, LockLevel), value = SourceSpan of that statement, which the
+    // next finding on the same key reports as the preceding statement.
     let mut tracking: HashMap<(RelationName, LockLevel), SourceSpan> = HashMap::new();
 
     for stmt in statements {
@@ -39,9 +40,9 @@ pub(super) fn check(
                 };
                 let map_key = (key.clone(), lock);
 
-                if let Some(first_span) = tracking.get_mut(&map_key) {
+                if let Some(preceding_span) = tracking.get_mut(&map_key) {
                     // Second (or later) ALTER TABLE on this table with the same lock level.
-                    let preceding_line = first_span.start_line;
+                    let preceding_line = preceding_span.start_line;
                     findings.push(rule.make_finding(
                         format!(
                             "Table '{}' has multiple ALTER TABLE statements with the same lock \
@@ -56,7 +57,7 @@ pub(super) fn check(
                     // Update tracking to the current statement so the next firing points to
                     // the immediately preceding ALTER TABLE (keeps messages unique and
                     // gives more actionable "combine with line X" guidance).
-                    *first_span = stmt.span.clone();
+                    *preceding_span = stmt.span.clone();
                 } else {
                     // No existing chain for this (table, lock-level) pair — start one.
                     // The HashMap key includes LockLevel, so a chain at a different lock level

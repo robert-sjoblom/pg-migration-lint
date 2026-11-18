@@ -109,7 +109,7 @@ pub struct TableState {
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
 - `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (btree and hash count; skips other access methods, partial and ON ONLY indexes); used by PGM501
-- `has_unique_not_null(&self) -> bool` - for PGM503 detection (btree-only, skips partial/expression indexes)
+- `has_unique_not_null(&self) -> bool` - PGM503 fires on such a table and PGM502 skips it (btree-only, skips partial/expression indexes)
 - `constraint_backed_by(&self, index_name: &str) -> Option<&ConstraintState>` - the PRIMARY KEY, UNIQUE or EXCLUDE constraint the index backs (they share a name); replay keeps such an index on `DROP INDEX`, as PostgreSQL rejects it, and PGM027 reports the statement
 
 The catalog tracks:
@@ -159,7 +159,7 @@ pub struct LintContext<'a> {
 }
 ```
 
-Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM501/502/503). The two-catalog approach enables single-pass replay without needing separate replay runs.
+Most rules read `catalog_before`, directly or through `is_existing_table` and the shared helpers, to tell pre-existing tables from ones created in the change and to look up the schema the statements run against. `catalog_after` is for post-file checks (PGM501, PGM502, PGM503, PGM508). The two-catalog approach enables single-pass replay without needing separate replay runs.
 
 A rule that needs the schema as it stands just before one statement, rather than before or after the whole unit, gets it from `replay::map_with_state_before`, which replays the unit's earlier statements on a copy of `catalog_before`. `src/rules/using_index.rs` uses it to resolve the index of `ADD PRIMARY KEY` / `ADD UNIQUE ... USING INDEX` (PGM016, PGM017, PGM107), and `src/rules/rejected_statements.rs` to find the statements PostgreSQL rejects: PGM027 reports them, and rules that would report what such a statement does skip it through `RejectedStatements::contains` (PGM002, PGM003, PGM401, PGM501, PGM504).
 
@@ -259,6 +259,7 @@ To inspect a catalog in tests, use the `#[cfg(test)]` `CatalogAssertions` trait 
 - `assert_table("orders")` / `assert_no_table("audit.orders")`
 - `assert_partition_children("parent", &["child"])` - compared as sets
 - `assert_index_owner("idx_status", "orders")` / `assert_index_unregistered("idx_status")` - index names are bare
+- `assert_same_state_as(&expected)` - same tables, in the same state, and the same index registrations
 
 ### Test Fixture Repos
 
