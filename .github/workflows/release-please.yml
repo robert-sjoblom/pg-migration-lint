@@ -115,3 +115,65 @@ jobs:
             liquibase-bridge.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Runs after upload-assets, so a release whose binary never got uploaded
+  # leaves the major version tag where it was. GITHUB_TOKEN cannot get the
+  # workflows permission, so moving the tag past a change to
+  # .github/workflows can fail with HTTP 403. The step then fails and prints
+  # the manual move: git fetch origin, then
+  # git push --force origin <release sha>:refs/tags/vN
+  move-major-tag:
+    name: Move major version tag
+    runs-on: ubuntu-24.04
+    needs: [release-please, upload-assets]
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Point the major version tag at the release commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^(v[0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::Release tag '${TAG_NAME}' is not vX.Y.Z, so there is no major version tag to move."
+            exit 0
+          fi
+          major="${BASH_REMATCH[1]}"
+          if ! sha="$(gh api "repos/${REPO}/commits/${TAG_NAME}" --jq .sha)"; then
+            echo "::error::Could not look up the commit of ${TAG_NAME}, so ${major} was not moved. Re-run this job."
+            exit 1
+          fi
+
+          if ! major_refs="$(gh api "repos/${REPO}/git/matching-refs/tags/${major}" --paginate)"; then
+            echo "::error::Could not list the ${major} tags of ${REPO}, so ${major} was not moved. Re-run this job."
+            exit 1
+          fi
+          current_sha="$(jq -r --arg ref "refs/tags/${major}" '.[] | select(.ref == $ref) | .object.sha' <<<"$major_refs")"
+
+          if [[ "$current_sha" == "$sha" ]]; then
+            echo "${major} already points at ${TAG_NAME} (${sha})."
+            exit 0
+          fi
+
+          if [[ -n "$current_sha" ]]; then
+            current_version="$(jq -r --arg sha "$current_sha" '.[] | select(.object.sha == $sha) | .ref | ltrimstr("refs/tags/")' <<<"$major_refs" \
+              | { grep -E "^${major}\.[0-9]+\.[0-9]+$" || true; } | sort -V | tail -n 1)"
+            if [[ -z "$current_version" ]]; then
+              echo "::notice::${major} points at ${current_sha}, which no ${major}.x.y tag points at, so there is no version to compare ${TAG_NAME} with. Moving it anyway."
+            elif [[ "$(printf '%s\n' "$current_version" "$TAG_NAME" | sort -V | tail -n 1)" != "$TAG_NAME" ]]; then
+              echo "::notice::${major} points at ${current_version}, which is newer than ${TAG_NAME}, so it stays there."
+              exit 0
+            fi
+            move=(--method PATCH "repos/${REPO}/git/refs/tags/${major}" -F force=true)
+          else
+            move=(--method POST "repos/${REPO}/git/refs" -f ref="refs/tags/${major}")
+          fi
+
+          if ! gh api "${move[@]}" -f sha="$sha" --silent; then
+            echo "::error::Could not move ${major} to ${TAG_NAME} (${sha}). If the error above is an HTTP 403 or mentions the workflows permission, the move probably spans a change to .github/workflows, which GITHUB_TOKEN cannot do. Move the tag by hand: run git fetch origin so the commit is available locally, then git push --force origin ${sha}:refs/tags/${major}"
+            exit 1
+          fi
+          echo "Moved ${major} to ${TAG_NAME} (${sha})."

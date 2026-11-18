@@ -61,7 +61,7 @@ chmod +x pg-migration-lint
 
 ## GitHub Action
 
-pg-migration-lint ships as a GitHub Action (`robert-sjoblom/pg-migration-lint@v2.15.0`) that lints only the files changed in a pull request and posts findings as inline PR review comments, using the same rule engine as the CLI. Under the hood it downloads this repo's release binary and runs `pg-migration-lint github-review` -- a Rust subcommand, not a shell script -- but that's an implementation detail; nothing on the consumer side needs to know it.
+pg-migration-lint ships as a GitHub Action (`robert-sjoblom/pg-migration-lint@v2`) that lints only the files changed in a pull request and posts findings as inline PR review comments, using the same rule engine as the CLI. Under the hood it downloads this repo's release binary and runs `pg-migration-lint github-review` -- a Rust subcommand, not a shell script -- but that's an implementation detail; nothing on the consumer side needs to know it.
 
 Add a workflow like this:
 
@@ -84,7 +84,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Lint changed migrations
-        uses: robert-sjoblom/pg-migration-lint@v2.15.0
+        uses: robert-sjoblom/pg-migration-lint@v2
         with:
           fail-on: major
 ```
@@ -93,7 +93,7 @@ Five details matter here:
 
 - **The action requires a Linux x86_64 runner, such as `ubuntu-latest`.** It installs the Linux x86_64 release binary, so on a macOS, Windows or ARM runner it stops with an error before downloading anything.
 
-- **Pin to a released tag, and bump it when you want a newer version.** Releases are tagged `vX.Y.Z` only; there is no moving `v1`/`v2` major-version alias to track. Check [the releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) for the newest tag. Pinning `@main` also works (the action falls back to the latest release when its ref isn't a release tag), but it tracks unreleased commits rather than a stable version.
+- **`@v2` follows the newest v2 release.** After each `v2.x.y` release the release workflow moves the `v2` tag to it, and the action installs the binary of the newest published `v2.x.y` release, so you get fixes and new rules without editing the workflow, but never a new major version. When a release changes this repository's own workflow files, the tag may have to be moved by hand and can lag behind that release for a while; the binary still comes from the newest `v2.x.y` release. Since minor releases can add rules, a pull request can get new findings with no change on your side. To upgrade on your own schedule, pin an exact release tag such as `@v2.16.2`, which runs that release's action and binary, and bump it when you want a newer version; [the releases page](https://github.com/robert-sjoblom/pg-migration-lint/releases) lists them. Any other ref, such as `@main` or a commit SHA, runs the action code from that ref with the binary of the latest release, whatever its major version.
 
 - **`permissions: pull-requests: write` is required.** Posting PR review comments needs this scope on `GITHUB_TOKEN`. Many orgs default `GITHUB_TOKEN` to read-only repository permissions, so omitting this block is the single most common way to get a silent 403 the first time you wire this action up.
 - **Check out the PR head commit explicitly**, via `ref: ${{ github.event.pull_request.head.sha }}`. On a `pull_request` trigger, `actions/checkout` defaults to the ephemeral merge commit rather than the PR's actual head, and this action's line numbers come from the GitHub Files API computed against head content -- checking out anything else risks mismatched line numbers on PRs with conflicts. The default (shallow) `fetch-depth: 1` is fine as-is: the action never runs `git diff` itself, it only reads whatever files are on disk plus the changed-file list from the GitHub API.

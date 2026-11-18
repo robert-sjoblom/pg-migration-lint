@@ -34,7 +34,8 @@
 #                           the unprefixed `ACTION_REPOSITORY` name.
 #   ACTION_REF         Same two caveats as above, for
 #                      `${{ github.action_ref }}`. This is the ref the
-#                      consumer pinned the action to (a released tag like
+#                      consumer pinned the action to (the moving
+#                      major-version tag like `v2`, a released tag like
 #                      `v1.2.3`, or a branch like `main`).
 #   GH_TOKEN           Token for `gh` CLI API auth (forwarded from this
 #                      action's `github-token` input).
@@ -59,6 +60,9 @@
 # falls back to installing unverified, matching this script's original
 # behavior. A `.sha256` asset that is present but fails verification is
 # treated as fatal — the script exits before extracting anything.
+# A major-version ref such as `v2` only resolves to a release that has both
+# assets, so that fallback applies only to an exact release tag or to the
+# latest release.
 
 set -euo pipefail
 
@@ -78,12 +82,42 @@ if [[ "$RUNNER_OS" != "$ASSET_RUNNER_OS" || "$RUNNER_ARCH" != "$ASSET_RUNNER_ARC
   exit 1
 fi
 
-# Resolve the release tag to download. Prefer the ref the action itself was
-# pinned to (e.g. a version tag like `v1.2.3`); if that ref isn't itself a
-# release tag — e.g. someone pinned `@main` — fall back to the repo's latest
-# release.
+# release-please publishes a release before the release workflow uploads its
+# assets, so the newest release can lack the binary or its checksum for a few
+# minutes. Requiring both keeps a `vN` ref on the previous release during
+# that window instead of installing unverified.
+readonly RELEASE_TAGS_WITH_VERIFIABLE_BINARY_JQ=".[] | select((.draft or .prerelease) | not) | select(any(.assets[]; .name == \"${ASSET_PATTERN}\") and any(.assets[]; .name == \"${ASSET_PATTERN}.sha256\")) | .tag_name"
+
+newest_release_in_major() {
+  local repo="$1" major="$2" release_tags
+
+  release_tags="$(gh api "repos/${repo}/releases?per_page=100" --paginate --jq "$RELEASE_TAGS_WITH_VERIFIABLE_BINARY_JQ")" || return 1
+  { grep -E "^${major}\.[0-9]+\.[0-9]+$" <<<"$release_tags" || true; } | sort -V | tail -n 1
+}
+
+# Resolve the release tag to download from the ref the action was pinned to:
+#   - a major-version tag such as `v2` (moved to each v2.x.y release by
+#     .github/workflows/release-please.yml): the newest published v2.x.y
+#     release that ships the binary and its .sha256, so a newer major is
+#     never picked up;
+#   - an exact release tag such as `v1.2.3`: that release;
+#   - anything else, such as `@main` or a commit SHA: the latest release.
 resolve_tag() {
   local repo="$1" ref="$2"
+
+  if [[ "$ref" =~ ^v[0-9]+$ ]]; then
+    local tag
+    if ! tag="$(newest_release_in_major "$repo" "$ref")"; then
+      echo "ERROR: could not list the releases of ${repo} to resolve ${ref}." >&2
+      return 1
+    fi
+    if [[ -z "$tag" ]]; then
+      echo "ERROR: ${repo} has no published ${ref}.x.y release with both ${ASSET_PATTERN} and ${ASSET_PATTERN}.sha256 assets (drafts and prereleases do not count). Pin the action to an existing release tag instead." >&2
+      return 1
+    fi
+    printf '%s\n' "$tag"
+    return 0
+  fi
 
   if gh release view "$ref" --repo "$repo" >/dev/null 2>&1; then
     printf '%s\n' "$ref"
