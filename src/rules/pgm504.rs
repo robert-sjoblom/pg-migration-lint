@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use crate::names::RelationName;
 use crate::parser::ir::{IrNode, Located};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "RENAME TABLE on existing table";
@@ -29,6 +30,7 @@ pub(super) fn check(
 
     // Pass 2: find RenameTable on existing tables.
     let mut findings = Vec::new();
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
 
     for stmt in statements {
         if let IrNode::RenameTable {
@@ -46,6 +48,12 @@ pub(super) fn check(
             // Replacement detection: if a CREATE TABLE in this unit re-creates
             // the old name, the rename is part of a safe swap pattern.
             if created_in_unit.contains(table_key) {
+                continue;
+            }
+
+            // Postgres rejects a rename onto a taken name, so nothing is
+            // renamed and nothing breaks; PGM027 reports the failure.
+            if rejected.contains(&stmt.span) {
                 continue;
             }
 
@@ -71,8 +79,10 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+    use rstest::rstest;
 
     #[test]
     fn test_rename_existing_table_fires() {
@@ -143,5 +153,50 @@ mod tests {
             "Expected no findings for replacement pattern, got: {:?}",
             findings.iter().map(|f| &f.message).collect::<Vec<_>>(),
         );
+    }
+
+    fn messages_for_change(history: &str, change: &str) -> Vec<String> {
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        RuleId::Pgm504
+            .check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    #[rstest]
+    #[case::onto_a_table("ALTER TABLE orders RENAME TO purchases;")]
+    #[case::onto_an_index("ALTER TABLE orders RENAME TO purchases_pkey;")]
+    #[case::onto_its_own_name("ALTER TABLE orders RENAME TO orders;")]
+    fn test_rename_onto_a_taken_name_is_left_to_pgm027(#[case] change: &str) {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int PRIMARY KEY);
+             CREATE TABLE purchases (id int PRIMARY KEY);",
+            change,
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn test_rename_onto_a_name_freed_earlier_in_the_unit_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int PRIMARY KEY);
+             CREATE TABLE purchases (id int PRIMARY KEY);",
+            "DROP TABLE purchases;
+             ALTER TABLE orders RENAME TO purchases;",
+        );
+        assert_eq!(messages.len(), 1, "got {messages:?}");
+    }
+
+    #[test]
+    fn test_rename_onto_a_name_taken_earlier_in_the_unit_is_left_to_pgm027() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int PRIMARY KEY);",
+            "CREATE TABLE purchases (id int PRIMARY KEY);
+             ALTER TABLE orders RENAME TO purchases;",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
     }
 }

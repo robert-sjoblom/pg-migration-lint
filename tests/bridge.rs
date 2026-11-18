@@ -24,17 +24,19 @@ mod tests {
 
     /// Shared replay+lint logic for Liquibase loaders (bridge and update-sql).
     ///
-    /// Converts raw migration units into `MigrationUnit`s, normalizes schemas,
-    /// replays catalog history, and runs the full rule engine on changed units.
+    /// Converts raw migration units into `MigrationUnit`s, resolves relation
+    /// names against the `public` schema, replays catalog history, and runs the
+    /// full rule engine on changed units.
     /// The only difference between bridge and update-sql is HOW they produce
     /// `raw_units`; everything after that is identical.
     fn lint_loaded_units(raw_units: Vec<RawMigrationUnit>, changed_ids: &[&str]) -> Vec<Finding> {
-        let mut units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
-            .into_iter()
-            .map(|r| r.into_migration_unit())
-            .collect();
-
-        normalize::normalize_schemas(&mut units, "public");
+        let units = normalize::resolve_units(
+            raw_units
+                .into_iter()
+                .map(|r| r.into_migration_unit())
+                .collect(),
+            "public",
+        );
 
         let changed_set: HashSet<String> = changed_ids.iter().map(|s| s.to_string()).collect();
 
@@ -484,12 +486,13 @@ mod tests {
         raw_units: Vec<RawMigrationUnit>,
         changed_files: &[&str],
     ) -> Vec<Finding> {
-        let mut units: Vec<pg_migration_lint::input::MigrationUnit> = raw_units
-            .into_iter()
-            .map(|r| r.into_migration_unit())
-            .collect();
-
-        normalize::normalize_schemas(&mut units, "public");
+        let units = normalize::resolve_units(
+            raw_units
+                .into_iter()
+                .map(|r| r.into_migration_unit())
+                .collect(),
+            "public",
+        );
 
         let all_rules: Vec<RuleId> = RuleId::lint_rules().collect();
 

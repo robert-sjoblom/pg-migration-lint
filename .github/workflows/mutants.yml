@@ -11,14 +11,15 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The ubuntu-latest runner has clang-18 + libclang pre-installed;
-  # point bindgen at it so we can skip apt-get install libclang-dev.
+  # Runners are pinned to ubuntu-24.04 because that image has clang-18 and
+  # libclang pre-installed (ubuntu-latest, now 26.04, has no llvm-18).
+  # Point bindgen at it so we can skip apt-get install libclang-dev.
   LIBCLANG_PATH: /usr/lib/llvm-18/lib
 
 jobs:
   mutants:
     name: Mutation testing
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1

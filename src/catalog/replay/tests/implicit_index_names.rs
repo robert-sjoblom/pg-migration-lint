@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use super::steps_from_sql;
 use crate::catalog::builder::CatalogAssertions;
 use crate::catalog::replay::apply;
@@ -18,13 +16,13 @@ fn table<'a>(catalog: &'a Catalog, table_key: &str) -> &'a TableState {
     catalog.table(table_key)
 }
 
-fn index_names(table: &TableState) -> BTreeSet<&str> {
+fn index_names(table: &TableState) -> Vec<&str> {
     table.indexes.iter().map(|idx| idx.name.as_str()).collect()
 }
 
 fn assert_index_owned_by(catalog: &Catalog, index_name: &str, table_key: &str) {
     let table = table(catalog, table_key);
-    assert_eq!(index_names(table), BTreeSet::from([index_name]));
+    assert_eq!(index_names(table), [index_name]);
     catalog.assert_index_owner(&format!("{}.{index_name}", table.name.schema), table_key);
 }
 

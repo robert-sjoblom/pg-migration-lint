@@ -184,6 +184,15 @@ pub(crate) fn resolve_node(node: IrNode<QualifiedName>, default_schema: &str) ->
             index: resolve(index),
             new_name,
         },
+        IrNode::RenameConstraint {
+            table,
+            old_name,
+            new_name,
+        } => IrNode::RenameConstraint {
+            table: resolve(table),
+            old_name,
+            new_name,
+        },
         IrNode::Ignored { raw_sql } => IrNode::Ignored { raw_sql },
         IrNode::Unparseable {
             raw_sql,
@@ -202,9 +211,10 @@ fn resolve_alter_table_action(
     match action {
         AlterTableAction::AddColumn(column) => AlterTableAction::AddColumn(column),
         AlterTableAction::DropColumn { name } => AlterTableAction::DropColumn { name },
-        AlterTableAction::AddConstraint(constraint) => {
-            AlterTableAction::AddConstraint(resolve_constraint(constraint, default_schema))
-        }
+        AlterTableAction::AddConstraint { constraint, origin } => AlterTableAction::AddConstraint {
+            constraint: resolve_constraint(constraint, default_schema),
+            origin,
+        },
         AlterTableAction::AlterColumnType {
             column_name,
             new_type,
@@ -541,19 +551,54 @@ mod tests {
     fn alter_table_add_foreign_key_ref_table_is_resolved() {
         let IrNode::AlterTable(at) = resolved(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(foreign_key_to(
+            actions: vec![AlterTableAction::add_constraint(foreign_key_to(
                 QualifiedName::unqualified("customers"),
             ))],
         }) else {
             panic!("expected AlterTable");
         };
 
-        let [AlterTableAction::AddConstraint(TableConstraint::ForeignKey { ref_table, .. })] =
-            at.actions.as_slice()
+        let [
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::ForeignKey { ref_table, .. },
+                ..
+            },
+        ] = at.actions.as_slice()
         else {
             panic!("expected one AddConstraint ForeignKey action");
         };
         assert_resolved_into_default_schema(ref_table, "customers");
+    }
+
+    #[test]
+    fn alter_table_constraint_origin_survives_resolution() {
+        let IrNode::AlterTable(at) = resolved(AlterTable {
+            name: QualifiedName::unqualified("orders"),
+            actions: vec![
+                AlterTableAction::AddColumn(ColumnDef::test("customer_id", "int")),
+                AlterTableAction::add_column_constraint(foreign_key_to(
+                    QualifiedName::unqualified("customers"),
+                )),
+                AlterTableAction::add_constraint(foreign_key_to(QualifiedName::unqualified(
+                    "customers",
+                ))),
+            ],
+        }) else {
+            panic!("expected AlterTable");
+        };
+
+        let origins: Vec<ConstraintOrigin> = at
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                AlterTableAction::AddConstraint { origin, .. } => Some(*origin),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            origins,
+            [ConstraintOrigin::AddColumn, ConstraintOrigin::AddConstraint]
+        );
     }
 
     #[test]
@@ -820,6 +865,42 @@ mod tests {
 
         assert_resolved_into_default_schema(&index, "idx_orders_status");
         assert_eq!(new_name, "idx_orders_state");
+    }
+
+    fn resolved_rename_constraint(table: QualifiedName) -> (ResolvedName, String, String) {
+        let IrNode::RenameConstraint {
+            table,
+            old_name,
+            new_name,
+        } = resolved(IrNode::RenameConstraint {
+            table,
+            old_name: "orders_pkey".to_string(),
+            new_name: "purchases_pkey".to_string(),
+        })
+        else {
+            panic!("expected RenameConstraint");
+        };
+        (table, old_name, new_name)
+    }
+
+    #[test]
+    fn rename_constraint_table_is_resolved_and_constraint_names_stay_bare() {
+        let (table, old_name, new_name) =
+            resolved_rename_constraint(QualifiedName::unqualified("orders"));
+
+        assert_resolved_into_default_schema(&table, "orders");
+        assert_eq!(old_name, "orders_pkey");
+        assert_eq!(new_name, "purchases_pkey");
+    }
+
+    #[test]
+    fn qualified_rename_constraint_table_keeps_its_schema() {
+        let (table, old_name, new_name) =
+            resolved_rename_constraint(QualifiedName::qualified("billing", "orders"));
+
+        assert_resolved_into_written_schema(&table, "billing", "orders");
+        assert_eq!(old_name, "orders_pkey");
+        assert_eq!(new_name, "purchases_pkey");
     }
 
     #[test]

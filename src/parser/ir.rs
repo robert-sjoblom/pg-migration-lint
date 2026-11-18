@@ -59,6 +59,14 @@ pub enum IrNode<N = ResolvedName> {
         index: N,
         new_name: String,
     },
+    /// `ALTER TABLE ... RENAME CONSTRAINT`. pg_query emits `RenameStmt`.
+    /// The constraint names are bare: a constraint belongs to its table.
+    /// `ALTER DOMAIN ... RENAME CONSTRAINT` is `Ignored`.
+    RenameConstraint {
+        table: N,
+        old_name: String,
+        new_name: String,
+    },
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
     Ignored {
@@ -136,7 +144,18 @@ pub enum AlterTableAction<N = ResolvedName> {
     DropColumn {
         name: String,
     },
-    AddConstraint(TableConstraint<N>),
+    /// A constraint the statement adds, from an `ADD CONSTRAINT` or written
+    /// inline in an `ADD COLUMN`. Rules treat both alike; `origin` tells them
+    /// apart because Postgres names them in different orders.
+    ///
+    /// A constraint whose origin is [`ConstraintOrigin::AddColumn`] directly
+    /// follows the `AddColumn` it was written in, with the other inline
+    /// constraints of that column, in written order. Replay relies on this
+    /// to find each one's `ADD COLUMN`.
+    AddConstraint {
+        constraint: TableConstraint<N>,
+        origin: ConstraintOrigin,
+    },
     AlterColumnType {
         column_name: String,
         new_type: TypeName,
@@ -186,6 +205,44 @@ pub enum AlterTableAction<N = ResolvedName> {
     Other {
         description: String,
     },
+}
+
+impl<N> AlterTableAction<N> {
+    /// An `ADD CONSTRAINT` subcommand adding `constraint`.
+    pub fn add_constraint(constraint: TableConstraint<N>) -> Self {
+        Self::AddConstraint {
+            constraint,
+            origin: ConstraintOrigin::AddConstraint,
+        }
+    }
+
+    /// `constraint` written inline in the column definition of the
+    /// preceding `ADD COLUMN`, as in `ADD COLUMN b int UNIQUE`.
+    pub fn add_column_constraint(constraint: TableConstraint<N>) -> Self {
+        Self::AddConstraint {
+            constraint,
+            origin: ConstraintOrigin::AddColumn,
+        }
+    }
+}
+
+/// The `ALTER TABLE` subcommand an added constraint was written in. Each
+/// variant is named after that subcommand.
+///
+/// Postgres schedules an `ALTER TABLE` by subcommand: within each pass it
+/// creates the constraints of every `ADD COLUMN` before those of any
+/// `ADD CONSTRAINT`, so the subcommand decides which of two colliding
+/// generated names gets the suffix
+/// (`verify/tests/naming/collision_order.sql`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstraintOrigin {
+    /// A column constraint, written inline in an `ADD COLUMN`'s column
+    /// definition, as in `ADD COLUMN b int UNIQUE`. An inline PRIMARY KEY
+    /// also sets the column's [`ColumnDef::is_inline_pk`].
+    AddColumn,
+    /// A table constraint, written as an `ADD CONSTRAINT` subcommand of its
+    /// own, as in `ADD UNIQUE (b)` or `ADD CONSTRAINT b_key UNIQUE (b)`.
+    AddConstraint,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -356,7 +413,11 @@ pub struct ColumnDef {
     pub type_name: TypeName,
     pub nullable: bool, // true = nullable (default), false = NOT NULL
     pub default_expr: Option<DefaultExpr>,
-    /// True if this column has an inline PRIMARY KEY constraint.
+    /// True if this column has an inline PRIMARY KEY constraint. The parser
+    /// also promotes that key to a `TableConstraint::PrimaryKey` (in
+    /// `CreateTable::constraints`, or as an `AddConstraint` action with
+    /// origin [`ConstraintOrigin::AddColumn`] after `AddColumn`), and replay
+    /// and the rules read only that.
     pub is_inline_pk: bool,
     /// True if this column was declared as `serial`, `bigserial`, or `smallserial`.
     pub is_serial: bool,

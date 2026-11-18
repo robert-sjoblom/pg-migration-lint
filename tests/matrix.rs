@@ -314,7 +314,7 @@ fn test_matrix_add_fk_without_not_valid_no_index() {
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders").resolve("public"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::ForeignKey {
                 name: Some("fk_customer".to_string()),
                 columns: vec!["customer_id".to_string()],
@@ -359,7 +359,7 @@ fn test_matrix_add_fk_not_valid_no_index() {
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders").resolve("public"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::ForeignKey {
                 name: Some("fk_customer".to_string()),
                 columns: vec!["customer_id".to_string()],
@@ -390,7 +390,7 @@ fn test_matrix_add_check_without_not_valid() {
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders").resolve("public"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Check {
             name: Some("orders_status_check".to_string()),
             expression: "status IN ('pending', 'shipped', 'delivered')".to_string(),
             referenced_columns: vec!["status".to_string()],
@@ -537,7 +537,7 @@ fn test_matrix_add_pk_fires_pgm016_not_pgm017() {
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders").resolve("public"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec!["id".to_string()],
@@ -567,13 +567,13 @@ fn test_matrix_add_pk_and_add_unique_both_fire() {
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders").resolve("public"),
         actions: vec![
-            AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+            AlterTableAction::add_constraint(TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec!["id".to_string()],
                 include_columns: vec![],
                 using_index: None,
             }),
-            AlterTableAction::AddConstraint(TableConstraint::Unique {
+            AlterTableAction::add_constraint(TableConstraint::Unique {
                 name: Some("uq_orders_email".to_string()),
                 columns: vec!["email".to_string()],
                 include_columns: vec![],

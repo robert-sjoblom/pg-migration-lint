@@ -25,6 +25,7 @@ mod fn_volatility;
 #[cfg(test)]
 mod fn_volatility_tests;
 mod lint_context;
+mod rejected_statements;
 mod reserved_keywords;
 #[cfg(test)]
 mod reserved_keywords_tests;
@@ -34,6 +35,7 @@ mod rule_id;
 mod severity;
 #[cfg(test)]
 mod test_helpers;
+mod using_index;
 
 // 0xx — Unsafe DDL
 mod pgm001;
@@ -61,6 +63,7 @@ mod pgm022;
 mod pgm023;
 mod pgm024;
 mod pgm025;
+mod pgm027;
 
 // 1xx — Type anti-patterns
 mod pgm101;
@@ -229,7 +232,7 @@ mod tests {
             assert_eq!(id, parsed, "round-trip failed for {s}");
             assert_eq!(id.as_str(), s.as_str());
         }
-        assert_eq!(RuleId::iter().count(), 55);
+        assert_eq!(RuleId::iter().count(), 56);
     }
 
     #[test]

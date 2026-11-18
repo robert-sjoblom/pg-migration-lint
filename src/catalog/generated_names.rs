@@ -5,14 +5,12 @@
 //! (`src/backend/commands/indexcmds.c` and `tablecmds.c`). The behaviour is
 //! the one measured on PG 14 to 19 in `verify/tests/naming/*.sql`.
 //!
-//! Collision suffixes are not modelled. When the generated name is already
-//! taken in the schema, Postgres retries with a numbered label (`key1`,
-//! `key2`, ...), which depends on every constraint and relation in the
-//! schema. The catalog has no per-schema state yet, so
-//! [`GeneratedName::unsuffixed`] always returns the first choice. A suffixed
-//! name is [`make_object_name`] called with the numbered label.
+//! When the first choice is already taken in the schema, Postgres retries
+//! with a numbered label (`key1`, `key2`, ...): `ChooseConstraintName` and
+//! `ChooseRelationName`. [`GeneratedName::choose`] does the same against a
+//! [`TakenNames`].
 
-use crate::parser::ir::{CreateIndex, IndexColumn};
+use crate::parser::ir::IndexColumn;
 
 /// `NAMEDATALEN - 1`: the longest identifier Postgres stores, in bytes.
 const MAX_IDENTIFIER_BYTES: usize = 63;
@@ -43,6 +41,34 @@ impl NameLabel {
             Self::Index => "idx",
         }
     }
+
+    /// True if `name` is in use where this kind of object needs it free
+    /// (`verify/tests/naming/collision_scope.sql`). CHECK and FOREIGN KEY
+    /// avoid constraint names only (`ChooseConstraintName`). PRIMARY KEY,
+    /// UNIQUE and EXCLUDE also create an index, so they avoid relation names
+    /// too (`ChooseRelationName` for a constraint). A plain `CREATE INDEX`
+    /// avoids relation names only.
+    fn is_taken(self, name: &str, taken: &impl TakenNames) -> bool {
+        match self {
+            Self::Check | Self::ForeignKey => taken.constraint_taken(name),
+            Self::PrimaryKey | Self::Unique | Self::Exclude => {
+                taken.constraint_taken(name) || taken.relation_taken(name)
+            }
+            Self::Index => taken.relation_taken(name),
+        }
+    }
+}
+
+/// The names already in use in one schema, in the two namespaces a
+/// generated name must avoid.
+pub(crate) trait TakenNames {
+    /// True if a constraint in the schema has this name: `pg_constraint`
+    /// across every table and kind.
+    fn constraint_taken(&self, name: &str) -> bool;
+
+    /// True if a relation in the schema has this name: `pg_class`, which
+    /// holds tables, indexes, sequences and views alike.
+    fn relation_taken(&self, name: &str) -> bool;
 }
 
 /// The parts Postgres builds a generated constraint or index name from: the
@@ -121,26 +147,30 @@ impl GeneratedName {
         }
     }
 
-    /// The name Postgres picks when no object in the schema already has it,
-    /// cut to 63 bytes. See the module docs for the collision suffix this
-    /// leaves out.
+    /// The first choice, cut to 63 bytes: the name Postgres picks when no
+    /// object in the schema has it yet. For catalogs that model no other
+    /// objects, such as the test builder's; replay uses [`Self::choose`].
     pub(crate) fn unsuffixed(&self) -> String {
-        make_object_name(
-            &self.table,
-            self.column_part.as_deref(),
-            self.label.as_str(),
-        )
+        self.with_label(self.label.as_str())
     }
-}
 
-/// The name of the index a `CREATE INDEX` creates: its own name, else the
-/// [`GeneratedName::index`] for its bare table name, without a collision
-/// suffix.
-pub(crate) fn created_index_name(ci: &CreateIndex) -> String {
-    match &ci.index_name {
-        Some(name) => name.clone(),
-        None => GeneratedName::index(ci.table_name.name(), &ci.columns, &ci.include_columns)
-            .unsuffixed(),
+    /// The name Postgres picks: the first of `{label}`, `{label}1`,
+    /// `{label}2`, ... that `taken` does not hold in the namespaces this kind
+    /// of object must avoid. The number lengthens the label, so the table and
+    /// column parts are cut again to keep the name within 63 bytes
+    /// (`verify/tests/naming/truncation.sql`).
+    pub(crate) fn choose(&self, taken: &impl TakenNames) -> String {
+        let mut name = self.unsuffixed();
+        let mut number = 0u32;
+        while self.label.is_taken(&name, taken) {
+            number += 1;
+            name = self.with_label(&format!("{}{number}", self.label.as_str()));
+        }
+        name
+    }
+
+    fn with_label(&self, label: &str) -> String {
+        make_object_name(&self.table, self.column_part.as_deref(), label)
     }
 }
 
@@ -247,6 +277,38 @@ mod tests {
             text: format!("<{generated_name_part} expression>"),
             referenced_columns: vec![],
             generated_name_part: generated_name_part.to_string(),
+        }
+    }
+
+    #[derive(Default)]
+    struct Taken {
+        constraints: Vec<String>,
+        relations: Vec<String>,
+    }
+
+    impl Taken {
+        fn constraints(names: &[&str]) -> Self {
+            Self {
+                constraints: strings(names),
+                relations: vec![],
+            }
+        }
+
+        fn relations(names: &[&str]) -> Self {
+            Self {
+                constraints: vec![],
+                relations: strings(names),
+            }
+        }
+    }
+
+    impl TakenNames for Taken {
+        fn constraint_taken(&self, name: &str) -> bool {
+            self.constraints.iter().any(|taken| taken == name)
+        }
+
+        fn relation_taken(&self, name: &str) -> bool {
+            self.relations.iter().any(|taken| taken == name)
         }
     }
 
@@ -631,9 +693,24 @@ mod tests {
 
     #[test]
     fn truncation_collision_label_key1_cuts_the_table_one_byte_more() {
+        let name = GeneratedName::unique(D63, &strings(&["a"]), &[]);
+        let taken = Taken::constraints(&[&name.unsuffixed()]);
         assert_eq!(
-            make_object_name(D63, Some("a"), "key1"),
+            name.choose(&taken),
             "d2345678901234567890123456789012345678901234567890123456_a_key1"
+        );
+    }
+
+    #[test]
+    fn truncation_collision_label_key10_cuts_the_table_two_bytes_more() {
+        let name = GeneratedName::unique(D63, &strings(&["a"]), &[]);
+        let mut taken = Taken::constraints(&[&name.unsuffixed()]);
+        taken
+            .constraints
+            .extend((1..10).map(|number| name.with_label(&format!("key{number}"))));
+        assert_eq!(
+            name.choose(&taken),
+            "d234567890123456789012345678901234567890123456789012345_a_key10"
         );
     }
 
@@ -648,8 +725,10 @@ mod tests {
 
     #[test]
     fn truncation_collision_label_idx1_cuts_the_table_one_byte_more() {
+        let name = GeneratedName::index(D63, &[column("a")], &[]);
+        let taken = Taken::relations(&[&name.unsuffixed()]);
         assert_eq!(
-            make_object_name(D63, Some("a"), "idx1"),
+            name.choose(&taken),
             "d2345678901234567890123456789012345678901234567890123456_a_idx1"
         );
     }
@@ -671,13 +750,68 @@ mod tests {
 
     #[test]
     fn truncation_collision_label_pkey1_cuts_the_table_one_byte_more() {
+        let name = GeneratedName::primary_key(
+            "z23456789012345678901234567890123456789012345678901234567890bbb",
+        );
+        let taken =
+            Taken::relations(&["z234567890123456789012345678901234567890123456789012345678_pkey"]);
         assert_eq!(
-            make_object_name(
-                "z23456789012345678901234567890123456789012345678901234567890bbb",
-                None,
-                "pkey1"
-            ),
+            name.choose(&taken),
             "z23456789012345678901234567890123456789012345678901234567_pkey1"
+        );
+    }
+
+    #[test]
+    fn choose_keeps_the_first_choice_when_nothing_is_taken() {
+        let name = GeneratedName::unique("t", &strings(&["a"]), &[]);
+        assert_eq!(name.choose(&Taken::default()), "t_a_key");
+    }
+
+    #[test]
+    fn choose_numbers_past_every_taken_name() {
+        let name = GeneratedName::unique("t", &strings(&["a"]), &[]);
+        let taken = Taken {
+            constraints: strings(&["t_a_key", "t_a_key2"]),
+            relations: strings(&["t_a_key1"]),
+        };
+        assert_eq!(name.choose(&taken), "t_a_key3");
+    }
+
+    #[rstest]
+    #[case::check_avoids_constraints(GeneratedName::check("t", &strings(&["a"])), "t_a_check", true, false)]
+    #[case::foreign_key_avoids_constraints(
+        GeneratedName::foreign_key("t", &strings(&["a"])),
+        "t_a_fkey",
+        true,
+        false
+    )]
+    #[case::primary_key_avoids_both(GeneratedName::primary_key("t"), "t_pkey", true, true)]
+    #[case::unique_avoids_both(GeneratedName::unique("t", &strings(&["a"]), &[]), "t_a_key", true, true)]
+    #[case::exclude_avoids_both(GeneratedName::exclude("t", &[column("a")], &[]), "t_a_excl", true, true)]
+    #[case::index_avoids_relations(GeneratedName::index("t", &[column("a")], &[]), "t_a_idx", false, true)]
+    fn choose_avoids_the_namespaces_of_its_kind(
+        #[case] name: GeneratedName,
+        #[case] first_choice: &str,
+        #[case] avoids_constraints: bool,
+        #[case] avoids_relations: bool,
+    ) {
+        let suffixed = format!("{first_choice}1");
+        let expected = |avoids: bool| {
+            if avoids {
+                suffixed.as_str()
+            } else {
+                first_choice
+            }
+        };
+        assert_eq!(
+            name.choose(&Taken::constraints(&[first_choice])),
+            expected(avoids_constraints),
+            "taken as a constraint name"
+        );
+        assert_eq!(
+            name.choose(&Taken::relations(&[first_choice])),
+            expected(avoids_relations),
+            "taken as a relation name"
         );
     }
 }

@@ -19,10 +19,13 @@ pub(super) fn check(
         ctx,
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
-            if let AlterTableAction::AddConstraint(TableConstraint::Check {
-                not_valid: false,
+            if let AlterTableAction::AddConstraint {
+                constraint:
+                    TableConstraint::Check {
+                        not_valid: false, ..
+                    },
                 ..
-            }) = action
+            } = action
             {
                 vec![rule.make_finding(
                     format!(
@@ -66,7 +69,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
                 referenced_columns: vec!["status".to_string()],
@@ -92,7 +95,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
                 referenced_columns: vec!["status".to_string()],
@@ -118,7 +121,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
                 referenced_columns: vec!["status".to_string()],
@@ -138,7 +141,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Check {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Check {
                 name: Some("orders_status_check".to_string()),
                 expression: "status IN ('pending', 'shipped')".to_string(),
                 referenced_columns: vec!["status".to_string()],

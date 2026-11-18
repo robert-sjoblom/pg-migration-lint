@@ -89,6 +89,11 @@ Input Files
 └────┬─────┘
      │
      ▼
+┌───────────┐
+│ Normalize │  Resolves names against default_schema (§3.2)
+└────┬──────┘
+     │
+     ▼
 ┌──────────────┐
 │ Replay Engine│  Builds Table Catalog (§3.3)
 └────┬─────────┘
@@ -121,21 +126,27 @@ IR node types (non-exhaustive):
 | `AlterIndexAttachPartition { parent_index_name, child_index_name }` | `AlterTableStmt` (objtype = ObjectIndex, AT_AttachPartition) |
 | `RenameTable { name, new_name }` | `RenameStmt` (ObjectTable) |
 | `RenameColumn { table, old_name, new_name }` | `RenameStmt` (ObjectColumn) |
+| `RenameIndex { index, new_name }` | `RenameStmt` (ObjectIndex) |
+| `RenameConstraint { table, old_name, new_name }` | `RenameStmt` (ObjectTabconstraint) |
 | `Cluster { table, index }` | `ClusterStmt` |
+| `VacuumFull { table }` | `VacuumStmt` (FULL option) |
+| `Reindex { kind, target, concurrent }` | `ReindexStmt` |
 | `InsertInto { table_name }` | `InsertStmt` |
 | `UpdateTable { table_name }` | `UpdateStmt` |
 | `DeleteFrom { table_name }` | `DeleteStmt` |
 | `TruncateTable { table_name, cascade }` | `TruncateStmt` |
 
-`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
+`AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
 
-**Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, and UNIQUE constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The IR preserves the distinction (`ColumnDef.is_inline_pk` vs `TableConstraint::PrimaryKey`), but the Catalog must normalize both into identical `TableState`. Rules never deal with the syntactic variant — only catalog state.
+`AddConstraint` carries a `ConstraintOrigin` naming the subcommand the constraint was written in: `AddColumn` for a column constraint written inline in an `ADD COLUMN` (`ADD COLUMN b int UNIQUE`), `AddConstraint` for an `ADD CONSTRAINT` subcommand (`ADD UNIQUE (b)`). A constraint with origin `AddColumn` directly follows the `AddColumn` it was written in, with that column's other inline constraints, in written order. Rules treat both origins alike. Replay uses the origin because Postgres names the constraints of one `ALTER TABLE` in pass order (`USING INDEX` constraints, then other index-backed ones, then CHECK and FOREIGN KEY), and within a pass names the constraints of each `ADD COLUMN` in turn (its CHECKs before its FOREIGN KEYs) before any `ADD CONSTRAINT`'s, which decides which of two colliding generated names gets the numeric suffix (`verify/tests/naming/collision_order.sql`).
+
+**Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, UNIQUE and CHECK constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The parser promotes every inline constraint to a `TableConstraint`: into `CreateTable.constraints`, in written order among the table-level ones, or, for `ALTER TABLE ... ADD COLUMN`, into `AddConstraint` actions with origin `AddColumn` right after the column's `AddColumn`. An inline PK is therefore in both places: `ColumnDef.is_inline_pk` flags it, and it is also a `TableConstraint::PrimaryKey`. Replay and the rules read only the `TableConstraint`, so both syntaxes produce identical `TableState`, and rules never deal with the syntactic variant.
 
 **`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM006 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
 
 `ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
 
-`TableConstraint` variants: `PrimaryKey { columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, using_index }`, `Check { name, expression, not_valid }`.
+`TableConstraint` variants: `PrimaryKey { name, columns, include_columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, include_columns, using_index }`, `Check { name, expression, referenced_columns, not_valid }`, `Exclude { name, elements, include_columns }`.
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 
@@ -176,10 +187,11 @@ IndexState {
 - `CREATE TABLE` → insert into catalog; if `PARTITION OF`, record parent relationship
 - `DROP TABLE` → remove from catalog entirely; CASCADE recursively removes partition children
 - `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking
-- `CREATE INDEX` → add to table's index list (preserving `only` flag)
+- `CREATE INDEX` → add to table's index list (preserving `only` flag); `CREATE INDEX IF NOT EXISTS` whose name a relation in the table's schema already has (an index on any table, a table, or an index-backed constraint) → no change, as PostgreSQL skips it
+- `DROP INDEX` → remove the index from its table; `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint → no change, as PostgreSQL rejects it (2BP01)
 - `ALTER INDEX ATTACH PARTITION` → flip parent index's `only` from `true` to `false`
 - Unparseable statements → if they reference a known table (best-effort regex on table name), mark that table `incomplete = true`; otherwise skip silently
-- Every constraint and index has a name. One created without a name gets the name PostgreSQL generates from the bare table name: `{table}_pkey`, `{table}_{cols}_key`, `{table}_{cols}_fkey`, `{table}_{col}_check` (exactly one referenced column) or `{table}_check`, `{table}_{elements}_excl`, `{table}_{elements}_idx`, cut to 63 bytes as PostgreSQL does (measured in `verify/tests/naming/`). Collision suffixes (`{table}_{cols}_key1`) are not modelled. A PRIMARY KEY or UNIQUE constraint and its backing index share one name: `ADD PRIMARY KEY USING INDEX idx` names the constraint `idx`, and `ADD CONSTRAINT c PRIMARY KEY USING INDEX idx` renames the index to `c`. Renaming a table or column keeps every name. `DROP CONSTRAINT` matches the stored name only, and drops the index of the same name when the constraint is index-backed.
+- Every constraint and index has a name. One created without a name gets the name PostgreSQL generates from the bare table name: `{table}_pkey`, `{table}_{cols}_key`, `{table}_{cols}_fkey`, `{table}_{col}_check` (exactly one referenced column) or `{table}_check`, `{table}_{elements}_excl`, `{table}_{elements}_idx`, cut to 63 bytes as PostgreSQL does (measured in `verify/tests/naming/`). A generated name already taken in its schema gets a numbered label, as in PostgreSQL (`{table}_{cols}_key1`, `_key2`, ...), with the parts cut again to fit 63 bytes. CHECK and FOREIGN KEY names avoid every constraint name in the schema; PRIMARY KEY, UNIQUE and EXCLUDE names also avoid relation names (tables, and the indexes the catalog records); an unnamed `CREATE INDEX` avoids relation names only. Within one statement, names are chosen in the order PostgreSQL creates the objects, and each avoids the names created before it: `CREATE TABLE` names CHECKs, then the PRIMARY KEY, then UNIQUE and EXCLUDE, then FOREIGN KEYs; `ALTER TABLE` runs its drops first, then names `USING INDEX` constraints, then the other index-backed ones, then CHECKs and FOREIGN KEYs. The catalog still adds a statement's constraints in textual order. A PRIMARY KEY or UNIQUE constraint and its backing index share one name: `ADD PRIMARY KEY USING INDEX idx` names the constraint `idx`, and `ADD CONSTRAINT c PRIMARY KEY USING INDEX idx` renames the index to `c`. Renaming a table or column keeps every name. Renaming a PRIMARY KEY, UNIQUE or EXCLUDE constraint (`RENAME CONSTRAINT`) renames its index, and renaming the index (`ALTER INDEX ... RENAME`) renames the constraint; a CHECK or FOREIGN KEY constraint renames alone. A rename onto a name already taken changes nothing, since PostgreSQL fails the statement (`verify/tests/naming/rename_taken.sql`): a table, an index or an index-backed constraint needs the name free among the relations of its schema, and a constraint, or an index backing one, needs it free among the other constraints of its table. `DROP CONSTRAINT` matches the stored name only, and drops the index of the same name when the constraint is index-backed.
 
 ### 3.4 Changed file detection
 
@@ -237,6 +249,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - **Recursive/attached index on partitioned parent**: Emits the partition-specific message. PostgreSQL does NOT support `DROP INDEX CONCURRENTLY` on partitioned parent indexes; the standard advice does not apply.
   - **Non-partitioned table**: Standard CONCURRENTLY advice.
   - `ALTER INDEX ... ATTACH PARTITION` flips an ON ONLY index to recursive, so the suppression vs. warning is correctly distinguished even across migrations.
+- **Does not fire when**:
+  - The statement names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes (`DROP INDEX a, b`), as PGM027 judges it. PostgreSQL rejects the whole statement and drops nothing; PGM027 reports it.
 
 #### PGM003 — `CONCURRENTLY` inside transaction
 
@@ -244,6 +258,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, `ALTER TABLE ... DETACH PARTITION ... CONCURRENTLY`, or `REINDEX ... CONCURRENTLY` inside a context that implies transactional execution:
   - Liquibase changeset without `runInTransaction="false"`
   - go-migrate (which runs each file in a transaction by default, unless the file contains `-- +goose NO TRANSACTION` or equivalent)
+- **Does not fire when**:
+  - `DROP INDEX CONCURRENTLY` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
 - **Message**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
 
 #### PGM004 — `DETACH PARTITION` on existing table without `CONCURRENTLY`
@@ -320,11 +336,12 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM016 — `ADD PRIMARY KEY` on existing table without `USING INDEX`
 
 - **Severity**: MAJOR
-- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns.
+- **Triggers**: `ALTER TABLE ... ADD PRIMARY KEY` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, is not btree, or covers nullable columns. The index and its columns are judged as they stand just before the statement, as PGM027 judges them: `catalog_before` with the earlier statements of the unit replayed on top. An index created, dropped or renamed earlier in the unit counts, and so does a column made NOT NULL or nullable there.
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
-  - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL
+  - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL, also when the index was created, or the columns made NOT NULL, earlier in the same unit
+  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
 - **Message (no USING INDEX)**: `ADD PRIMARY KEY on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
 - **Message (index not found)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
 - **Message (index not unique)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
@@ -421,8 +438,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
 
 - **Severity**: CRITICAL
-- **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE (columns)` where the table exists in `catalog_before` (not created in the same set of changed files) and the target columns do NOT already have a covering unique index or `UNIQUE` constraint.
-- **Logic**: Check `catalog_before` for the table. Look for a unique index or `UNIQUE` constraint whose columns match the constraint columns exactly (set equality). If neither exists, fire.
+- **Triggers**: `ALTER TABLE ... ADD [CONSTRAINT ...] UNIQUE` on an existing table that does not use `USING INDEX`, or where the referenced index does not exist, is not UNIQUE, or is not btree. Without `USING INDEX` the rule fires even when a unique index or `UNIQUE` constraint on the same columns already exists, since PostgreSQL builds a new index anyway. The index is judged as it stands just before the statement, as PGM027 judges it: `catalog_before` with the earlier statements of the unit replayed on top. An index created, dropped or renamed earlier in the unit counts.
 - **Safe alternative**:
   ```sql
   -- Step 1: build the unique index concurrently (no lock)
@@ -433,9 +449,12 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
-  - The constraint columns already have a covering unique index (exact column match)
-  - The constraint columns already have a `UNIQUE` constraint (exact column match)
-- **Message**: `ADD UNIQUE on existing table '{table}' without a pre-existing unique index on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
+  - `USING INDEX` references a UNIQUE btree index of the table, also when the index was created earlier in the same unit
+  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
+- **Message (no USING INDEX)**: `ADD UNIQUE on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
+- **Message (index not found)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
+- **Message (index not unique)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
+- **Message (non-btree)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index uses access method '{method}', but only btree indexes can back a UNIQUE constraint.`
 
 #### PGM018 — `CLUSTER` on existing table
 
@@ -493,7 +512,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - All actions are `VALIDATE CONSTRAINT` → `SHARE UPDATE EXCLUSIVE`
   - Any other action → `ACCESS EXCLUSIVE`
   - Statements with different lock levels are tracked independently.
-- **Chain breaking**: Any intervening non-ALTER statement that references the same table (e.g., `CREATE INDEX`, `INSERT INTO`) breaks the chain for that table.
+- **Chain breaking**: Any intervening statement that references the same table and is not an `ALTER TABLE` action list (e.g., `CREATE INDEX`, `INSERT INTO`, or an `ALTER TABLE ... RENAME TO`, `RENAME COLUMN` or `RENAME CONSTRAINT`, none of which can join an action list) breaks the chain for that table.
 - **Does not fire when**:
   - Single `ALTER TABLE` per table
   - Table is new (in `tables_created_in_change`)
@@ -529,6 +548,25 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - The column is not part of any EXCLUDE constraint
   - The table does not exist in `catalog_before`
 - **Message**: `Dropping column '{col}' from table '{table}' silently removes EXCLUDE constraint '{constraint}'. Verify that the exclusion guarantee is no longer needed.`
+
+#### PGM027 — Statement fails against the schema from earlier migrations
+
+- **Severity**: MAJOR
+- **Triggers**: A statement PostgreSQL rejects, given the schema replayed from earlier migrations. Each statement is judged against `catalog_before` with the earlier statements of its unit replayed on top, so a name an earlier statement of the unit frees or takes counts. Fires only on positive evidence, in these cases:
+  1. `ALTER TABLE t ADD [CONSTRAINT c] PRIMARY KEY USING INDEX idx` or `... UNIQUE USING INDEX idx`, where an index `idx` is registered in `t`'s schema and belongs to another table. PostgreSQL fails it with 55000 (`verify/tests/other/pgm027_using_index_of_another_table.sql`). `t` itself need not be in the catalog.
+  2. `ALTER TABLE ... RENAME TO`, `ALTER INDEX ... RENAME TO` or `ALTER TABLE ... RENAME CONSTRAINT` onto a taken name, as `Catalog::table_rename_clash`, `index_rename_clash` and `constraint_rename_clash` judge it (`verify/tests/naming/rename_taken.sql`): a table, an index or an index-backed constraint needs the name free among the relations of its schema (tables, indexes, and the indexes of index-backed constraints), and a constraint, or an index backing one, needs it free among the other constraints of its table. Renaming onto the current name counts.
+  3. `DROP INDEX idx`, with or without `CONCURRENTLY` or `IF EXISTS`, where `idx` is a registered index backing a PRIMARY KEY or UNIQUE constraint of its table. PostgreSQL fails it with 2BP01 (`verify/tests/other/pgm027_drop_constraint_index.sql`). An EXCLUDE constraint's index counts once the catalog registers one.
+- **Does not fire when**:
+  - The `USING INDEX` index, the renamed table, index or constraint, or the dropped index is not in the catalog
+  - The `USING INDEX` index belongs to the altered table, or only another schema has an index of that name
+  - The new name is taken only in another schema, or, for a CHECK or FOREIGN KEY constraint, only by a relation or by another table's constraint
+  - An earlier statement of the unit freed the name, by dropping or renaming away the object that had it
+  - An earlier statement of the unit dropped the constraint behind the index
+- **One finding per statement**: `DROP INDEX a, b` reports only the first index that fails, as PostgreSQL stops there.
+- **Message (USING INDEX)**: `ADD {PRIMARY KEY|UNIQUE} USING INDEX '{index}' on table '{table}' fails: the index belongs to table '{owner}'.`
+- **Message (rename)**: `Renaming table '{table}' to '{new_name}' fails: {reason}.`, `Renaming index '{index}' to '{new_name}' fails: {reason}.` or `Renaming constraint '{constraint}' on table '{table}' to '{new_name}' fails: {reason}.`, where `{reason}` is `table '{holder}' already has that name`, `index '{new_name}' on table '{holder}' already has that name` or `table '{holder}' already has a constraint named '{new_name}'`. An index backing a constraint, renamed onto a constraint name of its table, adds `the index backs a constraint that is renamed with it, and ` before the reason; an index-backed constraint renamed onto a relation name adds `the constraint's index is renamed with it, and `.
+- **Message (DROP INDEX)**: `DROP INDEX '{index}' fails: constraint '{constraint}' on table '{table}' requires it. Drop the constraint instead.`
+- **Other rules**: PGM504 does not fire on a rename this rule reports. PGM016 and PGM017 do not fire on a `USING INDEX` of another table's index, and PGM107 does not read that index's columns. PGM002, PGM003, PGM401 and PGM501 do not fire on a `DROP INDEX` this rule reports, including the other indexes it names.
 
 #### PGM201 — `DROP TABLE` on existing table
 
@@ -630,21 +668,35 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
 - **Does not fire when**:
   - The statement already includes `IF EXISTS`
+  - `DROP INDEX` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it with or without `IF EXISTS`; PGM027 reports it.
 - **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 
 #### PGM501 — Foreign key without covering index on referencing columns
 
 - **Severity**: MAJOR
-- **Triggers**: `ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...` where no usable index (B-tree, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+- **Triggers**:
+  1. A foreign key on `cols` added by `CREATE TABLE` (a `FOREIGN KEY (cols) REFERENCES ...` table constraint, or a column's inline `REFERENCES`) or by `ALTER TABLE` (`ADD CONSTRAINT ... FOREIGN KEY (cols) REFERENCES ...`, or `ADD COLUMN ... REFERENCES`), where no usable index (B-tree or hash, non-partial, not ON ONLY) on the referencing table contains any of `cols`.
+  2. A statement that drops a usable index covering a foreign key that exists before and after the unit, so the key is covered in `catalog_before` and not in `catalog_after`: `DROP INDEX [CONCURRENTLY]`; `ALTER TABLE ... DROP CONSTRAINT` of a PRIMARY KEY or UNIQUE constraint, which drops its index; `ALTER TABLE ... DROP COLUMN` of any column of the index, which drops the index while a key on its other columns stays. The key is matched by table and constraint name. A partition child's key covered by its parent's recursive index loses that coverage when the parent's index is dropped. When several statements in the unit drop covering indexes of the same key, the one finding goes to the last of them.
 - **Column matching**: FK columns `(a, b)` are covered by any usable index containing at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some FK columns still avoids a genuine sequential scan (Index Scan with a Filter, or Bitmap Heap Scan with a Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here (contrast with PGM508's prefix-based redundant-index check, which does care about order).
 - **Catalog lookup**: checks indexes on the referencing table after the full file/changeset is processed (not at the point of FK creation). This avoids false positives when the index is created later in the same file/changeset.
-- **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage.
+- **Index exclusions**: Partial indexes (with WHERE clause) and ON ONLY indexes (`only: true`) are excluded from coverage checks — partial indexes only cover a subset of rows, and ON ONLY indexes are invalid parent stubs that don't provide real FK coverage. Only B-tree and hash indexes count: GIN, GiST, BRIN and other access methods don't serve the equality lookups FK enforcement needs.
 - **Partition behavior**:
   - **Partitioned parent tables**: Checks `has_indexed_fk_column` normally. A recursive index (not ON ONLY) satisfies coverage. An ON ONLY index does not.
   - **Partition children**: Checks the child's own indexes first. If none found, delegates to the parent table's indexes via `parent_table`. If the parent is not in the catalog, suppresses conservatively (common in incremental CI where the parent was created outside tracked migrations).
   - `ALTER INDEX ... ATTACH PARTITION` flips `only` to `false`, so after all children are attached, the parent index correctly satisfies FK coverage.
-- **Message**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Does not fire (trigger 2) when**:
+  - The foreign key is dropped in the same unit, with `DROP CONSTRAINT`, by dropping one of its columns, or with its table.
+  - Another usable index still contains one of the key's columns.
+  - The unit adds a foreign key on the same table and columns, including one dropped and added back under its name. Trigger 1 reports it once.
+  - The statement is `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint, which PostgreSQL rejects. Replay keeps the index, and PGM027 reports the statement.
+  - The statement is one PostgreSQL rejects, as PGM027 judges it, such as `DROP INDEX` of a covering index together with the index behind a PRIMARY KEY or UNIQUE constraint (`DROP INDEX covering_idx, orders_pkey`). It drops nothing, though replay drops the covering index; PGM027 reports it.
+  - The dropped index was created in the same unit, so the key was not covered by it before.
+  - The dropped constraint is an EXCLUDE constraint. The catalog records no index for it, so it never counts as coverage.
+- **Message (trigger 1)**: `Foreign key on '{table}({cols})' has no covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Message (trigger 2, DROP INDEX)**: `Dropping index '{index}' leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining or filtering on these columns, and referential integrity checks, cause sequential scans on the referencing table.`
+- **Message (trigger 2, DROP CONSTRAINT)**: `Dropping constraint '{constraint}' drops its index, which leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining ...` (same closing sentence)
+- **Message (trigger 2, DROP COLUMN)**: `Dropping column '{column}' drops index '{index}', which leaves foreign key '{fk}' on '{table}({cols})' without a covering index. Queries joining ...` (same closing sentence; `drops indexes 'a', 'b'` when it drops more than one that covered the key)
 - **Accepted false negative**: an FK whose only indexed column is low-cardinality (e.g. 10 distinct values over 1M rows) produces no warning, even though the RI check still degrades to a Bitmap Heap Scan touching a large fraction of the table. This cannot be distinguished from a genuinely selective index using shape alone — the catalog has no column statistics, and requiring the covering index to also be UNIQUE does not rescue it, since the false-negative case is not unique in the referencing table either.
 
 #### PGM502 — Table without primary key
@@ -667,6 +719,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - The table does not exist in `catalog_before`
   - A replacement table with the old name is created in the same migration unit
+  - The new name is taken (`Catalog::table_rename_clash`, judged against the state just before the statement as PGM027 judges it). PostgreSQL rejects the rename, so nothing breaks; PGM027 reports it.
 - **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
 
 #### PGM505 — `RENAME COLUMN` on existing table
@@ -706,7 +759,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Either index is a partial index (has a WHERE clause) — partial indexes serve different query patterns.
   - Either index has expression entries — expression indexes are not directly comparable by column name.
   - The indexes use different access methods (e.g., btree vs GIN) — different access methods serve fundamentally different query types.
-  - More than one index on the table has the new index's name, as when an unnamed index's generated name is already taken. Collision suffixes are not modelled (§3.3), so which index the statement created is unknown.
+  - The statement is `CREATE INDEX IF NOT EXISTS` and, at that point in the migration history, a relation in the table's schema already has its name: an index on any table, a table, or an index-backed constraint. PostgreSQL skips the statement with a notice and creates no index, and the catalog replay does the same.
+  - More than one index on the table has the new index's name, so which one the statement created is unknown. A generated name gets a collision suffix instead (§3.3), so this takes an explicit name that repeats one the table already has, which PostgreSQL rejects.
 - **Message (exact duplicate)**: `Index '{new_idx}' on '{table}' ({cols}) is an exact duplicate of index '{existing_idx}'.`
 - **Message (new is prefix)**: `Index '{shorter_idx}' on '{table}' ({shorter_cols}) is redundant — index '{longer_idx}' ({longer_cols}) covers the same prefix.`
 - **Message (new makes existing redundant)**: `Index '{new_idx}' on '{table}' ({new_cols}) makes existing index '{existing_idx}' ({existing_cols}) redundant — the new index covers the same prefix.`
@@ -792,11 +846,13 @@ All type rules share a common detection pattern: inspect `TypeName` on `ColumnDe
 #### PGM107 — Primary key column uses `integer` or `smallint` instead of `bigint`
 
 - **Severity**: MAJOR
-- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint) and `ALTER TABLE ... ADD PRIMARY KEY`. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index.
+- **Triggers**: A primary key column with `TypeName.name` in `("int4", "int2")` — i.e., `integer`, `smallint`, or their aliases. Detected in `CREATE TABLE` (inline PK or table-level `PRIMARY KEY` constraint), whose own column definitions give the types, and `ALTER TABLE ... ADD PRIMARY KEY`, which reads the types from the table as it stands just before the statement (`catalog_before` with the earlier statements of the unit replayed on top), so a column added or retyped earlier in the unit counts with its new type. For `ADD PRIMARY KEY USING INDEX`, resolves PK columns from the referenced index as it stands then too.
 - **Does not fire when**:
   - The PK column type is `int8` / `bigint`
   - The column is not part of a primary key
-  - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog
+  - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog just before the statement
+  - `ALTER TABLE ... ADD PRIMARY KEY (cols)` after an earlier statement of the unit changed the columns to `bigint`
+  - `ADD PRIMARY KEY USING INDEX` names an index that is missing just before the statement or belongs to another table (PostgreSQL rejects the latter; PGM027 reports it)
 - **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
 
 #### PGM108 — Column uses `varchar(n)` instead of `text`
@@ -1091,3 +1147,4 @@ pg-migration-lint/
 | 1.19    | 2026-09-10 | Added PGM024 (DROP TABLE or CREATE TABLE PARTITION OF locking a pre-existing partition parent, CRITICAL). No IR or catalog changes required — reads the existing `parent_table`/`partition_of` fields. Added `LintContext::parent_display_name` helper. |
 | 1.20    | 2026-09-17 | Rule text has a single source: `src/rules/docs/pgmXXX.md` is the module doc, the `--explain` body (printed verbatim as CommonMark) and the `docs/rules.md` body. Rule sections in §4.2/§4.3 now define behaviour only: removed every per-rule **Why** bullet, aligned 29 headings with `DESCRIPTION`, and aligned Severity bullets with `DEFAULT_SEVERITY` (7 stale `WARNING` to `MINOR`, PGM005 `CRITICAL` to `MAJOR`, PGM006 leads with `MINOR`). A `docgen`-gated test enforces heading, severity and the absence of **Why** bullets. |
 | 1.21    | 2026-09-18 | Added PGM025 (DROP COLUMN silently removes EXCLUDE constraint, MINOR). Same shape as PGM010/011/012: shares `drop_column_check::check_drop_column_constraints`, matches `ConstraintState::Exclude`. No IR or catalog changes required — `ConstraintState::Exclude` and its `involves_column`/`remove_column` handling already existed. |
+| 1.22    | 2026-11-17 | Added PGM027 (statement fails against the schema from earlier migrations, MAJOR): `USING INDEX` of another table's index, renames onto a taken name, and `DROP INDEX` of a constraint's index. Each statement is judged against the catalog just before it (`catalog_before` with the unit's earlier statements replayed, `replay::map_with_state_before`). PGM504 skips a rename PGM027 reports; PGM016/017 skip, and PGM107 ignores, a `USING INDEX` of another table's index. Replay keeps the index on a rejected `DROP INDEX`. |

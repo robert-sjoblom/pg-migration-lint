@@ -1,6 +1,10 @@
 #![doc = include_str!("docs/pgm107.md")]
 
-use crate::parser::ir::{AlterTableAction, IrNode, Located, TableConstraint};
+use crate::catalog::Catalog;
+use crate::catalog::replay::map_with_state_before_if_needed;
+use crate::catalog::types::TableState;
+use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, Located, TableConstraint};
+use crate::rules::using_index::UsingIndex;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str =
@@ -29,111 +33,152 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
+    map_with_state_before_if_needed(
+        ctx.catalog_before,
+        statements,
+        adds_a_primary_key,
+        |state, stmt| statement_findings(&rule, state, stmt, ctx),
+    )
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// The findings for `stmt`, where `state` is the catalog just before it.
+fn statement_findings(
+    rule: &impl Rule,
+    state: &Catalog,
+    stmt: &Located<IrNode>,
+    ctx: &LintContext<'_>,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    for stmt in statements {
-        match &stmt.node {
-            IrNode::CreateTable(ct) => {
-                // Collect PK column names from table-level constraints
-                let pk_columns: Vec<&str> = ct
-                    .constraints
-                    .iter()
-                    .filter_map(|c| match c {
-                        TableConstraint::PrimaryKey { columns, .. } => Some(columns.as_slice()),
-                        _ => None,
-                    })
-                    .flatten()
-                    .map(String::as_str)
-                    .collect();
+    match &stmt.node {
+        IrNode::CreateTable(ct) => {
+            // The parser promotes an inline PRIMARY KEY to the table's
+            // constraints, so these cover both spellings.
+            let pk_columns: Vec<&str> = ct
+                .constraints
+                .iter()
+                .filter_map(|c| match c {
+                    TableConstraint::PrimaryKey { columns, .. } => Some(columns.as_slice()),
+                    _ => None,
+                })
+                .flatten()
+                .map(String::as_str)
+                .collect();
 
-                for col in &ct.columns {
-                    if !is_small_int_type(&col.type_name.name) {
-                        continue;
-                    }
+            for col in &ct.columns {
+                if !is_small_int_type(&col.type_name.name) {
+                    continue;
+                }
 
-                    let is_pk = col.is_inline_pk || pk_columns.iter().any(|&pk| pk == col.name);
-
-                    if is_pk {
-                        findings.push(rule.make_finding(
-                            format!(
-                                "Primary key column '{}' on '{}' uses {}. \
-                                 Consider using bigint to avoid exhausting the \
-                                 integer range on high-write tables.",
-                                col.name,
-                                ct.name.display_name(),
-                                display_type(&col.type_name.name),
-                            ),
-                            ctx.file,
-                            &stmt.span,
-                        ));
-                    }
+                if pk_columns.contains(&col.name.as_str()) {
+                    findings.push(rule.make_finding(
+                        format!(
+                            "Primary key column '{}' on '{}' uses {}. \
+                             Consider using bigint to avoid exhausting the \
+                             integer range on high-write tables.",
+                            col.name,
+                            ct.name.display_name(),
+                            display_type(&col.type_name.name),
+                        ),
+                        ctx.file,
+                        &stmt.span,
+                    ));
                 }
             }
-            IrNode::AlterTable(at) => {
-                for action in &at.actions {
-                    let AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
-                        columns,
-                        using_index,
-                        ..
-                    }) = action
-                    else {
-                        continue;
-                    };
-
-                    // Look up column types from catalog (before or after)
-                    let table_key = at.name.relation();
-                    let table = ctx
-                        .catalog_before
-                        .get_table(table_key)
-                        .or_else(|| ctx.catalog_after.get_table(table_key));
-
-                    let Some(table) = table else {
-                        continue;
-                    };
-
-                    // When USING INDEX is specified, columns is empty — resolve
-                    // the PK columns from the referenced index instead.
-                    let resolved_columns: Vec<String>;
-                    let col_names: &[String] = if columns.is_empty() {
-                        if let Some(idx_name) = using_index {
-                            if let Some(idx) = ctx.get_index(&table_key.in_same_schema(idx_name)) {
-                                resolved_columns = idx.column_names().map(String::from).collect();
-                                &resolved_columns
-                            } else {
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        columns
-                    };
-
-                    for col_name in col_names {
-                        if let Some(col) = table.get_column(col_name)
-                            && is_small_int_type(&col.type_name.name)
-                        {
-                            findings.push(rule.make_finding(
-                                format!(
-                                    "Primary key column '{}' on '{}' uses {}. \
-                                     Consider using bigint to avoid exhausting the \
-                                     integer range on high-write tables.",
-                                    col_name,
-                                    at.name.display_name(),
-                                    display_type(&col.type_name.name),
-                                ),
-                                ctx.file,
-                                &stmt.span,
-                            ));
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
+        IrNode::AlterTable(at) => {
+            for column in small_int_pk_columns(state, at) {
+                findings.push(rule.make_finding(
+                    format!(
+                        "Primary key column '{}' on '{}' uses {}. \
+                         Consider using bigint to avoid exhausting the \
+                         integer range on high-write tables.",
+                        column.name,
+                        at.name.display_name(),
+                        display_type(column.type_name),
+                    ),
+                    ctx.file,
+                    &stmt.span,
+                ));
+            }
+        }
+        _ => {}
     }
-
     findings
+}
+
+/// A column of a primary key that `ALTER TABLE ... ADD PRIMARY KEY` adds,
+/// with the name of its type as the table holds it just before the statement.
+struct AddedPkColumn<'a> {
+    name: &'a str,
+    type_name: &'a str,
+}
+
+/// True for an `ALTER TABLE` that adds a primary key, the only statement
+/// [`small_int_pk_columns`] reads the catalog for. A unit without one needs
+/// no replay.
+fn adds_a_primary_key(node: &IrNode) -> bool {
+    matches!(node, IrNode::AlterTable(at) if added_primary_keys(at).next().is_some())
+}
+
+/// The `(columns, USING INDEX index)` of each `ADD PRIMARY KEY` in `at`. With
+/// `USING INDEX` the columns are empty: they are the index's.
+fn added_primary_keys(at: &AlterTable) -> impl Iterator<Item = (&[String], Option<&str>)> {
+    at.actions.iter().filter_map(|action| match action {
+        AlterTableAction::AddConstraint {
+            constraint:
+                TableConstraint::PrimaryKey {
+                    columns,
+                    using_index,
+                    ..
+                },
+            ..
+        } => Some((columns.as_slice(), using_index.as_deref())),
+        _ => None,
+    })
+}
+
+/// The columns of the primary keys `at` adds that have a small integer type
+/// in `state`, the catalog just before `at`: `catalog_before` with the
+/// earlier statements of the unit replayed on top, so a column added or
+/// retyped earlier in the unit counts. With `USING INDEX` they are the
+/// referenced index's columns. Only an index of the altered table has them:
+/// Postgres rejects another table's index (PGM027).
+fn small_int_pk_columns<'a>(state: &'a Catalog, at: &'a AlterTable) -> Vec<AddedPkColumn<'a>> {
+    let table_key = at.name.relation();
+    added_primary_keys(at)
+        .flat_map(|(columns, using_index)| match using_index {
+            Some(index_name) => match UsingIndex::in_catalog(state, table_key, index_name) {
+                UsingIndex::OfTable { index, table } => {
+                    small_int_columns(table, index.column_names())
+                }
+                UsingIndex::OfAnotherTable { .. } | UsingIndex::Missing => Vec::new(),
+            },
+            None => state.get_table(table_key).map_or_else(Vec::new, |table| {
+                small_int_columns(table, columns.iter().map(String::as_str))
+            }),
+        })
+        .collect()
+}
+
+/// The columns of `table` named in `column_names` that have a small integer
+/// type, in that order.
+fn small_int_columns<'a>(
+    table: &'a TableState,
+    column_names: impl Iterator<Item = &'a str>,
+) -> Vec<AddedPkColumn<'a>> {
+    column_names
+        .filter_map(|name| {
+            let column = table.get_column(name)?;
+            is_small_int_type(&column.type_name.name).then_some(AddedPkColumn {
+                name,
+                type_name: &column.type_name.name,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -142,9 +187,10 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+    use rstest::rstest;
 
     #[test]
     fn test_add_pk_using_index_reads_columns_from_the_index_in_the_tables_schema() {
@@ -164,9 +210,105 @@ mod tests {
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1, "got {findings:?}");
         assert!(
-            findings[0].message.contains("'order_id' on 'analytics.orders'"),
+            findings[0]
+                .message
+                .contains("'order_id' on 'analytics.orders'"),
             "got {}",
             findings[0].message
+        );
+    }
+
+    #[test]
+    fn test_add_pk_using_index_of_another_table_reads_none_of_its_columns() {
+        let before = catalog_from_sql(
+            "CREATE TABLE customers (id int NOT NULL);
+             CREATE UNIQUE INDEX idx_customers_id ON customers (id);
+             CREATE TABLE orders (id int NOT NULL);",
+        );
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = normalized(parse_sql(
+            "ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_customers_id;",
+        ));
+
+        let findings = RuleId::Pgm107.check(&stmts, &ctx);
+        assert!(findings.is_empty(), "got {findings:?}");
+    }
+
+    fn messages_for_change(history: &str, change: &str) -> Vec<String> {
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        RuleId::Pgm107
+            .check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    #[test]
+    fn test_add_pk_using_an_index_created_earlier_in_the_unit_reads_its_columns() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);",
+            "CREATE UNIQUE INDEX orders_id_idx ON orders (id);
+             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
+        );
+        assert_eq!(messages.len(), 1, "got {messages:?}");
+        assert!(
+            messages[0].contains("'id' on 'orders' uses integer"),
+            "got {messages:?}"
+        );
+    }
+
+    #[test]
+    fn test_add_pk_using_index_reads_column_types_as_the_earlier_statements_of_the_unit_leave_them()
+    {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);
+             CREATE UNIQUE INDEX orders_id_idx ON orders (id);",
+            "ALTER TABLE orders ALTER COLUMN id TYPE bigint;
+             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn test_add_pk_reads_a_column_widened_to_bigint_earlier_in_the_unit_as_bigint() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int NOT NULL);",
+            "ALTER TABLE orders ALTER COLUMN id TYPE bigint;
+             ALTER TABLE orders ADD PRIMARY KEY (id);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[rstest]
+    #[case::narrowed_to_integer(
+        "CREATE TABLE orders (id bigint NOT NULL);",
+        "ALTER TABLE orders ALTER COLUMN id TYPE int;
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    #[case::added_as_integer(
+        "CREATE TABLE orders (note text);",
+        "ALTER TABLE orders ADD COLUMN id int NOT NULL;
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    #[case::table_created_as_integer(
+        "",
+        "CREATE TABLE orders (id int NOT NULL);
+         ALTER TABLE orders ADD PRIMARY KEY (id);"
+    )]
+    fn test_add_pk_reads_a_column_made_integer_earlier_in_the_unit_as_integer(
+        #[case] history: &str,
+        #[case] change: &str,
+    ) {
+        assert_eq!(
+            messages_for_change(history, change),
+            [
+                "Primary key column 'id' on 'orders' uses integer. Consider using bigint to avoid \
+              exhausting the integer range on high-write tables."
+            ]
         );
     }
 
@@ -176,13 +318,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
-                ColumnDef::test("id", "int4")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE orders (id int4 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -194,13 +330,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("counters")).with_columns(vec![
-                ColumnDef::test("id", "int2")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE counters (id int2 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
@@ -234,13 +364,7 @@ mod tests {
         let after = Catalog::new();
         lint_ctx!(ctx, &before, &after, "migrations/001.sql");
 
-        let stmts = vec![located(IrNode::CreateTable(
-            CreateTable::test(QualifiedName::unqualified("orders")).with_columns(vec![
-                ColumnDef::test("id", "int8")
-                    .with_nullable(false)
-                    .with_inline_pk(),
-            ]),
-        ))];
+        let stmts = normalized(parse_sql("CREATE TABLE orders (id int8 PRIMARY KEY);"));
 
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         assert!(findings.is_empty());
@@ -274,7 +398,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
@@ -300,7 +424,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
@@ -327,7 +451,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("order_items"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["order_id".to_string(), "item_id".to_string()],
@@ -355,7 +479,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
@@ -384,7 +508,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("orders"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec![],
@@ -406,7 +530,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified("nonexistent"),
-            actions: vec![AlterTableAction::AddConstraint(
+            actions: vec![AlterTableAction::add_constraint(
                 TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],

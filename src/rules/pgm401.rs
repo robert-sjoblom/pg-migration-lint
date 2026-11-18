@@ -1,6 +1,7 @@
 #![doc = include_str!("docs/pgm401.md")]
 
 use crate::parser::ir::{IrNode, Located};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF EXISTS on DROP TABLE / DROP INDEX";
@@ -15,6 +16,7 @@ pub(super) fn check(
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
 
     for stmt in statements {
         match &stmt.node {
@@ -28,7 +30,9 @@ pub(super) fn check(
                     &stmt.span,
                 ));
             }
-            IrNode::DropIndex(di) if !di.if_exists => {
+            // IF EXISTS does not save a DROP INDEX naming a constraint's
+            // index; PGM027 reports it.
+            IrNode::DropIndex(di) if !di.if_exists && !rejected.contains(&stmt.span) => {
                 findings.push(rule.make_finding(
                     format!(
                         "DROP INDEX '{}' without IF EXISTS will fail if the index does not exist.",

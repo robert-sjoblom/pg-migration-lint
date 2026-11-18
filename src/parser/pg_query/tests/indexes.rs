@@ -465,7 +465,6 @@ fn test_parse_create_index_access_method(#[case] sql: &str, #[case] expected_met
 
 #[test]
 fn test_parse_alter_index_rename() {
-    dbg!(parse_sql("CREATE INDEX foo ON bar (id);"));
     let nodes = parse_sql("ALTER INDEX schemaname.idx_foo RENAME TO idx_bar;");
     assert_eq!(nodes.len(), 1);
     match &nodes[0].node {

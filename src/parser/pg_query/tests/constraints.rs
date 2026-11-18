@@ -16,7 +16,7 @@ fn parsed_constraints(sql: &str) -> Vec<TableConstraint<QualifiedName>> {
                 .actions
                 .into_iter()
                 .filter_map(|action| match action {
-                    AlterTableAction::AddConstraint(constraint) => Some(constraint),
+                    AlterTableAction::AddConstraint { constraint, .. } => Some(constraint),
                     _ => None,
                 })
                 .collect(),

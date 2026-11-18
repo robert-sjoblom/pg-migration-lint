@@ -1,6 +1,5 @@
 use std::{collections::HashSet, path::Path};
 
-use crate::catalog::types::IndexState;
 use crate::names::{RelationName, ResolvedName};
 use crate::{Catalog, rules::TableScope};
 
@@ -99,15 +98,6 @@ impl<'a> LintContext<'a> {
                 .get_table(parent_key)
                 .map_or_else(|| parent_key.name.clone(), |p| p.display_name.clone()),
         )
-    }
-
-    /// Look up an index in its schema, checking `catalog_before` first, then
-    /// falling back to `catalog_after`. This covers indexes created in the
-    /// same migration unit (present only in `catalog_after`).
-    pub fn get_index(&self, index: &RelationName) -> Option<&IndexState> {
-        self.catalog_before
-            .get_index(index)
-            .or_else(|| self.catalog_after.get_index(index))
     }
 
     /// Check if a table matches the given scope filter.

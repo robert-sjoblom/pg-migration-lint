@@ -530,7 +530,9 @@ fn convert_alter_table(
 /// Convert a single `AlterTableCmd` into one or more `AlterTableAction`s.
 ///
 /// Returns a `Vec` because `ADD COLUMN` with inline constraints (e.g. FK,
-/// UNIQUE, CHECK) produces the column action *plus* constraint actions.
+/// UNIQUE, CHECK) produces the column action *plus* constraint actions,
+/// which follow it with origin
+/// [`ConstraintOrigin::AddColumn`](crate::parser::ir::ConstraintOrigin::AddColumn).
 fn convert_alter_table_cmd(
     cmd: &pg_query::protobuf::AlterTableCmd,
 ) -> Vec<AlterTableAction<QualifiedName>> {
@@ -543,7 +545,7 @@ fn convert_alter_table_cmd(
                     result.extend(
                         inline_constraints
                             .into_iter()
-                            .map(AlterTableAction::AddConstraint),
+                            .map(AlterTableAction::add_column_constraint),
                     );
                     result
                 }
@@ -558,7 +560,7 @@ fn convert_alter_table_cmd(
         pg_query::protobuf::AlterTableType::AtAddConstraint => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
                 Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None) {
-                    Some(tc) => vec![AlterTableAction::AddConstraint(tc)],
+                    Some(tc) => vec![AlterTableAction::add_constraint(tc)],
                     None => vec![AlterTableAction::Other {
                         description: "ADD CONSTRAINT (unknown type)".to_string(),
                     }],
@@ -749,7 +751,9 @@ fn convert_alter_index(
 ///
 /// - `ObjectType::ObjectTable` with no `subname` → `IrNode::RenameTable`
 /// - `ObjectType::ObjectColumn` → `IrNode::RenameColumn`
-/// - Everything else → `IrNode::Ignored`
+/// - `ObjectType::ObjectIndex` → `IrNode::RenameIndex`
+/// - `ObjectType::ObjectTabconstraint` → `IrNode::RenameConstraint`
+/// - Everything else, domain constraints included → `IrNode::Ignored`
 fn convert_rename_stmt(
     rename: &pg_query::protobuf::RenameStmt,
     raw_sql: &str,
@@ -774,6 +778,14 @@ fn convert_rename_stmt(
             let index = relation_to_qualified_name(rename.relation.as_ref());
             IrNode::RenameIndex {
                 index,
+                new_name: rename.newname.clone(),
+            }
+        }
+        pg_query::protobuf::ObjectType::ObjectTabconstraint => {
+            let table = relation_to_qualified_name(rename.relation.as_ref());
+            IrNode::RenameConstraint {
+                table,
+                old_name: rename.subname.clone(),
                 new_name: rename.newname.clone(),
             }
         }

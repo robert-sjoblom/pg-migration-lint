@@ -1,7 +1,5 @@
 use super::*;
-use crate::catalog::builder::{
-    CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel, rel_in,
-};
+use crate::catalog::builder::{CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel};
 use crate::normalize::{resolve_node, resolve_units};
 use rstest::rstest;
 use std::path::PathBuf;
@@ -73,20 +71,35 @@ fn col(name: &str, type_name: &str, nullable: bool) -> ColumnDef {
     ColumnDef::test(name, type_name).with_nullable(nullable)
 }
 
-/// Helper: create a ColumnDef with inline PK.
+/// Helper: create a ColumnDef with inline PK. The parser also promotes the
+/// key to the table's constraints; see [`inline_primary_key`].
 fn col_pk(name: &str, type_name: &str) -> ColumnDef {
     ColumnDef::test(name, type_name).with_inline_pk()
+}
+
+/// The unnamed PRIMARY KEY the parser promotes an inline `PRIMARY KEY` on
+/// `column` to.
+fn inline_primary_key(column: &str) -> TableConstraint<QualifiedName> {
+    TableConstraint::PrimaryKey {
+        name: None,
+        columns: vec![column.to_string()],
+        include_columns: vec![],
+        using_index: None,
+    }
+}
+
+/// `CREATE TABLE name (id integer PRIMARY KEY)` as the parser hands it over.
+fn create_table_with_inline_pk(name: QualifiedName) -> CreateTable<QualifiedName> {
+    CreateTable::test(name)
+        .with_columns(vec![col_pk("id", "integer")])
+        .with_constraints(vec![inline_primary_key("id")])
 }
 
 /// Helper: builds catalog with a constraint on a column, returns
 /// (catalog, table_key, column_to_drop, checks_has_primary_key).
 fn drop_col_constraint_setup_pk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit = make_unit(vec![
-        CreateTable::test(qname("t"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit = make_unit(vec![create_table_with_inline_pk(qname("t")).into()]);
     apply(&mut catalog, &unit);
     (catalog, "t", "id", true)
 }
@@ -113,9 +126,7 @@ fn test_create_then_drop() {
     let mut catalog = Catalog::new();
 
     let unit = make_unit(vec![
-        CreateTable::test(qname("t"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
+        create_table_with_inline_pk(qname("t")).into(),
         CreateIndex::test(Some("idx_id".to_string()), qname("t"))
             .with_columns(vec![IndexColumn::Column("id".to_string())])
             .into(),
@@ -166,11 +177,7 @@ fn test_fk_tracks_referencing_columns() {
     let mut catalog = Catalog::new();
 
     // Create parent table with PK
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("parent"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Create child table with FK to parent
@@ -369,10 +376,7 @@ fn test_composite_index_column_order() {
 }
 
 #[rstest]
-#[case::inline_pk(
-    CreateTable::test(qname("t"))
-        .with_columns(vec![col_pk("id", "integer")])
-)]
+#[case::inline_pk(create_table_with_inline_pk(qname("t")))]
 #[case::table_level_pk(
     CreateTable::test(qname("t"))
         .with_columns(vec![col("id", "integer", false)])
@@ -405,11 +409,7 @@ fn test_inline_fk_normalizes() {
     let mut catalog = Catalog::new();
 
     // Create parent first
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("parent"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // The parser normalizes inline FK (REFERENCES) into a TableConstraint.
@@ -448,11 +448,7 @@ fn test_table_level_fk_normalizes() {
     let mut catalog = Catalog::new();
 
     // Create parent
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("parent"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Table-level FK: FOREIGN KEY (pid) REFERENCES parent(id)
@@ -658,25 +654,25 @@ fn test_add_constraint_via_alter_table() {
         AlterTable {
             name: qname("t"),
             actions: vec![
-                AlterTableAction::AddConstraint(TableConstraint::PrimaryKey {
+                AlterTableAction::add_constraint(TableConstraint::PrimaryKey {
                     name: None,
                     columns: vec!["id".to_string()],
                     include_columns: vec![],
                     using_index: None,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Unique {
+                AlterTableAction::add_constraint(TableConstraint::Unique {
                     name: Some("uk_email".to_string()),
                     columns: vec!["email".to_string()],
                     include_columns: vec![],
                     using_index: None,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Check {
+                AlterTableAction::add_constraint(TableConstraint::Check {
                     name: Some("ck_email".to_string()),
                     expression: "email <> ''".to_string(),
                     referenced_columns: vec!["email".to_string()],
                     not_valid: false,
                 }),
-                AlterTableAction::AddConstraint(TableConstraint::Exclude {
+                AlterTableAction::add_constraint(TableConstraint::Exclude {
                     name: Some("excl_email".to_string()),
                     elements: vec![],
                     include_columns: vec![],
@@ -710,11 +706,7 @@ fn test_multiple_units_build_catalog_incrementally() {
     let mut catalog = Catalog::new();
 
     // Unit 1: Create table
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("users"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("users")).into()]);
     apply(&mut catalog, &unit1);
 
     // Unit 2: Add column
@@ -777,9 +769,7 @@ fn test_different_schemas_stored_separately() {
 
     // Create "public.orders"
     let unit1 = make_unit(vec![
-        CreateTable::test(QualifiedName::qualified("public", "orders"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
+        create_table_with_inline_pk(QualifiedName::qualified("public", "orders")).into(),
     ]);
     apply(&mut catalog, &unit1);
 
@@ -833,11 +823,7 @@ fn test_create_index_without_name_gets_generated_name() {
 
 fn drop_col_constraint_setup_fk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("parent"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("child"))
@@ -926,11 +912,7 @@ fn test_drop_column_preserves_unrelated_constraints() {
     let mut catalog = Catalog::new();
 
     // Create referenced table
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("parent"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Create table with PK on (id) and FK on (customer_id), then drop customer_id
@@ -940,13 +922,16 @@ fn test_drop_column_preserves_unrelated_constraints() {
                 col_pk("id", "integer"),
                 col("customer_id", "integer", true),
             ])
-            .with_constraints(vec![TableConstraint::ForeignKey {
-                name: Some("fk_customer".to_string()),
-                columns: vec!["customer_id".to_string()],
-                ref_table: qname("parent"),
-                ref_columns: vec!["id".to_string()],
-                not_valid: false,
-            }])
+            .with_constraints(vec![
+                inline_primary_key("id"),
+                TableConstraint::ForeignKey {
+                    name: Some("fk_customer".to_string()),
+                    columns: vec!["customer_id".to_string()],
+                    ref_table: qname("parent"),
+                    ref_columns: vec!["id".to_string()],
+                    not_valid: false,
+                },
+            ])
             .into(),
         AlterTable {
             name: qname("orders"),
@@ -1287,7 +1272,7 @@ fn test_add_pk_using_index_resolves_columns_from_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec![], // empty with USING INDEX
@@ -1328,7 +1313,7 @@ fn test_add_unique_using_index_resolves_columns_from_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![], // empty with USING INDEX
             using_index: Some("idx_orders_email".to_string()),
@@ -1366,7 +1351,7 @@ fn test_add_unique_constraint_creates_named_backing_index() {
             .into(),
         AlterTable {
             name: qname("users"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                 name: Some("uq_users_email".to_string()),
                 columns: vec!["email".to_string()],
                 include_columns: vec![],
@@ -1404,7 +1389,7 @@ fn test_add_unique_constraint_unnamed_uses_default_index_name() {
             .into(),
         AlterTable {
             name: qname("orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
                 name: None,
                 columns: vec!["customer_id".to_string(), "external_ref".to_string()],
                 include_columns: vec![],
@@ -1438,7 +1423,7 @@ fn test_add_unique_using_index_does_not_create_second_index() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: qname("orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![],
             include_columns: vec![],
@@ -1531,7 +1516,7 @@ fn test_drop_unique_using_index_removes_backing_index() {
     // Add UNIQUE constraint referencing the existing index.
     let add_unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_orders_email".to_string()),
             columns: vec![],
             include_columns: vec![],
@@ -1675,6 +1660,35 @@ fn test_if_not_exists_creates_when_new(#[case] is_table: bool) {
     }
 }
 
+#[rstest]
+#[case::table_in_the_same_schema("CREATE TABLE idx_orders_a (id int);", false)]
+#[case::index_of_another_table_in_the_same_schema(
+    "CREATE TABLE refunds (a int); CREATE INDEX idx_orders_a ON refunds (a);",
+    false
+)]
+#[case::unique_constraint_in_the_same_schema(
+    "CREATE TABLE refunds (a int CONSTRAINT idx_orders_a UNIQUE);",
+    false
+)]
+#[case::table_in_another_schema("CREATE TABLE archive.idx_orders_a (id int);", true)]
+fn create_index_if_not_exists_is_skipped_when_any_relation_in_its_schema_has_the_name(
+    #[case] holder_of_the_name: &str,
+    #[case] creates_the_index: bool,
+) {
+    let catalog = replay_sql(&[
+        "CREATE TABLE orders (a int);",
+        holder_of_the_name,
+        "CREATE INDEX IF NOT EXISTS idx_orders_a ON orders (a);",
+    ]);
+
+    let orders_has_the_index = catalog
+        .table("orders")
+        .indexes
+        .iter()
+        .any(|idx| idx.name == "idx_orders_a");
+    assert_eq!(orders_has_the_index, creates_the_index);
+}
+
 #[test]
 fn test_add_pk_using_index_missing_index_stays_empty() {
     let mut catalog = CatalogBuilder::new()
@@ -1685,7 +1699,7 @@ fn test_add_pk_using_index_missing_index_stays_empty() {
 
     let unit = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: QualifiedName::qualified("public", "orders"),
-        actions: vec![AlterTableAction::AddConstraint(
+        actions: vec![AlterTableAction::add_constraint(
             TableConstraint::PrimaryKey {
                 name: None,
                 columns: vec![],
@@ -2663,11 +2677,7 @@ fn test_drop_not_null_nonexistent_column() {
 /// for the drop-constraint-by-type rstest group.
 fn drop_constraint_setup_fk() -> (Catalog, &'static str, &'static str) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("customers"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("customers")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("orders"))
@@ -2939,11 +2949,7 @@ fn test_drop_constraint_preserves_others() {
 /// Helper for VALIDATE CONSTRAINT tests. Returns (catalog, table, validate_name, expected_not_valid).
 fn validate_constraint_setup_fk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        CreateTable::test(qname("customers"))
-            .with_columns(vec![col_pk("id", "integer")])
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("customers")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("orders"))
@@ -3086,7 +3092,7 @@ fn test_drop_unique_constraint_removes_backing_index() {
 
     let unit3 = make_unit(vec![IrNode::AlterTable(AlterTable {
         name: qname("users"),
-        actions: vec![AlterTableAction::AddConstraint(TableConstraint::Unique {
+        actions: vec![AlterTableAction::add_constraint(TableConstraint::Unique {
             name: Some("uq_email".to_string()),
             columns: vec![],
             include_columns: vec![],
@@ -3428,7 +3434,12 @@ fn test_replay_preserves_access_method() {
     assert!(!idx.is_btree(), "GIN index should not be btree");
 }
 
+mod collision_suffixes;
+mod drop_index_of_constraint;
 mod generated_names;
 mod implicit_index_names;
+mod inline_primary_key;
+mod rename_constraint;
 mod rename_index;
+mod rename_onto_taken_name;
 mod schema_scoped_indexes;

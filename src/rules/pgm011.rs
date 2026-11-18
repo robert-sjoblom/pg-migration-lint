@@ -50,8 +50,9 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
     use std::path::PathBuf;
 
     #[test]
@@ -75,6 +76,18 @@ mod tests {
 
         let findings = RuleId::Pgm011.check(&stmts, &ctx);
         insta::assert_yaml_snapshot!(findings);
+    }
+
+    #[test]
+    fn dropping_an_inline_primary_key_column_is_reported_once() {
+        let history = "CREATE TABLE orders (id int PRIMARY KEY, status text);";
+        let change = "ALTER TABLE orders DROP COLUMN id;";
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let findings = RuleId::Pgm011.check(&normalized(parse_sql(change)), &ctx);
+        assert_eq!(findings.len(), 1, "got {findings:?}");
     }
 
     #[test]
@@ -238,7 +251,7 @@ mod tests {
             statements: vec![Located {
                 node: IrNode::AlterTable(AlterTable {
                     name: QualifiedName::unqualified("orders").resolve("public"),
-                    actions: vec![AlterTableAction::AddConstraint(
+                    actions: vec![AlterTableAction::add_constraint(
                         TableConstraint::PrimaryKey {
                             name: None,
                             columns: vec![], // empty with USING INDEX

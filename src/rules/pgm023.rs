@@ -135,6 +135,7 @@ fn table_key_of(node: &IrNode) -> Option<&RelationName> {
         IrNode::Reindex(_) => None,
         IrNode::RenameTable { name, .. } => Some(name.relation()),
         IrNode::RenameColumn { table, .. } => Some(table.relation()),
+        IrNode::RenameConstraint { table, .. } => Some(table.relation()),
         // These don't have a table name to extract
         IrNode::AlterTable(_)
         | IrNode::DropIndex(_)
@@ -421,6 +422,29 @@ mod tests {
                 IrNode::InsertInto(InsertInto {
                     table_name: QualifiedName::unqualified("authors"),
                 }),
+                3,
+            ),
+            located_at(alter_set_not_null("authors", "email"), 5),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn alters_broken_by_rename_constraint_on_same_table() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(alter_set_not_null("authors", "name"), 1),
+            located_at(
+                IrNode::RenameConstraint {
+                    table: QualifiedName::unqualified("authors"),
+                    old_name: "authors_chk".to_string(),
+                    new_name: "authors_name_chk".to_string(),
+                },
                 3,
             ),
             located_at(alter_set_not_null("authors", "email"), 5),

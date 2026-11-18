@@ -7,7 +7,7 @@ This guide explains how to add new rules to `pg-migration-lint` and the key APIs
 The lint pipeline feeds rules like this:
 
 ```
-SQL files → Parser → IR (IrNode) → Catalog Replay → Rule Engine → Findings
+SQL files → Parser → IR (IrNode) → Normalize → Catalog Replay → Rule Engine → Findings
 ```
 
 Each migration unit is processed through the pipeline. For changed files, the engine clones the catalog before applying the unit, then passes both `catalog_before` and `catalog_after` to each rule via `LintContext`. Rules inspect IR nodes and catalog state, returning `Vec<Finding>`.
@@ -28,7 +28,7 @@ pub(super) const DESCRIPTION: &str = "Short one-line description";
 
 pub(super) const EXPLAIN: &str = include_str!("docs/pgmXXX.md");
 
-pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major; // Info, Minor, Major, Critical, or Blocker
+pub(super) const DEFAULT_SEVERITY: Severity = Severity::Major; // Info, Minor, Major, or Critical
 
 pub(super) fn check(
     rule: impl Rule,
@@ -63,6 +63,8 @@ dispatch_rules! {
 
 The `#[strum(serialize)]` attribute handles `as_str()`, `FromStr`, and `Display` automatically via strum derives.
 
+Every other exhaustive `match` on `RuleId` needs an arm for the new variant too: `sonarqube_meta()` and `effort_minutes()` in `src/output/sonarqube.rs`. If the rule should be opt-in, also add it to the `matches!` in `RuleId::default_enabled()`.
+
 ### 3. Add the module declaration
 
 In `src/rules/mod.rs`, add:
@@ -73,13 +75,17 @@ mod pgmXXX;
 
 The rule is automatically included — `RuleId::lint_rules()` iterates all non-meta enum variants via `strum::EnumIter`.
 
+In the same file's tests, bump the `RuleId::iter().count()` assertion in `test_rule_id_display_round_trip`.
+
 ### 4. Add fixture SQL
 
 Add a violation example in `tests/fixtures/repos/all-rules/migrations/`. The all-rules fixture should have one violation per rule and is tested by integration tests.
 
+Add a suppressed violation in `tests/fixtures/repos/suppressed/migrations/` as well (e.g. `-- pgm-lint:suppress-file PGMXXX`). `tests/baseline.rs` fails if any lint rule does not fire in `all-rules/`, or does not fire before suppression in `suppressed/`.
+
 ### 5. Write unit tests
 
-Add tests in the rule file's `#[cfg(test)] mod tests` section. Use `CatalogBuilder` and `make_ctx()` to set up test state:
+Add tests with positive and negative cases in the rule file's `#[cfg(test)] mod tests` section. Use `CatalogBuilder` and the `lint_ctx!` macro from `src/rules/test_helpers.rs` to set up test state:
 
 ```rust
 #[test]
@@ -90,9 +96,7 @@ fn test_violation_fires() {
         })
         .build();
     let after = before.clone();
-    let file = PathBuf::from("migrations/002.sql");
-    let created = HashSet::new();
-    let ctx = make_ctx(&before, &after, &file, &created);
+    lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
     let stmts = vec![located(IrNode::AlterTable(AlterTable {
         name: QualifiedName::unqualified("orders"),
@@ -103,6 +107,8 @@ fn test_violation_fires() {
     insta::assert_yaml_snapshot!(findings);
 }
 ```
+
+`lint_ctx!` also takes `created: ["orders"]` for tables created in the same change, or `txn: false` for a unit that runs outside a transaction.
 
 ### 6. Add the rule's markdown file
 
@@ -116,13 +122,17 @@ The file has to satisfy rustdoc, a terminal and Jekyll at once, so `src/rules/ru
 - cross-references use the absolute docs URL, `[PGM004](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm004)`, never a bare `#pgm004` anchor, so they resolve in the terminal, in GitHub comments and in rustdoc
 - the file ends with exactly one newline
 
-### 7. Run tests and review snapshots
+### 7. Update the rule count and family range
+
+The rule count and the family ranges are written by hand in a few places. Bump the count in `README.md` (it appears twice) and `docs/index.md`. If the new ID extends its family's range, update the range in `README.md` and `docs/rules.md.j2`. `docs/rules.md` fills in its count from `{{ rule_count }}`, so the template's count needs no change.
+
+### 8. Run tests and review snapshots
 
 ```bash
 cargo test --features docgen
 ```
 
-New insta snapshots will be created automatically. Review them with `cargo insta review` or inspect the files in `src/rules/snapshots/`.
+New insta snapshots will be created automatically. Review them with `cargo insta review` or inspect the files in `src/rules/snapshots/`. The docgen `rules_md` snapshot and the SonarQube `all_rules_metadata_snapshot` (in `src/output/snapshots/`) change too.
 
 After accepting snapshots, sync the generated docs:
 
@@ -164,8 +174,8 @@ Provided to every rule's `check()` function:
 `Catalog` query methods:
 
 - `catalog.has_table(key)` / `catalog.get_table(key)` — look up a table by its `&RelationName` key
-- `catalog.get_index(name)` — look up an index across all tables
-- `catalog.table_for_index(name)` — find which table owns an index
+- `catalog.get_index(key)` — look up an index by its `&RelationName` key, in that key's schema only
+- `catalog.table_for_index(key)` — find which table owns an index, looked up the same way
 
 `TableState` query methods:
 
@@ -191,7 +201,7 @@ Finding::new(rule.id(), Severity::Info, message, ctx.file, &stmt.span)
 
 ### `alter_table_check::check_alter_actions`
 
-For rules that inspect ALTER TABLE actions on existing tables (PGM007–PGM017). Handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
+For rules that inspect ALTER TABLE actions on existing tables. PGM004, PGM005, PGM007–PGM009, PGM013–PGM015, PGM019 and PGM507 call it directly. PGM010–PGM012 and PGM025 call it through `drop_column_check::check_drop_column_constraints`, which passes on only `DROP COLUMN` actions, along with the table's state in `catalog_before`. It handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
 
 ```rust
 pub fn check_alter_actions<F>(
@@ -233,17 +243,18 @@ let catalog = CatalogBuilder::new()
          .pk(&["id"])
          .fk("fk_customer", &["customer_id"], "customers", &["id"])
          .unique("uq_email", &["email"])
-         .incomplete()  // mark as affected by unparseable SQL
+         .incomplete();  // mark as affected by unparseable SQL
     })
     .build();
 ```
 
 Methods: `column()`, `column_with_default()`, `index()`, `pk()`, `fk()`, `unique()`, `incomplete()`.
 
-Table names, including `fk()`'s referenced table, are written `"orders"` (meaning `public.orders`) or `"audit.orders"`. `rel("orders")` and `rel_in("audit", "orders")` from `src/catalog/builder.rs` build the matching `RelationName`, for example to fill the `created` set passed to `make_ctx()`.
+Table names, including `fk()`'s referenced table, are written `"orders"` (meaning `public.orders`) or `"audit.orders"`. `lint_ctx!` takes tables created in the same change in that written form, e.g. `lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["orders", "audit.orders"]);`. When a test needs a `RelationName` itself, `rel("orders")` and `rel_in("audit", "orders")` from `src/catalog/builder.rs` build it.
 
 ### test_helpers
 
+- `lint_ctx!(ctx, &before, &after, "migrations/002.sql")`: the form rules use. Binds `ctx` through `make_ctx` and owns the file path and `created` set for you; append `created: ["orders"]` to fill the `created` set, or `txn: false` to go through `make_ctx_with_txn` instead
 - `make_ctx(before, after, file, created)` — build a `LintContext` with default settings (in transaction, not a down migration)
 - `make_ctx_with_txn(before, after, file, created, run_in_transaction)` — same but with explicit transaction flag
 - `located(node)` — take a parser-form `IrNode<QualifiedName>`, resolve its names against `public` as the pipeline would, and wrap it in a `Located` with a dummy span at line 1
@@ -323,7 +334,7 @@ make docs-sync
 - Rules must be `Send + Sync` (to support future parallel execution).
 - No `unwrap()` or `expect()` in library code — use proper error handling.
 - All public functions require doc comments.
-- The `EXPLAIN` constant must reference the rule's own ID string.
-- Index column order must be preserved (affects FK covering index prefix matching).
+- The `EXPLAIN` markdown must follow the contract in step 6, which `src/rules/rule_docs_tests.rs` checks for every rule.
+- Index column order must be preserved (affects PGM508's prefix-based redundant-index detection via `is_prefix()`).
 - Down migrations get INFO severity cap automatically (PGM901) — rules don't need to handle this.
 - Error paths: parse failures on individual files warn and continue; rules don't see unparseable SQL (it becomes `IrNode::Unparseable` with a table hint that marks the table as `incomplete`).

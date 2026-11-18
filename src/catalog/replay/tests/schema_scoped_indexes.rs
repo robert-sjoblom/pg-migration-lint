@@ -162,6 +162,52 @@ fn drop_table_keeps_an_index_entry_that_another_table_took_over() {
 }
 
 #[test]
+fn drop_column_on_the_table_holding_a_generated_name_keeps_the_suffixed_index_of_another_table() {
+    let catalog = replay_sql(&[
+        "CREATE TABLE archive (status text);
+         CREATE TABLE orders (status text);",
+        "CREATE INDEX orders_status_idx ON archive (status);",
+        "CREATE INDEX ON orders (status);",
+        "ALTER TABLE archive DROP COLUMN status;",
+    ]);
+
+    assert_index_of(&catalog, "orders_status_idx1", "orders");
+    catalog.assert_index_unregistered("orders_status_idx");
+}
+
+#[rstest]
+#[case::drop_column(
+    "CREATE INDEX shared_idx ON archive (status);",
+    "CREATE INDEX shared_idx ON orders (status);",
+    "ALTER TABLE archive DROP COLUMN status;"
+)]
+#[case::drop_constraint(
+    "ALTER TABLE archive ADD CONSTRAINT shared_idx UNIQUE (status);",
+    "CREATE INDEX shared_idx ON orders (status);",
+    "ALTER TABLE archive DROP CONSTRAINT shared_idx;"
+)]
+#[case::using_index(
+    "CREATE UNIQUE INDEX shared_idx ON archive (status);",
+    "CREATE UNIQUE INDEX shared_idx ON orders (status);",
+    "ALTER TABLE archive ADD CONSTRAINT archive_status_key UNIQUE USING INDEX shared_idx;"
+)]
+fn unregistering_an_index_keeps_an_entry_another_table_took_over(
+    #[case] archive_index_sql: &str,
+    #[case] orders_index_sql: &str,
+    #[case] archive_change_sql: &str,
+) {
+    let catalog = replay_sql(&[
+        "CREATE TABLE archive (status text);
+         CREATE TABLE orders (status text);",
+        archive_index_sql,
+        orders_index_sql,
+        archive_change_sql,
+    ]);
+
+    assert_index_of(&catalog, "shared_idx", "orders");
+}
+
+#[test]
 fn drop_schema_cascade_unregisters_only_that_schemas_indexes() {
     let catalog = replay_two_orders_tables_then(
         "analytics.orders",
@@ -211,7 +257,9 @@ fn attach_partition_validates_only_the_parent_index_in_its_resolved_schema(
         steps.push(format!(
             "CREATE TABLE {table} (id int, created date) PARTITION BY RANGE (created);"
         ));
-        steps.push(format!("CREATE INDEX idx_created ON ONLY {table} (created);"));
+        steps.push(format!(
+            "CREATE INDEX idx_created ON ONLY {table} (created);"
+        ));
     }
     steps.push(attach_sql.to_string());
     let steps: Vec<&str> = steps.iter().map(String::as_str).collect();

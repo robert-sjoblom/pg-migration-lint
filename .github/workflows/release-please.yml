@@ -9,13 +9,14 @@ permissions:
   pull-requests: write
 
 env:
-  # The ubuntu-latest runner has clang-18 + libclang pre-installed;
-  # point bindgen at it so we can skip apt-get install libclang-dev.
+  # Runners are pinned to ubuntu-24.04 because that image has clang-18 and
+  # libclang pre-installed (ubuntu-latest, now 26.04, has no llvm-18).
+  # Point bindgen at it so we can skip apt-get install libclang-dev.
   LIBCLANG_PATH: /usr/lib/llvm-18/lib
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -28,7 +29,7 @@ jobs:
 
   build:
     name: Build release binary (musl)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     steps:
@@ -58,7 +59,7 @@ jobs:
 
   build-bridge:
     name: Build Liquibase bridge JAR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     steps:
@@ -82,7 +83,7 @@ jobs:
 
   upload-assets:
     name: Upload release assets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [release-please, build, build-bridge]
     steps:
       - name: Download release binary

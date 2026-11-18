@@ -128,6 +128,21 @@ pub(crate) trait CatalogAssertions {
     fn assert_index_owner(&self, index: &str, table: &str);
     /// Panics if the reverse lookup maps `index` to any table.
     fn assert_index_unregistered(&self, index: &str);
+    /// Panics showing both catalogs unless this one holds the same tables,
+    /// in the same state, and the same index registrations as `expected`.
+    fn assert_same_state_as(&self, expected: &Catalog);
+}
+
+/// The catalog's tables and index registrations, sorted, for comparing two
+/// catalogs whatever their hash map order.
+#[cfg(test)]
+fn sorted_state_description(catalog: &Catalog) -> String {
+    let mut tables: Vec<&TableState> = catalog.tables().collect();
+    tables.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut registrations: Vec<(&RelationName, &RelationName)> =
+        catalog.registered_indexes().collect();
+    registrations.sort();
+    format!("tables: {tables:#?}\nindex registrations: {registrations:#?}")
 }
 
 #[cfg(test)]
@@ -225,6 +240,16 @@ impl CatalogAssertions for Catalog {
                 schema_dot_name(owner)
             );
         }
+    }
+
+    #[track_caller]
+    fn assert_same_state_as(&self, expected: &Catalog) {
+        let actual = sorted_state_description(self);
+        let expected = sorted_state_description(expected);
+        assert!(
+            actual == expected,
+            "catalog state differs\nexpected:\n{expected}\nactual:\n{actual}"
+        );
     }
 }
 

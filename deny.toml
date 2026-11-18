@@ -1,6 +1,9 @@
 [advisories]
-# Uses the RustSec advisory database
-# Default behavior: deny vulnerabilities, warn on unmaintained
+# Uses the RustSec advisory database. Current cargo-deny errors on vulnerable,
+# unmaintained and unsound crates alike; ignore advisories by id, with a reason.
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono comes in only through octocrab; no maintained replacement upstream yet" },
+]
 
 [licenses]
 allow = [

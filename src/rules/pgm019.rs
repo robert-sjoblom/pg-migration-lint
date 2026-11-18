@@ -21,7 +21,10 @@ pub(super) fn check(
         |at, action, stmt, ctx| {
             if matches!(
                 action,
-                AlterTableAction::AddConstraint(TableConstraint::Exclude { .. })
+                AlterTableAction::AddConstraint {
+                    constraint: TableConstraint::Exclude { .. },
+                    ..
+                }
             ) {
                 vec![rule.make_finding(
                     format!(
@@ -54,7 +57,7 @@ mod tests {
     fn add_exclude_stmt(table: &str) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(table),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
                 elements: vec![],
                 include_columns: vec![],
@@ -150,7 +153,7 @@ mod tests {
 
         let stmts = vec![located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::qualified("myschema", "orders"),
-            actions: vec![AlterTableAction::AddConstraint(TableConstraint::Exclude {
+            actions: vec![AlterTableAction::add_constraint(TableConstraint::Exclude {
                 name: Some("excl_orders".to_string()),
                 elements: vec![],
                 include_columns: vec![],
@@ -182,7 +185,7 @@ mod tests {
             name: QualifiedName::unqualified("orders"),
             actions: vec![
                 AlterTableAction::AddColumn(ColumnDef::test("extra", "text")),
-                AlterTableAction::AddConstraint(TableConstraint::Exclude {
+                AlterTableAction::add_constraint(TableConstraint::Exclude {
                     name: Some("excl_orders".to_string()),
                     elements: vec![],
                     include_columns: vec![],

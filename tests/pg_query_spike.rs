@@ -1474,3 +1474,57 @@ fn spike_include_columns_shape() {
         assert_eq!(included, ["b", "c"], "{constraint}");
     }
 }
+
+/// `ALTER TABLE ... RENAME CONSTRAINT` is a `RenameStmt` with
+/// `OBJECT_TABCONSTRAINT`: the table in `relation` (`inh` false under ONLY),
+/// the old constraint name in `subname`, `IF EXISTS` in `missing_ok`.
+/// `ALTER DOMAIN ... RENAME CONSTRAINT` is `OBJECT_DOMCONSTRAINT`, with the
+/// domain in `object` and no `relation`.
+#[test]
+fn spike_rename_constraint_stmt_shape() {
+    use pg_query::protobuf::ObjectType;
+
+    fn rename_stmt(sql: &str) -> pg_query::protobuf::RenameStmt {
+        let result = pg_query::parse(sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::RenameStmt(rename) = stmt else {
+            panic!("{sql}: expected RenameStmt, got {stmt:?}");
+        };
+        *rename.clone()
+    }
+
+    let plain = rename_stmt("ALTER TABLE orders RENAME CONSTRAINT orders_pkey TO purchases_pkey;");
+    assert_eq!(plain.rename_type(), ObjectType::ObjectTabconstraint);
+    let relation = plain.relation.as_ref().expect("relation");
+    assert_eq!(relation.relname, "orders");
+    assert_eq!(relation.schemaname, "");
+    assert!(relation.inh);
+    assert_eq!(plain.subname, "orders_pkey");
+    assert_eq!(plain.newname, "purchases_pkey");
+    assert!(!plain.missing_ok);
+    assert!(plain.object.is_none());
+
+    let guarded =
+        rename_stmt("ALTER TABLE IF EXISTS ONLY app.orders RENAME CONSTRAINT \"Old\" TO New;");
+    assert_eq!(guarded.rename_type(), ObjectType::ObjectTabconstraint);
+    let relation = guarded.relation.as_ref().expect("relation");
+    assert_eq!(relation.schemaname, "app");
+    assert_eq!(relation.relname, "orders");
+    assert!(!relation.inh, "ONLY clears inh");
+    assert!(guarded.missing_ok, "IF EXISTS sets missing_ok");
+    assert_eq!(guarded.subname, "Old", "quoted old name keeps its case");
+    assert_eq!(guarded.newname, "new", "unquoted new name is lowercased");
+
+    let domain = rename_stmt("ALTER DOMAIN positive_int RENAME CONSTRAINT c TO d;");
+    assert_eq!(domain.rename_type(), ObjectType::ObjectDomconstraint);
+    assert!(domain.relation.is_none());
+    assert!(domain.object.is_some());
+    assert_eq!(domain.subname, "c");
+    assert_eq!(domain.newname, "d");
+}

@@ -32,12 +32,12 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 2. **Parser** (`src/parser/`): Converts SQL to Intermediate Representation (IR) using `pg_query` bindings
 3. **Normalize** (`src/normalize.rs`): `resolve_units` resolves every parsed `QualifiedName` against `default_schema` into a `ResolvedName`, so replay and rules only see schema-qualified names
 4. **Catalog** (`src/catalog/`): Replays all migrations to build table state
-5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
+5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM027, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
 ### Intermediate Representation (IR)
 
-The tool converts SQL AST into a simplified IR layer to decouple rules from parser internals. The IR types are fully defined in `phase_0_type_trait_definitions.md`.
+The tool converts SQL AST into a simplified IR layer to decouple rules from parser internals.
 
 Key IR nodes (`src/parser/ir.rs`):
 ```rust
@@ -54,9 +54,12 @@ pub enum IrNode<N = ResolvedName> {
     DeleteFrom(DeleteFrom<N>),
     Cluster(Cluster<N>),
     VacuumFull(VacuumFull<N>),
+    Reindex(Reindex<N>),
     AlterIndexAttachPartition { parent_index_name, child_index_name },
     RenameTable { name, new_name },
     RenameColumn { table, old_name, new_name },
+    RenameIndex { index, new_name },
+    RenameConstraint { table, old_name, new_name },
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<N> },
 }
@@ -74,7 +77,8 @@ Supporting types:
 - `TypeName { name, modifiers }` - e.g., `varchar(100)` has modifiers `[100]`
 - `DefaultExpr` - enum: `Literal`, `FunctionCall { name, args }`, `Other`
 - `TableConstraint` - enum: `PrimaryKey`, `ForeignKey`, `Unique`, `Check`, `Exclude`
-- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `Other`
+- `AlterTableAction` - enum: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`
+- `ConstraintOrigin` - enum: `AddColumn` (written inline in an `ADD COLUMN`; directly follows that `AddColumn`), `AddConstraint` (an `ADD CONSTRAINT` subcommand). Rules ignore it; replay uses it to name constraints in Postgres's creation order. Build with `AlterTableAction::add_constraint` / `add_column_constraint`
 
 Each statement is wrapped in `Located<IrNode>` with `SourceSpan` for line number tracking.
 
@@ -104,14 +108,15 @@ pub struct TableState {
 
 Key methods on `TableState`:
 - `get_column(&self, name: &str) -> Option<&ColumnState>`
-- `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (skips non-btree, partial, ONLY indexes); used by PGM501
+- `has_indexed_fk_column(&self, fk_columns: &[String]) -> bool` - true if any usable index contains at least one FK column, in any position (btree and hash count; skips other access methods, partial and ON ONLY indexes); used by PGM501
 - `has_unique_not_null(&self) -> bool` - for PGM503 detection (btree-only, skips partial/expression indexes)
+- `constraint_backed_by(&self, index_name: &str) -> Option<&ConstraintState>` - the PRIMARY KEY, UNIQUE or EXCLUDE constraint the index backs (they share a name); replay keeps such an index on `DROP INDEX`, as PostgreSQL rejects it, and PGM027 reports the statement
 
 The catalog tracks:
 - Table creation/deletion
 - Column additions/modifications/deletions (including type changes)
 - Index creation/deletion (with column order preserved)
-- Constraint additions
+- Constraints: additions, drops (`DROP CONSTRAINT`, or dropping a column they involve), renames, and `VALIDATE CONSTRAINT` clearing NOT VALID. An unnamed constraint gets the name PostgreSQL would generate. A PRIMARY KEY or UNIQUE constraint shares its name with its backing index, and replay drops and renames the two together
 - Primary key existence
 
 **Single-pass replay strategy**: The pipeline iterates through migration history once. For each unit:
@@ -121,15 +126,20 @@ The catalog tracks:
 
 ### Rule System
 
-Each rule implements the `Rule` trait (`src/rules/mod.rs`):
+`RuleId` implements the `Rule` trait (`src/rules/mod.rs`); the `dispatch_rules!` macro in `src/rules/rule_id.rs` forwards each variant to its rule module:
 
 ```rust
 pub trait Rule: Send + Sync {
-    fn id(&self) -> &'static str;
+    fn id(&self) -> RuleId;
     fn default_severity(&self) -> Severity;
     fn description(&self) -> &'static str;
     fn explain(&self) -> &'static str;  // For --explain output
     fn check(&self, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>;
+
+    // Provided: a Finding with this rule's ID and default severity
+    fn make_finding(&self, message: String, file: &std::path::Path, span: &SourceSpan) -> Finding {
+        Finding::new(self.id(), self.default_severity(), message, file, span)
+    }
 }
 ```
 
@@ -141,11 +151,13 @@ pub struct LintContext<'a> {
     pub tables_created_in_change: &'a HashSet<RelationName>,  // For "new table" detection
     pub run_in_transaction: bool,     // From MigrationUnit metadata
     pub is_down: bool,                // Down/rollback migration flag
-    pub file: &'a PathBuf,
+    pub file: &'a Path,
 }
 ```
 
 Rules use `catalog_before` to check if tables are pre-existing (PGM001/002) and `catalog_after` for post-file checks (PGM501/502/503). The two-catalog approach enables single-pass replay without needing separate replay runs.
+
+A rule that needs the schema as it stands just before one statement, rather than before or after the whole unit, gets it from `replay::map_with_state_before`, which replays the unit's earlier statements on a copy of `catalog_before`. `src/rules/using_index.rs` uses it to resolve the index of `ADD PRIMARY KEY` / `ADD UNIQUE ... USING INDEX` (PGM016, PGM017, PGM107), and `src/rules/rejected_statements.rs` to find the statements PostgreSQL rejects: PGM027 reports them, and rules that would report what such a statement does skip it through `RejectedStatements::contains` (PGM002, PGM003, PGM401, PGM501, PGM504).
 
 #### Rule Severities
 Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical < Blocker`:
@@ -155,9 +167,9 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 - **MINOR**: Potentially unintended behavior
 - **INFO**: Informational findings
 
-#### Rules (54 total)
+#### Rules (55 total, plus PGM901)
 
-**0xx — Unsafe DDL** (PGM001–PGM025): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations.
+**0xx — Unsafe DDL** (PGM001–PGM025, PGM027): Missing CONCURRENTLY, table rewrites, unsafe constraint additions, silent side effects from DROP COLUMN, VACUUM FULL, REINDEX, partition operations, statements that fail against the schema from earlier migrations.
 **1xx — Type Anti-patterns** (PGM101–PGM109): timestamp without tz, timestamp(0) rounding, char(n), money, serial, json, integer PK, varchar(n), floating-point.
 **2xx — Destructive Operations** (PGM201–PGM205): DROP TABLE, DROP TABLE CASCADE, TRUNCATE, TRUNCATE CASCADE, DROP SCHEMA CASCADE.
 **3xx — DML in Migrations** (PGM301–PGM303): INSERT, UPDATE, DELETE on existing tables.
@@ -169,20 +181,22 @@ Five levels (`src/rules/severity.rs`), ordered `Info < Minor < Major < Critical 
 
 ### Adding a New Rule
 
-1. Define rule in `src/rules/pgmXXX.rs`, starting with `#![doc = include_str!("docs/pgmXXX.md")]`
+1. Define rule in `src/rules/pgmXXX.rs`, starting with `#![doc = include_str!("docs/pgmXXX.md")]`. The module does not implement `Rule`; it exposes `pub(super)` items that `dispatch_rules!` wires up:
+   - `DESCRIPTION: &str` - short summary; the only copy of the rule's title
+   - `EXPLAIN: &str` - `include_str!("docs/pgmXXX.md")`
+   - `DEFAULT_SEVERITY: Severity` - Critical, Major, Minor, Info
+   - `fn check(rule: impl Rule, statements: &[Located<IrNode>], ctx: &LintContext<'_>) -> Vec<Finding>` - main rule logic; build findings with `rule.make_finding(..)`
 2. Write `src/rules/docs/pgmXXX.md`, the rule's markdown body. It is the module doc, the `--explain` output (printed verbatim) and the `docs/rules.md` body. No title line, no headings, a language tag on every fence, absolute docs URLs for cross-references; `src/rules/rule_docs_tests.rs` enforces this.
-3. Implement the `Rule` trait with all methods:
-   - `id()` - stable identifier like "PGM001"
-   - `default_severity()` - Critical, Major, Minor, Info
-   - `description()` - short summary; the only copy of the rule's title
-   - `explain()` - `include_str!` of the markdown file
-   - `check()` - main rule logic
-4. Wire up dispatch arms in `impl Rule for RuleId` in `src/rules/rule_id.rs` (`default_severity`, `description`, `explain`, `check`)
-5. Add component test fixtures in `tests/fixtures/` with positive and negative cases
-6. Add unit tests for helper functions in the rule file
-7. Add integration test in fixture repo `tests/fixtures/repos/all-rules/`
-8. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
-9. Run `cargo test --features docgen`, accept the `rules_md` snapshot (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
+3. Register the rule:
+   - `src/rules/rule_id.rs`: add a `PgmXXX` variant to `RuleId` in its family section (doc comment plus `#[strum(serialize = "PGMXXX")]`), and a `PgmXXX => pgmXXX,` line to the `dispatch_rules!` invocation
+   - `src/rules/mod.rs`: add `mod pgmXXX;`, and bump the `RuleId::iter().count()` assertion in `test_rule_id_display_round_trip`
+   - `src/output/sonarqube.rs`: add the variant to the exhaustive `sonarqube_meta()` and `effort_minutes()` matches
+   - Opt-in rules only: add the variant to `RuleId::default_enabled()`
+4. Add unit tests with positive and negative cases in the rule file's `#[cfg(test)] mod tests`, using `CatalogBuilder` plus `lint_ctx!` and `located` from `src/rules/test_helpers.rs`, calling `RuleId::PgmXXX.check(..)` and snapshotting the findings with `insta`
+5. Add a violation to fixture repo `tests/fixtures/repos/all-rules/` and a suppressed one to `tests/fixtures/repos/suppressed/`; `tests/baseline.rs` fails if any lint rule does not fire in either
+6. Add the rule's section to `SPEC.md`: behaviour only (Severity, Triggers, Does not fire when, Message). The heading title must equal `DESCRIPTION` and the Severity bullet must start with `DEFAULT_SEVERITY`; a test under `--features docgen` checks both.
+7. Update the hand-written rule count and family ranges: the count in `README.md` (twice), `docs/index.md` and the Rules heading above, and the family's range in `README.md`, `docs/rules.md.j2` and this file when the new ID extends it. `docs/rules.md` fills in its count from `{{ rule_count }}`.
+8. Run `cargo test --features docgen`, accept the `rules_md` snapshot along with the rule's own and the SonarQube `all_rules_metadata_snapshot` (`cargo insta accept`), then `make docs-sync` to regenerate `docs/rules.md`. Any later change to a rule's markdown needs the same pass.
 
 ### Working with IR
 
@@ -193,22 +207,26 @@ When modifying the IR layer (`src/parser/ir.rs`):
 
 ### Catalog Replay
 
-The replay engine (`src/catalog/replay.rs`) has a single function:
+The replay engine (`src/catalog/replay.rs`) applies a unit with:
 ```rust
-pub fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
+pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
 ```
 
 `MigrationUnit` defaults to `MigrationUnit<ResolvedName>`, so replay only accepts units that have been through `resolve_units`.
 
-The pipeline in `main.rs` drives replay:
+`LintPipeline` (`src/pipeline.rs`) drives replay. It owns the catalog and `tables_created_in_change`; `main.rs` feeds it the resolved units in order, calling `lint` for changed files and `replay` for the rest:
 ```rust
-for unit in history.units {
-    if unit.source_file is in changed_files {
-        let catalog_before = catalog.clone();
-        apply(&mut catalog, &unit);
-        lint(&unit, &catalog_before, &catalog);  // catalog_after is current catalog
-    } else {
-        apply(&mut catalog, &unit);
+impl LintPipeline {
+    fn replay(&mut self, unit: &MigrationUnit) {
+        apply(&mut self.catalog, unit);
+    }
+
+    fn lint(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
+        let catalog_before = self.catalog.clone();
+        apply(&mut self.catalog, unit);
+        record tables the unit creates in self.tables_created_in_change;
+        run rules with (&catalog_before, &self.catalog);  // catalog_after is current catalog
+        cap findings to INFO if unit.is_down;             // PGM901
     }
 }
 ```
@@ -225,7 +243,7 @@ let catalog = CatalogBuilder::new()
          .column("status", "text", true)
          .index("idx_status", &["status"], false)
          .pk(&["id"])
-         .fk("fk_customer", &["customer_id"], "customers", &["id"])
+         .fk("fk_customer", &["customer_id"], "customers", &["id"]);
     })
     .build();
 ```
@@ -242,14 +260,17 @@ To inspect a catalog in tests, use the `#[cfg(test)]` `CatalogAssertions` trait 
 
 Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `all-rules/` - One violation per rule
+- `bridge-table/` - PGM501 negative case: a bridge table whose composite PK `(x_id, y_id)` covers both FKs
 - `catalog-ops/` - Catalog operations (DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes)
 - `clean/` - All migrations correct, expect 0 findings
 - `enterprise/` - Realistic 31-file migration history
-- `fk-with-later-index/` - PGM501 FK detection across migration boundaries
+- `fk-with-later-index/` - PGM501 FK detection across migration boundaries; `V004__drop_index.sql` drops the covering index again, the drop-coverage case
 - `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
+- `liquibase-fresh/` - Liquibase bridge on a fresh repo with every changeset changed, expect only PGM402
 - `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs
 - `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
 - `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
+- `partition-lock-hazard/` - PGM024: a repartition of 5 partitioned parents in one transaction (one finding per parent), and the safe DETACH CONCURRENTLY then DROP
 - `schema-qualified/` - Schema-qualified names and cross-schema references
 - `suppressed/` - All violations suppressed, expect 0 findings
 
