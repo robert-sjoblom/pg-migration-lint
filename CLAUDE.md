@@ -35,6 +35,8 @@ Input Files → Parser → IR → Normalize → Replay Engine → Rule Engine �
 5. **Rules** (`src/rules/`): Lints changed files against rules (PGM001-PGM025, PGM027, PGM101-PGM109, PGM201-PGM205, PGM301-PGM303, PGM401-PGM403, PGM501-PGM509)
 6. **Output** (`src/output/`): Emits SARIF, SonarQube JSON, or text
 
+Between rules and output, `lint_history` in `src/main.rs` applies suppression comments and `dedup_findings` per unit, then `group_repeated_findings` (`src/rules/finding.rs`) merges one rule's findings at one severity in one file into one `Finding` with `additional_locations` once there are `output.group_threshold` (default 5) of them. Every reporter renders those locations.
+
 ### Intermediate Representation (IR)
 
 The tool converts SQL AST into a simplified IR layer to decouple rules from parser internals.
@@ -281,6 +283,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
 - `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
 - `partition-lock-hazard/` - PGM024: a repartition of 5 partitioned parents in one transaction (one finding per parent), and the safe DETACH CONCURRENTLY then DROP
+- `repeated-findings/` - Grouping: 20 `DROP TABLE` without IF EXISTS in one file (PGM201 and PGM401 floods), and a file where one suppressed statement keeps PGM401 below `group_threshold`
 - `schema-qualified/` - Schema-qualified names and cross-schema references
 - `suppressed/` - All violations suppressed, expect 0 findings
 

@@ -32,7 +32,7 @@
 
 use anyhow::Context;
 use octocrab::Octocrab;
-use pg_migration_lint::output::sarif_level;
+use pg_migration_lint::output::{also_at_lines, sarif_level};
 use pg_migration_lint::{Finding, Rule as _, RuleId};
 
 use super::filter::{InlineEntry, SeverityCounts, SummaryEntry, SummaryReason};
@@ -228,10 +228,11 @@ async fn post_inline_review(
 }
 
 /// Builds one inline review comment's body: a severity badge, the
-/// finding's message, its rule id, and the trailing [`INLINE_MARKER`] this
-/// tool searches for on the next run. Deliberately terse -- no `--explain`
-/// text, that belongs in the summary comment instead, once per unique
-/// rule.
+/// finding's message, its rule id, for a grouped finding a paragraph naming
+/// the lines of its other statements, and the trailing [`INLINE_MARKER`]
+/// this tool searches for on the next run. Deliberately terse -- no
+/// `--explain` text, that belongs in the summary comment instead, once per
+/// unique rule.
 ///
 /// The severity badge is [`sarif_level`], not `finding.severity`'s own
 /// `Display` (SonarQube's `CRITICAL`/`MAJOR`/... vocabulary) -- PR comments
@@ -239,8 +240,11 @@ async fn post_inline_review(
 /// [`super::filter::count_by_severity`]'s aggregate table uses, so the two
 /// never disagree on what counts as an "error".
 fn inline_comment_body(finding: &Finding) -> String {
+    let other_lines = also_at_lines(finding.start_line, &finding.additional_locations)
+        .map(|also_at| format!("{also_at}\n\n"))
+        .unwrap_or_default();
     format!(
-        "**{}** {} ({})\n\n{INLINE_MARKER}",
+        "**{}** {} ({})\n\n{other_lines}{INLINE_MARKER}",
         sarif_level(&finding.severity),
         finding.message,
         finding.rule_id
@@ -335,7 +339,8 @@ async fn find_summary_comment_id(
 
 /// Builds the summary comment's body: a severity-count table, then (if
 /// non-empty) a list of every `summary`-routed finding with its
-/// [`SummaryReason`], then one `<details>` block per *unique* triggered
+/// [`SummaryReason`] (a grouped finding once, naming its other lines), then
+/// one `<details>` block per *unique* triggered
 /// rule (`rule_ids` is already deduped, so `.explain()` runs once per rule
 /// regardless of how many findings it produced).
 ///
@@ -386,9 +391,12 @@ fn summary_comment_body(
                     "file's diff is too large for GitHub to report line ranges"
                 }
             };
+            let other_lines = also_at_lines(finding.start_line, &finding.additional_locations)
+                .map(|also_at| format!(" {also_at}"))
+                .unwrap_or_default();
             let _ = writeln!(
                 body,
-                "- **{}** `{}` {}:{}-{} -- {} ({reason})",
+                "- **{}** `{}` {}:{}-{} -- {}{other_lines} ({reason})",
                 sarif_level(&finding.severity),
                 finding.rule_id,
                 github_path(&finding.file),

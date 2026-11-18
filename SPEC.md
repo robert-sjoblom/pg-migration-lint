@@ -104,10 +104,17 @@ Input Files
 └────┬─────────┘
      │
      ▼
+┌──────────────┐
+│   Grouping   │  Merges repeated findings per rule and file (§7.4)
+└────┬─────────┘
+     │
+     ▼
 ┌──────────┐
 │ Reporter │  SARIF, SonarQube JSON, text, --explain
 └──────────┘
 ```
+
+Suppression comments (§5) and per-unit dedup run on each unit's findings before grouping.
 
 ### 3.2 Intermediate Representation (IR)
 
@@ -909,6 +916,8 @@ File-level suppression must appear before any SQL statements in the file.
 
 Multiple rules in one comment: `-- pgm-lint:suppress PGM001,PGM501`
 
+Suppressions apply before grouping (§7.4). A next-statement suppression removes that one statement from its group and from the count that decides whether the rule's findings are grouped; a file-level suppression removes the whole group.
+
 ### 5.2 SonarQube suppression
 
 SonarQube's built-in "Won't Fix" / "False Positive" workflow applies to imported findings. No special handling needed from the tool.
@@ -972,6 +981,11 @@ formats = ["sarif", "sonarqube"]
 # Output directory
 dir = "build/reports/migration-lint"
 
+# Group repeated findings (§7.4): once one rule reports at least this many
+# findings at one severity in one file, report them as one finding.
+# 1 = one finding per rule, severity and file; 0 = never group. Default: 5.
+group_threshold = 5
+
 [cli]
 # Exit code threshold: "blocker", "critical", "major", "minor", "info", "none"
 # Tool returns non-zero if any finding meets or exceeds this severity
@@ -984,30 +998,55 @@ fail_on = "critical"
 
 ### 7.1 SonarQube Generic Issue Import
 
+SonarQube 10.3+ format: rule metadata (`cleanCodeAttribute`, `type`, `impacts`) lives in a top-level `rules` array that lists only the rules that fired, and each issue carries `ruleId`, `effortMinutes` and `primaryLocation`. A grouped finding (§7.4) is one issue: its lowest-line finding is the `primaryLocation` and the other findings are `secondaryLocations`, each with its own message (several can share a line when the rule fires per column). Its `effortMinutes` is the rule's effort times the number of findings in the group, so grouping does not lower the technical debt SonarQube adds up.
+
 ```json
 {
+  "rules": [
+    {
+      "id": "PGM401",
+      "name": "Missing IF EXISTS on DROP TABLE / DROP INDEX",
+      "description": "Missing IF EXISTS on DROP TABLE / DROP INDEX. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401",
+      "engineId": "pg-migration-lint",
+      "cleanCodeAttribute": "COMPLETE",
+      "type": "CODE_SMELL",
+      "severity": "MINOR",
+      "impacts": [{ "softwareQuality": "MAINTAINABILITY", "severity": "MEDIUM" }]
+    }
+  ],
   "issues": [
     {
-      "engineId": "pg-migration-lint",
-      "ruleId": "PGM001",
-      "severity": "CRITICAL",
-      "type": "BUG",
+      "ruleId": "PGM401",
+      "effortMinutes": 30,
       "primaryLocation": {
-        "message": "CREATE INDEX on existing table 'orders' should use CONCURRENTLY.",
-        "filePath": "db/migrations/V042__add_order_index.sql",
-        "textRange": {
-          "startLine": 3,
-          "endLine": 3
+        "message": "DROP TABLE 'report_a' without IF EXISTS will fail if the table does not exist.",
+        "filePath": "db/migrations/V043__drop_reports.sql",
+        "textRange": { "startLine": 1, "endLine": 1 }
+      },
+      "secondaryLocations": [
+        {
+          "message": "DROP TABLE 'report_b' without IF EXISTS will fail if the table does not exist.",
+          "filePath": "db/migrations/V043__drop_reports.sql",
+          "textRange": { "startLine": 2, "endLine": 2 }
+        },
+        {
+          "message": "DROP TABLE 'report_c' without IF EXISTS will fail if the table does not exist.",
+          "filePath": "db/migrations/V043__drop_reports.sql",
+          "textRange": { "startLine": 3, "endLine": 3 }
         }
-      }
+      ]
     }
   ]
 }
 ```
 
+An ungrouped finding has no `secondaryLocations`.
+
 ### 7.2 SARIF
 
 Standard SARIF 2.1.0 schema. Upload to GitHub via `github/codeql-action/upload-sarif@v3`. This produces inline PR annotations with no API integration needed.
+
+A grouped finding (§7.4) is one result. Its `locations` hold one location per finding, lowest line first, and each location carries that finding's own `message`. GitHub Code Scanning shows only the first location, so the result message is the first finding's message followed by the other lines (§7.4), for example `Also at lines 2, 3.` GitHub rejects an upload in which one result has more than 1,000 locations, so a group of more than 1,000 findings becomes one result per 1,000 findings, each built the same way.
 
 ### 7.3 Text
 
@@ -1020,6 +1059,26 @@ CRITICAL PGM001 db/migrations/V042__add_order_index.sql:3
 MAJOR PGM501 db/migrations/V042__add_order_index.sql:7
   Foreign key on 'order_items(order_id)' has no covering index.
 ```
+
+A grouped finding (§7.4) is reported at its lowest line, with one more line naming the other lines (§7.4):
+
+```
+MINOR PGM401 db/migrations/V043__drop_reports.sql:1
+  DROP TABLE 'report_a' without IF EXISTS will fail if the table does not exist.
+  Also at lines 2, 3.
+```
+
+### 7.4 Grouped findings
+
+When one rule fires many times in one file (for example 192 `DROP TABLE` statements without `IF EXISTS`, each a PGM401 finding), the tool reports one finding for them that lists every location.
+
+- **When**: once a rule reports at least `output.group_threshold` findings at the same severity in one file (default 5). Findings at different severities group separately, so a group never changes a finding's severity: a rule that reports some statements at a lower severity (PGM006, PGM007, PGM020) forms one group per severity. PGM901's INFO cap applies per unit before grouping, and down migrations are files of their own. `group_threshold = 1` makes one finding per rule, severity and file; `group_threshold = 0` turns grouping off.
+- **Order**: suppression comments (§5) and per-unit dedup apply first, so a suppressed statement is never a member and does not count toward the threshold. Grouping runs once over every changed unit's findings, so the findings of one file group together even when the file holds several units (Liquibase changesets).
+- **Shape**: the group's lowest-line finding is its primary location, with that finding's message. The other findings are its additional locations, ordered by line, each with the message the rule gave it. A rule that fires per column (PGM101, PGM105, PGM108) can put several findings on one statement, so several locations can share a line. The group takes the place of the first of its findings in the output order; other findings keep their order.
+- **Naming the other lines**: where a reporter shows one location per finding (text, the SARIF result message, `github-review`), it follows the message with the start lines of the group's other locations, each named once and leaving out the line the finding is shown at: `Also at lines 15, 22.` When the group has more findings than the lines named, the sentence counts them: `Also at lines 15, 22 (5 more findings).`, or `Also 2 more findings at this line.` when they all share the shown line.
+- **Counting**: a group is one finding everywhere findings are counted: the `pg-migration-lint: N finding(s)` summary, the `github-review` severity table and `findings-count` output. `--fail-on` compares each finding's severity with the threshold, and a group keeps the severity of its members, so grouping never changes the exit code.
+- **Reporters**: SARIF (§7.2), SonarQube (§7.1) and text (§7.3) as described above. `github-review` posts one inline comment for the group, anchored at its lowest-line location that lies in the pull request's diff. The comment shows that location's message and names the other lines, earlier ones included, in a second paragraph. In a modified file the group's lowest line can be old code outside the diff while a later member is new, so only a group with no location in the diff is listed in the summary comment ("outside this pull request's diff"), with the other lines named after its message.
+- **Single-file changelogs**: Code Scanning and SonarQube track an alert or issue by its primary location. When one file keeps growing (a single-file Liquibase changelog, or a long-lived file edited in place), a new violation of a rule that already has a group in that file joins the existing group instead of showing up as a new alert or issue. Such layouts may want `group_threshold = 0`.
 
 ---
 
@@ -1153,3 +1212,4 @@ pg-migration-lint/
 | 1.20    | 2026-09-17 | Rule text has a single source: `src/rules/docs/pgmXXX.md` is the module doc, the `--explain` body (printed verbatim as CommonMark) and the `docs/rules.md` body. Rule sections in §4.2/§4.3 now define behaviour only: removed every per-rule **Why** bullet, aligned 29 headings with `DESCRIPTION`, and aligned Severity bullets with `DEFAULT_SEVERITY` (7 stale `WARNING` to `MINOR`, PGM005 `CRITICAL` to `MAJOR`, PGM006 leads with `MINOR`). A `docgen`-gated test enforces heading, severity and the absence of **Why** bullets. |
 | 1.21    | 2026-09-18 | Added PGM025 (DROP COLUMN silently removes EXCLUDE constraint, MINOR). Same shape as PGM010/011/012: shares `drop_column_check::check_drop_column_constraints`, matches `ConstraintState::Exclude`. No IR or catalog changes required — `ConstraintState::Exclude` and its `involves_column`/`remove_column` handling already existed. |
 | 1.22    | 2026-11-17 | Added PGM027 (statement fails against the schema from earlier migrations, MAJOR): `USING INDEX` of another table's index, renames onto a taken name, and `DROP INDEX` of a constraint's index. Each statement is judged against the catalog just before it (`catalog_before` with the unit's earlier statements replayed, `replay::map_with_state_before`). PGM504 skips a rename PGM027 reports; PGM016/017 skip, and PGM107 ignores, a `USING INDEX` of another table's index. Replay keeps the index on a rejected `DROP INDEX`. |
+| 1.23    | 2026-11-18 | Grouped findings (§7.4): once one rule reports `output.group_threshold` (default 5) findings at one severity in one file, they are reported as one finding with `additional_locations`, after suppression and per-unit dedup. SARIF renders a group as one result with every finding in `locations` (split per 1,000 locations, GitHub's limit), SonarQube as one issue with `secondaryLocations`, text and `github-review` as one finding naming each other line once; `github-review` anchors a group at its first location in the diff. §7.1 example updated to the 10.3+ format the reporter emits. |

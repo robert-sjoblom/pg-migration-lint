@@ -2,7 +2,8 @@
 //!
 //! Supports SARIF 2.1.0, SonarQube Generic Issue Import JSON, and text output.
 
-use crate::rules::{Finding, Rule, RuleId, Severity};
+use crate::rules::{Finding, FindingLocation, Rule, RuleId, Severity};
+use std::collections::BTreeSet;
 use std::path::Path;
 use thiserror::Error;
 
@@ -118,6 +119,49 @@ pub(crate) fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// The sentence that names where a grouped finding's other findings are,
+/// such as `Also at lines 5, 7, 9.`, or `None` when there are none (an
+/// ungrouped finding).
+///
+/// `anchor_line` is the start line of the location the finding is shown
+/// at, and `others` are its other locations. Each start line is named once
+/// and `anchor_line` is left out, since a rule that fires per column reports
+/// several findings on one statement. When there are more findings than
+/// named lines, the sentence counts them: `Also at lines 15, 22 (4 more
+/// findings).`, or `Also 2 more findings at this line.` when they all share
+/// `anchor_line`.
+///
+/// Reporters whose viewer shows a single location per finding (text, the
+/// SARIF result message GitHub displays, PR comments) append it to the
+/// finding's message.
+pub fn also_at_lines(anchor_line: usize, others: &[FindingLocation]) -> Option<String> {
+    if others.is_empty() {
+        return None;
+    }
+    let other_lines: Vec<String> = others
+        .iter()
+        .map(|location| location.start_line)
+        .filter(|&line| line != anchor_line)
+        .collect::<BTreeSet<usize>>()
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect();
+    let more_findings = match others.len() {
+        1 => "1 more finding".to_string(),
+        count => format!("{count} more findings"),
+    };
+
+    Some(match other_lines.as_slice() {
+        [] => format!("Also {more_findings} at this line."),
+        [only] if others.len() == 1 => format!("Also at line {only}."),
+        [only] => format!("Also at line {only} ({more_findings})."),
+        several if others.len() == several.len() => {
+            format!("Also at lines {}.", several.join(", "))
+        }
+        several => format!("Also at lines {} ({more_findings}).", several.join(", ")),
+    })
+}
+
 #[cfg(test)]
 pub mod test_helpers;
 
@@ -135,7 +179,7 @@ mod tests {
     use super::*;
     use crate::output::test_helpers::test_finding;
     use crate::parser::SourceSpan;
-    use crate::rules::{Finding, RuleId, Severity};
+    use crate::rules::{Finding, FindingLocation, RuleId, Severity};
     use std::path::Path;
 
     #[test]
@@ -217,6 +261,78 @@ mod tests {
     fn text_filename() {
         let reporter = TextReporter::new(false);
         assert_eq!(reporter.filename(), "findings.txt");
+    }
+
+    fn locations_at(lines: &[usize]) -> Vec<FindingLocation> {
+        lines
+            .iter()
+            .map(|&line| FindingLocation {
+                start_line: line,
+                end_line: line + 2,
+                message: format!("statement at line {line}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn also_at_lines_is_none_without_other_locations() {
+        assert_eq!(also_at_lines(1, &[]), None);
+    }
+
+    #[test]
+    fn also_at_lines_names_a_single_line() {
+        assert_eq!(
+            also_at_lines(1, &locations_at(&[7])),
+            Some("Also at line 7.".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_names_every_start_line_in_order() {
+        assert_eq!(
+            also_at_lines(1, &locations_at(&[4, 9, 12])),
+            Some("Also at lines 4, 9, 12.".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_names_each_line_once_and_counts_the_findings() {
+        assert_eq!(
+            also_at_lines(3, &locations_at(&[15, 22, 29, 29, 29])),
+            Some("Also at lines 15, 22, 29 (5 more findings).".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_leaves_out_the_anchor_line() {
+        assert_eq!(
+            also_at_lines(3, &locations_at(&[3, 15])),
+            Some("Also at line 15 (2 more findings).".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_counts_findings_that_share_the_anchor_line() {
+        assert_eq!(
+            also_at_lines(3, &locations_at(&[3, 3])),
+            Some("Also 2 more findings at this line.".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_counts_one_finding_that_shares_the_anchor_line() {
+        assert_eq!(
+            also_at_lines(3, &locations_at(&[3])),
+            Some("Also 1 more finding at this line.".to_string())
+        );
+    }
+
+    #[test]
+    fn also_at_lines_names_lines_before_the_anchor_in_order() {
+        assert_eq!(
+            also_at_lines(12, &locations_at(&[14, 2])),
+            Some("Also at lines 2, 14.".to_string())
+        );
     }
 
     #[test]

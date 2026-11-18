@@ -113,7 +113,7 @@ Five details matter here:
 | Output | Description |
 |---|---|
 | `exit-code` | Exit code returned by the pg-migration-lint CLI (0 = clean, 1 = findings at/above threshold, 2 = tool/config error). |
-| `findings-count` | Total number of findings reported by pg-migration-lint. |
+| `findings-count` | Total number of findings reported by pg-migration-lint. Repeated findings grouped into one (see `group_threshold` in the [configuration reference](#configuration-reference)) count once. |
 
 ## PostgreSQL Version Support
 
@@ -232,6 +232,17 @@ dir = "build/reports/migration-lint"
 # Default: none
 # strip_prefix = "impl/"
 
+# Group repeated findings. Once one rule reports at least this many findings
+# at one severity in one file, they are reported as one finding at the lowest
+# line that names the lines of the others (SARIF: one result with every
+# location; SonarQube: one issue with secondary locations). A group counts as
+# one finding in the finding count. Suppressed statements are not counted.
+# A single-file changelog may want 0: a new violation can join an existing
+# group instead of showing up as a new alert or issue.
+# 1 = one finding per rule, severity and file; 0 = never group.
+# Default: 5
+group_threshold = 5
+
 [rules]
 # Rule IDs to disable globally. Findings from disabled rules are not emitted.
 # Invalid rule IDs cause a config-load error (exit 2).
@@ -277,6 +288,8 @@ CREATE INDEX idx_foo ON bar (col);
 ```sql
 -- pgm-lint:suppress-file PGM001,PGM501
 ```
+
+Suppressions apply before repeated findings are grouped (`group_threshold`): suppressing one statement removes only that statement from its group.
 
 ### Liquibase XML files
 

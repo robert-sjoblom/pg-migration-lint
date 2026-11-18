@@ -123,6 +123,13 @@ pub struct OutputConfig {
     /// Example: `strip_prefix = "impl/"` turns `impl/src/main/...` into `src/main/...`.
     #[serde(default)]
     pub strip_prefix: Option<String>,
+
+    /// Once one rule reports at least this many findings at one severity in
+    /// one file, report them as a single finding that lists every location
+    /// (see `rules::group_repeated_findings`). 1 makes one finding per rule,
+    /// severity and file; 0 turns grouping off.
+    #[serde(default = "default_group_threshold")]
+    pub group_threshold: usize,
 }
 
 impl Default for OutputConfig {
@@ -131,6 +138,7 @@ impl Default for OutputConfig {
             formats: default_formats(),
             dir: default_output_dir(),
             strip_prefix: None,
+            group_threshold: default_group_threshold(),
         }
     }
 }
@@ -205,6 +213,10 @@ fn default_formats() -> Vec<String> {
 
 fn default_output_dir() -> PathBuf {
     PathBuf::from("build/reports/migration-lint")
+}
+
+fn default_group_threshold() -> usize {
+    5
 }
 
 fn default_fail_on() -> String {
@@ -300,6 +312,17 @@ const SECTION_OUTPUT: &str = "\
     SonarQube) expects module-relative paths.
     Type: string (optional)
     Default: none
+
+  group_threshold = 5
+    Once one rule reports at least this many findings in one file, they are
+    reported as a single finding at the lowest line that names the lines of
+    the others. Findings at different severities are grouped separately.
+    The group counts as one finding for the finding count. A single-file
+    changelog may want 0, since a new violation can join an existing group
+    instead of showing up as a new alert or issue.
+    1 makes one finding per rule, severity and file; 0 turns grouping off.
+    Type: integer
+    Default: 5
 ";
 
 const SECTION_CLI: &str = "\
@@ -726,6 +749,56 @@ mod tests {
         assert_eq!(config.output.strip_prefix, None);
     }
 
+    #[test]
+    fn test_group_threshold_defaults_to_five() {
+        let config = Config::default();
+        assert_eq!(config.output.group_threshold, 5);
+    }
+
+    #[test]
+    fn test_group_threshold_absent_uses_default() {
+        let toml = "[output]\nformats = [\"sarif\"]";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.output.group_threshold, 5);
+    }
+
+    #[test]
+    fn test_group_threshold_deserialization() {
+        let toml = "[output]\ngroup_threshold = 12";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.output.group_threshold, 12);
+    }
+
+    #[test]
+    fn test_group_threshold_zero_is_valid() {
+        let toml = "[output]\ngroup_threshold = 0";
+        let config = parse_and_validate(toml).unwrap();
+        assert_eq!(config.output.group_threshold, 0);
+    }
+
+    #[test]
+    fn test_group_threshold_negative_rejected() {
+        let toml = "[output]\ngroup_threshold = -1";
+        assert!(matches!(
+            parse_and_validate(toml),
+            Err(ConfigError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn test_group_threshold_non_integer_rejected() {
+        let toml = "[output]\ngroup_threshold = \"off\"";
+        assert!(matches!(
+            parse_and_validate(toml),
+            Err(ConfigError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn test_explain_config_output_documents_group_threshold() {
+        assert!(SECTION_OUTPUT.contains("group_threshold"));
+    }
+
     // --- config defaults tests ---
 
     /// Assert that every field in the config has its expected default value.
@@ -788,6 +861,7 @@ mod tests {
             "output.dir"
         );
         assert_eq!(config.output.strip_prefix, None, "output.strip_prefix");
+        assert_eq!(config.output.group_threshold, 5, "output.group_threshold");
 
         // cli
         assert_eq!(config.cli.fail_on, "critical", "cli.fail_on");

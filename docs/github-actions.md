@@ -67,3 +67,7 @@ jobs:
 - **`--fail-on critical`** -- The linter exits with code 1 if any finding has Critical severity or higher. This blocks the PR (when branch protection requires the check to pass). Set to `major`, `minor`, or `info` to be stricter, or `none` to never fail.
 
 - **`if: always()`** on the SARIF upload step -- The "Run linter" step exits with code 1 when it finds Critical issues, which normally causes subsequent steps to be skipped. The `if: always()` condition ensures the SARIF file is still uploaded so that findings appear as inline annotations on the PR, even when the lint step "fails."
+
+## Repeated findings
+
+When one rule fires at least `group_threshold` times in one file (default 5, set under `[output]` in `pg-migration-lint.toml`), the SARIF report holds one result for them. Code Scanning shows it as one alert at the lowest line, and the alert message ends with the other lines, for example `Also at lines 2, 3, 4.` Set `group_threshold = 0` to get one alert per finding.

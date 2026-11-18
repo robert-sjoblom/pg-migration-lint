@@ -1,0 +1,63 @@
+---
+source: src/output/sonarqube.rs
+expression: parsed
+---
+{
+  "issues": [
+    {
+      "effortMinutes": 40,
+      "primaryLocation": {
+        "filePath": "db/migrations/V043__drop_legacy_reports.sql",
+        "message": "DROP TABLE 'legacy_report_01' without IF EXISTS will fail if the table does not exist.",
+        "textRange": {
+          "endLine": 1,
+          "startLine": 1
+        }
+      },
+      "ruleId": "PGM401",
+      "secondaryLocations": [
+        {
+          "filePath": "db/migrations/V043__drop_legacy_reports.sql",
+          "message": "DROP TABLE 'legacy_report_02' without IF EXISTS will fail if the table does not exist.",
+          "textRange": {
+            "endLine": 2,
+            "startLine": 2
+          }
+        },
+        {
+          "filePath": "db/migrations/V043__drop_legacy_reports.sql",
+          "message": "DROP TABLE 'legacy_report_03' without IF EXISTS will fail if the table does not exist.",
+          "textRange": {
+            "endLine": 3,
+            "startLine": 3
+          }
+        },
+        {
+          "filePath": "db/migrations/V043__drop_legacy_reports.sql",
+          "message": "DROP TABLE 'legacy_report_04' without IF EXISTS will fail if the table does not exist.",
+          "textRange": {
+            "endLine": 4,
+            "startLine": 4
+          }
+        }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "cleanCodeAttribute": "COMPLETE",
+      "description": "Missing IF EXISTS on DROP TABLE / DROP INDEX. See https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401",
+      "engineId": "pg-migration-lint",
+      "id": "PGM401",
+      "impacts": [
+        {
+          "severity": "MEDIUM",
+          "softwareQuality": "MAINTAINABILITY"
+        }
+      ],
+      "name": "Missing IF EXISTS on DROP TABLE / DROP INDEX",
+      "severity": "MINOR",
+      "type": "CODE_SMELL"
+    }
+  ]
+}

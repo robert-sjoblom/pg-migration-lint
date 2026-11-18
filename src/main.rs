@@ -31,8 +31,8 @@ use pg_migration_lint::normalize;
 use pg_migration_lint::output::{
     Reporter, RuleInfo, SarifReporter, SonarQubeReporter, TextReporter,
 };
-use pg_migration_lint::rules::dedup_findings;
 use pg_migration_lint::rules::{Rule, RuleId};
+use pg_migration_lint::rules::{dedup_findings, group_repeated_findings};
 use pg_migration_lint::suppress::parse_suppressions;
 use pg_migration_lint::{Config, Finding, LintPipeline, Severity};
 
@@ -283,7 +283,9 @@ fn run(args: Args) -> Result<bool> {
 /// their names against the default schema, replays every unit into the
 /// catalog, lints only units in `changed_files` (or every unit when
 /// `changed_files` is `None`), applies suppression comments and per-unit
-/// dedup, and warns about single-file changelogs that look suspiciously large.
+/// dedup, groups repeated findings per file (`config.output.group_threshold`,
+/// see [`group_repeated_findings`]), and warns about single-file changelogs
+/// that look suspiciously large.
 ///
 /// Deliberately does **not** apply `config.output.strip_prefix` -- every
 /// returned finding's `file` is the same raw path `unit.source_file` had.
@@ -418,7 +420,7 @@ fn lint_history(
         }
     }
 
-    all_findings
+    group_repeated_findings(all_findings, config.output.group_threshold)
 }
 
 /// Strips `config.output.strip_prefix` (if configured) from every finding's
@@ -715,6 +717,124 @@ fn print_config_validation(config: &Config) -> Result<bool> {
         "configuration validation failed with {} error(s)",
         errors.len()
     );
+}
+
+#[cfg(test)]
+mod repeated_findings_tests {
+    use super::*;
+    use pg_migration_lint::input::MigrationUnit;
+    use pg_migration_lint::parser::{
+        ColumnDef, CreateTable, QualifiedName, SourceSpan, TablePersistence, TypeName,
+    };
+    use pg_migration_lint::{IrNode, Located};
+    use std::path::Path;
+
+    fn create_table_with_timestamps(
+        table: &str,
+        timestamp_columns: usize,
+        line: usize,
+    ) -> Located<IrNode<QualifiedName>> {
+        let columns = (1..=timestamp_columns)
+            .map(|n| ColumnDef {
+                name: format!("happened_at_{n}"),
+                type_name: TypeName::simple("timestamp"),
+                nullable: true,
+                default_expr: None,
+                is_inline_pk: false,
+                is_serial: false,
+            })
+            .collect();
+        Located {
+            node: IrNode::CreateTable(CreateTable {
+                name: QualifiedName::unqualified(table),
+                columns,
+                constraints: vec![],
+                persistence: TablePersistence::Permanent,
+                if_not_exists: false,
+                partition_by: None,
+                partition_of: None,
+            }),
+            span: SourceSpan::at(line, line),
+        }
+    }
+
+    fn unit(
+        source_file: &str,
+        statement: Located<IrNode<QualifiedName>>,
+        is_down: bool,
+    ) -> MigrationUnit<QualifiedName> {
+        MigrationUnit {
+            id: format!("{source_file}:{}", statement.span.start_line),
+            statements: vec![statement],
+            source_file: PathBuf::from(source_file),
+            source_line_offset: 1,
+            run_in_transaction: true,
+            is_down,
+        }
+    }
+
+    fn timestamp_findings(history: MigrationHistory) -> Vec<Finding> {
+        lint_history(history, &Config::default(), None)
+            .into_iter()
+            .filter(|f| f.rule_id == RuleId::Pgm101)
+            .collect()
+    }
+
+    #[test]
+    fn findings_from_several_units_of_one_file_form_one_group() {
+        let history = MigrationHistory {
+            units: vec![
+                unit(
+                    "changelog.xml",
+                    create_table_with_timestamps("events", 3, 3),
+                    false,
+                ),
+                unit(
+                    "changelog.xml",
+                    create_table_with_timestamps("audits", 3, 10),
+                    false,
+                ),
+            ],
+        };
+
+        let findings = timestamp_findings(history);
+
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].locations().count(), 6);
+        assert_eq!(findings[0].file, Path::new("changelog.xml"));
+    }
+
+    #[test]
+    fn down_migration_findings_group_at_info() {
+        let history = MigrationHistory {
+            units: vec![
+                unit(
+                    "V002__events.up.sql",
+                    create_table_with_timestamps("events", 5, 1),
+                    false,
+                ),
+                unit(
+                    "V002__events.down.sql",
+                    create_table_with_timestamps("events_old", 5, 1),
+                    true,
+                ),
+            ],
+        };
+
+        let findings = timestamp_findings(history);
+
+        let groups: Vec<(&Path, Severity, usize)> = findings
+            .iter()
+            .map(|f| (f.file.as_path(), f.severity, f.locations().count()))
+            .collect();
+        assert_eq!(
+            groups,
+            vec![
+                (Path::new("V002__events.up.sql"), Severity::Minor, 5),
+                (Path::new("V002__events.down.sql"), Severity::Info, 5),
+            ]
+        );
+    }
 }
 
 /// Regression coverage for the strip_prefix/hunk-routing bug caught in

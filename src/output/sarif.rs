@@ -4,9 +4,14 @@
 //! compatible with GitHub Code Scanning. Upload via `github/codeql-action/upload-sarif@v3`.
 
 use crate::output::{ReportError, Reporter, SarifReporter};
-use crate::rules::{Finding, RuleId, Severity};
+use crate::rules::{Finding, FindingLocation, RuleId, Severity};
 use serde::Serialize;
 use std::collections::BTreeMap;
+
+/// GitHub Code Scanning rejects a whole SARIF upload when one result has
+/// more locations than this, so a larger group is split across several
+/// results.
+const MAX_LOCATIONS_PER_RESULT: usize = 1000;
 
 /// Top-level SARIF envelope.
 #[derive(Serialize)]
@@ -71,11 +76,14 @@ struct SarifMessage {
     text: String,
 }
 
-/// A SARIF location.
+/// A SARIF location. Only a grouped finding's locations carry a message,
+/// each the one the rule gave that statement.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SarifLocation {
     physical_location: SarifPhysicalLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<SarifMessage>,
 }
 
 /// SARIF physical location (file + region).
@@ -147,32 +155,56 @@ fn collect_rule_descriptors(findings: &[Finding]) -> Vec<SarifRuleDescriptor> {
         .collect()
 }
 
+/// The SARIF results for one finding: one result whose `locations` hold
+/// every location of the finding, primary first, or for a group of more
+/// than [`MAX_LOCATIONS_PER_RESULT`] locations, one result per chunk of
+/// that many.
+///
+/// GitHub shows only a result's first location, so the result message of a
+/// group ends by naming the lines of the result's other locations.
+fn results_for(finding: &Finding) -> Vec<SarifResult> {
+    let is_group = !finding.additional_locations.is_empty();
+    let uri = path_to_uri(&finding.file);
+    let locations: Vec<FindingLocation> = finding.locations().collect();
+
+    locations
+        .chunks(MAX_LOCATIONS_PER_RESULT)
+        .filter_map(|chunk| {
+            let (first, others) = chunk.split_first()?;
+            let text = match super::also_at_lines(first.start_line, others) {
+                Some(also_at) => format!("{} {also_at}", first.message),
+                None => first.message.clone(),
+            };
+            Some(SarifResult {
+                rule_id: finding.rule_id.to_string(),
+                level: sarif_level(&finding.severity),
+                message: SarifMessage { text },
+                locations: chunk
+                    .iter()
+                    .map(|location| SarifLocation {
+                        physical_location: SarifPhysicalLocation {
+                            artifact_location: SarifArtifactLocation { uri: uri.clone() },
+                            region: SarifRegion {
+                                start_line: location.start_line,
+                                end_line: location.end_line,
+                            },
+                        },
+                        message: is_group.then(|| SarifMessage {
+                            text: location.message.clone(),
+                        }),
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
 impl Reporter for SarifReporter {
     /// Render findings as a SARIF 2.1.0 JSON string.
     fn render(&self, findings: &[Finding]) -> Result<String, ReportError> {
         let rules = collect_rule_descriptors(findings);
 
-        let results: Vec<SarifResult> = findings
-            .iter()
-            .map(|f| SarifResult {
-                rule_id: f.rule_id.to_string(),
-                level: sarif_level(&f.severity),
-                message: SarifMessage {
-                    text: f.message.clone(),
-                },
-                locations: vec![SarifLocation {
-                    physical_location: SarifPhysicalLocation {
-                        artifact_location: SarifArtifactLocation {
-                            uri: path_to_uri(&f.file),
-                        },
-                        region: SarifRegion {
-                            start_line: f.start_line,
-                            end_line: f.end_line,
-                        },
-                    },
-                }],
-            })
-            .collect();
+        let results: Vec<SarifResult> = findings.iter().flat_map(results_for).collect();
 
         let log = SarifLog {
             schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
@@ -202,7 +234,9 @@ impl Reporter for SarifReporter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::test_helpers::test_finding;
+    use crate::output::test_helpers::{
+        grouped_test_finding, grouped_test_finding_at, test_finding,
+    };
     use crate::parser::SourceSpan;
     use crate::rules::{Finding, Severity};
     use std::path::Path;
@@ -221,6 +255,90 @@ mod tests {
         insta::assert_json_snapshot!(parsed, {
             ".runs[0].tool.driver.version" => "[version]",
         });
+    }
+
+    #[test]
+    fn grouped_finding_is_one_result_with_every_location() {
+        let parsed = emit_and_parse(&[grouped_test_finding(5)]);
+
+        insta::assert_json_snapshot!(parsed, {
+            ".runs[0].tool.driver.version" => "[version]",
+        });
+    }
+
+    #[test]
+    fn grouped_result_message_names_the_other_lines() {
+        let parsed = emit_and_parse(&[grouped_test_finding(4)]);
+
+        assert_eq!(
+            parsed["runs"][0]["results"][0]["message"]["text"],
+            "DROP TABLE 'legacy_report_01' without IF EXISTS will fail if the table does not exist. \
+             Also at lines 2, 3, 4."
+        );
+    }
+
+    #[test]
+    fn grouped_result_message_names_each_other_line_once() {
+        let parsed = emit_and_parse(&[grouped_test_finding_at(&[3, 3, 15, 15])]);
+
+        let results = &parsed["runs"][0]["results"];
+        assert_eq!(results[0]["locations"].as_array().map(Vec::len), Some(4));
+        assert!(
+            results[0]["message"]["text"]
+                .as_str()
+                .expect("text")
+                .ends_with(" Also at line 15 (3 more findings).")
+        );
+    }
+
+    #[test]
+    fn ungrouped_location_has_no_message() {
+        let parsed = emit_and_parse(&[test_finding()]);
+
+        let location = &parsed["runs"][0]["results"][0]["locations"][0];
+        assert!(location.get("message").is_none());
+    }
+
+    fn start_line(location: &serde_json::Value) -> u64 {
+        location["physicalLocation"]["region"]["startLine"]
+            .as_u64()
+            .expect("startLine")
+    }
+
+    #[test]
+    fn group_beyond_github_location_limit_splits_into_results_of_at_most_1000_locations() {
+        let parsed = emit_and_parse(&[grouped_test_finding(2500)]);
+
+        let results = parsed["runs"][0]["results"]
+            .as_array()
+            .expect("results array");
+        let location_counts: Vec<usize> = results
+            .iter()
+            .map(|r| r["locations"].as_array().expect("locations").len())
+            .collect();
+        assert_eq!(location_counts, vec![1000, 1000, 500]);
+        let first_lines: Vec<u64> = results
+            .iter()
+            .map(|r| start_line(&r["locations"][0]))
+            .collect();
+        assert_eq!(first_lines, vec![1, 1001, 2001]);
+
+        let last_result_message = results[2]["message"]["text"].as_str().expect("text");
+        assert!(last_result_message.starts_with("DROP TABLE 'legacy_report_2001'"));
+        assert!(last_result_message.contains("Also at lines 2002, 2003,"));
+        assert!(last_result_message.ends_with(", 2500."));
+        assert!(!last_result_message.contains(" 2000,"));
+    }
+
+    #[test]
+    fn group_at_github_location_limit_stays_one_result() {
+        let parsed = emit_and_parse(&[grouped_test_finding(1000)]);
+
+        let results = parsed["runs"][0]["results"]
+            .as_array()
+            .expect("results array");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["locations"].as_array().map(Vec::len), Some(1000));
     }
 
     #[test]

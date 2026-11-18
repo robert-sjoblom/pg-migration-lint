@@ -1,0 +1,10 @@
+---
+source: src/output/text.rs
+expression: content
+---
+CRITICAL PGM001 db/migrations/V042__add_index.sql:3
+  CREATE INDEX on existing table 'orders' should use CONCURRENTLY.
+
+MINOR PGM401 db/migrations/V043__drop_legacy_reports.sql:1
+  DROP TABLE 'legacy_report_01' without IF EXISTS will fail if the table does not exist.
+  Also at lines 2, 3, 4, 5.

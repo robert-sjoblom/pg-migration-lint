@@ -14,7 +14,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use pg_migration_lint::{Finding, RuleId};
+use pg_migration_lint::{Finding, FindingLocation, RuleId};
 
 use crate::paths::without_curdir_components;
 
@@ -27,7 +27,8 @@ mod tests;
 /// PR review comment.
 #[derive(Debug, Clone)]
 pub struct InlineEntry {
-    /// The finding to post inline.
+    /// The finding to post inline. For a group, its primary location is the
+    /// one the comment is anchored at (see [`split_findings`]).
     pub finding: Finding,
     /// The path to post the comment against: GitHub's own repo-root-relative
     /// spelling, carried verbatim from the `hunks` key rather than
@@ -194,6 +195,14 @@ pub enum SummaryReason {
 /// `start_line`-only matching -- a finding spanning 30-39 against a hunk
 /// covering 38-45 must still count as inline). When several hunks overlap,
 /// the first one in the file's hunk list wins.
+///
+/// A grouped finding is anchored at its lowest-line location that overlaps a
+/// hunk, which becomes the primary location of the [`InlineEntry`]'s
+/// finding so the comment shows that statement's message and names the
+/// others. In a modified file the group's lowest line can be old code
+/// outside the diff while a later member is new. The group goes to the
+/// summary as [`SummaryReason::OutsideDiff`] only when none of its
+/// locations overlaps a hunk.
 pub fn split_findings(
     findings: &[Finding],
     hunks: &HashMap<PathBuf, Vec<LineRange>>,
@@ -227,15 +236,25 @@ pub fn split_findings(
                 reason: SummaryReason::PatchTooLarge,
             }),
             Some((github_path, ranges)) => {
-                let matched_hunk = ranges
-                    .iter()
-                    .find(|hunk| hunk.start <= finding.end_line && hunk.end >= finding.start_line);
+                let anchor = finding
+                    .locations()
+                    .enumerate()
+                    .find_map(|(position, location)| {
+                        ranges
+                            .iter()
+                            .find(|hunk| {
+                                hunk.start <= location.end_line && hunk.end >= location.start_line
+                            })
+                            .map(|hunk| {
+                                (position, location.start_line.max(hunk.start).min(hunk.end))
+                            })
+                    });
 
-                match matched_hunk {
-                    Some(hunk) => inline.push(InlineEntry {
-                        finding: finding.clone(),
+                match anchor {
+                    Some((position, anchor_line)) => inline.push(InlineEntry {
+                        finding: with_primary_location_at(finding, position),
                         path: super::github_path(github_path),
-                        anchor_line: finding.start_line.max(hunk.start).min(hunk.end),
+                        anchor_line,
                     }),
                     None => summary.push(SummaryEntry {
                         finding: finding.clone(),
@@ -247,6 +266,25 @@ pub fn split_findings(
     }
 
     (inline, summary)
+}
+
+/// `finding` with the location at `position` of [`Finding::locations`] as
+/// its primary location and every other location, still in line order, as
+/// its additional locations. A comment anchored at that location then shows
+/// its own message and names the lines of the others.
+fn with_primary_location_at(finding: &Finding, position: usize) -> Finding {
+    let mut locations: Vec<FindingLocation> = finding.locations().collect();
+    if position == 0 || position >= locations.len() {
+        return finding.clone();
+    }
+    let primary = locations.remove(position);
+    Finding {
+        start_line: primary.start_line,
+        end_line: primary.end_line,
+        message: primary.message,
+        additional_locations: locations,
+        ..finding.clone()
+    }
 }
 
 /// Finding counts bucketed by the SARIF severity level
