@@ -95,3 +95,27 @@ fn test_catalog_ops_set_default_volatile_fires_pgm006() {
         "Message should mention existing rows are NOT backfilled"
     );
 }
+
+#[test]
+fn add_primary_key_using_another_tables_index_is_rejected_and_leaves_the_table_without_one() {
+    let findings = common::lint_fixture_rules(
+        "catalog-ops",
+        &["V005__using_index_of_another_table.sql"],
+        &["PGM027", "PGM502"],
+    );
+    let reported: Vec<(&str, &str)> = findings
+        .iter()
+        .map(|f| (f.rule_id.as_str(), f.message.as_str()))
+        .collect();
+    assert_eq!(
+        reported,
+        [
+            (
+                "PGM027",
+                "ADD PRIMARY KEY USING INDEX 'customers_id_idx' on table 'shipments' fails: \
+                 the index belongs to table 'customers'."
+            ),
+            ("PGM502", "Table 'shipments' has no primary key."),
+        ]
+    );
+}

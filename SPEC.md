@@ -186,7 +186,7 @@ IndexState {
 
 - `CREATE TABLE` → insert into catalog; if `PARTITION OF`, record parent relationship
 - `DROP TABLE` → remove from catalog entirely; CASCADE recursively removes partition children
-- `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking
+- `ALTER TABLE` → mutate existing entry; `ATTACH PARTITION` / `DETACH PARTITION` update parent-child tracking; an `ALTER TABLE` with `ADD PRIMARY KEY` or `ADD UNIQUE ... USING INDEX idx`, where `idx` is a registered index of another table in the altered table's schema → no change to any table, as PostgreSQL rejects the whole statement (55000); an `idx` the catalog does not have there may exist outside the tracked migrations, so the constraint is still added
 - `CREATE INDEX` → add to table's index list (preserving `only` flag); `CREATE INDEX IF NOT EXISTS` whose name a relation in the table's schema already has (an index on any table, a table, or an index-backed constraint) → no change, as PostgreSQL skips it
 - `DROP INDEX` → remove the index from its table; `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint → no change, as PostgreSQL rejects it (2BP01)
 - `ALTER INDEX ATTACH PARTITION` → flip parent index's `only` from `true` to `false`
@@ -703,7 +703,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM502 — Table without primary key
 
 - **Severity**: MAJOR
-- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
+- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file). An `ADD PRIMARY KEY USING INDEX` of another table's index adds no key, as PostgreSQL rejects it and PGM027 reports it; one of an index the catalog does not have counts.
 - **Message**: `Table '{table}' has no primary key.`
 
 #### PGM503 — `UNIQUE NOT NULL` used instead of `PRIMARY KEY`

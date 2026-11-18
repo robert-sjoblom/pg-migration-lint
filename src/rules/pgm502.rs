@@ -61,8 +61,38 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::index_of_another_table("customers_id_idx", &["Table 'orders' has no primary key."])]
+    #[case::index_missing_from_the_catalog("made_outside_migrations_idx", &[])]
+    fn add_primary_key_using_index_after_create_table_counts_unless_postgres_rejects_it(
+        #[case] index: &str,
+        #[case] expected: &[&str],
+    ) {
+        let before = CatalogBuilder::new()
+            .table("customers", |t| {
+                t.column("id", "bigint", false)
+                    .index("customers_id_idx", &["id"], true);
+            })
+            .build();
+        let stmts = normalized(parse_sql(&format!(
+            "CREATE TABLE orders (id bigint NOT NULL);
+             ALTER TABLE orders ADD PRIMARY KEY USING INDEX {index};"
+        )));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", created: ["orders"]);
+
+        let messages: Vec<String> = RuleId::Pgm502
+            .check(&stmts, &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(messages, expected);
+    }
 
     #[test]
     fn test_no_pk_fires() {

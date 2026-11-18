@@ -182,6 +182,26 @@ impl Catalog {
             .then_some(RenameClash::Constraint)
     }
 
+    /// The table that owns the index `index_name` in `table`'s schema, when
+    /// that is another table than `table`. `ALTER TABLE table ADD PRIMARY
+    /// KEY` or `ADD UNIQUE ... USING INDEX index_name` then fails with 55000
+    /// and changes nothing: PostgreSQL looks the index up in the altered
+    /// table's schema and requires it to be one of that table's
+    /// (`verify/tests/other/pgm027_using_index_of_another_table.sql`).
+    /// `None` when the catalog has no index of that name there, or it is
+    /// `table`'s. `table` itself need not be in the catalog.
+    pub(crate) fn other_table_owning_index(
+        &self,
+        table: &RelationName,
+        index_name: &str,
+    ) -> Option<&TableState> {
+        let owner = self.table_for_index(&table.in_same_schema(index_name))?;
+        if owner == table {
+            return None;
+        }
+        self.get_table(owner)
+    }
+
     /// Returns the names of all partition children of the given parent.
     ///
     /// Computed on demand by scanning tables with matching `parent_table`.
