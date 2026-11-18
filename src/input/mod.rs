@@ -33,7 +33,7 @@ pub struct MigrationUnit<N = ResolvedName> {
 
     /// Whether this unit executes inside a transaction.
     /// Liquibase: derived from runInTransaction attribute.
-    /// go-migrate: true by default unless explicitly disabled.
+    /// Plain SQL files: `[migrations] run_in_transaction`, true when absent.
     pub run_in_transaction: bool,
 
     /// Is this a down/rollback migration?
