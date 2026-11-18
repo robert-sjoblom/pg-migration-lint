@@ -163,6 +163,7 @@ Provided to every rule's `check()` function:
 - `ctx.table_matches_scope(key, scope)` — checks table existence against a `TableScope`:
   - `TableScope::ExcludeCreatedInChange` — same as `is_existing_table()`
   - `TableScope::AnyPreExisting` — table exists in `catalog_before` regardless of `tables_created_in_change`
+- `ctx.transaction_windows(statements)`: the unit's statements grouped by the transaction PostgreSQL runs them in, using `run_in_transaction`. See [`transaction_window`](#transaction_window) under Shared helpers.
 
 ### Names
 
@@ -284,6 +285,30 @@ if rejected.contains(&stmt.span) {
 ```
 
 The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report.
+
+### `transaction_window`
+
+For rules about what one transaction does at once, such as the locks it holds until it ends, or about whether a statement runs inside a transaction block, where `CONCURRENTLY` fails. `ctx.transaction_windows(statements)` splits the unit into `TransactionWindow`s, in statement order:
+
+- `TransactionWindowKind::Autocommit`: one SQL statement outside a transaction block. The nodes a statement is split into (`DROP TABLE a, b`) share its span and its window.
+- `TransactionWindowKind::BeginBlock`: from a `BEGIN` or `START TRANSACTION` in the file through the `COMMIT` or `ROLLBACK` that ends it, or to the end of the unit when nothing does.
+- `TransactionWindowKind::ToolTransaction`: the transaction the migration tool opens when `run_in_transaction` is on, from the first statement to the end of the unit, or to a `COMMIT` or `ROLLBACK` in the file that ends it early. Statements after that are autocommit until a `BEGIN`. This assumes a runner that sends each statement separately and starts no new transaction after the file's `COMMIT`, like `psql --single-transaction`. JDBC runners with autocommit off (Flyway, Liquibase) start a new transaction after it, and golang-migrate's default single `Exec` runs the rest as a new implicit transaction.
+
+Every statement, `TransactionControl` nodes included, is in exactly one window. As in PostgreSQL, a `BEGIN` inside a transaction stays in the open window and does nothing, and a `COMMIT` or `ROLLBACK` outside one does nothing and is an autocommit window of its own. `COMMIT AND CHAIN` arrives as `Commit` then `Begin` with the same span, so it ends one window and opens the next. A known limitation: `PREPARE TRANSACTION` ends the transaction block in PostgreSQL, but the IR keeps it `Ignored`, so its window continues past it.
+
+```rust
+let windows = ctx.transaction_windows(statements);
+for window in &windows {
+    // window.kind(), window.statement_range(), window.statements_in(statements)
+}
+for (index, stmt) in statements.iter().enumerate() {
+    if windows.window_of(index).is_some_and(|w| w.is_transaction_block()) {
+        // `stmt` runs inside a transaction block
+    }
+}
+```
+
+Look a statement up by its index, not its span: the two nodes of `COMMIT AND CHAIN` share a span but not a window. The windows are built on each call, in one pass, and not cached on the context, so a test can reuse one `lint_ctx!` context for several statement lists. Because `located` puts every node at the same span, a test that needs separate autocommit statements builds them with `located_at` on distinct lines, or parses SQL. They are not for deciding whether a table is new to the change; `ctx.is_existing_table` and `tables_created_in_change` do that.
 
 ### Lookup tables
 

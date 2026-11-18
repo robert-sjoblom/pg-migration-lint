@@ -8,6 +8,9 @@ pub use crate::rules::finding::{Finding, dedup_findings};
 pub use crate::rules::lint_context::LintContext;
 pub use crate::rules::rule_id::RuleId;
 pub use crate::rules::severity::Severity;
+pub use crate::rules::transaction_window::{
+    TransactionWindow, TransactionWindowKind, TransactionWindows,
+};
 
 /// Base URL of the hosted rule reference (GitHub Pages).
 ///
@@ -35,6 +38,7 @@ mod rule_id;
 mod severity;
 #[cfg(test)]
 mod test_helpers;
+mod transaction_window;
 mod using_index;
 
 // 0xx — Unsafe DDL
