@@ -549,7 +549,9 @@ pub enum TableConstraint<N = ResolvedName> {
 /// (e.g. `CREATE INDEX idx ON t (LOWER(email))`) store the deparsed SQL text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IndexColumn {
-    /// Simple column reference by name.
+    /// Simple column reference by name. An element written as a parenthesized
+    /// column, such as `((a))` or `((a COLLATE "C"))`, is one too: PostgreSQL
+    /// indexes it as the plain column.
     Column(String),
     /// Expression index element, stored as deparsed SQL text with
     /// extracted column references for DROP/RENAME tracking.
