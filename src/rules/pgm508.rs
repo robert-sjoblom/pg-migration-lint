@@ -452,7 +452,9 @@ mod tests {
         );
         assert_eq!(
             messages,
-            ["Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'orders_a_idx'."]
+            [
+                "Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'orders_a_idx'."
+            ]
         );
     }
 
@@ -514,7 +516,9 @@ mod tests {
         );
         assert_eq!(
             messages,
-            ["Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'idx_orders_a'."]
+            [
+                "Index 'orders_a_idx1' on 'orders' (a) is an exact duplicate of index 'idx_orders_a'."
+            ]
         );
     }
 

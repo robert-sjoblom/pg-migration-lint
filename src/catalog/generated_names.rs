@@ -753,9 +753,8 @@ mod tests {
         let name = GeneratedName::primary_key(
             "z23456789012345678901234567890123456789012345678901234567890bbb",
         );
-        let taken = Taken::relations(&[
-            "z234567890123456789012345678901234567890123456789012345678_pkey",
-        ]);
+        let taken =
+            Taken::relations(&["z234567890123456789012345678901234567890123456789012345678_pkey"]);
         assert_eq!(
             name.choose(&taken),
             "z23456789012345678901234567890123456789012345678901234567_pkey1"
@@ -797,7 +796,13 @@ mod tests {
         #[case] avoids_relations: bool,
     ) {
         let suffixed = format!("{first_choice}1");
-        let expected = |avoids: bool| if avoids { suffixed.as_str() } else { first_choice };
+        let expected = |avoids: bool| {
+            if avoids {
+                suffixed.as_str()
+            } else {
+                first_choice
+            }
+        };
         assert_eq!(
             name.choose(&Taken::constraints(&[first_choice])),
             expected(avoids_constraints),

@@ -121,7 +121,10 @@ fn rename_index_onto_a_free_name_applies(#[case] index: &str, #[case] new_name: 
 
 #[test]
 fn rename_index_onto_a_taken_name_keeps_both_registrations() {
-    let (_, after) = before_and_after(NEIGHBOURS_AND_CON, "ALTER INDEX con_idx RENAME TO neighbour_idx;");
+    let (_, after) = before_and_after(
+        NEIGHBOURS_AND_CON,
+        "ALTER INDEX con_idx RENAME TO neighbour_idx;",
+    );
 
     after.assert_index_owner("con_idx", "con");
     after.assert_index_owner("neighbour_idx", "neighbour");
@@ -214,7 +217,10 @@ fn clash_queries_look_in_the_renamed_objects_schema() {
         catalog.index_rename_clash(&rel("orders_pkey"), "orders_amount_idx"),
         None
     );
-    assert_eq!(catalog.table_rename_clash(&rel("orders"), "orders_amount_idx"), None);
+    assert_eq!(
+        catalog.table_rename_clash(&rel("orders"), "orders_amount_idx"),
+        None
+    );
 }
 
 #[test]
@@ -244,8 +250,14 @@ fn rename_table_onto_a_name_taken_only_in_another_schema_applies() {
 fn a_clash_query_on_a_missing_object_is_none() {
     let (before, _) = before_and_after(NEIGHBOURS_AND_CON, "SELECT 1;");
 
-    assert_eq!(before.table_rename_clash(&rel("missing"), "neighbour"), None);
-    assert_eq!(before.index_rename_clash(&rel("missing_idx"), "neighbour"), None);
+    assert_eq!(
+        before.table_rename_clash(&rel("missing"), "neighbour"),
+        None
+    );
+    assert_eq!(
+        before.index_rename_clash(&rel("missing_idx"), "neighbour"),
+        None
+    );
     assert_eq!(
         before.constraint_rename_clash(&rel("missing"), "con_chk", "con_chk2"),
         None
@@ -258,5 +270,8 @@ fn a_clash_query_on_a_missing_object_is_none() {
         before.table("con").get_constraint("con_excl"),
         Some(ConstraintState::Exclude { .. })
     ));
-    assert_eq!(before.index_rename_clash(&rel("con_excl"), "free_name"), None);
+    assert_eq!(
+        before.index_rename_clash(&rel("con_excl"), "free_name"),
+        None
+    );
 }

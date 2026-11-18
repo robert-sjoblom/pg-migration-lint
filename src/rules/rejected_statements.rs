@@ -276,7 +276,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::pgm002(RuleId::Pgm002, "DROP INDEX orders_pkey;", "DROP INDEX orders_customer_id_idx;")]
+    #[case::pgm002(
+        RuleId::Pgm002,
+        "DROP INDEX orders_pkey;",
+        "DROP INDEX orders_customer_id_idx;"
+    )]
     #[case::pgm002_constraint_index_named_with_a_plain_one(
         RuleId::Pgm002,
         "DROP INDEX orders_customer_id_idx, orders_code_key;",
@@ -287,7 +291,11 @@ mod tests {
         "DROP INDEX CONCURRENTLY orders_code_key;",
         "DROP INDEX CONCURRENTLY orders_customer_id_idx;"
     )]
-    #[case::pgm401(RuleId::Pgm401, "DROP INDEX orders_pkey;", "DROP INDEX orders_customer_id_idx;")]
+    #[case::pgm401(
+        RuleId::Pgm401,
+        "DROP INDEX orders_pkey;",
+        "DROP INDEX orders_customer_id_idx;"
+    )]
     #[case::pgm501_constraint_index_named_with_the_covering_one(
         RuleId::Pgm501,
         "DROP INDEX orders_customer_id_idx, orders_code_key;",

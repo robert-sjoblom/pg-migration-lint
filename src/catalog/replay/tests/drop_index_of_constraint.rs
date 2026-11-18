@@ -54,5 +54,10 @@ fn drop_index_after_drop_constraint_in_the_same_unit_finds_nothing_to_drop() {
 
     before.assert_index_owner("orders_code_key", "orders");
     after.assert_index_unregistered("orders_code_key");
-    assert!(after.table("orders").get_constraint("orders_code_key").is_none());
+    assert!(
+        after
+            .table("orders")
+            .get_constraint("orders_code_key")
+            .is_none()
+    );
 }

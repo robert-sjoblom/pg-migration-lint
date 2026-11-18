@@ -127,10 +127,7 @@ impl Catalog {
     /// no such index.
     pub fn index_rename_clash(&self, index: &RelationName, new_name: &str) -> Option<RenameClash> {
         let table = self.get_table(self.table_for_index(index)?)?;
-        if self
-            .names_in_schema(&index.schema)
-            .relation_taken(new_name)
-        {
+        if self.names_in_schema(&index.schema).relation_taken(new_name) {
             return Some(RenameClash::Relation);
         }
         let backs_a_constraint = table.constraint_backed_by(&index.name).is_some();
@@ -175,10 +172,7 @@ impl Catalog {
     ) -> Option<RenameClash> {
         let table_state = self.get_table(table)?;
         let renamed = table_state.get_constraint(constraint)?;
-        if renamed.is_index_backed()
-            && self
-                .names_in_schema(&table.schema)
-                .relation_taken(new_name)
+        if renamed.is_index_backed() && self.names_in_schema(&table.schema).relation_taken(new_name)
         {
             return Some(RenameClash::Relation);
         }

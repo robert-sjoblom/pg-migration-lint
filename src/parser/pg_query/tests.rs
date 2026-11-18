@@ -1,6 +1,6 @@
 use super::*;
-use rstest::rstest;
 use crate::parser::ir::ConstraintOrigin;
+use rstest::rstest;
 
 mod constraints;
 mod indexes;
@@ -388,10 +388,7 @@ fn test_parse_alter_table_add_constraint() {
         IrNode::AlterTable(at) => {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
-                AlterTableAction::AddConstraint {
-                    constraint: tc,
-                    ..
-                } => match tc {
+                AlterTableAction::AddConstraint { constraint: tc, .. } => match tc {
                     TableConstraint::ForeignKey {
                         name,
                         columns,
@@ -786,11 +783,12 @@ fn test_parse_alter_table_add_primary_key() {
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
             AlterTableAction::AddConstraint {
-                constraint: TableConstraint::PrimaryKey {
-                    columns,
-                    using_index,
-                    ..
-                },
+                constraint:
+                    TableConstraint::PrimaryKey {
+                        columns,
+                        using_index,
+                        ..
+                    },
                 ..
             } => {
                 assert_eq!(columns, &["id"]);
@@ -809,11 +807,12 @@ fn test_parse_add_pk_using_index() {
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
             AlterTableAction::AddConstraint {
-                constraint: TableConstraint::PrimaryKey {
-                    columns,
-                    using_index,
-                    ..
-                },
+                constraint:
+                    TableConstraint::PrimaryKey {
+                        columns,
+                        using_index,
+                        ..
+                    },
                 ..
             } => {
                 assert!(
@@ -835,12 +834,13 @@ fn test_parse_add_unique_using_index() {
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
             AlterTableAction::AddConstraint {
-                constraint: TableConstraint::Unique {
-                    name,
-                    columns,
-                    using_index,
-                    ..
-                },
+                constraint:
+                    TableConstraint::Unique {
+                        name,
+                        columns,
+                        using_index,
+                        ..
+                    },
                 ..
             } => {
                 assert_eq!(name.as_deref(), Some("uq_email"));
@@ -863,11 +863,12 @@ fn test_parse_add_pk_without_using_index() {
     match &nodes[0].node {
         IrNode::AlterTable(at) => match &at.actions[0] {
             AlterTableAction::AddConstraint {
-                constraint: TableConstraint::PrimaryKey {
-                    columns,
-                    using_index,
-                    ..
-                },
+                constraint:
+                    TableConstraint::PrimaryKey {
+                        columns,
+                        using_index,
+                        ..
+                    },
                 ..
             } => {
                 assert_eq!(columns, &["id"]);
@@ -938,13 +939,14 @@ fn test_parse_add_fk_not_valid() {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
                 AlterTableAction::AddConstraint {
-                    constraint: TableConstraint::ForeignKey {
-                        name,
-                        columns,
-                        ref_table,
-                        ref_columns,
-                        not_valid,
-                    },
+                    constraint:
+                        TableConstraint::ForeignKey {
+                            name,
+                            columns,
+                            ref_table,
+                            ref_columns,
+                            not_valid,
+                        },
                     ..
                 } => {
                     assert_eq!(name.as_deref(), Some("fk_customer"));
@@ -970,9 +972,7 @@ fn test_parse_add_fk_without_not_valid() {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
                 AlterTableAction::AddConstraint {
-                    constraint: TableConstraint::ForeignKey {
-                        not_valid, ..
-                    },
+                    constraint: TableConstraint::ForeignKey { not_valid, .. },
                     ..
                 } => {
                     assert!(!*not_valid, "Expected not_valid to be false");
@@ -994,9 +994,10 @@ fn test_parse_add_check_not_valid() {
             assert_eq!(at.actions.len(), 1);
             match &at.actions[0] {
                 AlterTableAction::AddConstraint {
-                    constraint: TableConstraint::Check {
-                        name, not_valid, ..
-                    },
+                    constraint:
+                        TableConstraint::Check {
+                            name, not_valid, ..
+                        },
                     ..
                 } => {
                     assert_eq!(name.as_deref(), Some("chk_amount"));

@@ -20,9 +20,10 @@ pub(super) fn check(
         TableScope::ExcludeCreatedInChange,
         |at, action, stmt, ctx| {
             if let AlterTableAction::AddConstraint {
-                constraint: TableConstraint::ForeignKey {
-                    not_valid: false, ..
-                },
+                constraint:
+                    TableConstraint::ForeignKey {
+                        not_valid: false, ..
+                    },
                 ..
             } = action
             {

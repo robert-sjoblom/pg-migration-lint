@@ -114,8 +114,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
     use rstest::rstest;
 
@@ -159,8 +159,9 @@ mod tests {
         #[case] history: &str,
         #[case] earlier_in_unit: &str,
     ) {
-        let change =
-            format!("{earlier_in_unit}\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_customers_id;");
+        let change = format!(
+            "{earlier_in_unit}\nALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_customers_id;"
+        );
         let before = catalog_from_sql(history);
         let after = catalog_from_sql(&format!("{history}\n{change}"));
         lint_ctx!(ctx, &before, &after, "migrations/002.sql");
@@ -450,8 +451,10 @@ mod tests {
 
         assert_eq!(
             messages_for_change(&history, &change),
-            ["ADD PRIMARY KEY USING INDEX 'orders_id_idx' on table 'orders': \
-              referenced index does not exist."]
+            [
+                "ADD PRIMARY KEY USING INDEX 'orders_id_idx' on table 'orders': \
+              referenced index does not exist."
+            ]
         );
     }
 
@@ -476,7 +479,10 @@ mod tests {
              ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY USING INDEX orders_id_idx;",
         );
         assert_eq!(messages.len(), 1, "got {messages:?}");
-        assert!(messages[0].contains("column(s) [id] are nullable"), "got {messages:?}");
+        assert!(
+            messages[0].contains("column(s) [id] are nullable"),
+            "got {messages:?}"
+        );
     }
 
     #[test]

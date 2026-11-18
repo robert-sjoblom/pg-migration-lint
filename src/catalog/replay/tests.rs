@@ -99,10 +99,7 @@ fn create_table_with_inline_pk(name: QualifiedName) -> CreateTable<QualifiedName
 /// (catalog, table_key, column_to_drop, checks_has_primary_key).
 fn drop_col_constraint_setup_pk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit = make_unit(vec![
-        create_table_with_inline_pk(qname("t"))
-            .into(),
-    ]);
+    let unit = make_unit(vec![create_table_with_inline_pk(qname("t")).into()]);
     apply(&mut catalog, &unit);
     (catalog, "t", "id", true)
 }
@@ -129,8 +126,7 @@ fn test_create_then_drop() {
     let mut catalog = Catalog::new();
 
     let unit = make_unit(vec![
-        create_table_with_inline_pk(qname("t"))
-            .into(),
+        create_table_with_inline_pk(qname("t")).into(),
         CreateIndex::test(Some("idx_id".to_string()), qname("t"))
             .with_columns(vec![IndexColumn::Column("id".to_string())])
             .into(),
@@ -181,10 +177,7 @@ fn test_fk_tracks_referencing_columns() {
     let mut catalog = Catalog::new();
 
     // Create parent table with PK
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("parent"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Create child table with FK to parent
@@ -416,10 +409,7 @@ fn test_inline_fk_normalizes() {
     let mut catalog = Catalog::new();
 
     // Create parent first
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("parent"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // The parser normalizes inline FK (REFERENCES) into a TableConstraint.
@@ -458,10 +448,7 @@ fn test_table_level_fk_normalizes() {
     let mut catalog = Catalog::new();
 
     // Create parent
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("parent"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Table-level FK: FOREIGN KEY (pid) REFERENCES parent(id)
@@ -719,10 +706,7 @@ fn test_multiple_units_build_catalog_incrementally() {
     let mut catalog = Catalog::new();
 
     // Unit 1: Create table
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("users"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("users")).into()]);
     apply(&mut catalog, &unit1);
 
     // Unit 2: Add column
@@ -785,8 +769,7 @@ fn test_different_schemas_stored_separately() {
 
     // Create "public.orders"
     let unit1 = make_unit(vec![
-        create_table_with_inline_pk(QualifiedName::qualified("public", "orders"))
-            .into(),
+        create_table_with_inline_pk(QualifiedName::qualified("public", "orders")).into(),
     ]);
     apply(&mut catalog, &unit1);
 
@@ -840,10 +823,7 @@ fn test_create_index_without_name_gets_generated_name() {
 
 fn drop_col_constraint_setup_fk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("parent"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("child"))
@@ -932,10 +912,7 @@ fn test_drop_column_preserves_unrelated_constraints() {
     let mut catalog = Catalog::new();
 
     // Create referenced table
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("parent"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("parent")).into()]);
     apply(&mut catalog, &unit1);
 
     // Create table with PK on (id) and FK on (customer_id), then drop customer_id
@@ -2700,10 +2677,7 @@ fn test_drop_not_null_nonexistent_column() {
 /// for the drop-constraint-by-type rstest group.
 fn drop_constraint_setup_fk() -> (Catalog, &'static str, &'static str) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("customers"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("customers")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("orders"))
@@ -2975,10 +2949,7 @@ fn test_drop_constraint_preserves_others() {
 /// Helper for VALIDATE CONSTRAINT tests. Returns (catalog, table, validate_name, expected_not_valid).
 fn validate_constraint_setup_fk() -> (Catalog, &'static str, &'static str, bool) {
     let mut catalog = Catalog::new();
-    let unit1 = make_unit(vec![
-        create_table_with_inline_pk(qname("customers"))
-            .into(),
-    ]);
+    let unit1 = make_unit(vec![create_table_with_inline_pk(qname("customers")).into()]);
     apply(&mut catalog, &unit1);
     let unit2 = make_unit(vec![
         CreateTable::test(qname("orders"))

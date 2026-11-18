@@ -534,8 +534,7 @@ fn apply_rename_constraint(
         rename_index_and_its_constraint(catalog, table_key, old_name, new_name);
     } else {
         update_table(catalog, table_key, |table, _| {
-            if let Some(constraint) = table.constraints.iter_mut().find(|c| c.name() == old_name)
-            {
+            if let Some(constraint) = table.constraints.iter_mut().find(|c| c.name() == old_name) {
                 constraint.rename(new_name);
             }
         });

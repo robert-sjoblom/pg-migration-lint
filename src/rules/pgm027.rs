@@ -133,7 +133,10 @@ mod tests {
          the index belongs to table 'customers'."
     )]
     fn using_index_of_another_table_fires(#[case] change: &str, #[case] expected: &str) {
-        assert_eq!(messages_for_change(CUSTOMERS_AND_ORDERS, change), [expected]);
+        assert_eq!(
+            messages_for_change(CUSTOMERS_AND_ORDERS, change),
+            [expected]
+        );
     }
 
     #[rstest]
@@ -171,8 +174,10 @@ mod tests {
         );
         assert_eq!(
             messages,
-            ["ADD PRIMARY KEY USING INDEX 'customers_id_idx' on table 'orders' fails: \
-              the index belongs to table 'customers'."]
+            [
+                "ADD PRIMARY KEY USING INDEX 'customers_id_idx' on table 'orders' fails: \
+              the index belongs to table 'customers'."
+            ]
         );
     }
 
@@ -287,7 +292,10 @@ mod tests {
 
     #[rstest]
     #[case::table_dropped("DROP TABLE neighbour;", "ALTER TABLE con RENAME TO neighbour;")]
-    #[case::index_dropped("DROP INDEX neighbour_idx;", "ALTER INDEX con_idx RENAME TO neighbour_idx;")]
+    #[case::index_dropped(
+        "DROP INDEX neighbour_idx;",
+        "ALTER INDEX con_idx RENAME TO neighbour_idx;"
+    )]
     #[case::table_renamed_away(
         "ALTER TABLE neighbour RENAME TO neighbour_old;",
         "ALTER TABLE con RENAME TO neighbour;"
@@ -300,7 +308,10 @@ mod tests {
         #[case] freeing_statement: &str,
         #[case] rename: &str,
     ) {
-        let messages = messages_for_change(NEIGHBOURS_AND_CON, &format!("{freeing_statement}\n{rename}"));
+        let messages = messages_for_change(
+            NEIGHBOURS_AND_CON,
+            &format!("{freeing_statement}\n{rename}"),
+        );
         assert!(messages.is_empty(), "got {messages:?}");
     }
 
@@ -363,8 +374,10 @@ mod tests {
             "CREATE TABLE analytics.orders (id int);
              CREATE TABLE {schema_with_orders_archive}.orders_archive (id int);"
         );
-        let messages =
-            messages_for_change(&history, "ALTER TABLE analytics.orders RENAME TO orders_archive;");
+        let messages = messages_for_change(
+            &history,
+            "ALTER TABLE analytics.orders RENAME TO orders_archive;",
+        );
         assert_eq!(messages.len(), expected_findings, "got {messages:?}");
     }
 
@@ -374,9 +387,14 @@ mod tests {
             CREATE TABLE analytics.orders (id int);
             CREATE TABLE analytics.orders_archive (id int);";
         assert_eq!(
-            messages_for_change(history, "ALTER TABLE analytics.orders RENAME TO orders_archive;"),
-            ["Renaming table 'analytics.orders' to 'orders_archive' fails: \
-              table 'analytics.orders_archive' already has that name."]
+            messages_for_change(
+                history,
+                "ALTER TABLE analytics.orders RENAME TO orders_archive;"
+            ),
+            [
+                "Renaming table 'analytics.orders' to 'orders_archive' fails: \
+              table 'analytics.orders_archive' already has that name."
+            ]
         );
     }
 
@@ -410,7 +428,10 @@ mod tests {
          requires it. Drop the constraint instead."
     )]
     fn drop_index_of_a_constraints_index_fires(#[case] change: &str, #[case] expected: &str) {
-        assert_eq!(messages_for_change(ORDERS_WITH_CONSTRAINTS, change), [expected]);
+        assert_eq!(
+            messages_for_change(ORDERS_WITH_CONSTRAINTS, change),
+            [expected]
+        );
     }
 
     #[rstest]
@@ -442,8 +463,10 @@ mod tests {
         );
         assert_eq!(
             messages,
-            ["DROP INDEX 'orders_pkey' fails: constraint 'orders_pkey' on table 'orders' \
-              requires it. Drop the constraint instead."]
+            [
+                "DROP INDEX 'orders_pkey' fails: constraint 'orders_pkey' on table 'orders' \
+              requires it. Drop the constraint instead."
+            ]
         );
     }
 
@@ -451,7 +474,8 @@ mod tests {
     fn each_failing_statement_of_a_unit_fires() {
         let lines: Vec<usize> = {
             let history = ORDERS_WITH_CONSTRAINTS;
-            let change = "DROP INDEX orders_pkey;\nALTER INDEX orders_ref_idx RENAME TO orders_code_key;";
+            let change =
+                "DROP INDEX orders_pkey;\nALTER INDEX orders_ref_idx RENAME TO orders_code_key;";
             let before = catalog_from_sql(history);
             let after = catalog_from_sql(&format!("{history}\n{change}"));
             lint_ctx!(ctx, &before, &after, "migrations/002.sql");

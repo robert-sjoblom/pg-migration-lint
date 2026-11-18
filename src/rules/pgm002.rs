@@ -97,8 +97,8 @@ mod tests {
     use super::*;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
 
     fn orders_and_events_with_idx_customer_in_two_schemas() -> crate::catalog::Catalog {

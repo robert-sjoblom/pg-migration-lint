@@ -211,12 +211,10 @@ fn resolve_alter_table_action(
     match action {
         AlterTableAction::AddColumn(column) => AlterTableAction::AddColumn(column),
         AlterTableAction::DropColumn { name } => AlterTableAction::DropColumn { name },
-        AlterTableAction::AddConstraint { constraint, origin } => {
-            AlterTableAction::AddConstraint {
-                constraint: resolve_constraint(constraint, default_schema),
-                origin,
-            }
-        }
+        AlterTableAction::AddConstraint { constraint, origin } => AlterTableAction::AddConstraint {
+            constraint: resolve_constraint(constraint, default_schema),
+            origin,
+        },
         AlterTableAction::AlterColumnType {
             column_name,
             new_type,
@@ -560,11 +558,12 @@ mod tests {
             panic!("expected AlterTable");
         };
 
-        let [AlterTableAction::AddConstraint {
-            constraint: TableConstraint::ForeignKey { ref_table, .. },
-            ..
-        }] =
-            at.actions.as_slice()
+        let [
+            AlterTableAction::AddConstraint {
+                constraint: TableConstraint::ForeignKey { ref_table, .. },
+                ..
+            },
+        ] = at.actions.as_slice()
         else {
             panic!("expected one AddConstraint ForeignKey action");
         };

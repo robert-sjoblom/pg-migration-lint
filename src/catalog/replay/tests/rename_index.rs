@@ -12,7 +12,11 @@ fn index_names(table: &TableState) -> Vec<&str> {
 }
 
 fn constraint_names(table: &TableState) -> Vec<&str> {
-    table.constraints.iter().map(ConstraintState::name).collect()
+    table
+        .constraints
+        .iter()
+        .map(ConstraintState::name)
+        .collect()
 }
 
 #[test]
@@ -60,10 +64,7 @@ fn drop_index_by_the_old_name_after_a_rename_changes_nothing() {
         "DROP INDEX idx_customer;",
     ]);
 
-    assert_eq!(
-        index_names(catalog.table("orders")),
-        ["idx_buyer"]
-    );
+    assert_eq!(index_names(catalog.table("orders")), ["idx_buyer"]);
     catalog.assert_index_owner("idx_buyer", "orders");
 }
 
@@ -86,7 +87,9 @@ fn rename_index_in_one_schema_leaves_the_same_named_index_in_another(
     let mut steps = Vec::new();
     for table in [renamed_on, untouched_on] {
         steps.push(format!("CREATE TABLE {table} (id int, customer_id int);"));
-        steps.push(format!("CREATE INDEX idx_customer ON {table} (customer_id);"));
+        steps.push(format!(
+            "CREATE INDEX idx_customer ON {table} (customer_id);"
+        ));
     }
     steps.push(rename_sql.to_string());
     let steps: Vec<&str> = steps.iter().map(String::as_str).collect();
@@ -95,16 +98,10 @@ fn rename_index_in_one_schema_leaves_the_same_named_index_in_another(
 
     let renamed_schema = &catalog.table(renamed_on).name.schema;
     let untouched_schema = &catalog.table(untouched_on).name.schema;
-    assert_eq!(
-        index_names(catalog.table(renamed_on)),
-        ["idx_buyer"]
-    );
+    assert_eq!(index_names(catalog.table(renamed_on)), ["idx_buyer"]);
     catalog.assert_index_owner(&format!("{renamed_schema}.idx_buyer"), renamed_on);
     catalog.assert_index_unregistered(&format!("{renamed_schema}.idx_customer"));
-    assert_eq!(
-        index_names(catalog.table(untouched_on)),
-        ["idx_customer"]
-    );
+    assert_eq!(index_names(catalog.table(untouched_on)), ["idx_customer"]);
     catalog.assert_index_owner(&format!("{untouched_schema}.idx_customer"), untouched_on);
     catalog.assert_index_unregistered(&format!("{untouched_schema}.idx_buyer"));
 }

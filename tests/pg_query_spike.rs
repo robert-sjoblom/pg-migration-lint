@@ -1510,9 +1510,8 @@ fn spike_rename_constraint_stmt_shape() {
     assert!(!plain.missing_ok);
     assert!(plain.object.is_none());
 
-    let guarded = rename_stmt(
-        "ALTER TABLE IF EXISTS ONLY app.orders RENAME CONSTRAINT \"Old\" TO New;",
-    );
+    let guarded =
+        rename_stmt("ALTER TABLE IF EXISTS ONLY app.orders RENAME CONSTRAINT \"Old\" TO New;");
     assert_eq!(guarded.rename_type(), ObjectType::ObjectTabconstraint);
     let relation = guarded.relation.as_ref().expect("relation");
     assert_eq!(relation.schemaname, "app");

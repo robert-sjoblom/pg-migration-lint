@@ -104,7 +104,9 @@ pub(super) fn using_indexes_by_statement<'s>(
         let table = at.name.relation();
         StatementUsingIndexes {
             by_index_name: using_index_constraints(at)
-                .map(|(_, index_name)| (index_name, UsingIndex::in_catalog(state, table, index_name)))
+                .map(|(_, index_name)| {
+                    (index_name, UsingIndex::in_catalog(state, table, index_name))
+                })
                 .collect(),
         }
     })

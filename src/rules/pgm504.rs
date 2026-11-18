@@ -79,8 +79,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
     use rstest::rstest;
 

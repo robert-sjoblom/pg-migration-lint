@@ -35,10 +35,10 @@ pub(super) fn check(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    for (stmt, added_pk_columns) in statements
-        .iter()
-        .zip(small_int_pk_columns_by_statement(ctx.catalog_before, statements))
-    {
+    for (stmt, added_pk_columns) in statements.iter().zip(small_int_pk_columns_by_statement(
+        ctx.catalog_before,
+        statements,
+    )) {
         match &stmt.node {
             IrNode::CreateTable(ct) => {
                 // The parser promotes an inline PRIMARY KEY to the table's
@@ -188,8 +188,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
     use rstest::rstest;
 
@@ -211,7 +211,9 @@ mod tests {
         let findings = RuleId::Pgm107.check(&stmts, &ctx);
         assert_eq!(findings.len(), 1, "got {findings:?}");
         assert!(
-            findings[0].message.contains("'order_id' on 'analytics.orders'"),
+            findings[0]
+                .message
+                .contains("'order_id' on 'analytics.orders'"),
             "got {}",
             findings[0].message
         );
@@ -304,8 +306,10 @@ mod tests {
     ) {
         assert_eq!(
             messages_for_change(history, change),
-            ["Primary key column 'id' on 'orders' uses integer. Consider using bigint to avoid \
-              exhausting the integer range on high-write tables."]
+            [
+                "Primary key column 'id' on 'orders' uses integer. Consider using bigint to avoid \
+              exhausting the integer range on high-write tables."
+            ]
         );
     }
 

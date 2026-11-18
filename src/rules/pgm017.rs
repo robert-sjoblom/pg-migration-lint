@@ -94,8 +94,8 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::{CatalogAssertions, CatalogBuilder};
     use crate::parser::ir::*;
-    use crate::rules::RuleId;
     use crate::parser::pg_query::parse_sql;
+    use crate::rules::RuleId;
     use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
     use rstest::rstest;
 
@@ -443,8 +443,10 @@ mod tests {
             .collect();
         assert_eq!(
             messages,
-            ["ADD UNIQUE USING INDEX 'orders_email_idx' on table 'orders': \
-              referenced index does not exist."]
+            [
+                "ADD UNIQUE USING INDEX 'orders_email_idx' on table 'orders': \
+              referenced index does not exist."
+            ]
         );
     }
 
@@ -461,8 +463,10 @@ mod tests {
         .collect();
         assert_eq!(
             messages,
-            ["ADD UNIQUE USING INDEX 'orders_email_idx' on table 'orders': \
-              referenced index is not UNIQUE."]
+            [
+                "ADD UNIQUE USING INDEX 'orders_email_idx' on table 'orders': \
+              referenced index is not UNIQUE."
+            ]
         );
     }
 
@@ -477,7 +481,11 @@ mod tests {
         );
         let lines: Vec<usize> = findings.iter().map(|finding| finding.start_line).collect();
         assert_eq!(lines, [3], "got {findings:?}");
-        assert!(findings[0].message.contains("referenced index does not exist"));
+        assert!(
+            findings[0]
+                .message
+                .contains("referenced index does not exist")
+        );
     }
 
     #[test]

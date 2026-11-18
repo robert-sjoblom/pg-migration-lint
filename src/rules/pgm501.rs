@@ -1251,8 +1251,7 @@ mod tests {
             );
             CREATE INDEX idx_orders_customer_legacy ON orders (customer_id, legacy_code);";
 
-        let messages =
-            messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
+        let messages = messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
         assert_eq!(
             messages,
             [format!(
@@ -1276,8 +1275,7 @@ mod tests {
             CREATE INDEX idx_orders_customer_legacy ON orders (customer_id, legacy_code);
             CREATE INDEX idx_orders_legacy_customer ON orders (legacy_code, customer_id);";
 
-        let messages =
-            messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
+        let messages = messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
         assert_eq!(
             messages,
             [format!(
@@ -1292,7 +1290,9 @@ mod tests {
     #[case::second_index_on_the_fk_column(
         "CREATE INDEX idx_orders_customer_created ON orders (customer_id, id);"
     )]
-    #[case::index_containing_the_fk_column_anywhere("CREATE INDEX idx_orders_id_customer ON orders (id, customer_id);")]
+    #[case::index_containing_the_fk_column_anywhere(
+        "CREATE INDEX idx_orders_id_customer ON orders (id, customer_id);"
+    )]
     #[case::hash_index("CREATE INDEX idx_orders_customer_hash ON orders USING hash (customer_id);")]
     fn another_index_still_covering_the_fk_is_silent(#[case] second_index: &str) {
         let history = format!("{ORDERS_WITH_COVERED_FK}\n{second_index}");
@@ -1301,7 +1301,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::partial_index("CREATE INDEX idx_orders_customer_open ON orders (customer_id) WHERE id > 0;")]
+    #[case::partial_index(
+        "CREATE INDEX idx_orders_customer_open ON orders (customer_id) WHERE id > 0;"
+    )]
     #[case::gin_index("CREATE INDEX idx_orders_customer_gin ON orders USING gin (customer_id);")]
     fn an_index_that_does_not_count_as_coverage_does_not_keep_it(#[case] second_index: &str) {
         let history = format!("{ORDERS_WITH_COVERED_FK}\n{second_index}");
@@ -1435,7 +1437,10 @@ mod tests {
 
     #[rstest]
     #[case::index_on_another_column("CREATE INDEX idx_orders_id ON orders (id);", "idx_orders_id")]
-    #[case::fk_never_covered("CREATE INDEX idx_customers_id ON customers (id);", "idx_customers_id")]
+    #[case::fk_never_covered(
+        "CREATE INDEX idx_customers_id ON customers (id);",
+        "idx_customers_id"
+    )]
     fn dropping_an_index_that_never_covered_the_fk_is_silent(
         #[case] unrelated_index: &str,
         #[case] index_name: &str,

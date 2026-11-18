@@ -56,6 +56,7 @@ struct AlterTableRank {
 /// The ALTER TABLE pass that creates a constraint, in the order the passes
 /// run (`AT_PASS_*` in `tablecmds.c`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[expect(clippy::enum_variant_names, reason = "ALTER TABLE <tbl> ADD ...")]
 enum AlterTablePass {
     /// `USING INDEX` constraints, which attach an existing index.
     AddIndexConstraint,
@@ -71,7 +72,10 @@ enum AlterTablePass {
 enum SubcommandRank {
     /// Written inline in the `position`th `ADD COLUMN` of the statement.
     /// Within one `ADD COLUMN`, a FOREIGN KEY comes after the CHECKs.
-    AddColumn { position: usize, is_foreign_key: bool },
+    AddColumn {
+        position: usize,
+        is_foreign_key: bool,
+    },
     /// Written as an `ADD CONSTRAINT`.
     AddConstraint,
 }

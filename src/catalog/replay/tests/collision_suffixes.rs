@@ -190,7 +190,11 @@ fn generated_constraint_name_avoids_constraint_names_of_other_tables_in_the_sche
     #[case] constraints: &[&str],
     #[case] indexes: &[&str],
 ) {
-    let catalog = replay_sql(&["CREATE TABLE ref (id int PRIMARY KEY);", other_table, table_sql]);
+    let catalog = replay_sql(&[
+        "CREATE TABLE ref (id int PRIMARY KEY);",
+        other_table,
+        table_sql,
+    ]);
     assert_names(&catalog, table, constraints, indexes);
 }
 
@@ -212,7 +216,12 @@ fn constraint_and_relation_names_in_another_schema_are_ignored() {
         &["foo_iso_a_check", "foo_iso_a_key", "foo_iso_a_fkey"],
         &["foo_iso_a_key"],
     );
-    assert_names(&catalog, "foo_iso_pk", &["foo_iso_pk_pkey"], &["foo_iso_pk_pkey"]);
+    assert_names(
+        &catalog,
+        "foo_iso_pk",
+        &["foo_iso_pk_pkey"],
+        &["foo_iso_pk_pkey"],
+    );
 }
 
 #[rstest]
@@ -258,7 +267,11 @@ fn index_backed_constraints_avoid_relation_names_and_others_do_not(
     #[case] constraints: &[&str],
     #[case] indexes: &[&str],
 ) {
-    let catalog = replay_sql(&["CREATE TABLE ref (id int PRIMARY KEY);", relation_sql, table_sql]);
+    let catalog = replay_sql(&[
+        "CREATE TABLE ref (id int PRIMARY KEY);",
+        relation_sql,
+        table_sql,
+    ]);
     assert_names(&catalog, table, constraints, indexes);
 }
 
@@ -522,7 +535,11 @@ fn alter_table_names_constraints_in_creation_order_and_keeps_textual_order(
     #[case] constraints: &[&str],
     #[case] indexes: &[&str],
 ) {
-    let catalog = replay_sql(&["CREATE TABLE ref (id int PRIMARY KEY);", create_sql, alter_sql]);
+    let catalog = replay_sql(&[
+        "CREATE TABLE ref (id int PRIMARY KEY);",
+        create_sql,
+        alter_sql,
+    ]);
     assert_names(&catalog, "t", constraints, indexes);
 }
 

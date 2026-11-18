@@ -257,7 +257,9 @@ fn attach_partition_validates_only_the_parent_index_in_its_resolved_schema(
         steps.push(format!(
             "CREATE TABLE {table} (id int, created date) PARTITION BY RANGE (created);"
         ));
-        steps.push(format!("CREATE INDEX idx_created ON ONLY {table} (created);"));
+        steps.push(format!(
+            "CREATE INDEX idx_created ON ONLY {table} (created);"
+        ));
     }
     steps.push(attach_sql.to_string());
     let steps: Vec<&str> = steps.iter().map(String::as_str).collect();

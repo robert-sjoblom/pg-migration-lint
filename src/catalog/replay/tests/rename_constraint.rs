@@ -14,7 +14,11 @@ fn index_names(table: &TableState) -> Vec<&str> {
 }
 
 fn constraint_names(table: &TableState) -> Vec<&str> {
-    table.constraints.iter().map(ConstraintState::name).collect()
+    table
+        .constraints
+        .iter()
+        .map(ConstraintState::name)
+        .collect()
 }
 
 const REFERENCED_TABLE: &str = "CREATE TABLE p (id int PRIMARY KEY);";
@@ -183,7 +187,13 @@ fn rename_table_then_its_primary_key_then_drop_it_by_the_new_name() {
         "ALTER TABLE modern RENAME CONSTRAINT legacy_pkey TO modern_pkey;",
     ];
     let renamed = replay_sql(&steps);
-    let dropped = replay_sql(&[&steps[..], &["ALTER TABLE modern DROP CONSTRAINT modern_pkey;"]].concat());
+    let dropped = replay_sql(
+        &[
+            &steps[..],
+            &["ALTER TABLE modern DROP CONSTRAINT modern_pkey;"],
+        ]
+        .concat(),
+    );
 
     assert_eq!(constraint_names(renamed.table("modern")), ["modern_pkey"]);
     renamed.assert_index_owner("modern_pkey", "modern");
