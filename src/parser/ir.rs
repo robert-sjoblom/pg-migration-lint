@@ -138,6 +138,33 @@ pub struct AlterTable<N = ResolvedName> {
     pub actions: Vec<AlterTableAction<N>>,
 }
 
+impl<N> AlterTable<N> {
+    /// The `(constraint keyword, index name)` of each `ADD PRIMARY KEY` or
+    /// `ADD UNIQUE ... USING INDEX index` in this statement, in statement
+    /// order. The keyword is `PRIMARY KEY` or `UNIQUE`.
+    pub fn using_index_constraints(&self) -> impl Iterator<Item = (&'static str, &str)> {
+        self.actions.iter().filter_map(|action| match action {
+            AlterTableAction::AddConstraint {
+                constraint:
+                    TableConstraint::PrimaryKey {
+                        using_index: Some(index),
+                        ..
+                    },
+                ..
+            } => Some(("PRIMARY KEY", index.as_str())),
+            AlterTableAction::AddConstraint {
+                constraint:
+                    TableConstraint::Unique {
+                        using_index: Some(index),
+                        ..
+                    },
+                ..
+            } => Some(("UNIQUE", index.as_str())),
+            _ => None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableAction<N = ResolvedName> {
     AddColumn(ColumnDef),
@@ -522,7 +549,9 @@ pub enum TableConstraint<N = ResolvedName> {
 /// (e.g. `CREATE INDEX idx ON t (LOWER(email))`) store the deparsed SQL text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IndexColumn {
-    /// Simple column reference by name.
+    /// Simple column reference by name. An element written as a parenthesized
+    /// column, such as `((a))` or `((a COLLATE "C"))`, is one too: PostgreSQL
+    /// indexes it as the plain column.
     Column(String),
     /// Expression index element, stored as deparsed SQL text with
     /// extracted column references for DROP/RENAME tracking.

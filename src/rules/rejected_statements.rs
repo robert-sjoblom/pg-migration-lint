@@ -15,7 +15,7 @@ use crate::catalog::replay::map_with_state_before_if_needed;
 use crate::catalog::types::{NamedRelation, RenameClash};
 use crate::names::{RelationName, ResolvedName};
 use crate::parser::ir::{AlterTable, IrNode, Located, SourceSpan};
-use crate::rules::using_index::{UsingIndex, has_using_index, using_index_constraints};
+use crate::rules::using_index::{UsingIndex, has_using_index};
 
 /// The statements of a unit PostgreSQL rejects, as [`rejections`] judges
 /// them, for a rule that leaves those statements to PGM027. The unit is
@@ -187,21 +187,24 @@ fn rejection(state: &Catalog, node: &IrNode) -> Option<Rejection> {
 }
 
 /// The first `USING INDEX` in `at` that names an index of another table, as
-/// [`UsingIndex::in_catalog`] tells it for PGM016, PGM017 and PGM107 too.
+/// [`UsingIndex::in_catalog`] tells it for PGM016, PGM017 and PGM107 too. It
+/// asks [`Catalog::other_table_owning_index`], as replay does to leave the
+/// statement out.
 fn using_index_of_another_table(state: &Catalog, at: &AlterTable) -> Option<Rejection> {
-    using_index_constraints(at).find_map(|(constraint_kind, index)| {
-        let UsingIndex::OfAnotherTable { owner } =
-            UsingIndex::in_catalog(state, at.name.relation(), index)
-        else {
-            return None;
-        };
-        Some(Rejection::UsingIndexOfAnotherTable {
-            constraint_kind,
-            index: index.to_string(),
-            table: at.name.display_name(),
-            owner: owner.to_string(),
+    at.using_index_constraints()
+        .find_map(|(constraint_kind, index)| {
+            let UsingIndex::OfAnotherTable { owner } =
+                UsingIndex::in_catalog(state, at.name.relation(), index)
+            else {
+                return None;
+            };
+            Some(Rejection::UsingIndexOfAnotherTable {
+                constraint_kind,
+                index: index.to_string(),
+                table: at.name.display_name(),
+                owner: owner.to_string(),
+            })
         })
-    })
 }
 
 /// The rejection of a rename of `renamed` to `new_name`, which `clash`

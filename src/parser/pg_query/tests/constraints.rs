@@ -147,6 +147,18 @@ fn test_exclude_element_generated_name_parts(#[case] sql: &str, #[case] expected
 }
 
 #[test]
+fn test_exclude_parenthesized_column_element_is_stored_as_the_column() {
+    let constraints =
+        parsed_constraints("CREATE TABLE ex_paren (a int, EXCLUDE USING btree (((a)) WITH =));");
+    match &constraints[..] {
+        [TableConstraint::Exclude { elements, .. }] => {
+            assert_eq!(elements, &[IndexColumn::Column("a".to_string())])
+        }
+        other => panic!("Expected one Exclude, got: {other:?}"),
+    }
+}
+
+#[test]
 fn test_exclude_expression_element_stores_its_generated_name_part() {
     let constraints = parsed_constraints(
         "CREATE TABLE ex_function (e text, EXCLUDE USING btree (lower(e) WITH =));",

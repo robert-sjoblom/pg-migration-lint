@@ -1295,6 +1295,9 @@ mod tests {
         "CREATE INDEX idx_orders_id_customer ON orders (id, customer_id);"
     )]
     #[case::hash_index("CREATE INDEX idx_orders_customer_hash ON orders USING hash (customer_id);")]
+    #[case::parenthesized_column(
+        "CREATE INDEX idx_orders_customer_paren ON orders ((customer_id));"
+    )]
     fn another_index_still_covering_the_fk_is_silent(#[case] second_index: &str) {
         let history = format!("{ORDERS_WITH_COVERED_FK}\n{second_index}");
         let messages = messages_for_change(&history, "DROP INDEX idx_orders_customer_id;");
@@ -1306,6 +1309,9 @@ mod tests {
         "CREATE INDEX idx_orders_customer_open ON orders (customer_id) WHERE id > 0;"
     )]
     #[case::gin_index("CREATE INDEX idx_orders_customer_gin ON orders USING gin (customer_id);")]
+    #[case::parenthesized_expression(
+        "CREATE INDEX idx_orders_customer_plus ON orders ((customer_id + 0));"
+    )]
     fn an_index_that_does_not_count_as_coverage_does_not_keep_it(#[case] second_index: &str) {
         let history = format!("{ORDERS_WITH_COVERED_FK}\n{second_index}");
         let messages = messages_for_change(&history, "DROP INDEX idx_orders_customer_id;");

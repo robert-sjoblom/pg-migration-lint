@@ -7,7 +7,7 @@ This directory contains test fixtures for pg-migration-lint.
 - `repos/` - Full fixture repositories for integration tests
   - `all-rules/` - One violation per rule, expect findings for all rules
   - `bridge-table/` - Tests PGM501 on a bridge table whose composite PK `(x_id, y_id)` covers both FKs, expect no PGM501 finding
-  - `catalog-ops/` - Tests catalog operations: DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes
+  - `catalog-ops/` - Tests catalog operations: DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes, an `ADD PRIMARY KEY USING INDEX` of another table's index that replay leaves out
   - `clean/` - All migrations correct, expect 0 findings
   - `enterprise/` - Realistic 31-file migration history based on anonymized production schema
   - `fk-with-later-index/` - Tests PGM501 FK detection across migration boundaries: an FK added before its covering index, and the index dropped again later

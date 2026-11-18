@@ -704,7 +704,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM502 — Table without primary key
 
 - **Severity**: MAJOR
-- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file).
+- **Triggers**: `CREATE TABLE` (non-temporary) with no `PRIMARY KEY` constraint, checked after the full file/changeset is processed (to allow `ALTER TABLE ... ADD PRIMARY KEY` later in the same file). An `ADD PRIMARY KEY USING INDEX` of another table's index adds no key, as PostgreSQL rejects it and PGM027 reports it; one of an index the catalog does not have counts.
 - **Message**: `Table '{table}' has no primary key.`
 
 #### PGM503 — `UNIQUE NOT NULL` used instead of `PRIMARY KEY`
