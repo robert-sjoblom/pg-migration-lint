@@ -161,9 +161,12 @@ mod tests {
     use std::path::Path;
     use strum::IntoEnumIterator;
 
+    use crate::catalog::builder::CatalogBuilder;
+    use crate::parser::ir::TransactionControl;
     use crate::rules::finding::Finding;
     use crate::rules::rule_id::RuleId;
     use crate::rules::severity::Severity;
+    use crate::rules::test_helpers::{lint_ctx, located};
 
     use super::*;
 
@@ -267,6 +270,30 @@ mod tests {
     fn test_parse_rule_id_error_display() {
         let err = "BOGUS".parse::<RuleId>().unwrap_err();
         assert_eq!(err.to_string(), "Matching variant not found");
+    }
+
+    #[test]
+    fn no_rule_reports_transaction_control() {
+        let catalog = CatalogBuilder::new().build();
+        let statements: Vec<Located<IrNode>> = [
+            TransactionControl::Begin,
+            TransactionControl::Commit,
+            TransactionControl::Rollback,
+        ]
+        .into_iter()
+        .map(|control| located(IrNode::TransactionControl(control)))
+        .collect();
+
+        for run_in_transaction in [true, false] {
+            lint_ctx!(ctx, &catalog, &catalog, "migrations/002.sql", txn: run_in_transaction);
+            for rule in RuleId::iter() {
+                let findings = rule.check(&statements, &ctx);
+                assert!(
+                    findings.is_empty(),
+                    "{rule} with run_in_transaction = {run_in_transaction}: {findings:?}"
+                );
+            }
+        }
     }
 
     #[test]

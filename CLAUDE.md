@@ -60,12 +60,15 @@ pub enum IrNode<N = ResolvedName> {
     RenameColumn { table, old_name, new_name },
     RenameIndex { index, new_name },
     RenameConstraint { table, old_name, new_name },
+    TransactionControl(TransactionControl),  // Begin | Commit | Rollback
     Ignored { raw_sql: String },        // Parsed but not relevant (GRANT, COMMENT ON)
     Unparseable { raw_sql: String, table_hint: Option<N> },
 }
 ```
 
 The IR is generic over its relation-name type `N`, and so are `CreateTable`, `AlterTable`, `AlterTableAction`, `TableConstraint`, `CreateIndex`, `DropIndex` and the other name-bearing types. The parser emits `IrNode<QualifiedName>`; normalization produces the default `IrNode<ResolvedName>`, which is what replay and the rules see. Bare names (`RENAME TO` targets, index names in `CREATE INDEX`, constraint and column names) stay `String`.
+
+`TransactionControl` is `Begin` (`BEGIN`, `START TRANSACTION`), `Commit` (`COMMIT`, `END`) or `Rollback` (`ROLLBACK`, `ABORT`). `... AND CHAIN` becomes two nodes, the end then `Begin`. Savepoints, `ROLLBACK TO` and two-phase commit stay `Ignored`. Replay treats it as a no-op.
 
 `CreateTable` uses a `TablePersistence` enum (`Permanent`, `Unlogged`, `Temporary`) instead of a boolean `temporary` field.
 

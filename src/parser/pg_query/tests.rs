@@ -4,6 +4,7 @@ use rstest::rstest;
 
 mod constraints;
 mod indexes;
+mod transactions;
 
 #[rstest]
 #[case::grant("GRANT SELECT ON orders TO readonly;")]
@@ -31,6 +32,14 @@ mod indexes;
 #[case::alter_sequence("ALTER SEQUENCE order_seq RESTART WITH 1000;")]
 #[case::vacuum_plain("VACUUM orders;")]
 #[case::alter_index_set("ALTER INDEX idx_foo SET (fillfactor = 70);")]
+#[case::savepoint("SAVEPOINT before_backfill;")]
+#[case::release_savepoint("RELEASE SAVEPOINT before_backfill;")]
+#[case::release("RELEASE before_backfill;")]
+#[case::rollback_to_savepoint("ROLLBACK TO SAVEPOINT before_backfill;")]
+#[case::rollback_to("ROLLBACK TO before_backfill;")]
+#[case::prepare_transaction("PREPARE TRANSACTION 'gid_1';")]
+#[case::commit_prepared("COMMIT PREPARED 'gid_1';")]
+#[case::rollback_prepared("ROLLBACK PREPARED 'gid_1';")]
 fn test_parse_ignored_statements(#[case] sql: &str) {
     let nodes = parse_sql(sql);
     assert_eq!(nodes.len(), 1, "Expected exactly 1 node for: {sql}");

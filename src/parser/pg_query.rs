@@ -9,8 +9,8 @@ use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
     DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode, Located,
     PartitionBy, PartitionStrategy, QualifiedName, Reindex, ReindexObjectKind, ReindexTarget,
-    SourceSpan, TableConstraint, TablePersistence, TriggerDisableScope, TruncateTable, TypeName,
-    UpdateTable, VacuumFull,
+    SourceSpan, TableConstraint, TablePersistence, TransactionControl, TriggerDisableScope,
+    TruncateTable, TypeName, UpdateTable, VacuumFull,
 };
 use pg_query::NodeEnum;
 
@@ -156,6 +156,7 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode<QualifiedName>> {
         NodeEnum::ClusterStmt(cluster) => vec![convert_cluster_stmt(cluster)],
         NodeEnum::VacuumStmt(vacuum) => convert_vacuum_stmt(vacuum),
         NodeEnum::ReindexStmt(reindex) => vec![convert_reindex_stmt(reindex)],
+        NodeEnum::TransactionStmt(transaction) => convert_transaction_stmt(transaction, raw_sql),
         NodeEnum::DoStmt(_) => vec![IrNode::Unparseable {
             raw_sql: raw_sql.to_string(),
             table_hint: None,
@@ -164,6 +165,45 @@ fn convert_node(node: &NodeEnum, raw_sql: &str) -> Vec<IrNode<QualifiedName>> {
             raw_sql: raw_sql.to_string(),
         }],
     }
+}
+
+/// Convert a pg_query `TransactionStmt` to `IrNode::TransactionControl`.
+///
+/// - `BEGIN`, `START TRANSACTION` -> `Begin`
+/// - `COMMIT`, `END` -> `Commit`; `ROLLBACK`, `ABORT` -> `Rollback`
+/// - `... AND CHAIN` -> the end followed by `Begin`, as it starts the next
+///   transaction at once
+/// - Savepoints, `ROLLBACK TO` and the two-phase commit statements
+///   (`PREPARE TRANSACTION`, `COMMIT PREPARED`, `ROLLBACK PREPARED`) ->
+///   `IrNode::Ignored`
+fn convert_transaction_stmt(
+    transaction: &pg_query::protobuf::TransactionStmt,
+    raw_sql: &str,
+) -> Vec<IrNode<QualifiedName>> {
+    use pg_query::protobuf::TransactionStmtKind as Kind;
+
+    let control = match transaction.kind() {
+        Kind::TransStmtBegin | Kind::TransStmtStart => TransactionControl::Begin,
+        Kind::TransStmtCommit => TransactionControl::Commit,
+        Kind::TransStmtRollback => TransactionControl::Rollback,
+        Kind::TransStmtSavepoint
+        | Kind::TransStmtRelease
+        | Kind::TransStmtRollbackTo
+        | Kind::TransStmtPrepare
+        | Kind::TransStmtCommitPrepared
+        | Kind::TransStmtRollbackPrepared
+        | Kind::Undefined => {
+            return vec![IrNode::Ignored {
+                raw_sql: raw_sql.to_string(),
+            }];
+        }
+    };
+
+    let mut nodes = vec![IrNode::TransactionControl(control)];
+    if transaction.chain {
+        nodes.push(IrNode::TransactionControl(TransactionControl::Begin));
+    }
+    nodes
 }
 
 /// Convert a pg_query `CreateStmt` to `IrNode::CreateTable`.

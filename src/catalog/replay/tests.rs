@@ -592,6 +592,36 @@ fn test_ignored_node_is_noop() {
 }
 
 #[test]
+fn test_transaction_control_is_noop_so_rollback_undoes_nothing() {
+    let mut catalog = Catalog::new();
+
+    let unit = make_unit(vec![
+        IrNode::TransactionControl(TransactionControl::Begin),
+        CreateTable::test(qname("t"))
+            .with_columns(vec![col("id", "integer", false)])
+            .into(),
+        IrNode::TransactionControl(TransactionControl::Rollback),
+        IrNode::TransactionControl(TransactionControl::Begin),
+        AlterTable {
+            name: qname("t"),
+            actions: vec![AlterTableAction::AddColumn(col("name", "text", true))],
+        }
+        .into(),
+        IrNode::TransactionControl(TransactionControl::Commit),
+    ]);
+
+    apply(&mut catalog, &unit);
+
+    let columns: Vec<&str> = catalog
+        .table("t")
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(columns, ["id", "name"]);
+}
+
+#[test]
 fn test_column_with_default_expr() {
     let mut catalog = Catalog::new();
 

@@ -1615,3 +1615,126 @@ fn spike_parenthesized_index_column_shape() {
         Some("a")
     );
 }
+
+/// Every transaction-control statement is a `TransactionStmt`; its `kind`
+/// tells them apart. `BEGIN` and `START TRANSACTION` keep separate kinds,
+/// `END` is `COMMIT` and `ABORT` is `ROLLBACK`. `AND CHAIN` sets `chain`
+/// and keeps the kind. `ROLLBACK TO` is its own kind, as are the savepoint
+/// and two-phase-commit statements, which carry `savepoint_name` or `gid`.
+#[test]
+fn spike_transaction_stmt_kinds() {
+    use pg_query::protobuf::{TransactionStmt, TransactionStmtKind as Kind};
+
+    fn transaction_stmt(sql: &str) -> TransactionStmt {
+        let result = pg_query::parse(sql).expect("parse failed");
+        assert_eq!(result.protobuf.stmts.len(), 1, "{sql}");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::TransactionStmt(transaction) = stmt else {
+            panic!("{sql}: expected TransactionStmt, got {stmt:?}");
+        };
+        transaction.clone()
+    }
+
+    let cases = [
+        ("BEGIN;", Kind::TransStmtBegin, false),
+        ("BEGIN WORK;", Kind::TransStmtBegin, false),
+        ("BEGIN TRANSACTION;", Kind::TransStmtBegin, false),
+        (
+            "BEGIN ISOLATION LEVEL SERIALIZABLE;",
+            Kind::TransStmtBegin,
+            false,
+        ),
+        ("START TRANSACTION;", Kind::TransStmtStart, false),
+        ("START TRANSACTION READ ONLY;", Kind::TransStmtStart, false),
+        ("COMMIT;", Kind::TransStmtCommit, false),
+        ("COMMIT WORK;", Kind::TransStmtCommit, false),
+        ("COMMIT TRANSACTION;", Kind::TransStmtCommit, false),
+        ("COMMIT AND NO CHAIN;", Kind::TransStmtCommit, false),
+        ("COMMIT AND CHAIN;", Kind::TransStmtCommit, true),
+        ("END;", Kind::TransStmtCommit, false),
+        ("END TRANSACTION;", Kind::TransStmtCommit, false),
+        ("END AND CHAIN;", Kind::TransStmtCommit, true),
+        ("ROLLBACK;", Kind::TransStmtRollback, false),
+        ("ROLLBACK WORK;", Kind::TransStmtRollback, false),
+        ("ROLLBACK AND CHAIN;", Kind::TransStmtRollback, true),
+        ("ABORT;", Kind::TransStmtRollback, false),
+        ("ABORT TRANSACTION;", Kind::TransStmtRollback, false),
+        ("ABORT AND CHAIN;", Kind::TransStmtRollback, true),
+        (
+            "SAVEPOINT before_backfill;",
+            Kind::TransStmtSavepoint,
+            false,
+        ),
+        (
+            "RELEASE SAVEPOINT before_backfill;",
+            Kind::TransStmtRelease,
+            false,
+        ),
+        ("RELEASE before_backfill;", Kind::TransStmtRelease, false),
+        (
+            "ROLLBACK TO SAVEPOINT before_backfill;",
+            Kind::TransStmtRollbackTo,
+            false,
+        ),
+        (
+            "ROLLBACK TO before_backfill;",
+            Kind::TransStmtRollbackTo,
+            false,
+        ),
+        (
+            "ROLLBACK WORK TO SAVEPOINT before_backfill;",
+            Kind::TransStmtRollbackTo,
+            false,
+        ),
+        (
+            "PREPARE TRANSACTION 'gid_1';",
+            Kind::TransStmtPrepare,
+            false,
+        ),
+        (
+            "COMMIT PREPARED 'gid_1';",
+            Kind::TransStmtCommitPrepared,
+            false,
+        ),
+        (
+            "ROLLBACK PREPARED 'gid_1';",
+            Kind::TransStmtRollbackPrepared,
+            false,
+        ),
+    ];
+
+    for (sql, kind, chain) in cases {
+        let transaction = transaction_stmt(sql);
+        assert_eq!(transaction.kind(), kind, "{sql}");
+        assert_eq!(transaction.chain, chain, "{sql}");
+    }
+
+    let isolation = transaction_stmt("BEGIN ISOLATION LEVEL SERIALIZABLE;");
+    assert_eq!(isolation.options.len(), 1);
+    assert!(transaction_stmt("BEGIN;").options.is_empty());
+
+    for sql in [
+        "SAVEPOINT before_backfill;",
+        "RELEASE before_backfill;",
+        "ROLLBACK TO before_backfill;",
+    ] {
+        assert_eq!(
+            transaction_stmt(sql).savepoint_name,
+            "before_backfill",
+            "{sql}"
+        );
+    }
+    for sql in [
+        "PREPARE TRANSACTION 'gid_1';",
+        "COMMIT PREPARED 'gid_1';",
+        "ROLLBACK PREPARED 'gid_1';",
+    ] {
+        assert_eq!(transaction_stmt(sql).gid, "gid_1", "{sql}");
+    }
+}
