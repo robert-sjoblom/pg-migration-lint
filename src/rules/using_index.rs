@@ -63,54 +63,6 @@ impl<'a> UsingIndex<'a> {
     }
 }
 
-/// What the indexes of one statement's `USING INDEX` constraints refer to,
-/// just before the statement.
-#[derive(Debug, Default)]
-pub(super) struct StatementUsingIndexes<'s> {
-    by_index_name: Vec<(&'s str, UsingIndex)>,
-}
-
-impl StatementUsingIndexes<'_> {
-    /// What `index_name`, named by one of the statement's `USING INDEX`
-    /// constraints, refers to. `None` for a name the statement does not use
-    /// that way.
-    pub(super) fn get(&self, index_name: &str) -> Option<&UsingIndex> {
-        self.by_index_name
-            .iter()
-            .find(|(name, _)| *name == index_name)
-            .map(|(_, using_index)| using_index)
-    }
-}
-
-/// For each of `statements`, what the index of each of its `USING INDEX`
-/// constraints refers to, judged against `catalog_before` with the earlier
-/// statements of `statements` replayed on top. A unit without a `USING
-/// INDEX` needs no replay.
-pub(super) fn using_indexes_by_statement<'s>(
-    catalog_before: &Catalog,
-    statements: &'s [Located<IrNode>],
-) -> Vec<StatementUsingIndexes<'s>> {
-    if !statements.iter().any(|stmt| has_using_index(&stmt.node)) {
-        return statements
-            .iter()
-            .map(|_| StatementUsingIndexes::default())
-            .collect();
-    }
-    map_with_state_before(catalog_before, statements, |state, stmt| {
-        let IrNode::AlterTable(at) = &stmt.node else {
-            return StatementUsingIndexes::default();
-        };
-        let table = at.name.relation();
-        StatementUsingIndexes {
-            by_index_name: using_index_constraints(at)
-                .map(|(_, index_name)| {
-                    (index_name, UsingIndex::in_catalog(state, table, index_name))
-                })
-                .collect(),
-        }
-    })
-}
-
 /// True for an `ALTER TABLE` with a `USING INDEX` constraint.
 pub(super) fn has_using_index(node: &IrNode) -> bool {
     matches!(node, IrNode::AlterTable(at) if using_index_constraints(at).next().is_some())

@@ -207,6 +207,7 @@ fn fk_coverage(catalog: &Catalog, table: &TableState, fk_columns: &[String]) -> 
 }
 
 /// The statement that drops a set of indexes, as a finding describes it.
+#[expect(clippy::enum_variant_names, reason = "we're okay with this")]
 enum DropCause<'a> {
     /// `DROP INDEX`.
     DropIndex,
