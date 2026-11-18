@@ -201,7 +201,7 @@ Finding::new(rule.id(), Severity::Info, message, ctx.file, &stmt.span)
 
 ### `alter_table_check::check_alter_actions`
 
-For rules that inspect ALTER TABLE actions on existing tables (PGM007–PGM017). Handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
+For rules that inspect ALTER TABLE actions on existing tables. PGM004, PGM005, PGM007–PGM009, PGM013–PGM015, PGM019 and PGM507 call it directly. PGM010–PGM012 and PGM025 call it through `drop_column_check::check_drop_column_constraints`, which passes on only `DROP COLUMN` actions, along with the table's state in `catalog_before`. It handles the boilerplate of iterating statements, filtering to `AlterTable`, checking table scope, and iterating actions:
 
 ```rust
 pub fn check_alter_actions<F>(
@@ -334,7 +334,7 @@ make docs-sync
 - Rules must be `Send + Sync` (to support future parallel execution).
 - No `unwrap()` or `expect()` in library code — use proper error handling.
 - All public functions require doc comments.
-- The `EXPLAIN` constant must reference the rule's own ID string.
-- Index column order must be preserved (affects FK covering index prefix matching).
+- The `EXPLAIN` markdown must follow the contract in step 6, which `src/rules/rule_docs_tests.rs` checks for every rule.
+- Index column order must be preserved (affects PGM508's prefix-based redundant-index detection via `is_prefix()`).
 - Down migrations get INFO severity cap automatically (PGM901) — rules don't need to handle this.
 - Error paths: parse failures on individual files warn and continue; rules don't see unparseable SQL (it becomes `IrNode::Unparseable` with a table hint that marks the table as `incomplete`).

@@ -116,7 +116,7 @@ The catalog tracks:
 - Table creation/deletion
 - Column additions/modifications/deletions (including type changes)
 - Index creation/deletion (with column order preserved)
-- Constraint additions
+- Constraints: additions, drops (`DROP CONSTRAINT`, or dropping a column they involve), renames, and `VALIDATE CONSTRAINT` clearing NOT VALID. An unnamed constraint gets the name PostgreSQL would generate. A PRIMARY KEY or UNIQUE constraint shares its name with its backing index, and replay drops and renames the two together
 - Primary key existence
 
 **Single-pass replay strategy**: The pipeline iterates through migration history once. For each unit:
