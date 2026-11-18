@@ -1564,7 +1564,7 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
 ///
 /// This is a best-effort heuristic used to mark tables as incomplete in the catalog.
 fn extract_table_hint_from_raw(sql: &str) -> Option<QualifiedName> {
-    let upper = sql.to_uppercase();
+    let upper = sql.to_ascii_uppercase();
 
     // Try to find "ALTER TABLE <name>" pattern
     let kw = "ALTER TABLE";
@@ -1599,7 +1599,7 @@ fn extract_first_identifier(s: &str) -> Option<String> {
 
     // Skip optional keywords before the identifier
     let trimmed = {
-        let upper = trimmed.to_uppercase();
+        let upper = trimmed.to_ascii_uppercase();
         let skip_len = if upper.starts_with("IF NOT EXISTS") {
             "IF NOT EXISTS".len()
         } else if upper.starts_with("IF EXISTS") {
