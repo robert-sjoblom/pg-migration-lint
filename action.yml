@@ -63,7 +63,11 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
         GH_TOKEN: ${{ inputs.github-token }}
-      run: ${{ github.action_path }}/scripts/download-binary.sh
+      # Quoted $GITHUB_ACTION_PATH rather than an interpolated
+      # `${{ github.action_path }}`: on Windows that is a backslash path,
+      # and bash strips the backslashes from an unquoted word, so the
+      # script would never run to print its unsupported-runner error.
+      run: '"$GITHUB_ACTION_PATH/scripts/download-binary.sh"'
 
     - name: Run pg-migration-lint github-review
       id: github-review
