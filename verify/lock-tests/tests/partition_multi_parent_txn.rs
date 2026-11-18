@@ -22,10 +22,22 @@
 //! - Dropping several children of the *same* parent inside one transaction takes
 //!   ACCESS EXCLUSIVE on that parent and keeps it for the rest of the transaction,
 //!   rather than releasing it between statements.
+//! - `DROP TABLE alpha_q1, beta_q1`, one statement in autocommit, locks alpha before
+//!   it asks for beta. While a reader on beta makes it wait, its ACCESS EXCLUSIVE on
+//!   alpha is already granted (`pg_locks`) and a read through alpha is refused: one
+//!   statement naming partitions of two parents is one transaction locking both.
+//! - A plain `DETACH PARTITION` locks its parent the way a drop does. Detaching and
+//!   dropping a child of alpha, then detaching a child of beta, in one transaction
+//!   leaves both parents held at ACCESS EXCLUSIVE at the same time. Dropping the
+//!   detached child releases nothing: both parents stay held until COMMIT.
 //!
-//! Relied on (already measured on 14–19, not re-derived here): `DROP TABLE <child>`
-//! and `CREATE TABLE <child> PARTITION OF <parent>` both take
-//! `AccessExclusiveLock` on the *parent*.
+//! Relied on (already measured on 14–19 in `partition_ddl_lock_matrix.rs`; the
+//! DETACH test below only re-checks its own precondition): `DROP TABLE <child>`,
+//! `CREATE TABLE <child> PARTITION OF <parent>` and `ALTER TABLE <parent> DETACH
+//! PARTITION <child>` all take `AccessExclusiveLock` on the *parent*. Also relied on
+//! (measured in `partition_safe_rewrite.rs::
+//! dropping_a_detached_partition_needs_no_lock_on_the_parent_at_all`): dropping a
+//! partition that is already detached takes no lock on its former parent.
 //!
 //! Three parents stand in for twelve; nothing in the lock manager makes the fourth
 //! parent behave differently from the third, and the assertions below are about
@@ -359,5 +371,126 @@ fn autocommit_frees_the_same_parent_between_statements(#[values(14, 15, 16, 17, 
         0,
         "pg{pg}: same total work, but the parent was only locked for the duration of \
          each individual statement"
+    );
+}
+
+/// Requests for ACCESS EXCLUSIVE on beta that are still waiting, in *this* database.
+const ACCESS_EXCLUSIVE_WAITS_ON_BETA: &str = "
+    SELECT count(*)::bigint
+      FROM pg_locks l
+      JOIN pg_class c ON c.oid = l.relation
+     WHERE l.locktype = 'relation'
+       AND NOT l.granted
+       AND l.mode = 'AccessExclusiveLock'
+       AND c.relname = 'beta'
+       AND l.database = (SELECT oid FROM pg_database
+                          WHERE datname = current_database())
+";
+
+#[rstest]
+fn one_drop_statement_holds_the_first_parent_while_it_waits_for_the_second(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
+    let Some(db) = TestDb::new(pg, "pmulti_one_drop_two_parents") else {
+        return;
+    };
+    db.session().run(SETUP);
+
+    let reader_on_beta = db.hold("SELECT count(*) FROM beta");
+
+    let drop_both = db.spawn_blocked("DROP TABLE alpha_q1, beta_q1");
+
+    let mut probe = db.session();
+    assert_eq!(
+        probe.scalar_i64(ACCESS_EXCLUSIVE_WAITS_ON_BETA),
+        1,
+        "pg{pg}: `DROP TABLE alpha_q1, beta_q1` must be waiting for ACCESS EXCLUSIVE on \
+         beta, the parent the reader holds"
+    );
+    assert!(
+        db.holds_lock("alpha", AEL),
+        "pg{pg}: while it waits for beta, the single DROP statement must already hold \
+         ACCESS EXCLUSIVE on alpha; granted modes on alpha were {:?}",
+        db.locks_on("alpha")
+    );
+
+    probe.set_lock_timeout(LOCK_TIMEOUT);
+    expect_lock_timeout(
+        &mut probe,
+        "SELECT count(*) FROM alpha",
+        "a read through the first parent is refused while one DROP statement naming \
+         partitions of two parents waits for the second parent",
+    );
+    assert_eq!(
+        probe.scalar_i64("SELECT count(*)::bigint FROM gamma"),
+        2,
+        "pg{pg}: a parent the statement does not name stays readable"
+    );
+
+    drop(reader_on_beta);
+    drop_both.join().unwrap_or_else(|e| {
+        panic!("pg{pg}: the DROP should complete once the reader on beta ends: {e}")
+    });
+
+    assert_eq!(
+        probe.scalar_i64(
+            "SELECT count(*)::bigint FROM pg_inherits \
+             WHERE inhparent IN ('alpha'::regclass, 'beta'::regclass)"
+        ),
+        3,
+        "pg{pg}: the one statement dropped one child of each parent"
+    );
+}
+
+#[rstest]
+fn plain_detach_in_one_transaction_holds_every_parent_it_detached_from(
+    #[values(14, 15, 16, 17, 18, 19)] pg: u32,
+) {
+    let Some(db) = TestDb::new(pg, "pmulti_detach_two_parents_txn") else {
+        return;
+    };
+    db.session().run(SETUP);
+
+    let mut migration = db.session();
+    migration.set_lock_timeout(LOCK_TIMEOUT);
+    migration.run("BEGIN");
+
+    migration.run("ALTER TABLE alpha DETACH PARTITION alpha_q1");
+    assert!(
+        db.holds_lock("alpha", AEL),
+        "pg{pg}: a plain DETACH PARTITION must leave ACCESS EXCLUSIVE held on alpha; \
+         granted modes were {:?}",
+        db.locks_on("alpha")
+    );
+
+    migration.run("DROP TABLE alpha_q1");
+    migration.run("ALTER TABLE beta DETACH PARTITION beta_q1");
+
+    let mut probe = db.session();
+    assert_eq!(
+        probe.scalar_i64(LOCKED_PARENTS),
+        2,
+        "pg{pg}: after detaching from two parents in one transaction both must be held \
+         at ACCESS EXCLUSIVE at the same time; alpha={:?} beta={:?}",
+        db.locks_on("alpha"),
+        db.locks_on("beta")
+    );
+
+    migration.run("DROP TABLE beta_q1");
+
+    probe.set_lock_timeout(LOCK_TIMEOUT);
+    expect_lock_timeout(
+        &mut probe,
+        "SELECT count(*) FROM alpha",
+        "a read through the first parent is refused while the transaction works on the \
+         second: dropping the detached child released nothing the DETACH took",
+    );
+
+    migration.run("COMMIT");
+
+    assert_eq!(
+        probe.scalar_i64(LOCKED_PARENTS),
+        0,
+        "pg{pg}: COMMIT releases both parents"
     );
 }

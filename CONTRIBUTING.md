@@ -312,7 +312,7 @@ Look a statement up by its index, not its span: the two nodes of `COMMIT AND CHA
 
 ### `partition_parent_lock`
 
-For rules about the ACCESS EXCLUSIVE lock that `DROP TABLE` of a partition and `CREATE TABLE ... PARTITION OF` take on the partition's parent (PGM024 and PGM026). `ParentLocks::of_unit(statements)` notes the children the unit detaches, since dropping one of those locks no parent. `taken_by(node, ctx)` then gives the `ParentLock` a statement takes, or `None`: `statement` (`DropPartition` or `CreatePartitionOf`), the `child` it drops or creates, and the `parent` (`LockedParent { key, display_name }`). A parent counts only when it is in `catalog_before` and not created in the change (`ctx.is_existing_table`):
+For rules about the ACCESS EXCLUSIVE lock that `DROP TABLE` of a partition, `CREATE TABLE ... PARTITION OF` and a plain (not `CONCURRENTLY`) `ALTER TABLE ... DETACH PARTITION` take on the partition's parent (PGM024 and PGM026; PGM024 skips the plain `DETACH`, which PGM004 reports). `ParentLocks::of_unit(statements)` notes the children the unit detaches, since dropping one of those locks no parent. `taken_by(node, ctx)` then gives the `ParentLock` a statement takes, or `None`: `statement` (`DropPartition`, `CreatePartitionOf` or `PlainDetachPartition`), the `child` it drops, creates or detaches, and the `parent` (`LockedParent { key, display_name }`). A parent counts only when it is in `catalog_before` and not created in the change (`ctx.is_existing_table`), and the parent of a plain `DETACH` only when it is partitioned there:
 
 ```rust
 let parent_locks = ParentLocks::of_unit(statements);

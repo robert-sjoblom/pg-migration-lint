@@ -38,6 +38,8 @@ pub(super) fn check(
                      ATTACH PARTITION it instead — ATTACH only takes SHARE UPDATE \
                      EXCLUSIVE on the parent.",
                 ),
+                // PGM004 reports a plain DETACH PARTITION.
+                ParentLockingStatement::PlainDetachPartition => return None,
             };
             Some(
                 rule.make_finding(message, ctx.file, &stmt.span)
@@ -55,6 +57,7 @@ mod tests {
     use crate::parser::ir::*;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::{lint_ctx, located};
+    use rstest::rstest;
 
     fn rule_id() -> RuleId {
         RuleId::Pgm024
@@ -66,12 +69,12 @@ mod tests {
         ))
     }
 
-    fn detach_stmt(parent: &str, child: &str) -> Located<IrNode> {
+    fn detach_stmt(parent: &str, child: &str, concurrent: bool) -> Located<IrNode> {
         located(IrNode::AlterTable(AlterTable {
             name: QualifiedName::unqualified(parent),
             actions: vec![AlterTableAction::DetachPartition {
                 child: QualifiedName::unqualified(child),
-                concurrent: true,
+                concurrent,
             }],
         }))
     }
@@ -104,8 +107,8 @@ mod tests {
         insta::assert_yaml_snapshot!(findings);
     }
 
-    #[test]
-    fn test_no_finding_when_same_unit_detaches_first() {
+    #[rstest]
+    fn test_no_finding_when_same_unit_detaches_first(#[values(true, false)] concurrent: bool) {
         let before = CatalogBuilder::new()
             .table("measurements", |t| {
                 t.column("id", "bigint", false)
@@ -119,14 +122,14 @@ mod tests {
         lint_ctx!(ctx, &before, &after, "migrations/002.sql");
 
         let stmts = vec![
-            detach_stmt("measurements", "measurements_2023"),
+            detach_stmt("measurements", "measurements_2023", concurrent),
             drop_stmt("measurements_2023"),
         ];
 
         let findings = rule_id().check(&stmts, &ctx);
         assert!(
             findings.is_empty(),
-            "DETACH then DROP in the same unit is the safe pattern PGM004 recommends, got: {findings:?}"
+            "the DROP of a detached child locks no parent, and PGM004 reports a plain DETACH, got: {findings:?}"
         );
     }
 

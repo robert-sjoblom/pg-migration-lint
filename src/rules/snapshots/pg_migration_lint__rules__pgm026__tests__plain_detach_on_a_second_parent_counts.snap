@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm026.rs
+expression: findings
+---
+- rule_id: PGM026
+  severity: Critical
+  message: "One transaction takes ACCESS EXCLUSIVE on 2 partitioned parents ('measurements', 'readings') and holds each lock until it ends. While it waits for the next parent's lock, all reads and writes on the parents it already locked are blocked, and if a lock times out, the work on every parent rolls back. Change one parent per transaction, for example one migration per parent."
+  file: migrations/002.sql
+  start_line: 1
+  end_line: 1
