@@ -3,15 +3,15 @@
 //! such a statement does leave it to PGM027 ([`RejectedStatements`]).
 //!
 //! Each statement is judged against `catalog_before` with the unit's earlier
-//! statements replayed on top ([`map_with_state_before`]), so a name an
-//! earlier statement in the same unit frees or takes counts. Only positive
-//! evidence rejects a statement: an object the catalog does not have may
-//! exist outside the tracked migrations.
+//! statements replayed on top ([`map_with_state_before_if_needed`]), so a
+//! name an earlier statement in the same unit frees or takes counts. Only
+//! positive evidence rejects a statement: an object the catalog does not
+//! have may exist outside the tracked migrations.
 
 use std::cell::OnceCell;
 
 use crate::catalog::Catalog;
-use crate::catalog::replay::map_with_state_before;
+use crate::catalog::replay::map_with_state_before_if_needed;
 use crate::catalog::types::{NamedRelation, RenameClash};
 use crate::names::{RelationName, ResolvedName};
 use crate::parser::ir::{AlterTable, IrNode, Located, SourceSpan};
@@ -114,16 +114,17 @@ pub(super) fn rejections(
     catalog_before: &Catalog,
     statements: &[Located<IrNode>],
 ) -> Vec<Option<Rejection>> {
-    if !statements.iter().any(|stmt| can_be_rejected(&stmt.node)) {
-        return vec![None; statements.len()];
-    }
-    map_with_state_before(catalog_before, statements, |state, stmt| {
-        rejection(state, &stmt.node)
-    })
+    map_with_state_before_if_needed(
+        catalog_before,
+        statements,
+        can_be_rejected,
+        |state, stmt| rejection(state, &stmt.node),
+    )
 }
 
 /// True for the statements [`rejection`] can reject, so a unit without any
-/// needs no replay.
+/// needs no replay: [`rejection`] returns `None` for every other statement,
+/// whatever the catalog holds.
 fn can_be_rejected(node: &IrNode) -> bool {
     match node {
         IrNode::RenameTable { .. }

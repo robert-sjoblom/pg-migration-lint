@@ -408,31 +408,33 @@ fn if_not_exists_skips(catalog: &Catalog, ci: &CreateIndex) -> bool {
 /// skips because its name is taken ([`if_not_exists_skips`]). A generated
 /// name, and whether a name is taken, depend on every relation created or
 /// dropped before the statement, in the schema and earlier in `statements`,
-/// so each is judged against the state [`map_with_state_before`] gives it
-/// when either question comes up.
+/// so each is judged against the state [`map_with_state_before_if_needed`]
+/// gives it, which replays the earlier statements only when some statement
+/// asks either question ([`created_index_name_depends_on_state`]).
 pub(crate) fn created_index_names(
     catalog: &Catalog,
     statements: &[Located<IrNode>],
 ) -> Vec<Option<String>> {
-    let depends_on_earlier_statements = statements.iter().any(|stmt| {
-        matches!(&stmt.node, IrNode::CreateIndex(ci) if ci.index_name.is_none() || ci.if_not_exists)
-    });
-    if !depends_on_earlier_statements {
-        return statements
-            .iter()
-            .map(|stmt| match &stmt.node {
-                IrNode::CreateIndex(ci) => ci.index_name.clone(),
-                _ => None,
-            })
-            .collect();
-    }
+    map_with_state_before_if_needed(
+        catalog,
+        statements,
+        created_index_name_depends_on_state,
+        |state, stmt| match &stmt.node {
+            IrNode::CreateIndex(ci) if !if_not_exists_skips(state, ci) => {
+                Some(created_index_name(state, ci))
+            }
+            _ => None,
+        },
+    )
+}
 
-    map_with_state_before(catalog, statements, |state, stmt| match &stmt.node {
-        IrNode::CreateIndex(ci) if !if_not_exists_skips(state, ci) => {
-            Some(created_index_name(state, ci))
-        }
-        _ => None,
-    })
+/// True for a `CREATE INDEX` whose created index name depends on the
+/// relations before it: one that generates its name, or an `IF NOT EXISTS`
+/// one, which creates nothing when its name is taken. An explicitly named
+/// `CREATE INDEX` without `IF NOT EXISTS` creates the index of that name
+/// whatever the catalog holds.
+fn created_index_name_depends_on_state(node: &IrNode) -> bool {
+    matches!(node, IrNode::CreateIndex(ci) if ci.index_name.is_none() || ci.if_not_exists)
 }
 
 /// Call `visit` on each of `statements` with the catalog just before it:
