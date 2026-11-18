@@ -56,6 +56,15 @@ fn replay_sql(sql_steps: &[&str]) -> Catalog {
     catalog
 }
 
+/// `before` with `sql` replayed on top as one migration file.
+fn replayed_on(before: &Catalog, sql: &str) -> Catalog {
+    let mut after = before.clone();
+    for unit in steps_from_sql(&[sql], TEST_DEFAULT_SCHEMA) {
+        apply(&mut after, &unit);
+    }
+    after
+}
+
 /// Helper: shorthand for creating a QualifiedName with just a table name.
 fn qname(name: &str) -> QualifiedName {
     QualifiedName::unqualified(name)
@@ -3557,6 +3566,7 @@ fn test_replay_preserves_access_method() {
 }
 
 mod collision_suffixes;
+mod create_index_onto_taken_name;
 mod drop_index_of_constraint;
 mod generated_names;
 mod implicit_index_names;

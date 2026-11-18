@@ -1,0 +1,16 @@
+---
+source: src/rules/pgm027.rs
+expression: findings
+---
+- rule_id: PGM027
+  severity: Major
+  message: "CREATE INDEX 'archive' on table 'orders' fails: table 'archive' already has that name."
+  file: migrations/002.sql
+  start_line: 2
+  end_line: 2
+- rule_id: PGM027
+  severity: Major
+  message: "CREATE INDEX 'orders_id_idx' on table 'orders' fails: index 'orders_id_idx' on table 'orders' already has that name."
+  file: migrations/002.sql
+  start_line: 3
+  end_line: 3

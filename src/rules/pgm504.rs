@@ -30,7 +30,7 @@ pub(super) fn check(
 
     // Pass 2: find RenameTable on existing tables.
     let mut findings = Vec::new();
-    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+    let rejected = RejectedStatements::new(ctx, statements);
 
     for stmt in statements {
         if let IrNode::RenameTable {

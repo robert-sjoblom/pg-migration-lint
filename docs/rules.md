@@ -63,7 +63,7 @@ CREATE INDEX idx_orders_status ON orders (status);
 CREATE INDEX CONCURRENTLY idx_orders_status ON orders (status);
 ```
 
-Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
+Does not fire when the table is created in the same set of changed files (locking an empty table is harmless). It does fire on a `CREATE INDEX` whose name a table or index in the schema already has, which [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports too: with a free name, the statement still needs `CONCURRENTLY`. See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
 ---
 
@@ -127,7 +127,7 @@ COMMIT;
 CREATE INDEX CONCURRENTLY idx_foo ON bar (col);
 ```
 
-Does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
+Does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`. It does fire on a `CREATE INDEX CONCURRENTLY` whose name is already taken, which [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports too: inside a transaction PostgreSQL fails it on the transaction first, and with a free name it still has to run outside one.
 
 See also [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001), [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), and [PGM022](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm022).
 
@@ -736,24 +736,29 @@ Detects a statement that PostgreSQL will reject, given the schema built from the
 
 Each statement is checked against the schema as it stands just before it, so a name freed or taken earlier in the same migration counts. The rule fires only on positive evidence: an object the migration history does not show may exist outside it, so a missing table, index or constraint is never reported.
 
+Down migrations (`.down.sql`, `_down.sql`) are not checked. A down file usually sorts before its up file, so the schema it would be checked against is the one before the up migration ran, not the one it undoes. PGM002, PGM003, PGM401, PGM402, PGM501 and PGM504 report a down migration's statements as usual.
+
 It currently detects:
 
 - `ADD PRIMARY KEY` or `ADD UNIQUE ... USING INDEX idx` where `idx` belongs to another table. PostgreSQL looks the index up in the altered table's schema and requires it to be one of that table's indexes.
 - Renaming a table, index or constraint onto a name that is taken. A table or index needs the name free among the schema's tables and indexes. A constraint needs it free among its table's constraints. Renaming a PRIMARY KEY, UNIQUE or EXCLUDE constraint renames its index too, and the other way round, so those need both.
 - `DROP INDEX` of the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL refuses with or without `CONCURRENTLY`, `IF EXISTS` or `CASCADE`; the constraint has to be dropped instead.
+- `CREATE INDEX idx`, with or without `CONCURRENTLY`, where a table or index in the indexed table's schema already has the name `idx`, the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint included. Index names share one namespace with tables, so PostgreSQL fails the statement and builds nothing. An unnamed `CREATE INDEX` gets a generated name that is free, and `CREATE INDEX IF NOT EXISTS` skips the statement instead of failing, so neither is reported. Sequences, views and the indexes PostgreSQL creates on partitions take names too, but the schema built from the migration history does not track them, so a clash with one of those goes unreported. The other way round, a drop or rename that the schema misses, such as `ALTER TABLE` used to rename an index or a `DROP INDEX` inside a `DO` block or a statement the parser cannot read, leaves the old name looking taken, so a later `CREATE INDEX` reusing it is reported though it succeeds.
 
 **Example** (bad):
 ```sql
 -- V001
-CREATE TABLE customers (id bigint PRIMARY KEY, email text);
+CREATE TABLE customers (id bigint PRIMARY KEY, email text, created_at timestamptz);
 CREATE UNIQUE INDEX customers_email_idx ON customers (email);
-CREATE TABLE orders (id bigint PRIMARY KEY, email text);
+CREATE INDEX idx_created_at ON customers (created_at);
+CREATE TABLE orders (id bigint PRIMARY KEY, email text, created_at timestamptz);
 CREATE TABLE archive (id bigint PRIMARY KEY);
 
 -- V002: each statement fails
 ALTER TABLE orders ADD CONSTRAINT orders_email_key UNIQUE USING INDEX customers_email_idx;
 ALTER TABLE archive RENAME TO orders;
 DROP INDEX orders_pkey;
+CREATE INDEX idx_created_at ON orders (created_at);
 ```
 
 **Fix**: build the index on the table the constraint is for, pick a free name (or drop or rename the object that holds it first), and remove a constraint's index with `ALTER TABLE ... DROP CONSTRAINT`:
@@ -762,9 +767,10 @@ CREATE UNIQUE INDEX CONCURRENTLY orders_email_idx ON orders (email);
 ALTER TABLE orders ADD CONSTRAINT orders_email_key UNIQUE USING INDEX orders_email_idx;
 ALTER TABLE archive RENAME TO orders_archive;
 ALTER TABLE orders DROP CONSTRAINT orders_pkey;
+CREATE INDEX CONCURRENTLY orders_created_at_idx ON orders (created_at);
 ```
 
-A statement this rule reports is not reported by [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003), [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017), [PGM107](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm107), [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401), [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501) or [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504), since it never takes effect.
+A statement this rule reports is not reported by [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017), [PGM107](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm107), [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401), [PGM402](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm402), [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501), [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504) or [PGM508](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm508), since it never takes effect. [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003) leaves a `DROP INDEX CONCURRENTLY` this rule reports alone, as its fix needs no `CONCURRENTLY`. A `CREATE INDEX` onto a taken name is still reported by [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001) on an existing table, and by [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003) with `CONCURRENTLY` inside a transaction: once it has a free name, it still needs `CONCURRENTLY` on an existing table, and `CONCURRENTLY` still cannot run inside a transaction.
 
 ---
 
@@ -1161,6 +1167,8 @@ Detects `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause. Wit
 
 An unnamed `CREATE INDEX` is not reported. PostgreSQL gives it a generated name that is free in the schema, so it cannot fail on an existing index, and `IF NOT EXISTS` requires a name.
 
+Nor is a `CREATE INDEX` whose name a table or index in the schema already has. PostgreSQL rejects it, and `IF NOT EXISTS` would only turn that into a silent no-op that builds no index; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+
 **Example** (bad):
 ```sql
 CREATE TABLE orders (id bigint PRIMARY KEY);
@@ -1238,7 +1246,7 @@ DROP INDEX CONCURRENTLY idx_order_items_order_id;
 
 It does not fire when the same file drops the foreign key too, when another usable index still covers it, or when the same file adds the foreign key, which the first check already reports once. Nor does it fire on a statement PostgreSQL rejects, such as a `DROP INDEX` that also names the index behind a PRIMARY KEY or UNIQUE constraint: nothing is dropped, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it. When several statements in a file drop covering indexes of one foreign key, the finding goes to the last of them.
 
-**Column matching**: FK columns `(a, b)` are covered by any usable index that contains at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some of the FK columns still avoids a sequential scan (via a Filter or Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here. The check uses the catalog state after the entire file is processed, so creating the index later in the same file avoids a false positive.
+**Column matching**: FK columns `(a, b)` are covered by any usable index that contains at least one of `a` or `b`, in any position — e.g. `(a, b)`, `(b, a)`, `(a)`, or `(c, b)` all count. An index covering only some of the FK columns still avoids a sequential scan (via a Filter or Recheck), so it counts as coverage even though a fully covering index performs better. Column order does not matter here. The check uses the catalog state after the entire file is processed, so creating the index later in the same file avoids a false positive. A `CREATE INDEX` whose name a table or index in the schema already has creates nothing, as PostgreSQL rejects it ([PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027)), so it does not count.
 
 **Known limitation**: an FK whose only indexed column is low-cardinality (e.g. 10 distinct values over 1M rows) produces no warning, even though the check still degrades to a Bitmap Heap Scan touching a large fraction of the table. Index shape alone can't tell a selective index from an unselective one — the catalog has no column statistics, and requiring the index to also be UNIQUE would not help, since the false-negative case is not unique in the referencing table either.
 
@@ -1410,8 +1418,8 @@ CREATE INDEX idx_orders_cust_short ON orders (customer_id);
 - Either index is partial (has a WHERE clause).
 - Either index has expression entries.
 - The indexes use different access methods (btree vs GIN vs ...).
-- The statement is `CREATE INDEX IF NOT EXISTS` and its name is already taken by a relation in the table's schema, an index or a table alike. PostgreSQL skips the statement with a notice and creates nothing.
-- Another index on the table has the new index's name, so the linter cannot tell which one the statement created. An unnamed index never does: when its generated name (`{table}_{columns}_idx`) is taken, PostgreSQL adds a numeric suffix (`orders_customer_id_idx1`), and the finding uses that name. It takes an explicit name that repeats one the table already has, which PostgreSQL rejects.
+- The new index's name is already taken by a relation in the table's schema, an index or a table alike. PostgreSQL creates nothing: it skips a `CREATE INDEX IF NOT EXISTS` with a notice and rejects any other, which [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports. An unnamed index never has a taken name: when its generated name (`{table}_{columns}_idx`) is taken, PostgreSQL adds a numeric suffix (`orders_customer_id_idx1`), and the finding uses that name.
+- A later statement of the file adds a constraint of the new index's name to the table, so the linter cannot tell which of the two indexes the statement created. PostgreSQL rejects that later statement.
 
 **Fix**: Drop the redundant index:
 ```sql

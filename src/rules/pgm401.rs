@@ -16,7 +16,7 @@ pub(super) fn check(
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
-    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+    let rejected = RejectedStatements::new(ctx, statements);
 
     for stmt in statements {
         match &stmt.node {

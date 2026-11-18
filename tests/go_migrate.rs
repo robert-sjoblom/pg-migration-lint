@@ -72,9 +72,13 @@ fn test_gomigrate_down_migration_capped() {
         &["000015_drop_index_no_concurrently.down.sql"],
     );
 
-    assert!(
-        !findings.is_empty(),
-        "Down migration should produce findings (PGM001 capped to INFO)"
+    let rule_ids: Vec<&str> = findings.iter().map(|f| f.rule_id.as_str()).collect();
+    assert_eq!(
+        rule_ids,
+        ["PGM001", "PGM402"],
+        "Down migration should produce PGM001 and PGM402 (capped to INFO): PGM027 skips down \
+         migrations, though idx_orders_status from 000006 still looks taken, and PGM402 does \
+         not leave the statement to it there"
     );
 
     for finding in &findings {

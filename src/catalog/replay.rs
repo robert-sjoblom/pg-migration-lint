@@ -5,7 +5,7 @@
 //! single-pass replay strategy: the pipeline calls [`apply`] for each
 //! migration unit, and the catalog accumulates state over time.
 
-use crate::catalog::generated_names::{GeneratedName, TakenNames};
+use crate::catalog::generated_names::GeneratedName;
 use crate::catalog::types::*;
 use crate::input::MigrationUnit;
 use crate::names::{RelationName, ResolvedName};
@@ -342,42 +342,31 @@ fn validate_constraint(table: &mut TableState, constraint_name: &str) {
 }
 
 /// Handle CREATE INDEX: add an index to the target table.
-/// If the table does not exist in the catalog, silently skip.
 ///
-/// When `IF NOT EXISTS` is used and a relation of that name already exists in
-/// the table's schema, PostgreSQL skips the statement with a notice (see
-/// [`if_not_exists_skips`]). We keep the catalog as it is and return a
-/// warning, as for replacing an existing index.
+/// When a relation in the table's schema already has the index's name
+/// ([`relation_holding_index_name`]), PostgreSQL creates nothing: it rejects
+/// the statement, which PGM027 reports, or with `IF NOT EXISTS` skips it
+/// with a notice. We keep the catalog as it is and return a warning, even
+/// when the table is not in the catalog: the migration chain is ambiguous at
+/// that point. Otherwise a table missing from the catalog is silently
+/// skipped.
 fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) -> Option<String> {
     let table_key = ci.table_name.relation();
-
-    // A generated name never clashes: it gets a collision suffix instead.
-    // Only an explicit name can already be taken.
     let index_name = created_index_name(catalog, ci);
-    // The grammar allows no schema on the index name: the index is created
-    // in its table's schema.
-    let index_key = table_key.in_same_schema(&index_name);
 
-    if if_not_exists_skips(catalog, ci) {
+    if relation_holding_index_name(catalog, ci).is_some() {
+        let if_not_exists = if ci.if_not_exists {
+            " IF NOT EXISTS"
+        } else {
+            ""
+        };
         return Some(format!(
-            "CREATE INDEX IF NOT EXISTS `{}` skipped: a relation of that name already exists \
-             in catalog. The migration chain may be inconsistent.",
-            index_name
+            "CREATE INDEX{if_not_exists} `{index_name}` skipped: a relation of that name already \
+             exists in catalog. The migration chain may be inconsistent."
         ));
     }
 
-    let mut warning = None;
-    if ci.index_name.is_some() && catalog.get_index(&index_key).is_some() {
-        warning = Some(format!(
-            "CREATE INDEX `{}` overwrites existing index in catalog. \
-             The index may have been dropped outside tracked migrations, or this is a duplicate definition.",
-            index_name
-        ));
-    }
-
-    let Some(table) = catalog.get_table_mut(table_key) else {
-        return warning;
-    };
+    let table = catalog.get_table_mut(table_key)?;
 
     let entries: Vec<IndexColumn> = ci.columns.to_vec();
 
@@ -391,8 +380,10 @@ fn apply_create_index(catalog: &mut Catalog, ci: &CreateIndex) -> Option<String>
     });
 
     // Register after confirming the table exists, to avoid ghost entries.
-    catalog.register_index(&index_key, table_key);
-    warning
+    // The grammar allows no schema on the index name: the index is created
+    // in its table's schema.
+    catalog.register_index(&table_key.in_same_schema(&index_name), table_key);
+    None
 }
 
 /// The name of the index `ci` creates on top of `catalog`: its own name, or
@@ -406,29 +397,34 @@ fn created_index_name(catalog: &Catalog, ci: &CreateIndex) -> String {
     }
 }
 
-/// True if `ci` is a `CREATE INDEX IF NOT EXISTS` that PostgreSQL skips on
-/// top of `catalog`, creating nothing: a relation in the table's schema
-/// already has its name. Any relation counts, a table as much as an index
-/// (`index_create` looks the name up in `pg_class`). The grammar requires a
-/// name with `IF NOT EXISTS`.
-fn if_not_exists_skips(catalog: &Catalog, ci: &CreateIndex) -> bool {
-    ci.if_not_exists
-        && ci.index_name.as_deref().is_some_and(|name| {
-            catalog
-                .names_in_schema(&ci.table_name.relation().schema)
-                .relation_taken(name)
-        })
+/// The relation in the table's schema that already has the name `ci` gives
+/// its index, if any. PostgreSQL then creates nothing: without `IF NOT
+/// EXISTS` the statement fails with 42P07, with or without `CONCURRENTLY`,
+/// and with it the statement is skipped with a notice
+/// (`verify/tests/other/pgm027_create_index_onto_taken_name.sql`). Any
+/// relation the catalog records counts, a table as much as an index
+/// ([`Catalog::relation_named`]); sequences and views are relations too, but
+/// the catalog does not record them. Replay leaves the statement out on it,
+/// and PGM027 reports it. An unnamed `CREATE INDEX` has `None`: its
+/// generated name avoids every taken one. The table itself need not be in
+/// the catalog.
+pub(crate) fn relation_holding_index_name<'c>(
+    catalog: &'c Catalog,
+    ci: &CreateIndex,
+) -> Option<NamedRelation<'c>> {
+    let name = ci.index_name.as_deref()?;
+    catalog.relation_named(&ci.table_name.relation().in_same_schema(name))
 }
 
 /// For each of `statements`, the name of the index it creates, as replaying
 /// them on top of `catalog` names it. `None` when it creates none: it is not
-/// a `CREATE INDEX`, or it is a `CREATE INDEX IF NOT EXISTS` that PostgreSQL
-/// skips because its name is taken ([`if_not_exists_skips`]). A generated
+/// a `CREATE INDEX`, or its name is taken ([`relation_holding_index_name`]),
+/// so PostgreSQL rejects it or, with `IF NOT EXISTS`, skips it. A generated
 /// name, and whether a name is taken, depend on every relation created or
 /// dropped before the statement, in the schema and earlier in `statements`,
 /// so each is judged against the state [`map_with_state_before_if_needed`]
-/// gives it, which replays the earlier statements only when some statement
-/// asks either question ([`created_index_name_depends_on_state`]).
+/// gives it, which replays the earlier statements only when the unit has a
+/// `CREATE INDEX`.
 pub(crate) fn created_index_names(
     catalog: &Catalog,
     statements: &[Located<IrNode>],
@@ -436,23 +432,14 @@ pub(crate) fn created_index_names(
     map_with_state_before_if_needed(
         catalog,
         statements,
-        created_index_name_depends_on_state,
+        |node| matches!(node, IrNode::CreateIndex(_)),
         |state, stmt| match &stmt.node {
-            IrNode::CreateIndex(ci) if !if_not_exists_skips(state, ci) => {
+            IrNode::CreateIndex(ci) if relation_holding_index_name(state, ci).is_none() => {
                 Some(created_index_name(state, ci))
             }
             _ => None,
         },
     )
-}
-
-/// True for a `CREATE INDEX` whose created index name depends on the
-/// relations before it: one that generates its name, or an `IF NOT EXISTS`
-/// one, which creates nothing when its name is taken. An explicitly named
-/// `CREATE INDEX` without `IF NOT EXISTS` creates the index of that name
-/// whatever the catalog holds.
-fn created_index_name_depends_on_state(node: &IrNode) -> bool {
-    matches!(node, IrNode::CreateIndex(ci) if ci.index_name.is_none() || ci.if_not_exists)
 }
 
 /// Call `visit` on each of `statements` with the catalog just before it:

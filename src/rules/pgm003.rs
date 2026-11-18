@@ -18,7 +18,7 @@ pub(super) fn check(
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let windows = ctx.transaction_windows(statements);
-    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+    let rejected = RejectedStatements::new(ctx, statements);
 
     statements
         .iter()
@@ -30,9 +30,12 @@ pub(super) fn check(
                 .and_then(|window| transaction_block_message(window, statements))?;
             // A DROP INDEX CONCURRENTLY naming a constraint's index fails in or
             // out of a transaction, and PGM027's fix, dropping the constraint
-            // instead, needs no CONCURRENTLY.
-            (!rejected.contains(&stmt.span))
-                .then(|| rule.make_finding(message, ctx.file, &stmt.span))
+            // instead, needs no CONCURRENTLY. A CREATE INDEX CONCURRENTLY onto a
+            // taken name fails in a transaction on the transaction first, and
+            // PGM027's fix, a free name, still needs CONCURRENTLY.
+            let left_to_pgm027 =
+                matches!(stmt.node, IrNode::DropIndex(_)) && rejected.contains(&stmt.span);
+            (!left_to_pgm027).then(|| rule.make_finding(message, ctx.file, &stmt.span))
         })
         .collect()
 }

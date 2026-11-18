@@ -1,6 +1,7 @@
 #![doc = include_str!("docs/pgm402.md")]
 
 use crate::parser::ir::{CreateIndex, IrNode, Located};
+use crate::rules::rejected_statements::RejectedStatements;
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Missing IF NOT EXISTS on CREATE TABLE / CREATE INDEX";
@@ -15,6 +16,7 @@ pub(super) fn check(
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let rejected = RejectedStatements::new(ctx, statements);
 
     for stmt in statements {
         match &stmt.node {
@@ -28,11 +30,13 @@ pub(super) fn check(
                     &stmt.span,
                 ));
             }
+            // On a taken name, IF NOT EXISTS would turn the failure PGM027
+            // reports into a silent no-op that builds no index.
             IrNode::CreateIndex(CreateIndex {
                 index_name: Some(index_name),
                 if_not_exists: false,
                 ..
-            }) => {
+            }) if !rejected.contains(&stmt.span) => {
                 findings.push(rule.make_finding(
                     format!(
                         "CREATE INDEX '{}' without IF NOT EXISTS will fail if the index already exists.",
