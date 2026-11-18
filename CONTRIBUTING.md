@@ -216,7 +216,7 @@ where
 
 ### `column_type_check::check_column_types`
 
-For rules that flag specific column types across `CREATE TABLE`, `ADD COLUMN`, and `ALTER COLUMN TYPE` (PGM101–PGM106):
+For rules that flag specific column types across `CREATE TABLE`, `ADD COLUMN`, and `ALTER COLUMN TYPE` (PGM101–PGM104, PGM106, PGM108 and PGM109):
 
 ```rust
 pub fn check_column_types(

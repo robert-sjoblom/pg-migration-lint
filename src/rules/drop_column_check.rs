@@ -1,6 +1,6 @@
 //! Shared helper for rules that inspect `DROP COLUMN` effects on constraints/indexes.
 //!
-//! Used by PGM010, PGM011, and PGM012, which all follow the same pattern: filter to
+//! Used by PGM010, PGM011, PGM012, and PGM025, which all follow the same pattern: filter to
 //! `ALTER TABLE ... DROP COLUMN` on pre-existing tables, look up the table in
 //! `catalog_before`, then inspect constraints involving the dropped column.
 

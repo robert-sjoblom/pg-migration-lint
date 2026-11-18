@@ -1,7 +1,8 @@
 //! Shared column type checking logic for rules that flag specific column types.
 //!
-//! Used by PGM101-104, which all follow the same pattern: flag columns whose type
-//! matches a predicate, across `CreateTable`, `AddColumn`, and `AlterColumnType`.
+//! Used by PGM101-104, PGM106, PGM108 and PGM109, which all follow the same
+//! pattern: flag columns whose type matches a predicate, across `CreateTable`,
+//! `AddColumn`, and `AlterColumnType`.
 
 use crate::Rule;
 use crate::names::ResolvedName;

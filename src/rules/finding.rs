@@ -18,7 +18,8 @@ pub struct Finding {
     ///
     /// When set, at most one finding per `(rule_id, dedup_key)` is kept
     /// after suppression filtering. Used by `existing_table_check` to
-    /// collapse multiple DML findings on the same table into one.
+    /// collapse findings on the same table into one, and by PGM024 to
+    /// collapse findings under the same partitioned parent.
     #[serde(skip)]
     pub dedup_key: Option<RelationName>,
 }

@@ -621,6 +621,27 @@ fn test_extract_table_hint_none() {
 }
 
 #[test]
+fn test_extract_table_hint_after_comment_whose_uppercase_is_shorter() {
+    let hint =
+        extract_table_hint_from_raw("-- Sipariş kaydı\nALTER TABLE orders ADD COLUMN note text;");
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
+}
+
+#[test]
+fn test_extract_table_hint_after_literal_whose_uppercase_is_longer() {
+    let hint = extract_table_hint_from_raw(
+        "INSERT INTO notes VALUES ('ǰǰ');\nALTER TABLE ärenden ADD COLUMN note text;",
+    );
+    assert_eq!(hint, Some(QualifiedName::unqualified("ärenden")));
+}
+
+#[test]
+fn test_extract_table_hint_reads_non_ascii_if_as_identifier() {
+    let hint = extract_table_hint_from_raw("CREATE TABLE ıf not exists orders (id int);");
+    assert_eq!(hint, Some(QualifiedName::unqualified("ıf")));
+}
+
+#[test]
 fn test_nullable_column_default() {
     let sql = "CREATE TABLE t (name text);";
     let nodes = parse_sql(sql);
