@@ -8,14 +8,15 @@
 //! the statement uses. Each statement is therefore judged against
 //! `catalog_before` with the unit's earlier statements replayed on top
 //! ([`map_with_state_before`](crate::catalog::replay::map_with_state_before)).
-//! PGM027 judges a `USING INDEX` the same way with the same
-//! [`UsingIndex::in_catalog`], so PGM016, PGM017 and PGM107 never see an index
-//! of the altered table where PGM027 reports another table's.
+//! [`UsingIndex::in_catalog`] tells an index of another table with
+//! [`Catalog::other_table_owning_index`], as PGM027 and replay do, so PGM016,
+//! PGM017 and PGM107 never see an index of the altered table where PGM027
+//! reports another table's and replay leaves the statement out.
 
 use crate::catalog::Catalog;
 use crate::catalog::types::{IndexState, TableState};
 use crate::names::RelationName;
-use crate::parser::ir::{AlterTable, AlterTableAction, IrNode, TableConstraint};
+use crate::parser::ir::IrNode;
 
 /// What the index name in `ALTER TABLE ... ADD ... USING INDEX` refers to in
 /// a catalog, borrowed from that catalog.
@@ -41,57 +42,24 @@ impl<'a> UsingIndex<'a> {
     /// `table`'s schema. The altered table need not be in the catalog for an
     /// index of another table: whichever table it is, it is not the index's.
     pub(super) fn in_catalog(catalog: &'a Catalog, table: &RelationName, index_name: &str) -> Self {
-        let index_key = table.in_same_schema(index_name);
-        let Some(owner_key) = catalog.table_for_index(&index_key) else {
-            return Self::Missing;
-        };
-        let Some(owner) = catalog.get_table(owner_key) else {
-            return Self::Missing;
-        };
-        if owner_key != table {
+        if let Some(owner) = catalog.other_table_owning_index(table, index_name) {
             return Self::OfAnotherTable {
                 owner: &owner.display_name,
             };
         }
-        match owner.indexes.iter().find(|idx| idx.name == index_name) {
-            Some(index) => Self::OfTable {
-                index,
-                table: owner,
-            },
-            None => Self::Missing,
+        match (
+            catalog.get_index(&table.in_same_schema(index_name)),
+            catalog.get_table(table),
+        ) {
+            (Some(index), Some(table)) => Self::OfTable { index, table },
+            _ => Self::Missing,
         }
     }
 }
 
 /// True for an `ALTER TABLE` with a `USING INDEX` constraint.
 pub(super) fn has_using_index(node: &IrNode) -> bool {
-    matches!(node, IrNode::AlterTable(at) if using_index_constraints(at).next().is_some())
-}
-
-/// The `(constraint kind, index name)` of each `ADD PRIMARY KEY` or
-/// `ADD UNIQUE ... USING INDEX` in `at`, in statement order.
-pub(super) fn using_index_constraints(
-    at: &AlterTable,
-) -> impl Iterator<Item = (&'static str, &str)> {
-    at.actions.iter().filter_map(|action| match action {
-        AlterTableAction::AddConstraint {
-            constraint:
-                TableConstraint::PrimaryKey {
-                    using_index: Some(index),
-                    ..
-                },
-            ..
-        } => Some(("PRIMARY KEY", index.as_str())),
-        AlterTableAction::AddConstraint {
-            constraint:
-                TableConstraint::Unique {
-                    using_index: Some(index),
-                    ..
-                },
-            ..
-        } => Some(("UNIQUE", index.as_str())),
-        _ => None,
-    })
+    matches!(node, IrNode::AlterTable(at) if at.using_index_constraints().next().is_some())
 }
 
 #[cfg(test)]
@@ -122,7 +90,8 @@ mod tests {
     ) -> Vec<T> {
         map_with_state_before_if_needed(before, statements, has_using_index, |state, stmt| {
             let shared_idx = match &stmt.node {
-                IrNode::AlterTable(at) => using_index_constraints(at)
+                IrNode::AlterTable(at) => at
+                    .using_index_constraints()
                     .find(|(_, index_name)| *index_name == "shared_idx")
                     .map(|(_, index_name)| {
                         UsingIndex::in_catalog(state, at.name.relation(), index_name)

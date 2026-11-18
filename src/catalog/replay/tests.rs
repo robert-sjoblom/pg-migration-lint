@@ -3443,3 +3443,4 @@ mod rename_constraint;
 mod rename_index;
 mod rename_onto_taken_name;
 mod schema_scoped_indexes;
+mod using_index_of_another_table;

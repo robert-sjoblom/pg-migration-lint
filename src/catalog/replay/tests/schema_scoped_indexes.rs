@@ -186,10 +186,10 @@ fn drop_column_on_the_table_holding_a_generated_name_keeps_the_suffixed_index_of
     "CREATE INDEX shared_idx ON orders (status);",
     "ALTER TABLE archive DROP CONSTRAINT shared_idx;"
 )]
-#[case::using_index(
-    "CREATE UNIQUE INDEX shared_idx ON archive (status);",
-    "CREATE UNIQUE INDEX shared_idx ON orders (status);",
-    "ALTER TABLE archive ADD CONSTRAINT archive_status_key UNIQUE USING INDEX shared_idx;"
+#[case::rename_constraint(
+    "ALTER TABLE archive ADD CONSTRAINT shared_idx UNIQUE (status);",
+    "CREATE INDEX shared_idx ON orders (status);",
+    "ALTER TABLE archive RENAME CONSTRAINT shared_idx TO archive_status_key;"
 )]
 fn unregistering_an_index_keeps_an_entry_another_table_took_over(
     #[case] archive_index_sql: &str,

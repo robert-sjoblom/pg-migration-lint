@@ -150,7 +150,9 @@ fn apply_create_table(catalog: &mut Catalog, ct: &CreateTable) -> Option<String>
 }
 
 /// Handle ALTER TABLE: apply each action to the existing table.
-/// If the table does not exist in the catalog, silently skip.
+/// If the table does not exist in the catalog, silently skip. A statement
+/// with a `USING INDEX` of another table's index changes nothing, as
+/// PostgreSQL rejects all of it ([`uses_another_tables_index`]).
 ///
 /// Postgres runs the subcommands in passes rather than in textual order, and
 /// replay follows the passes that change what a statement leaves behind:
@@ -163,6 +165,9 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
     // If the table doesn't exist, silently skip. It may be in a different
     // schema or managed outside our tracked migrations.
     if !catalog.has_table(table_key) {
+        return;
+    }
+    if uses_another_tables_index(catalog, at) {
         return;
     }
 
@@ -222,6 +227,19 @@ fn apply_alter_table(catalog: &mut Catalog, at: &AlterTable) {
             _ => {}
         }
     }
+}
+
+/// True when an `ADD PRIMARY KEY` or `ADD UNIQUE ... USING INDEX` of `at`
+/// names an index the catalog places on another table
+/// ([`Catalog::other_table_owning_index`]). PostgreSQL rejects the whole
+/// statement, and PGM027 reports it. An index the catalog does not have may
+/// exist outside the tracked migrations, so it does not count.
+fn uses_another_tables_index(catalog: &Catalog, at: &AlterTable) -> bool {
+    at.using_index_constraints().any(|(_, index)| {
+        catalog
+            .other_table_owning_index(at.name.relation(), index)
+            .is_some()
+    })
 }
 
 /// Apply `update` to the table `table_key`, then the index registry changes

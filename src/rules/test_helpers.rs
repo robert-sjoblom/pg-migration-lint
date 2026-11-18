@@ -138,15 +138,25 @@ pub fn normalized<S: TestStatement>(statements: Vec<S>) -> Vec<Located<IrNode>> 
 /// Build the catalog the pipeline produces for `sql`: parsed, resolved with
 /// `public` as the default schema, then replayed into an empty catalog.
 pub fn catalog_from_sql(sql: &str) -> Catalog {
+    replayed(
+        &Catalog::new(),
+        &normalized(crate::parser::pg_query::parse_sql(sql)),
+    )
+}
+
+/// `catalog` with `statements` replayed on top, as the pipeline replays a
+/// unit of them: the `catalog_after` of a unit whose `catalog_before` is
+/// `catalog`.
+pub fn replayed(catalog: &Catalog, statements: &[Located<IrNode>]) -> Catalog {
     let unit = MigrationUnit {
-        id: "normalized".to_string(),
-        statements: normalized(crate::parser::pg_query::parse_sql(sql)),
+        id: "replayed".to_string(),
+        statements: statements.to_vec(),
         source_file: PathBuf::new(),
         source_line_offset: 1,
         run_in_transaction: true,
         is_down: false,
     };
-    let mut catalog = Catalog::new();
-    crate::catalog::replay::apply(&mut catalog, &unit);
-    catalog
+    let mut replayed = catalog.clone();
+    crate::catalog::replay::apply(&mut replayed, &unit);
+    replayed
 }
