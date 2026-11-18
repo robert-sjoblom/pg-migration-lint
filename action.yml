@@ -2,6 +2,10 @@ name: 'pg-migration-lint'
 description: 'Lint changed PostgreSQL migration files for safety and correctness issues, and post findings as PR comments.'
 author: 'robert-sjoblom'
 
+branding:
+  icon: 'database'
+  color: 'blue'
+
 inputs:
   github-token:
     description: >-
