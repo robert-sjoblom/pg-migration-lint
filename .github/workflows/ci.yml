@@ -14,14 +14,15 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The ubuntu-latest runner has clang-18 + libclang pre-installed;
-  # point bindgen at it so we can skip apt-get install libclang-dev.
+  # Runners are pinned to ubuntu-24.04 because that image has clang-18 and
+  # libclang pre-installed (ubuntu-latest, now 26.04, has no llvm-18).
+  # Point bindgen at it so we can skip apt-get install libclang-dev.
   LIBCLANG_PATH: /usr/lib/llvm-18/lib
 
 jobs:
   check:
     name: Check (fmt, clippy, compile)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
     steps:
@@ -59,7 +60,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: check
     steps:
       - name: Checkout
@@ -101,7 +102,7 @@ jobs:
 
   build:
     name: Build (release, musl)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     steps:
       - name: Checkout
@@ -131,7 +132,7 @@ jobs:
 
   build-bridge:
     name: Build Liquibase bridge JAR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
     steps:
@@ -162,7 +163,7 @@ jobs:
 
   bridge-test:
     name: Liquibase integration tests (LB ${{ matrix.liquibase-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, build-bridge]
     # Skip on scheduled runs (only audit/deny/coverage need the weekly trigger)
     if: github.event_name != 'schedule'
@@ -214,7 +215,7 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: check
     # Run on main push, scheduled, or when PR title contains [coverage].
     # check is skipped on the schedule, and a skipped dependency skips this job
@@ -264,14 +265,14 @@ jobs:
 
   deny:
     name: Deny (licenses, advisories, duplicates)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@v2.1.1
 
   audit:
     name: Security audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Run on PRs, pushes to main, and the weekly schedule
     steps:
       - name: Checkout
