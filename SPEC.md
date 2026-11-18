@@ -512,7 +512,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - All actions are `VALIDATE CONSTRAINT` → `SHARE UPDATE EXCLUSIVE`
   - Any other action → `ACCESS EXCLUSIVE`
   - Statements with different lock levels are tracked independently.
-- **Chain breaking**: Any intervening non-ALTER statement that references the same table (e.g., `CREATE INDEX`, `INSERT INTO`) breaks the chain for that table.
+- **Chain breaking**: Any intervening statement that references the same table and is not an `ALTER TABLE` action list (e.g., `CREATE INDEX`, `INSERT INTO`, or an `ALTER TABLE ... RENAME TO`, `RENAME COLUMN` or `RENAME CONSTRAINT`, none of which can join an action list) breaks the chain for that table.
 - **Does not fire when**:
   - Single `ALTER TABLE` per table
   - Table is new (in `tables_created_in_change`)
