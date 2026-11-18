@@ -135,6 +135,7 @@ IR node types (non-exhaustive):
 | `UpdateTable { table_name }` | `UpdateStmt` |
 | `DeleteFrom { table_name }` | `DeleteStmt` |
 | `TruncateTable { table_name, cascade }` | `TruncateStmt` |
+| `TransactionControl(Begin \| Commit \| Rollback)` | `TransactionStmt` (BEGIN/START, COMMIT/END, ROLLBACK/ABORT) |
 
 `AlterTableAction` variants: `AddColumn`, `DropColumn`, `AddConstraint { constraint, origin }`, `AlterColumnType`, `SetNotNull`, `DropNotNull`, `SetDefault`, `DropDefault`, `DropConstraint`, `ValidateConstraint`, `AttachPartition`, `DetachPartition`, `DisableTrigger`, `Other`.
 
@@ -147,6 +148,8 @@ IR node types (non-exhaustive):
 `ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
 
 `TableConstraint` variants: `PrimaryKey { name, columns, include_columns, using_index }`, `ForeignKey { name, columns, ref_table, ref_columns, not_valid }`, `Unique { name, columns, include_columns, using_index }`, `Check { name, expression, referenced_columns, not_valid }`, `Exclude { name, elements, include_columns }`.
+
+`TransactionControl` marks where a transaction block starts or ends: `Begin` for `BEGIN` and `START TRANSACTION`, `Commit` for `COMMIT` and `END`, `Rollback` for `ROLLBACK` and `ABORT`. `COMMIT AND CHAIN` and `ROLLBACK AND CHAIN` (also `END AND CHAIN`, `ABORT AND CHAIN`) produce two nodes with the statement's span, the end followed by `Begin`, because they start the next transaction at once. Savepoints (`SAVEPOINT`, `RELEASE`, `ROLLBACK TO`) and two-phase commit (`PREPARE TRANSACTION`, `COMMIT PREPARED`, `ROLLBACK PREPARED`) stay `Ignored`. Replay treats the node as a no-op, so a `ROLLBACK` does not undo the statements before it.
 
 `Unparseable` nodes are preserved in the stream so the replay engine can mark catalog gaps.
 

@@ -193,6 +193,7 @@ pub(crate) fn resolve_node(node: IrNode<QualifiedName>, default_schema: &str) ->
             old_name,
             new_name,
         },
+        IrNode::TransactionControl(control) => IrNode::TransactionControl(control),
         IrNode::Ignored { raw_sql } => IrNode::Ignored { raw_sql },
         IrNode::Unparseable {
             raw_sql,
@@ -951,6 +952,20 @@ mod tests {
             }),
             IrNode::Ignored { raw_sql }
         );
+    }
+
+    #[test]
+    fn transaction_control_passes_through_unchanged() {
+        for control in [
+            TransactionControl::Begin,
+            TransactionControl::Commit,
+            TransactionControl::Rollback,
+        ] {
+            assert_eq!(
+                resolved(IrNode::TransactionControl(control)),
+                IrNode::TransactionControl(control)
+            );
+        }
     }
 
     #[test]

@@ -63,7 +63,7 @@ fn apply_node(catalog: &mut Catalog, node: &IrNode) -> Option<String> {
             /* DML: no schema change */
         }
         IrNode::Unparseable { table_hint, .. } => apply_unparseable(catalog, table_hint.as_ref()),
-        IrNode::Ignored { .. } => { /* no-op */ }
+        IrNode::TransactionControl(_) | IrNode::Ignored { .. } => { /* no-op */ }
     }
     None
 }

@@ -7,5 +7,6 @@ pub use ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, ConstraintOrigin, CreateIndex, CreateTable,
     DefaultExpr, DeleteFrom, DropIndex, DropSchema, DropTable, IndexColumn, InsertInto, IrNode,
     Located, PartitionBy, PartitionStrategy, QualifiedName, SourceSpan, TableConstraint,
-    TablePersistence, TriggerDisableScope, TruncateTable, TypeName, UpdateTable,
+    TablePersistence, TransactionControl, TriggerDisableScope, TruncateTable, TypeName,
+    UpdateTable,
 };

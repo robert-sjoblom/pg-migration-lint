@@ -72,7 +72,6 @@ pub(super) fn check(
                     tracking.remove(&(key.clone(), LockLevel::AccessExclusive));
                     tracking.remove(&(key.clone(), LockLevel::ShareUpdateExclusive));
                 }
-                // Ignored and Unparseable nodes: no chain broken (table_key_of returns None).
             }
         }
     }
@@ -143,6 +142,7 @@ fn table_key_of(node: &IrNode) -> Option<&RelationName> {
         | IrNode::DropSchema(_)
         | IrNode::RenameIndex { .. }
         | IrNode::AlterIndexAttachPartition { .. }
+        | IrNode::TransactionControl(_)
         | IrNode::Ignored { .. }
         | IrNode::Unparseable { .. } => None,
     }
@@ -498,6 +498,26 @@ mod tests {
 
         let findings = RuleId::Pgm023.check(&stmts, &ctx);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn chain_survives_across_transaction_control() {
+        let before = existing_catalog();
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let stmts = vec![
+            located_at(IrNode::TransactionControl(TransactionControl::Begin), 1),
+            located_at(alter_set_not_null("authors", "name"), 2),
+            located_at(IrNode::TransactionControl(TransactionControl::Commit), 3),
+            located_at(IrNode::TransactionControl(TransactionControl::Begin), 4),
+            located_at(alter_set_not_null("authors", "email"), 5),
+            located_at(IrNode::TransactionControl(TransactionControl::Rollback), 6),
+        ];
+
+        let findings = RuleId::Pgm023.check(&stmts, &ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].start_line, 5);
     }
 
     #[test]

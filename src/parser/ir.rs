@@ -67,6 +67,11 @@ pub enum IrNode<N = ResolvedName> {
         old_name: String,
         new_name: String,
     },
+    /// A statement that starts or ends a transaction block. `COMMIT AND
+    /// CHAIN` and `ROLLBACK AND CHAIN` become two nodes, the end followed by
+    /// `Begin`, as they start the next transaction at once. Savepoints,
+    /// `ROLLBACK TO` and the two-phase commit statements are `Ignored`.
+    TransactionControl(TransactionControl),
     /// SQL that parsed successfully but has no IR mapping (e.g., GRANT, COMMENT ON).
     /// Not an error — just not relevant to linting.
     Ignored {
@@ -78,6 +83,17 @@ pub enum IrNode<N = ResolvedName> {
         raw_sql: String,
         table_hint: Option<N>,
     },
+}
+
+/// How a [`IrNode::TransactionControl`] statement moves the transaction state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionControl {
+    /// `BEGIN` or `START TRANSACTION`, with any transaction modes.
+    Begin,
+    /// `COMMIT` or `END`.
+    Commit,
+    /// `ROLLBACK` or `ABORT`.
+    Rollback,
 }
 
 /// Partition strategy for `CREATE TABLE ... PARTITION BY`.
