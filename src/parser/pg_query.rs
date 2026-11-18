@@ -222,6 +222,9 @@ fn convert_create_table(
                 Some(NodeEnum::PartitionElem(elem)) => {
                     if !elem.name.is_empty() {
                         vec![elem.name.clone()]
+                    } else if let Some(column) = elem.expr.as_deref().and_then(parenthesized_column)
+                    {
+                        vec![column]
                     } else {
                         // Expression partition key — extract referenced column names
                         // from the AST so that CHECK-constraint matching in PGM005
@@ -881,19 +884,45 @@ fn convert_check_constraint(
 /// Convert a pg_query `IndexElem` into an IR `IndexColumn`.
 ///
 /// Shared by `CREATE INDEX` column lists and EXCLUDE constraint elements,
-/// which use the identical `IndexElem` node shape.
+/// which use the identical `IndexElem` node shape. An element that is only a
+/// parenthesized column becomes that column, see [`parenthesized_column`].
 fn index_elem_to_column(elem: &pg_query::protobuf::IndexElem) -> Option<IndexColumn> {
     if !elem.name.is_empty() {
-        // Simple column reference.
-        Some(IndexColumn::Column(elem.name.clone()))
-    } else {
-        // Expression element — deparse the expression and extract column
-        // references for DROP/RENAME tracking.
-        elem.expr.as_ref().map(|expr_node| IndexColumn::Expression {
+        return Some(IndexColumn::Column(elem.name.clone()));
+    }
+    let expr_node = elem.expr.as_deref()?;
+    Some(match parenthesized_column(expr_node) {
+        Some(column) => IndexColumn::Column(column),
+        // The column references are kept for DROP/RENAME tracking.
+        None => IndexColumn::Expression {
             text: deparse_node(expr_node),
             referenced_columns: extract_column_refs(expr_node),
             generated_name_part: expression_name_part(expr_node),
-        })
+        },
+    })
+}
+
+/// The column an index or partition key expression element consists of, when
+/// it is nothing but an unqualified column, as in `((a))`, `(((a)))` or
+/// `((a COLLATE "C"))`.
+///
+/// The grammar parses any parenthesized element as an expression, but
+/// PostgreSQL's `ComputeIndexAttrs` and `ComputePartitionAttrs` strip any
+/// top-level COLLATE and store an element that is then a column reference as
+/// that plain column, just as if it had been written `a` or `a COLLATE "C"`.
+/// The raw parse tree keeps no node for the parentheses (see
+/// `spike_parenthesized_index_column_shape` in `tests/pg_query_spike.rs`).
+fn parenthesized_column(expr: &pg_query::protobuf::Node) -> Option<String> {
+    match expr.node.as_ref()? {
+        NodeEnum::ColumnRef(column) => match column.fields.as_slice() {
+            [field] => match field.node.as_ref()? {
+                NodeEnum::String(name) => Some(name.sval.clone()),
+                _ => None,
+            },
+            _ => None,
+        },
+        NodeEnum::CollateClause(collate) => parenthesized_column(collate.arg.as_deref()?),
+        _ => None,
     }
 }
 

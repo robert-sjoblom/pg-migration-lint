@@ -544,6 +544,56 @@ fn test_expression_element_stores_its_generated_name_part() {
     );
 }
 
+#[rstest]
+#[case::parenthesized("(a)")]
+#[case::nested_parentheses("(((a)))")]
+#[case::spaced_parentheses("( ( a ) )")]
+#[case::collate_inside_parentheses("(a COLLATE \"C\")")]
+#[case::descending("(a) DESC")]
+fn test_parenthesized_plain_column_is_stored_as_the_column(#[case] element: &str) {
+    let ci = parsed_create_index(&format!("CREATE INDEX ON t ({element});"));
+    assert_eq!(ci.columns, [IndexColumn::Column("a".to_string())]);
+}
+
+#[rstest]
+#[case::operator("(a + 1)")]
+#[case::function_call("(lower(a))")]
+#[case::cast("(a::text)")]
+#[case::subscript("(arr[1])")]
+#[case::field_selection("((p).x)")]
+#[case::collated_function_call("(lower(a) COLLATE \"C\")")]
+fn test_parenthesized_expression_stays_an_expression(#[case] element: &str) {
+    let ci = parsed_create_index(&format!("CREATE INDEX ON t ({element});"));
+    assert!(
+        matches!(ci.columns[..], [IndexColumn::Expression { .. }]),
+        "{element}: got {:?}",
+        ci.columns
+    );
+}
+
+#[test]
+fn test_parenthesized_column_between_plain_columns_keeps_its_position() {
+    let ci = parsed_create_index("CREATE INDEX ON t (a, ((b)), c);");
+    assert_eq!(
+        ci.columns,
+        [
+            IndexColumn::Column("a".to_string()),
+            IndexColumn::Column("b".to_string()),
+            IndexColumn::Column("c".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_parenthesized_include_column_is_not_unwrapped_as_postgres_rejects_expressions_there() {
+    let ci = parsed_create_index("CREATE INDEX ON i_include (a) INCLUDE ((b));");
+    assert!(
+        ci.include_columns.is_empty(),
+        "got {:?}",
+        ci.include_columns
+    );
+}
+
 #[test]
 fn test_create_index_include_columns() {
     let ci = parsed_create_index("CREATE INDEX ON i_include (a) INCLUDE (b, c);");

@@ -2110,6 +2110,23 @@ fn test_partition_by_expression_arithmetic() {
     }
 }
 
+#[rstest]
+#[case::parenthesized("((a))")]
+#[case::collate_inside_parentheses("((a COLLATE \"C\"))")]
+fn test_partition_by_parenthesized_column_is_the_column(#[case] key: &str) {
+    let sql = format!("CREATE TABLE data (a text) PARTITION BY RANGE {key};");
+    match &parse_sql(&sql)[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.columns, ["a"]);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
 #[test]
 fn test_parse_alter_column_set_default_literal() {
     let sql = "ALTER TABLE t ALTER COLUMN col SET DEFAULT 42;";

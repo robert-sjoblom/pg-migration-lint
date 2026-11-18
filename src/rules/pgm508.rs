@@ -362,6 +362,32 @@ mod tests {
     }
 
     #[test]
+    fn parenthesized_column_index_duplicating_a_plain_column_index_fires() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int, customer_id int);
+             CREATE INDEX idx_orders_customer ON orders (customer_id);",
+            "CREATE INDEX idx_orders_customer_paren ON orders (((customer_id)));",
+        );
+        assert_eq!(
+            messages,
+            [
+                "Index 'idx_orders_customer_paren' on 'orders' (customer_id) is an exact \
+                 duplicate of index 'idx_orders_customer'."
+            ]
+        );
+    }
+
+    #[test]
+    fn index_on_a_parenthesized_expression_of_an_indexed_column_is_silent() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (id int, customer_id int);
+             CREATE INDEX idx_orders_customer ON orders (customer_id);",
+            "CREATE INDEX idx_orders_customer_plus ON orders ((customer_id + 0));",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
     fn unnamed_index_duplicating_a_named_index_fires_under_its_generated_name() {
         let messages = messages_for_change(
             "CREATE TABLE orders (id int, customer_id int);

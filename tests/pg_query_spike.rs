@@ -1528,3 +1528,90 @@ fn spike_rename_constraint_stmt_shape() {
     assert_eq!(domain.subname, "c");
     assert_eq!(domain.newname, "d");
 }
+
+/// The raw parse tree keeps no node for parentheses: a parenthesized column
+/// element, however deeply nested, is an `IndexElem` with an empty `name` and
+/// a bare `ColumnRef` in `expr`. COLLATE written inside the parentheses wraps
+/// that `ColumnRef` in a `CollateClause`. INCLUDE and EXCLUDE elements have the
+/// same shape.
+#[test]
+fn spike_parenthesized_index_column_shape() {
+    use pg_query::NodeEnum;
+
+    fn single_column_field(node: &NodeEnum) -> Option<&str> {
+        let NodeEnum::ColumnRef(column) = node else {
+            return None;
+        };
+        match column.fields.as_slice() {
+            [field] => match field.node.as_ref() {
+                Some(NodeEnum::String(s)) => Some(s.sval.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn first_statement(sql: &str) -> NodeEnum {
+        let result = pg_query::parse(sql).expect("parse failed");
+        result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .clone()
+            .unwrap()
+    }
+
+    for element in ["(a)", "(((a)))", "( ( a ) )"] {
+        assert_eq!(
+            single_column_field(&index_element_expression(element)),
+            Some("a"),
+            "{element}"
+        );
+    }
+
+    let NodeEnum::ColumnRef(qualified) = index_element_expression("(t.a)") else {
+        panic!("(t.a) is not a ColumnRef");
+    };
+    assert_eq!(qualified.fields.len(), 2);
+
+    let NodeEnum::CollateClause(collate) = index_element_expression("(a COLLATE \"C\")") else {
+        panic!("(a COLLATE \"C\") is not a CollateClause");
+    };
+    assert_eq!(
+        single_column_field(collate.arg.as_ref().unwrap().node.as_ref().unwrap()),
+        Some("a")
+    );
+
+    let NodeEnum::IndexStmt(idx) = first_statement("CREATE INDEX ON t (a) INCLUDE ((b));") else {
+        panic!("not an IndexStmt");
+    };
+    let Some(NodeEnum::IndexElem(included)) = idx.index_including_params[0].node.as_ref() else {
+        panic!("INCLUDE entry is not an IndexElem");
+    };
+    assert!(included.name.is_empty());
+    assert_eq!(
+        single_column_field(included.expr.as_ref().unwrap().node.as_ref().unwrap()),
+        Some("b")
+    );
+
+    let NodeEnum::CreateStmt(create) =
+        first_statement("CREATE TABLE t (a int, EXCLUDE USING btree ((a) WITH =));")
+    else {
+        panic!("not a CreateStmt");
+    };
+    let Some(NodeEnum::Constraint(con)) = create.table_elts[1].node.as_ref() else {
+        panic!("second table element is not a Constraint");
+    };
+    let Some(NodeEnum::List(pair)) = con.exclusions[0].node.as_ref() else {
+        panic!("exclusion entry is not a List");
+    };
+    let Some(NodeEnum::IndexElem(excluded)) = pair.items[0].node.as_ref() else {
+        panic!("exclusion element is not an IndexElem");
+    };
+    assert!(excluded.name.is_empty());
+    assert_eq!(
+        single_column_field(excluded.expr.as_ref().unwrap().node.as_ref().unwrap()),
+        Some("a")
+    );
+}
