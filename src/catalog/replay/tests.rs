@@ -1968,6 +1968,98 @@ fn test_drop_plain_column_from_mixed_index_removes_index() {
     );
 }
 
+const USERS_WITH_EXPRESSION_INDEX_INPUTS: &str = "CREATE TABLE users (a int, b int, i int, \
+     email text, flag bool, arr int[], p pair, doc text);";
+
+#[rstest]
+#[case::collated_column("(email COLLATE \"C\")", "email")]
+#[case::collated_function_call("(lower(email) COLLATE \"C\")", "email")]
+#[case::subscripted_array("(arr[1])", "arr")]
+#[case::subscript_column("(arr[i])", "i")]
+#[case::array_constructor("(ARRAY[a, b])", "b")]
+#[case::in_list("(a IN (b, 1))", "b")]
+#[case::between_bound("(a BETWEEN 0 AND b)", "b")]
+#[case::is_true("(flag IS TRUE)", "flag")]
+#[case::named_argument("make_interval(days => a)", "a")]
+#[case::row_constructor("(ROW(a, b)::pair)", "b")]
+#[case::is_json("(doc IS JSON)", "doc")]
+#[case::field_selection("((p).x)", "p")]
+fn drop_column_removes_the_expression_index_that_references_it(
+    #[case] element: &str,
+    #[case] dropped: &str,
+) {
+    let catalog = replay_sql(&[
+        USERS_WITH_EXPRESSION_INDEX_INPUTS,
+        &format!("CREATE INDEX idx_users_expr ON users ({element});"),
+        &format!("ALTER TABLE users DROP COLUMN {dropped};"),
+    ]);
+
+    assert!(
+        catalog.table("users").indexes.is_empty(),
+        "{element}: {:?}",
+        catalog.table("users").indexes
+    );
+    catalog.assert_index_unregistered("idx_users_expr");
+}
+
+#[test]
+fn drop_column_keeps_the_expression_index_that_does_not_reference_it() {
+    let catalog = replay_sql(&[
+        USERS_WITH_EXPRESSION_INDEX_INPUTS,
+        "CREATE INDEX idx_users_expr ON users ((arr[i]));",
+        "ALTER TABLE users DROP COLUMN a;",
+    ]);
+
+    catalog.assert_index_owner("idx_users_expr", "users");
+}
+
+#[rstest]
+#[case::collated_function_call("(lower(email) COLLATE \"C\")", "email", "mail", &["mail"])]
+#[case::subscript_column("(arr[i])", "i", "pos", &["arr", "pos"])]
+#[case::array_constructor("(ARRAY[a, b])", "b", "c", &["a", "c"])]
+#[case::between_bound("(a BETWEEN 0 AND b)", "b", "hi", &["a", "hi"])]
+#[case::named_argument("make_interval(days => a)", "a", "d", &["d"])]
+#[case::row_constructor("(ROW(a, b)::pair)", "a", "z", &["z", "b"])]
+fn rename_column_renames_it_among_the_expression_index_columns(
+    #[case] element: &str,
+    #[case] old_name: &str,
+    #[case] new_name: &str,
+    #[case] expected: &[&str],
+) {
+    let catalog = replay_sql(&[
+        USERS_WITH_EXPRESSION_INDEX_INPUTS,
+        &format!("CREATE INDEX idx_users_expr ON users ({element});"),
+        &format!("ALTER TABLE users RENAME COLUMN {old_name} TO {new_name};"),
+    ]);
+
+    match &catalog.table("users").indexes[..] {
+        [index] => match &index.entries[..] {
+            [
+                IndexColumn::Expression {
+                    referenced_columns, ..
+                },
+            ] => assert_eq!(referenced_columns, expected),
+            other => panic!("Expected one Expression entry, got: {other:?}"),
+        },
+        other => panic!("Expected one index, got: {other:?}"),
+    }
+}
+
+#[test]
+fn rename_column_renames_it_in_a_subscripted_partition_key() {
+    let catalog = replay_sql(&[
+        "CREATE TABLE readings (arr int[], ts timestamptz) PARTITION BY RANGE ((arr[1]));",
+        "ALTER TABLE readings RENAME COLUMN arr TO samples;",
+    ]);
+
+    let partition_by = catalog
+        .table("readings")
+        .partition_by
+        .as_ref()
+        .expect("readings is partitioned");
+    assert_eq!(partition_by.columns, ["samples"]);
+}
+
 #[test]
 fn test_create_partitioned_table() {
     let mut catalog = Catalog::new();

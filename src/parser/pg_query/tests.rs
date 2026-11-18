@@ -2112,8 +2112,59 @@ fn test_partition_by_expression_arithmetic() {
                 .as_ref()
                 .expect("partition_by should be set");
             assert_eq!(pb.strategy, PartitionStrategy::Range);
-            // extract_column_refs returns sorted, deduplicated column names
             assert_eq!(pb.columns, vec!["a".to_string(), "b".to_string()]);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
+#[rstest]
+#[case::first_appearance_order("((b + a))", &["b", "a"])]
+#[case::repeated_column("((a + a))", &["a"])]
+#[case::collated_function_call("((lower(t) COLLATE \"C\"))", &["t"])]
+#[case::subscript("((arr[1]))", &["arr"])]
+#[case::array_constructor("((ARRAY[a, b]))", &["a", "b"])]
+#[case::in_list("((a IN (b, 1)))", &["a", "b"])]
+#[case::between("((a BETWEEN 0 AND b))", &["a", "b"])]
+#[case::is_true("((flag IS TRUE))", &["flag"])]
+#[case::named_argument("((make_interval(days => a)))", &["a"])]
+#[case::row_constructor("((ROW(a, b)))", &["a", "b"])]
+#[case::is_json("((t IS JSON))", &["t"])]
+#[case::plain_column_then_expression("(flag, (b + a))", &["flag", "b", "a"])]
+fn test_partition_by_expression_records_its_distinct_columns_in_first_appearance_order(
+    #[case] key: &str,
+    #[case] expected: &[&str],
+) {
+    let sql = format!(
+        "CREATE TABLE data (a int, b int, t text, flag bool, arr int[]) PARTITION BY RANGE {key};"
+    );
+    match &parse_sql(&sql)[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.columns, expected);
+        }
+        other => panic!("Expected CreateTable, got {:?}", other),
+    }
+}
+
+#[rstest]
+#[case::json_value("((JSON_VALUE(doc, '$.region')))", "JSON_VALUE(doc , '$.region')")]
+#[case::is_document("((x IS DOCUMENT))", "x IS DOCUMENT")]
+fn test_partition_by_expression_with_no_searched_column_keeps_its_text(
+    #[case] key: &str,
+    #[case] expected: &str,
+) {
+    let sql = format!("CREATE TABLE data (doc jsonb, x xml) PARTITION BY LIST {key};");
+    match &parse_sql(&sql)[0].node {
+        IrNode::CreateTable(ct) => {
+            let pb = ct
+                .partition_by
+                .as_ref()
+                .expect("partition_by should be set");
+            assert_eq!(pb.columns, [expected]);
         }
         other => panic!("Expected CreateTable, got {:?}", other),
     }

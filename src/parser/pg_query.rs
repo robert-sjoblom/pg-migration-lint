@@ -266,24 +266,21 @@ fn convert_create_table(
                     {
                         vec![column]
                     } else {
-                        // Expression partition key — extract referenced column names
-                        // from the AST so that CHECK-constraint matching in PGM005
-                        // and RENAME COLUMN tracking work correctly.
-                        let refs = elem
-                            .expr
-                            .as_ref()
-                            .map(|expr_node| extract_column_refs(expr_node))
-                            .unwrap_or_default();
-                        if refs.is_empty() {
-                            // Fallback: deparse the expression text so it appears as
-                            // an unmatchable entry (preserves current firing behavior).
-                            elem.expr
-                                .as_ref()
-                                .map(|expr_node| vec![deparse_node(expr_node)])
-                                .unwrap_or_default()
-                        } else {
-                            refs
-                        }
+                        // An expression key contributes the columns it references,
+                        // for PGM005's CHECK matching and RENAME COLUMN tracking.
+                        // One whose columns the walker cannot find contributes its
+                        // text instead, which no CHECK matches, so PGM005 still fires.
+                        elem.expr
+                            .as_deref()
+                            .map(|expr_node| {
+                                let referenced = distinct_column_refs_in_order(expr_node);
+                                if referenced.is_empty() {
+                                    vec![deparse_node(expr_node)]
+                                } else {
+                                    referenced
+                                }
+                            })
+                            .unwrap_or_default()
                     }
                 }
                 _ => vec![],
@@ -936,7 +933,7 @@ fn index_elem_to_column(elem: &pg_query::protobuf::IndexElem) -> Option<IndexCol
         // The column references are kept for DROP/RENAME tracking.
         None => IndexColumn::Expression {
             text: deparse_node(expr_node),
-            referenced_columns: extract_column_refs(expr_node),
+            referenced_columns: distinct_column_refs_in_order(expr_node),
             generated_name_part: expression_name_part(expr_node),
         },
     })
@@ -1424,107 +1421,36 @@ fn extract_string_list(nodes: &[pg_query::protobuf::Node]) -> Vec<String> {
         .collect()
 }
 
-/// Extract column references from a pg_query expression node.
-///
-/// Recursively walks the AST collecting `ColumnRef` field names. For `ColumnRef`
-/// nodes, the last `String` field is taken as the column name (earlier fields
-/// are schema/table qualifiers). Constant nodes are skipped.
-///
-/// Covers: `ColumnRef`, `FuncCall`, `TypeCast`, `A_Expr`, `BoolExpr`,
-/// `CaseExpr`, `CaseWhen`, `CoalesceExpr`, `NullTest`, `MinMaxExpr`.
-fn extract_column_refs(node: &pg_query::protobuf::Node) -> Vec<String> {
-    let mut refs = Vec::new();
-    walk_node_for_column_refs(node, &mut refs);
-    refs.sort();
-    refs.dedup();
-    refs
-}
-
-/// Recursive helper for [`extract_column_refs`].
-fn walk_node_for_column_refs(node: &pg_query::protobuf::Node, refs: &mut Vec<String>) {
-    let Some(inner) = &node.node else {
-        return;
-    };
-
-    match inner {
-        NodeEnum::ColumnRef(cr) => {
-            // Take the last String field as the column name.
-            // Earlier fields are schema/table qualifiers.
-            if let Some(last) = cr.fields.last()
-                && let Some(NodeEnum::String(s)) = &last.node
-            {
-                refs.push(s.sval.clone());
-            }
-        }
-        NodeEnum::FuncCall(fc) => {
-            for arg in &fc.args {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        NodeEnum::TypeCast(tc) => {
-            if let Some(arg) = &tc.arg {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        NodeEnum::AExpr(expr) => {
-            if let Some(lexpr) = &expr.lexpr {
-                walk_node_for_column_refs(lexpr, refs);
-            }
-            if let Some(rexpr) = &expr.rexpr {
-                walk_node_for_column_refs(rexpr, refs);
-            }
-        }
-        NodeEnum::BoolExpr(be) => {
-            for arg in &be.args {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        NodeEnum::CaseExpr(ce) => {
-            if let Some(arg) = &ce.arg {
-                walk_node_for_column_refs(arg, refs);
-            }
-            for when in &ce.args {
-                walk_node_for_column_refs(when, refs);
-            }
-            if let Some(def) = &ce.defresult {
-                walk_node_for_column_refs(def, refs);
-            }
-        }
-        NodeEnum::CaseWhen(cw) => {
-            if let Some(expr) = &cw.expr {
-                walk_node_for_column_refs(expr, refs);
-            }
-            if let Some(result) = &cw.result {
-                walk_node_for_column_refs(result, refs);
-            }
-        }
-        NodeEnum::CoalesceExpr(ce) => {
-            for arg in &ce.args {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        NodeEnum::NullTest(nt) => {
-            if let Some(arg) = &nt.arg {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        NodeEnum::MinMaxExpr(mm) => {
-            for arg in &mm.args {
-                walk_node_for_column_refs(arg, refs);
-            }
-        }
-        // Constants and other nodes — no column references.
-        _ => {}
-    }
-}
-
 /// Distinct column names an expression references, in order of first
 /// appearance, from every `ColumnRef` anywhere in it.
 ///
-/// Used for CHECK constraints, whose generated name depends on how many
-/// distinct columns they reference. Unlike [`extract_column_refs`], this also
-/// descends into IN lists, BETWEEN bounds, subscripts, COLLATE, named
-/// arguments, ROW and ARRAY constructors, and `IS TRUE` and `IS JSON` tests.
+/// The one walker for every expression whose columns the catalog tracks:
+/// CHECK constraints, whose generated name depends on how many distinct
+/// columns they reference, and index, EXCLUDE and partition key expression
+/// elements, which DROP COLUMN and RENAME COLUMN replay and PGM005 match on.
+/// It descends into operators, boolean logic, function arguments (named ones
+/// too), casts, COLLATE, NULL, boolean and `IS JSON` tests, CASE, COALESCE,
+/// GREATEST and LEAST, ROW and ARRAY constructors, IN lists, BETWEEN bounds,
+/// subscripts and field selections. PostgreSQL drops an index whose expression
+/// references a dropped column through any of these
+/// (`verify/tests/other/drop_column_expression_index.sql`).
+///
+/// Limits:
+/// - A reference contributes its last name, so `t.a` and `s.t.a` give `a`.
+///   PostgreSQL indexes `((t.a))` as the plain column `a`, but
+///   [`parenthesized_column`] unwraps only an unqualified name, so the IR
+///   keeps it as an expression element that references `a`.
+/// - A one-name reference that names the table rather than a column, such as
+///   the whole-row reference `t` in an index on `t`, gives a column of that
+///   name. PostgreSQL keeps such an index on DROP COLUMN, as replay does while
+///   the table has no column of that name. `t.*` gives nothing.
+/// - Subqueries, aggregate `FILTER` and `ORDER BY`, and window clauses are not
+///   searched; PostgreSQL rejects them in index expressions, partition keys
+///   and CHECK constraints.
+/// - XML and SQL/JSON special forms (`XMLELEMENT`, `XMLSERIALIZE`,
+///   `IS DOCUMENT`, `JSON_VALUE`, `JSON_OBJECT`, ...) are not searched, so a
+///   column referenced only inside one is missed. A partition key element
+///   left with no column keeps its deparsed text instead.
 fn distinct_column_refs_in_order(node: &pg_query::protobuf::Node) -> Vec<String> {
     let mut refs = Vec::new();
     collect_distinct_column_refs(node, &mut refs);

@@ -159,6 +159,24 @@ fn test_exclude_parenthesized_column_element_is_stored_as_the_column() {
 }
 
 #[test]
+fn test_exclude_collated_expression_element_records_the_column_under_the_collation() {
+    let constraints = parsed_constraints(
+        "CREATE TABLE ex_collate (e text, EXCLUDE USING btree ((lower(e) COLLATE \"C\") WITH =));",
+    );
+    match &constraints[..] {
+        [TableConstraint::Exclude { elements, .. }] => match &elements[..] {
+            [
+                IndexColumn::Expression {
+                    referenced_columns, ..
+                },
+            ] => assert_eq!(referenced_columns, &["e"]),
+            other => panic!("Expected one Expression element, got: {other:?}"),
+        },
+        other => panic!("Expected one Exclude, got: {other:?}"),
+    }
+}
+
+#[test]
 fn test_exclude_expression_element_stores_its_generated_name_part() {
     let constraints = parsed_constraints(
         "CREATE TABLE ex_function (e text, EXCLUDE USING btree (lower(e) WITH =));",

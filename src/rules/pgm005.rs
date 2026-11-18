@@ -92,7 +92,8 @@ mod tests {
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located};
+    use rstest::rstest;
 
     /// Helper to build an ALTER TABLE ... ATTACH PARTITION statement.
     fn attach_stmt(parent: &str, child: &str) -> Located<IrNode> {
@@ -483,5 +484,22 @@ mod tests {
             1,
             "CHECK on unrelated column should not suppress for expression-based partition keys"
         );
+    }
+
+    #[rstest]
+    #[case::collated_function_call("((lower(region) COLLATE \"C\"))")]
+    #[case::subscript("((regions[1]))")]
+    fn test_partition_key_expression_matches_a_check_on_its_column(#[case] key: &str) {
+        let before = catalog_from_sql(&format!(
+            "CREATE TABLE events (region text, regions text[]) PARTITION BY LIST {key};
+             CREATE TABLE events_eu (region text, regions text[],
+                 CONSTRAINT chk_region CHECK (lower(region) = 'eu' AND regions[1] = 'eu'));"
+        ));
+        let after = before.clone();
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let findings = rule_id().check(&[attach_stmt("events", "events_eu")], &ctx);
+
+        assert!(findings.is_empty(), "{key}: {findings:?}");
     }
 }
