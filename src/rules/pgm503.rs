@@ -63,8 +63,31 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
     use crate::rules::test_helpers::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::table_level_not_null(
+        "CREATE TABLE users (email text, UNIQUE (email), NOT NULL email);",
+        &["Table 'users' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally equivalent \
+           but PRIMARY KEY is conventional and more explicit."]
+    )]
+    #[case::nullable("CREATE TABLE users (email text, UNIQUE (email));", &[])]
+    fn table_level_not_null_counts_as_not_null(#[case] sql: &str, #[case] expected: &[&str]) {
+        let before = Catalog::new();
+        let stmts = normalized(parse_sql(sql));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/001.sql", created: ["users"]);
+
+        let messages: Vec<String> = RuleId::Pgm503
+            .check(&stmts, &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(messages, expected);
+    }
 
     #[test]
     fn test_unique_not_null_no_pk_fires() {

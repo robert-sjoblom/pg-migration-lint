@@ -83,7 +83,7 @@ fn check_suffixes_follow_textual_order() {
         [
             ("seq_check_order_check", "a < b"),
             ("seq_check_order_check1", "true"),
-            ("seq_check_order_check2", "b > (a + 1)"),
+            ("seq_check_order_check2", "b > a + 1"),
         ]
     );
 }

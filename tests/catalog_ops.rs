@@ -143,3 +143,32 @@ fn create_index_onto_another_tables_index_name_is_rejected_and_builds_nothing() 
         ]
     );
 }
+
+#[test]
+fn not_null_table_constraint_makes_its_column_not_null_unless_not_valid() {
+    let findings = common::lint_fixture_rules(
+        "catalog-ops",
+        &["V007__not_null_table_constraint.sql"],
+        &["PGM013", "PGM502", "PGM503"],
+    );
+    let reported: Vec<(&str, &str)> = findings
+        .iter()
+        .map(|f| (f.rule_id.as_str(), f.message.as_str()))
+        .collect();
+    assert_eq!(
+        reported,
+        [
+            (
+                "PGM013",
+                "SET NOT NULL on column 'status' of existing table 'orders' requires an \
+                 ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint with \
+                 NOT VALID, validate it, then set NOT NULL."
+            ),
+            (
+                "PGM503",
+                "Table 'ledger' uses UNIQUE NOT NULL instead of PRIMARY KEY. Functionally \
+                 equivalent but PRIMARY KEY is conventional and more explicit."
+            ),
+        ]
+    );
+}

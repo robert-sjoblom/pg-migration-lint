@@ -150,6 +150,15 @@ IR node types (non-exhaustive):
 
 **Constraint normalization**: Postgres supports both inline (`CREATE TABLE foo (baz int PRIMARY KEY)`) and table-level (`CREATE TABLE foo (baz int, PRIMARY KEY (baz))`) syntax for PK, FK, UNIQUE and CHECK constraints. These land in different places in the `pg_query` AST (`ColumnDef.constraints` vs `CreateStmt.tableElts`). The parser promotes every inline constraint to a `TableConstraint`: into `CreateTable.constraints`, in written order among the table-level ones, or, for `ALTER TABLE ... ADD COLUMN`, into `AddConstraint` actions with origin `AddColumn` right after the column's `AddColumn`. An inline PK is therefore in both places: `ColumnDef.is_inline_pk` flags it, and it is also a `TableConstraint::PrimaryKey`. Replay and the rules read only the `TableConstraint`, so both syntaxes produce identical `TableState`, and rules never deal with the syntactic variant.
 
+**Not-null table constraints**: The parser uses the PostgreSQL 18 grammar (libpg_query 18, through the `pg_query` crate). PostgreSQL 18 also accepts a not-null constraint as a table constraint, `[CONSTRAINT name] NOT NULL col [NOT VALID] [NO INHERIT]`, in `CREATE TABLE` and in `ALTER TABLE ... ADD`. The IR has no not-null constraint, so the parser maps it onto the column forms:
+- In `CREATE TABLE` it sets `nullable = false` on the column of that name in the statement's column list, also with `NOT VALID`: a new table has no rows that could hold a NULL. A column the statement does not list (one from `PARTITION OF`, `INHERITS` or `LIKE`) is not changed.
+- In `ALTER TABLE ... ADD` it is `SetNotNull`, which PGM013 and replay handle like `ALTER COLUMN ... SET NOT NULL`: PGM013 reports it unless a valid CHECK proves the column holds no NULLs.
+- In `ALTER TABLE ... ADD` with `NOT VALID` it is `Other`: existing rows may still hold NULLs, so the column stays nullable, and PGM013 does not fire.
+
+The constraint's name is not kept, as for a column's `CONSTRAINT name NOT NULL` (#287), so a later `VALIDATE CONSTRAINT` or `DROP CONSTRAINT` of it changes nothing in the catalog (#280).
+
+**Other PostgreSQL 18 syntax**: a virtual generated column (`GENERATED ALWAYS AS (expr)`, with or without `VIRTUAL`) is a plain column, as a stored one is. A PRIMARY KEY or UNIQUE with `WITHOUT OVERLAPS` keeps all its columns, and its index is recorded as btree, though PostgreSQL builds a GiST index. A FOREIGN KEY with `PERIOD` keeps all its columns. `NOT ENFORCED` on a CHECK or FOREIGN KEY reads as `NOT VALID`, written as a table constraint or on a column (where it qualifies the last constraint before it, skipping attributes such as `DEFERRABLE`), so PGM014 and PGM015 do not fire on it. `ALTER CONSTRAINT ... [NOT] ENFORCED` and `ALTER CONSTRAINT ... [NO] INHERIT` are `Other`.
+
 **`serial`/`bigserial` expansion**: Postgres's parser expands `serial` into `integer` + `CREATE SEQUENCE` + `DEFAULT nextval(...)`. The IR sees the expanded form. This means PGM006 may fire on `nextval()` as an unknown function call (INFO level). This is technically correct but noisy for a well-known idiom. The v1 approach: add `nextval` to the known volatile function list with a tailored message: `Column '{col}' uses a sequence default (serial/bigserial). This is standard — suppress this finding if intentional.`
 
 `ColumnDef` carries: `name`, `type_name`, `nullable`, `default_expr`, `is_inline_pk`, `is_serial`.
@@ -399,7 +408,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM013 — `SET NOT NULL` on existing table requires `ACCESS EXCLUSIVE` lock
 
 - **Severity**: CRITICAL
-- **Triggers**: `ALTER TABLE ... ALTER COLUMN col SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files), unless, just before the statement, the table has a valid CHECK constraint that is exactly `col IS NOT NULL` and the statement does not drop it.
+- **Triggers**: `ALTER TABLE ... ALTER COLUMN col SET NOT NULL`, or PostgreSQL 18's `ALTER TABLE ... ADD [CONSTRAINT name] NOT NULL col` without `NOT VALID` (§3.2), on a table that exists in `catalog_before` (not created in the same set of changed files), unless, just before the statement, the table has a valid CHECK constraint that is exactly `col IS NOT NULL` and the statement does not drop it.
 - **Safe alternative**:
   ```sql
   -- Migration 1: add check constraint (no scan, ACCESS EXCLUSIVE until commit)
@@ -415,6 +424,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
+  - The PostgreSQL 18 form adds the not-null constraint `NOT VALID`
   - The table has a valid CHECK constraint whose expression is exactly `col IS NOT NULL` in the catalog just before the statement: `catalog_before` with the unit's earlier statements replayed on top. The CHECK can come from an earlier migration, or be added and validated, or added without `NOT VALID`, earlier in the same unit. A `NOT VALID` CHECK, a CHECK on another column or table, and one dropped before the statement or by the statement itself do not count. Neither does a CHECK validated or added by the statement itself. The rule does not recognize a CHECK that combines the test with other conditions, even though PostgreSQL may use it to skip the scan.
 - **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' requires an ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint with NOT VALID, validate it, then set NOT NULL.`
 

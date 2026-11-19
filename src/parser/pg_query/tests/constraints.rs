@@ -193,3 +193,121 @@ fn test_exclude_expression_element_stores_its_generated_name_part() {
         other => panic!("Expected one Exclude, got: {other:?}"),
     }
 }
+
+fn parsed_create_table(sql: &str) -> crate::parser::CreateTable<QualifiedName> {
+    match parse_sql(sql)
+        .into_iter()
+        .map(|located| located.node)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [IrNode::CreateTable(ct)] => ct.clone(),
+        other => panic!("Expected one CreateTable for `{sql}`, got: {other:?}"),
+    }
+}
+
+fn nullability_by_column(ct: &crate::parser::CreateTable<QualifiedName>) -> Vec<(&str, bool)> {
+    ct.columns
+        .iter()
+        .map(|column| (column.name.as_str(), column.nullable))
+        .collect()
+}
+
+#[rstest]
+#[case::after_the_column("CREATE TABLE nn_after (a int, b int, NOT NULL a);")]
+#[case::before_the_column("CREATE TABLE nn_before (NOT NULL a, a int, b int);")]
+#[case::named("CREATE TABLE nn_named (a int, b int, CONSTRAINT nn_named_a_nn NOT NULL a);")]
+#[case::not_valid("CREATE TABLE nn_not_valid (a int, b int, NOT NULL a NOT VALID);")]
+#[case::no_inherit("CREATE TABLE nn_no_inherit (a int, b int, NOT NULL a NO INHERIT);")]
+fn test_table_level_not_null_makes_its_column_not_null(#[case] sql: &str) {
+    let ct = parsed_create_table(sql);
+    assert_eq!(nullability_by_column(&ct), [("a", false), ("b", true)]);
+    assert!(ct.constraints.is_empty(), "{:?}", ct.constraints);
+}
+
+#[test]
+fn test_table_level_not_null_on_a_column_the_statement_does_not_list_changes_no_column() {
+    let ct = parsed_create_table(
+        "CREATE TABLE nn_partition PARTITION OF nn_parent (NOT NULL a) FOR VALUES IN (1);",
+    );
+    assert!(ct.columns.is_empty(), "{:?}", ct.columns);
+    assert!(ct.constraints.is_empty(), "{:?}", ct.constraints);
+}
+
+fn parsed_alter_actions(sql: &str) -> Vec<AlterTableAction<QualifiedName>> {
+    match parse_sql(sql)
+        .into_iter()
+        .map(|located| located.node)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [IrNode::AlterTable(at)] => at.actions.clone(),
+        other => panic!("Expected one AlterTable for `{sql}`, got: {other:?}"),
+    }
+}
+
+fn set_not_null(column_name: &str) -> AlterTableAction<QualifiedName> {
+    AlterTableAction::SetNotNull {
+        column_name: column_name.to_string(),
+    }
+}
+
+#[rstest]
+#[case::unnamed("ALTER TABLE nn_alter ADD NOT NULL a;", &["a"])]
+#[case::named("ALTER TABLE nn_alter ADD CONSTRAINT nn_alter_a_nn NOT NULL a;", &["a"])]
+#[case::no_inherit("ALTER TABLE nn_alter ADD NOT NULL a NO INHERIT;", &["a"])]
+#[case::two_columns("ALTER TABLE nn_alter ADD NOT NULL a, ADD NOT NULL b;", &["a", "b"])]
+fn test_alter_table_add_not_null_is_set_not_null(#[case] sql: &str, #[case] columns: &[&str]) {
+    let expected: Vec<_> = columns.iter().map(|column| set_not_null(column)).collect();
+    assert_eq!(parsed_alter_actions(sql), expected);
+}
+
+#[test]
+fn test_alter_table_add_not_null_not_valid_changes_no_column() {
+    assert_eq!(
+        parsed_alter_actions(
+            "ALTER TABLE nn_alter ADD CONSTRAINT nn_alter_a_nn NOT NULL a NOT VALID;"
+        ),
+        [AlterTableAction::Other {
+            description: "ADD NOT NULL a NOT VALID".to_string(),
+        }]
+    );
+}
+
+fn not_valid_flags(sql: &str) -> Vec<bool> {
+    parsed_constraints(sql)
+        .into_iter()
+        .map(|constraint| match constraint {
+            TableConstraint::Check { not_valid, .. }
+            | TableConstraint::ForeignKey { not_valid, .. } => not_valid,
+            other => panic!("Expected CHECK or FOREIGN KEY for `{sql}`, got: {other:?}"),
+        })
+        .collect()
+}
+
+#[rstest]
+#[case::column_check("CREATE TABLE ne_check (a int CHECK (a > 0) NOT ENFORCED);", &[true])]
+#[case::column_foreign_key(
+    "ALTER TABLE ne_fk ADD COLUMN c bigint REFERENCES ne_parent NOT ENFORCED;",
+    &[true]
+)]
+#[case::attribute_in_between(
+    "ALTER TABLE ne_fk ADD COLUMN c bigint REFERENCES ne_parent DEFERRABLE NOT ENFORCED;",
+    &[true]
+)]
+#[case::only_the_constraint_before_it(
+    "CREATE TABLE ne_two (a int CHECK (a > 0) NOT ENFORCED CHECK (a < 10));",
+    &[true, false]
+)]
+#[case::column_enforced(
+    "ALTER TABLE ne_fk ADD COLUMN c bigint REFERENCES ne_parent ENFORCED;",
+    &[false]
+)]
+#[case::table_check("ALTER TABLE ne_table ADD CHECK (a > 0) NOT ENFORCED;", &[true])]
+#[case::table_foreign_key(
+    "ALTER TABLE ne_table ADD FOREIGN KEY (a) REFERENCES ne_parent NOT ENFORCED;",
+    &[true]
+)]
+fn test_not_enforced_reads_as_not_valid(#[case] sql: &str, #[case] expected: &[bool]) {
+    assert_eq!(not_valid_flags(sql), expected);
+}

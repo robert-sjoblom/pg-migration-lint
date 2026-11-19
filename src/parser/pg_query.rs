@@ -30,7 +30,7 @@ mod tests;
 ///
 /// Line numbers in the returned `SourceSpan`s are 1-based.
 pub fn parse_sql(source: &str) -> Vec<Located<IrNode<QualifiedName>>> {
-    let result = match pg_query::parse(source) {
+    let result = match pg_query::parse(source, pg_query::ParserOptions::DEFAULT) {
         Ok(r) => r,
         Err(_) => {
             // Entire source failed to parse; return a single Unparseable node
@@ -226,6 +226,7 @@ fn convert_create_table(
 
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
+    let mut not_null_columns = Vec::new();
 
     for elt in &create.table_elts {
         let node = match elt.node.as_ref() {
@@ -240,11 +241,21 @@ fn convert_create_table(
                 constraints.extend(inline_constraints);
             }
             NodeEnum::Constraint(con) => {
-                if let Some(tc) = convert_table_constraint(con, None) {
+                if let Some(column) = not_null_table_constraint_column(con) {
+                    not_null_columns.push(column);
+                } else if let Some(tc) = convert_table_constraint(con, None) {
                     constraints.push(tc);
                 }
             }
             _ => {}
+        }
+    }
+
+    // NOT VALID changes nothing here: a new table has no rows that could
+    // violate the constraint, and every row inserted later is checked.
+    for column in &mut columns {
+        if not_null_columns.contains(&column.name) {
+            column.nullable = false;
         }
     }
 
@@ -353,11 +364,32 @@ fn convert_column_def(
     }
 
     // Walk column constraints
+    // An attribute such as NOT ENFORCED or DEFERRABLE qualifies the last
+    // constraint before it that is not an attribute itself, as in
+    // PostgreSQL's `transformConstraintAttrs`.
+    let mut attributes_qualify: Option<usize> = None;
+
     for con_node in &col.constraints {
         let Some(NodeEnum::Constraint(con)) = con_node.node.as_ref() else {
             continue;
         };
 
+        match con.contype() {
+            pg_query::protobuf::ConstrType::ConstrAttrNotEnforced => {
+                if let Some(constraint) = attributes_qualify.and_then(|i| constraints.get_mut(i)) {
+                    mark_not_enforced(constraint);
+                }
+                continue;
+            }
+            pg_query::protobuf::ConstrType::ConstrAttrEnforced
+            | pg_query::protobuf::ConstrType::ConstrAttrDeferrable
+            | pg_query::protobuf::ConstrType::ConstrAttrNotDeferrable
+            | pg_query::protobuf::ConstrType::ConstrAttrDeferred
+            | pg_query::protobuf::ConstrType::ConstrAttrImmediate => continue,
+            _ => {}
+        }
+
+        let constraints_before = constraints.len();
         match con.contype() {
             pg_query::protobuf::ConstrType::ConstrNotnull => {
                 nullable = false;
@@ -401,6 +433,8 @@ fn convert_column_def(
             }
             _ => {}
         }
+        attributes_qualify =
+            (constraints.len() > constraints_before).then(|| constraints.len() - 1);
     }
 
     let col_def = ColumnDef {
@@ -413,6 +447,24 @@ fn convert_column_def(
     };
 
     (col_def, constraints)
+}
+
+/// Apply a column constraint's `NOT ENFORCED` to the CHECK or FOREIGN KEY it
+/// qualifies. PostgreSQL never validates a constraint that is not enforced
+/// and marks it NOT VALID, which the table constraint form shows in the raw
+/// tree (`skip_validation`) and the column form does not (see
+/// `spike_pg18_constraint_syntax_shapes` in `tests/pg_query_spike.rs`).
+/// PostgreSQL rejects `NOT ENFORCED` after any other kind of constraint.
+fn mark_not_enforced(constraint: &mut TableConstraint<QualifiedName>) {
+    match constraint {
+        TableConstraint::Check { not_valid, .. }
+        | TableConstraint::ForeignKey { not_valid, .. } => {
+            *not_valid = true;
+        }
+        TableConstraint::PrimaryKey { .. }
+        | TableConstraint::Unique { .. }
+        | TableConstraint::Exclude { .. } => {}
+    }
 }
 
 /// Extract a canonical `TypeName` from a pg_query `TypeName` node.
@@ -600,11 +652,17 @@ fn convert_alter_table_cmd(
         }],
         pg_query::protobuf::AlterTableType::AtAddConstraint => {
             match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
-                Some(NodeEnum::Constraint(con)) => match convert_table_constraint(con, None) {
-                    Some(tc) => vec![AlterTableAction::add_constraint(tc)],
-                    None => vec![AlterTableAction::Other {
-                        description: "ADD CONSTRAINT (unknown type)".to_string(),
+                Some(NodeEnum::Constraint(con)) => match not_null_table_constraint_column(con) {
+                    Some(column_name) if con.skip_validation => vec![AlterTableAction::Other {
+                        description: format!("ADD NOT NULL {column_name} NOT VALID"),
                     }],
+                    Some(column_name) => vec![AlterTableAction::SetNotNull { column_name }],
+                    None => match convert_table_constraint(con, None) {
+                        Some(tc) => vec![AlterTableAction::add_constraint(tc)],
+                        None => vec![AlterTableAction::Other {
+                            description: "ADD CONSTRAINT (unknown type)".to_string(),
+                        }],
+                    },
                 },
                 _ => vec![AlterTableAction::Other {
                     description: "ADD CONSTRAINT (unparseable)".to_string(),
@@ -899,6 +957,27 @@ fn convert_table_constraint(
             elements: extract_exclusion_elements(&con.exclusions),
             include_columns: extract_string_list(&con.including),
         }),
+        _ => None,
+    }
+}
+
+/// The column of a not-null constraint written as a table constraint,
+/// `[CONSTRAINT name] NOT NULL column [NOT VALID] [NO INHERIT]`, which
+/// PostgreSQL 18 accepts in `CREATE TABLE` and in `ALTER TABLE ... ADD`.
+/// The grammar puts the one column in `keys` (see
+/// `spike_pg18_not_null_table_constraint_shape` in `tests/pg_query_spike.rs`).
+///
+/// The IR has no not-null constraint: in `CREATE TABLE` it makes the column
+/// `NOT NULL`, and in `ALTER TABLE` it is a `SetNotNull`, or with `NOT VALID`
+/// an `Other` that leaves the column nullable, as existing rows may still
+/// hold NULLs. The constraint's name is dropped, as it is for a column's
+/// `CONSTRAINT name NOT NULL` (#287).
+fn not_null_table_constraint_column(con: &pg_query::protobuf::Constraint) -> Option<String> {
+    if con.contype() != pg_query::protobuf::ConstrType::ConstrNotnull {
+        return None;
+    }
+    match extract_string_list(&con.keys).as_slice() {
+        [column] => Some(column.clone()),
         _ => None,
     }
 }
@@ -1532,7 +1611,7 @@ fn sub_expressions(node: &NodeEnum) -> Vec<&pg_query::protobuf::Node> {
 /// then splice our target node into its AST before deparsing.
 fn deparse_node(node: &pg_query::protobuf::Node) -> String {
     // Parse a trivial SELECT to get a ParseResult with the correct version
-    let mut parse_result = match pg_query::parse("SELECT NULL") {
+    let mut parse_result = match pg_query::parse("SELECT NULL", pg_query::ParserOptions::DEFAULT) {
         Ok(pr) => pr,
         Err(_) => return format!("{:?}", node.node),
     };
@@ -1547,7 +1626,7 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
         res.val = Some(Box::new(node.clone()));
     }
 
-    match pg_query::deparse(&parse_result.protobuf) {
+    match pg_query::deparse(&parse_result.protobuf, pg_query::DeparseOptions::default()) {
         Ok(sql) => {
             // Strip the "SELECT " prefix
             sql.strip_prefix("SELECT ").unwrap_or(&sql).to_string()

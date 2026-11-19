@@ -53,8 +53,44 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{lint_ctx, located, normalized, replayed};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::column_enforced(
+        "ALTER TABLE orders ADD COLUMN customer_id bigint REFERENCES customers;",
+        1
+    )]
+    #[case::column_not_enforced(
+        "ALTER TABLE orders ADD COLUMN customer_id bigint REFERENCES customers NOT ENFORCED;",
+        0
+    )]
+    #[case::column_not_enforced_after_another_attribute(
+        "ALTER TABLE orders ADD COLUMN customer_id bigint \
+         REFERENCES customers DEFERRABLE NOT ENFORCED;",
+        0
+    )]
+    #[case::table_not_enforced(
+        "ALTER TABLE orders ADD FOREIGN KEY (id) REFERENCES customers NOT ENFORCED;",
+        0
+    )]
+    fn not_enforced_foreign_key_is_not_reported(#[case] sql: &str, #[case] expected: usize) {
+        let before = CatalogBuilder::new()
+            .table("customers", |t| {
+                t.column("id", "bigint", false).pk(&["id"]);
+            })
+            .table("orders", |t| {
+                t.column("id", "bigint", false).pk(&["id"]);
+            })
+            .build();
+        let stmts = normalized(parse_sql(sql));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        assert_eq!(RuleId::Pgm014.check(&stmts, &ctx).len(), expected);
+    }
 
     /// Helper to build an ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY statement.
     fn add_fk_stmt(table: &str, not_valid: bool) -> Located<IrNode> {

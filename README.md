@@ -119,6 +119,8 @@ Five details matter here:
 
 pg-migration-lint targets currently supported PostgreSQL versions (14+). Rule advice (e.g. recommending `REINDEX CONCURRENTLY` or `DETACH PARTITION CONCURRENTLY`) assumes a modern PostgreSQL release. Running against migrations intended for older, unsupported versions may produce false positives.
 
+Migrations are parsed with the PostgreSQL 18 grammar, so PostgreSQL 18 syntax such as a table-level `NOT NULL column` constraint is understood. A migration file or Liquibase changeset that uses syntax added after PostgreSQL 18 cannot be parsed: its statements are neither linted nor replayed into the catalog.
+
 ## Rules
 
 pg-migration-lint ships with 56 rules across seven categories:
