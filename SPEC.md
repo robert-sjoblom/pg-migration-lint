@@ -399,22 +399,24 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM013 — `SET NOT NULL` on existing table requires `ACCESS EXCLUSIVE` lock
 
 - **Severity**: CRITICAL
-- **Triggers**: `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files).
+- **Triggers**: `ALTER TABLE ... ALTER COLUMN col SET NOT NULL` on a table that exists in `catalog_before` (not created in the same set of changed files), unless, just before the statement, the table has a valid CHECK constraint that is exactly `col IS NOT NULL` and the statement does not drop it.
 - **Safe alternative**:
   ```sql
-  -- Migration 1: add check constraint (instant, lightweight lock)
+  -- Migration 1: add check constraint (no scan, ACCESS EXCLUSIVE until commit)
   ALTER TABLE orders ADD CONSTRAINT orders_status_nn
     CHECK (status IS NOT NULL) NOT VALID;
-  -- Migration 2: validate (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  -- Migration 2: validate (SHARE UPDATE EXCLUSIVE, allows reads and writes),
+  -- then SET NOT NULL, whose scan PostgreSQL 12+ skips due to the validated CHECK
   ALTER TABLE orders VALIDATE CONSTRAINT orders_status_nn;
-  -- Migration 3: scan is skipped due to validated CHECK
   ALTER TABLE orders ALTER COLUMN status SET NOT NULL;
   ALTER TABLE orders DROP CONSTRAINT orders_status_nn;
   ```
+  Migration 1 must commit before the validation runs. A transaction holds the ACCESS EXCLUSIVE lock `ADD CONSTRAINT ... CHECK` takes until it ends, with or without `NOT VALID`, so in the same transaction as `VALIDATE CONSTRAINT` the validation scan runs with reads and writes blocked. PGM013 does not report that. The `DROP CONSTRAINT` stays a statement of its own: PostgreSQL runs every `DROP CONSTRAINT` of an `ALTER TABLE` before its `SET NOT NULL`, whatever the written order, so in the same statement it brings the scan back.
 - **Does not fire when**:
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
-- **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' acquires ACCESS EXCLUSIVE lock and scans the table. Add a CHECK (col IS NOT NULL) NOT VALID constraint first, validate it separately, then SET NOT NULL.`
+  - The table has a valid CHECK constraint whose expression is exactly `col IS NOT NULL` in the catalog just before the statement: `catalog_before` with the unit's earlier statements replayed on top. The CHECK can come from an earlier migration, or be added and validated, or added without `NOT VALID`, earlier in the same unit. A `NOT VALID` CHECK, a CHECK on another column or table, and one dropped before the statement or by the statement itself do not count. Neither does a CHECK validated or added by the statement itself. The rule does not recognize a CHECK that combines the test with other conditions, even though PostgreSQL may use it to skip the scan.
+- **Message**: `SET NOT NULL on column '{col}' of existing table '{table}' requires an ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint with NOT VALID, validate it, then set NOT NULL.`
 
 #### PGM014 — `ADD FOREIGN KEY` on existing table without `NOT VALID`
 

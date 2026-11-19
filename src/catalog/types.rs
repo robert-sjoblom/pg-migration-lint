@@ -484,6 +484,25 @@ impl TableState {
             }
         })
     }
+
+    /// The names of the valid CHECK constraints on this table that are
+    /// exactly `column IS NOT NULL`, which proves the column holds no NULLs.
+    /// PostgreSQL 12+ then skips the table scan `SET NOT NULL` otherwise
+    /// makes (PGM013). A NOT VALID CHECK is left out, and so is a CHECK that
+    /// combines the test with anything else, though PostgreSQL may use it.
+    pub fn valid_checks_proving_not_null<'a>(
+        &'a self,
+        column: &'a str,
+    ) -> impl Iterator<Item = &'a str> {
+        self.constraints.iter().filter_map(move |c| match c {
+            ConstraintState::Check {
+                name,
+                expression,
+                not_valid: false,
+            } if is_not_null_test_of(expression, column) => Some(name.as_str()),
+            _ => None,
+        })
+    }
 }
 
 /// Check if an expression text contains a column name as an identifier.
@@ -494,6 +513,31 @@ fn expression_mentions_column(expression: &str, column: &str) -> bool {
     expression
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .any(|token| token == column)
+}
+
+/// True if `expression`, a CHECK expression as the parser deparses it, is
+/// `column IS NOT NULL` and nothing more. A table-qualified column does not
+/// count.
+fn is_not_null_test_of(expression: &str, column: &str) -> bool {
+    expression
+        .strip_suffix(" IS NOT NULL")
+        .and_then(written_identifier)
+        .is_some_and(|operand| operand == column)
+}
+
+/// The identifier `text` is, written bare or in double quotes with each `"`
+/// inside doubled, as the deparser writes one. `None` when `text` is
+/// anything else, such as several identifiers or an expression.
+fn written_identifier(text: &str) -> Option<String> {
+    if let Some(quoted) = text.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+        let has_undoubled_quote = quoted.replace("\"\"", "").contains('"');
+        return (!has_undoubled_quote).then(|| quoted.replace("\"\"", "\""));
+    }
+    let bare = !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '$');
+    bare.then(|| text.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -659,7 +703,7 @@ impl ConstraintState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::builder::{CatalogBuilder, rel};
+    use crate::catalog::builder::{CatalogAssertions, CatalogBuilder, rel};
     use crate::parser::ir::PartitionStrategy;
     use rstest::rstest;
 
@@ -729,6 +773,52 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(expression_mentions_column(expr, col), expected);
+    }
+
+    #[rstest]
+    #[case::bare("status IS NOT NULL", "status", true)]
+    #[case::quoted("\"Status\" IS NOT NULL", "Status", true)]
+    #[case::quoted_with_a_doubled_quote("\"say \"\"hi\"\"\" IS NOT NULL", "say \"hi\"", true)]
+    #[case::bare_after_a_rename_to_a_mixed_case_name("Status IS NOT NULL", "Status", true)]
+    #[case::quoted_in_another_case("\"Status\" IS NOT NULL", "status", false)]
+    #[case::other_column("region IS NOT NULL", "status", false)]
+    #[case::is_null("status IS NULL", "status", false)]
+    #[case::negated_is_null("NOT status IS NULL", "status", false)]
+    #[case::table_qualified("orders.status IS NOT NULL", "status", false)]
+    #[case::two_quoted_identifiers("\"a\" OR \"b\" IS NOT NULL", "a\" OR \"b", false)]
+    #[case::further_conditions_after("status IS NOT NULL AND region IS NOT NULL", "status", false)]
+    #[case::further_conditions_before("region IS NOT NULL AND status IS NOT NULL", "status", false)]
+    #[case::empty_operand(" IS NOT NULL", "", false)]
+    fn test_is_not_null_test_of(
+        #[case] expression: &str,
+        #[case] column: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(is_not_null_test_of(expression, column), expected);
+    }
+
+    #[rstest]
+    #[case::validated(false, &["orders_status_nn"])]
+    #[case::not_valid(true, &[])]
+    fn test_valid_checks_proving_not_null(#[case] not_valid: bool, #[case] expected: &[&str]) {
+        let catalog = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("status", "text", true)
+                    .column("region", "text", true)
+                    .check_constraint(Some("orders_status_nn"), "status IS NOT NULL", not_valid)
+                    .check_constraint(Some("orders_region_nonempty"), "region <> ''", false);
+            })
+            .build();
+
+        let orders = catalog.table("orders");
+
+        assert_eq!(
+            orders
+                .valid_checks_proving_not_null("status")
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(orders.valid_checks_proving_not_null("region").count(), 0);
     }
 
     #[rstest]
