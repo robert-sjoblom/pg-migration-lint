@@ -172,18 +172,31 @@ ALTER TABLE measurements ATTACH PARTITION measurements_2024
     FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 ```
 
-**Recommended approach**:
+**Recommended approach** (three migrations):
 1. Add a CHECK constraint mirroring the partition bound with `NOT VALID`.
-2. Validate the constraint separately (`VALIDATE CONSTRAINT` — allows concurrent reads/writes).
-3. Attach the partition (scan is skipped because the constraint is already validated).
+2. Validate the constraint (`VALIDATE CONSTRAINT`, which allows concurrent reads and writes).
+3. Attach the partition (the scan is skipped because the constraint is already validated).
 
 ```sql
+-- Migration 1: add the CHECK with NOT VALID (no scan)
 ALTER TABLE measurements_2024 ADD CONSTRAINT measurements_2024_bound
     CHECK (ts >= '2024-01-01' AND ts < '2025-01-01') NOT VALID;
+```
+
+```sql
+-- Migration 2: validate (scans under SHARE UPDATE EXCLUSIVE, concurrent reads and writes OK)
 ALTER TABLE measurements_2024 VALIDATE CONSTRAINT measurements_2024_bound;
+```
+
+```sql
+-- Migration 3: attach (no scan)
 ALTER TABLE measurements ATTACH PARTITION measurements_2024
     FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 ```
+
+Commit the `ADD CONSTRAINT` before `VALIDATE CONSTRAINT` runs, as in [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013). `NOT VALID` skips the scan but not the lock: PostgreSQL's documentation gives `ADD CONSTRAINT ... CHECK` an ACCESS EXCLUSIVE lock on the child either way, and a transaction holds its locks until it ends, so when both statements run in one transaction, such as the one a migration tool runs a migration in by default, the validation scan runs with reads and writes on the child blocked, which is what the pattern is meant to avoid. A runner that commits each statement on its own, such as golang-migrate with `x-multi-statement=true`, is not affected.
+
+The attach gets a migration of its own because this rule judges the child's CHECK constraints as they stand before the migration: it accepts a CHECK validated in an earlier migration, not one validated earlier in the same migration.
 
 ---
 
@@ -405,14 +418,21 @@ ALTER TABLE orders
   FOREIGN KEY (customer_id) REFERENCES customers (id);
 ```
 
-**Fix** (safe pattern):
+**Fix** (safe pattern, two migrations):
 ```sql
+-- Migration 1: add the foreign key with NOT VALID (no scan)
 ALTER TABLE orders
   ADD CONSTRAINT fk_customer
   FOREIGN KEY (customer_id) REFERENCES customers (id)
   NOT VALID;
+```
+
+```sql
+-- Migration 2: validate (scans under SHARE UPDATE EXCLUSIVE, concurrent reads and writes OK)
 ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;
 ```
+
+Commit the `ADD CONSTRAINT` before `VALIDATE CONSTRAINT` runs, which is why it has a migration of its own above, as in [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013). `NOT VALID` skips the scan but not the lock: PostgreSQL's documentation gives `ADD FOREIGN KEY` a SHARE ROW EXCLUSIVE lock on both tables either way, and a transaction holds its locks until it ends, so when both statements run in one transaction, such as the one a migration tool runs a migration in by default, the validation scan runs with writes to both tables blocked. A runner that commits each statement on its own, such as golang-migrate with `x-multi-statement=true`, is not affected. This rule does not report the two statements in one transaction.
 
 See also [PGM015](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm015).
 
@@ -423,7 +443,7 @@ See also [PGM015](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm01
 
 **Severity**: Critical
 
-Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires a SHARE ROW EXCLUSIVE lock and scans the entire table to verify all existing rows, blocking concurrent writes for the duration.
+Detects `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` on a pre-existing table without `NOT VALID`. Without `NOT VALID`, PostgreSQL acquires an ACCESS EXCLUSIVE lock and scans the entire table to verify all existing rows, blocking concurrent reads and writes for the duration.
 
 **Example** (bad):
 ```sql
@@ -431,14 +451,19 @@ ALTER TABLE orders ADD CONSTRAINT orders_status_check
   CHECK (status IN ('pending', 'shipped', 'delivered'));
 ```
 
-**Fix** (safe two-step pattern):
+**Fix** (safe pattern, two migrations):
 ```sql
--- Step 1: Add with NOT VALID (instant, no scan)
+-- Migration 1: add the CHECK with NOT VALID (no scan)
 ALTER TABLE orders ADD CONSTRAINT orders_status_check
   CHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;
--- Step 2: Validate (SHARE UPDATE EXCLUSIVE lock, concurrent reads OK)
+```
+
+```sql
+-- Migration 2: validate (scans under SHARE UPDATE EXCLUSIVE, concurrent reads and writes OK)
 ALTER TABLE orders VALIDATE CONSTRAINT orders_status_check;
 ```
+
+Commit the `ADD CONSTRAINT` before `VALIDATE CONSTRAINT` runs, which is why it has a migration of its own above, as in [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013). `NOT VALID` skips the scan but not the lock: PostgreSQL's documentation gives `ADD CONSTRAINT ... CHECK` an ACCESS EXCLUSIVE lock either way, and a transaction holds its locks until it ends, so when both statements run in one transaction, such as the one a migration tool runs a migration in by default, the validation scan runs with reads and writes blocked. A runner that commits each statement on its own, such as golang-migrate with `x-multi-statement=true`, is not affected. This rule does not report the two statements in one transaction.
 
 See also [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013), [PGM014](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm014).
 
@@ -464,19 +489,26 @@ CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
 ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ```
 
-If the PK columns are nullable, `USING INDEX` alone is not enough — PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013):
+If the PK columns are nullable, `USING INDEX` alone is not enough: PostgreSQL still runs an implicit `SET NOT NULL` (full table scan under ACCESS EXCLUSIVE). Make columns NOT NULL first using the safe CHECK-constraint pattern from [PGM013](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm013), which adds the CHECK in a migration of its own:
 
 ```sql
--- Step 1: Make column NOT NULL safely (see PGM013)
+-- Migration 1: add a CHECK constraint with NOT VALID (no scan)
 ALTER TABLE orders ADD CONSTRAINT orders_id_nn
   CHECK (id IS NOT NULL) NOT VALID;
-ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;
-ALTER TABLE orders ALTER COLUMN id SET NOT NULL;
-ALTER TABLE orders DROP CONSTRAINT orders_id_nn;
--- Step 2: Now USING INDEX is truly instant
-CREATE UNIQUE INDEX CONCURRENTLY idx_orders_pk ON orders (id);
-ALTER TABLE orders ADD PRIMARY KEY USING INDEX idx_orders_pk;
 ```
+
+```sql
+-- Migration 2: validate (scans under SHARE UPDATE EXCLUSIVE, concurrent reads and writes OK)
+ALTER TABLE orders VALIDATE CONSTRAINT orders_id_nn;
+-- Set NOT NULL (no scan: the valid CHECK proves the column holds no NULLs)
+ALTER TABLE orders ALTER COLUMN id SET NOT NULL;
+-- Optional, as a statement of its own: drop the now-redundant CHECK
+ALTER TABLE orders DROP CONSTRAINT orders_id_nn;
+```
+
+Keep the `DROP CONSTRAINT` a statement of its own: PostgreSQL runs every `DROP CONSTRAINT` of an `ALTER TABLE` before its `SET NOT NULL`, whatever the written order, so written into the `SET NOT NULL` statement it brings the scan back.
+
+Then build the unique index and add the primary key as in the fix above; with the columns NOT NULL, `USING INDEX` runs no implicit `SET NOT NULL`.
 
 The rule checks `USING INDEX` against the schema as the migration's earlier statements leave it, so the index can be built, and the columns made NOT NULL, earlier in the same migration.
 
@@ -946,10 +978,11 @@ CREATE TABLE users (name varchar(100) NOT NULL);
 **Fix**:
 ```sql
 CREATE TABLE users (name text NOT NULL);
--- If validation is needed, use a CHECK constraint:
--- ALTER TABLE users ADD CONSTRAINT chk_name_len CHECK (length(name) <= 100) NOT VALID;
--- ALTER TABLE users VALIDATE CONSTRAINT chk_name_len;
+-- If a length limit is needed, use a CHECK constraint:
+-- CREATE TABLE users (name text NOT NULL CONSTRAINT chk_name_len CHECK (length(name) <= 100));
 ```
+
+To add such a CHECK to an existing table, add it `NOT VALID` and validate it in a later migration, as [PGM015](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm015) shows.
 
 ---
 
