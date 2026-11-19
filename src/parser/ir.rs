@@ -573,6 +573,8 @@ pub enum IndexColumn {
     /// extracted column references for DROP/RENAME tracking.
     Expression {
         text: String,
+        /// Distinct columns the expression references, in order of first
+        /// appearance.
         referenced_columns: Vec<String>,
         /// What this element contributes to a name Postgres generates for
         /// the index or EXCLUDE constraint, derived from the parse tree the

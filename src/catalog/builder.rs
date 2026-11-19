@@ -80,7 +80,6 @@ fn extract_column_refs_from_expr_text(expr: &str) -> Vec<String> {
             refs.push(t.to_string());
         }
     }
-    refs.sort();
     refs
 }
 

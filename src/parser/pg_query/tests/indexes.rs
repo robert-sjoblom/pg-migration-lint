@@ -333,13 +333,43 @@ fn test_parse_partial_unique_index() {
 #[case::nested_func_typecast("LOWER(email::text)", &["email"])]
 #[case::multi_arg_func("COALESCE(first_name, last_name, 'unknown')", &["first_name", "last_name"])]
 #[case::bool_expr("(a > 0 AND b > 0)", &["a", "b"])]
-#[case::case_with_default("(CASE WHEN status = 'active' THEN priority ELSE 0 END)", &["priority", "status"])]
-#[case::case_simple_form("(CASE status WHEN 'a' THEN priority ELSE rank END)", &["priority", "rank", "status"])]
+#[case::case_with_default("(CASE WHEN status = 'active' THEN priority ELSE 0 END)", &["status", "priority"])]
+#[case::case_simple_form("(CASE status WHEN 'a' THEN priority ELSE rank END)", &["status", "priority", "rank"])]
 #[case::null_test_in_case("(CASE WHEN email IS NOT NULL THEN email ELSE 'none' END)", &["email"])]
 #[case::greatest("GREATEST(a, b)", &["a", "b"])]
 #[case::least("LEAST(x, y, z)", &["x", "y", "z"])]
 #[case::dedup("(a + a)", &["a"])]
-fn test_extract_column_refs(#[case] expr: &str, #[case] expected: &[&str]) {
+#[case::first_appearance_order("(b + a)", &["b", "a"])]
+#[case::dedup_keeps_first_appearance("(b + a + b)", &["b", "a"])]
+#[case::collated_function_call("(lower(email) COLLATE \"C\")", &["email"])]
+#[case::collated_operator("((a || b) COLLATE \"C\")", &["a", "b"])]
+#[case::collate_inside_function_call("lower(email COLLATE \"C\")", &["email"])]
+#[case::subscript("(arr[1])", &["arr"])]
+#[case::subscript_by_column("(arr[i])", &["arr", "i"])]
+#[case::slice_bounds("(arr[lo:hi])", &["arr", "lo", "hi"])]
+#[case::jsonb_subscript("(js['k'])", &["js"])]
+#[case::field_selection("((p).x)", &["p"])]
+#[case::array_constructor("(ARRAY[a, b])", &["a", "b"])]
+#[case::in_list("(a IN (b, 1))", &["a", "b"])]
+#[case::not_in_list("(a NOT IN (1, b))", &["a", "b"])]
+#[case::between("(a BETWEEN b AND c)", &["a", "b", "c"])]
+#[case::between_symmetric("(a BETWEEN SYMMETRIC b AND c)", &["a", "b", "c"])]
+#[case::is_true("(flag IS TRUE)", &["flag"])]
+#[case::is_not_unknown("(flag IS NOT UNKNOWN)", &["flag"])]
+#[case::named_argument("make_interval(days => d)", &["d"])]
+#[case::named_and_positional_arguments("make_interval(y, days => d)", &["y", "d"])]
+#[case::row_constructor("(ROW(a, b))", &["a", "b"])]
+#[case::implicit_row_comparison("((a, b) < (c, 1))", &["a", "b", "c"])]
+#[case::is_json("(doc IS JSON)", &["doc"])]
+#[case::any_array("(a = ANY (ARRAY[b, c]))", &["a", "b", "c"])]
+#[case::nullif("NULLIF(a, b)", &["a", "b"])]
+#[case::is_distinct_from("(a IS DISTINCT FROM b)", &["a", "b"])]
+#[case::qualified_column_takes_the_column_name("(t.a)", &["a"])]
+#[case::schema_qualified_column_takes_the_column_name("(public.t.a)", &["a"])]
+fn test_expression_element_records_its_distinct_columns_in_first_appearance_order(
+    #[case] expr: &str,
+    #[case] expected: &[&str],
+) {
     let expected: Vec<String> = expected.iter().map(|s| (*s).to_owned()).collect();
     assert_eq!(expr_index_refs(expr), expected);
 }

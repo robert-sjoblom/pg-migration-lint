@@ -332,6 +332,17 @@ impl TableState {
             .find(|c| c.is_index_backed() && c.name() == index_name)
     }
 
+    /// Drop column `name` together with every index and constraint that
+    /// references it, as `ALTER TABLE ... DROP COLUMN` does.
+    ///
+    /// Two cases differ from PostgreSQL (both measured in
+    /// `verify/tests/other/drop_column_expression_index.sql`):
+    /// - An EXCLUDE constraint is removed when any element references the
+    ///   column. PostgreSQL does that for a plain-column element, but rejects
+    ///   DROP COLUMN without CASCADE (2BP01) when an expression element
+    ///   references the column (#318).
+    /// - A partial index whose WHERE clause references the column is kept,
+    ///   though PostgreSQL drops it (#319).
     pub(crate) fn remove_column(&mut self, name: &str) {
         self.columns.retain(|c| c.name != name);
         // Remove indexes that reference this column — either as a plain column entry
