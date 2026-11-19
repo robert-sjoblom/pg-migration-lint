@@ -118,7 +118,7 @@ fn fks_left_without_coverage_by_drops(
     added_fks: &[FkInfo],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+    let rejected = RejectedStatements::new(ctx, statements);
     let mut findings: Vec<((&RelationName, &str), Finding)> = Vec::new();
     for drop in index_drops(statements, ctx.catalog_before) {
         for (fk_table, fk_name, fk_columns) in fks_coverable_by(drop.table, ctx.catalog_after) {
@@ -378,6 +378,32 @@ mod tests {
 
     const SCAN_COST: &str = "Queries joining or filtering on these columns, and referential \
                              integrity checks, cause sequential scans on the referencing table.";
+
+    #[rstest]
+    #[case::name_another_table_has(
+        "customers_pkey",
+        &["Foreign key on 'orders(customer_id)' has no covering index."]
+    )]
+    #[case::free_name("orders_customer_id_idx", &[])]
+    fn foreign_key_counts_an_index_created_after_it_unless_postgres_rejects_it(
+        #[case] index: &str,
+        #[case] expected_without_scan_cost: &[&str],
+    ) {
+        let messages = messages_for_change(
+            "CREATE TABLE customers (id int PRIMARY KEY);
+             CREATE TABLE orders (id int PRIMARY KEY, customer_id int);",
+            &format!(
+                "ALTER TABLE orders ADD CONSTRAINT fk_orders_customer
+                     FOREIGN KEY (customer_id) REFERENCES customers (id);
+                 CREATE INDEX {index} ON orders (customer_id);"
+            ),
+        );
+        let expected: Vec<String> = expected_without_scan_cost
+            .iter()
+            .map(|message| format!("{message} {SCAN_COST}"))
+            .collect();
+        assert_eq!(messages, expected);
+    }
 
     #[test]
     fn test_fk_no_index_fires() {

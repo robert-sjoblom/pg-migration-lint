@@ -1,7 +1,7 @@
 #![doc = include_str!("docs/pgm027.md")]
 
 use crate::parser::ir::{IrNode, Located, SourceSpan};
-use crate::rules::rejected_statements::{Rejection, Renamed, TakenBy, rejections};
+use crate::rules::rejected_statements::{Rejection, Renamed, TakenBy, rejections, unit_is_judged};
 use crate::rules::{Finding, LintContext, Rule, Severity};
 
 pub(super) const DESCRIPTION: &str = "Statement fails against the schema from earlier migrations";
@@ -15,6 +15,9 @@ pub(super) fn check(
     statements: &[Located<IrNode>],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
+    if !unit_is_judged(ctx) {
+        return Vec::new();
+    }
     let mut findings = Vec::new();
     // `DROP INDEX a, b` is one statement split into one node per index, all
     // with the statement's span. Postgres stops at the first failure.
@@ -67,15 +70,7 @@ fn message(rejection: &Rejection) -> String {
                 }
                 _ => "",
             };
-            let holder = match taken_by {
-                TakenBy::Table { table } => format!("table '{table}' already has that name"),
-                TakenBy::Index { table } => {
-                    format!("index '{new_name}' on table '{table}' already has that name")
-                }
-                TakenBy::Constraint { table } => {
-                    format!("table '{table}' already has a constraint named '{new_name}'")
-                }
-            };
+            let holder = holder_of(new_name, taken_by);
             format!("{statement} fails: {renamed_along}{holder}.")
         }
         Rejection::DropIndexOfConstraint {
@@ -86,6 +81,27 @@ fn message(rejection: &Rejection) -> String {
             "DROP INDEX '{index}' fails: constraint '{constraint}' on table '{table}' \
              requires it. Drop the constraint instead."
         ),
+        Rejection::CreateIndexOntoTakenName {
+            index,
+            table,
+            taken_by,
+        } => format!(
+            "CREATE INDEX '{index}' on table '{table}' fails: {}.",
+            holder_of(index, taken_by)
+        ),
+    }
+}
+
+/// The reason a statement fails when `taken_by` already has `name`.
+fn holder_of(name: &str, taken_by: &TakenBy) -> String {
+    match taken_by {
+        TakenBy::Table { table } => format!("table '{table}' already has that name"),
+        TakenBy::Index { table } => {
+            format!("index '{name}' on table '{table}' already has that name")
+        }
+        TakenBy::Constraint { table } => {
+            format!("table '{table}' already has a constraint named '{name}'")
+        }
     }
 }
 
@@ -94,8 +110,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::parser::pg_query::parse_sql;
-    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, normalized};
-    use crate::rules::{Rule, RuleId};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, make_ctx, normalized};
+    use crate::rules::{LintContext, Rule, RuleId};
 
     fn messages_for_change(history: &str, change: &str) -> Vec<String> {
         let before = catalog_from_sql(history);
@@ -470,6 +486,201 @@ mod tests {
         );
     }
 
+    const ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS: &str = "
+        CREATE TABLE archive (
+            id int,
+            code text,
+            slot int,
+            CONSTRAINT archive_pkey PRIMARY KEY (id),
+            CONSTRAINT archive_code_key UNIQUE (code),
+            CONSTRAINT archive_slot_excl EXCLUDE USING btree (slot WITH =),
+            CONSTRAINT archive_id_check CHECK (id > 0));
+        CREATE INDEX archive_slot_idx ON archive (slot);
+        CREATE TABLE orders (id int, status text);
+        CREATE INDEX orders_status_idx ON orders (status);
+        CREATE TABLE analytics.reports (id int);
+        CREATE INDEX reports_id_idx ON analytics.reports (id);";
+
+    #[rstest]
+    #[case::index_of_another_table(
+        "CREATE INDEX archive_slot_idx ON orders (status);",
+        "CREATE INDEX 'archive_slot_idx' on table 'orders' fails: \
+         index 'archive_slot_idx' on table 'archive' already has that name."
+    )]
+    #[case::index_of_the_same_table(
+        "CREATE INDEX orders_status_idx ON orders (id);",
+        "CREATE INDEX 'orders_status_idx' on table 'orders' fails: \
+         index 'orders_status_idx' on table 'orders' already has that name."
+    )]
+    #[case::primary_key_index(
+        "CREATE INDEX archive_pkey ON orders (id);",
+        "CREATE INDEX 'archive_pkey' on table 'orders' fails: \
+         index 'archive_pkey' on table 'archive' already has that name."
+    )]
+    #[case::unique_onto_a_unique_constraints_index(
+        "CREATE UNIQUE INDEX archive_code_key ON orders (status);",
+        "CREATE INDEX 'archive_code_key' on table 'orders' fails: \
+         index 'archive_code_key' on table 'archive' already has that name."
+    )]
+    #[case::exclude_constraints_index(
+        "CREATE INDEX archive_slot_excl ON orders (id);",
+        "CREATE INDEX 'archive_slot_excl' on table 'orders' fails: \
+         index 'archive_slot_excl' on table 'archive' already has that name."
+    )]
+    #[case::table(
+        "CREATE INDEX archive ON orders (id);",
+        "CREATE INDEX 'archive' on table 'orders' fails: table 'archive' already has that name."
+    )]
+    #[case::concurrently(
+        "CREATE INDEX CONCURRENTLY archive_slot_idx ON orders (status);",
+        "CREATE INDEX 'archive_slot_idx' on table 'orders' fails: \
+         index 'archive_slot_idx' on table 'archive' already has that name."
+    )]
+    #[case::on_a_table_the_catalog_lacks(
+        "CREATE INDEX archive_slot_idx ON made_outside_migrations (id);",
+        "CREATE INDEX 'archive_slot_idx' on table 'made_outside_migrations' fails: \
+         index 'archive_slot_idx' on table 'archive' already has that name."
+    )]
+    fn create_index_onto_a_taken_name_fires(#[case] change: &str, #[case] expected: &str) {
+        assert_eq!(
+            messages_for_change(ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS, change),
+            [expected]
+        );
+    }
+
+    #[rstest]
+    #[case::free_name("CREATE INDEX orders_id_idx ON orders (id);")]
+    #[case::unnamed_whose_generated_name_is_taken("CREATE INDEX ON orders (status);")]
+    #[case::if_not_exists("CREATE INDEX IF NOT EXISTS archive_slot_idx ON orders (status);")]
+    #[case::if_not_exists_onto_a_table("CREATE INDEX IF NOT EXISTS archive ON orders (id);")]
+    #[case::check_constraint_name("CREATE INDEX archive_id_check ON orders (id);")]
+    #[case::taken_only_in_another_schema("CREATE INDEX reports_id_idx ON orders (id);")]
+    #[case::table_in_a_schema_where_the_name_is_free(
+        "CREATE INDEX archive_slot_idx ON analytics.reports (id);"
+    )]
+    fn create_index_onto_a_free_name_without_a_name_or_if_not_exists_is_silent(
+        #[case] change: &str,
+    ) {
+        let messages = messages_for_change(ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS, change);
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn create_index_in_a_named_schema_shows_the_names_as_written() {
+        assert_eq!(
+            messages_for_change(
+                ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS,
+                "CREATE INDEX reports_id_idx ON analytics.reports (id);"
+            ),
+            [
+                "CREATE INDEX 'reports_id_idx' on table 'analytics.reports' fails: \
+              index 'reports_id_idx' on table 'analytics.reports' already has that name."
+            ]
+        );
+    }
+
+    #[rstest]
+    #[case::index_created(
+        "CREATE INDEX orders_id_idx ON orders (id);",
+        "CREATE UNIQUE INDEX orders_id_idx ON orders (status);",
+        "CREATE INDEX 'orders_id_idx' on table 'orders' fails: \
+         index 'orders_id_idx' on table 'orders' already has that name."
+    )]
+    #[case::table_created(
+        "CREATE TABLE orders_id_idx (id int);",
+        "CREATE INDEX orders_id_idx ON orders (id);",
+        "CREATE INDEX 'orders_id_idx' on table 'orders' fails: \
+         table 'orders_id_idx' already has that name."
+    )]
+    #[case::unique_constraint_added(
+        "ALTER TABLE orders ADD CONSTRAINT orders_id_key UNIQUE (id);",
+        "CREATE INDEX orders_id_key ON orders (id);",
+        "CREATE INDEX 'orders_id_key' on table 'orders' fails: \
+         index 'orders_id_key' on table 'orders' already has that name."
+    )]
+    #[case::table_renamed_onto_the_name(
+        "ALTER TABLE archive RENAME TO orders_id_idx;",
+        "CREATE INDEX orders_id_idx ON orders (id);",
+        "CREATE INDEX 'orders_id_idx' on table 'orders' fails: \
+         table 'orders_id_idx' already has that name."
+    )]
+    #[case::index_renamed_onto_the_name(
+        "ALTER INDEX archive_slot_idx RENAME TO orders_id_idx;",
+        "CREATE INDEX orders_id_idx ON orders (id);",
+        "CREATE INDEX 'orders_id_idx' on table 'orders' fails: \
+         index 'orders_id_idx' on table 'archive' already has that name."
+    )]
+    fn create_index_onto_a_name_an_earlier_statement_of_the_unit_took_fires(
+        #[case] taking_statement: &str,
+        #[case] create_index: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            messages_for_change(
+                ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS,
+                &format!("{taking_statement}\n{create_index}")
+            ),
+            [expected]
+        );
+    }
+
+    #[rstest]
+    #[case::index_dropped(
+        "DROP INDEX archive_slot_idx;",
+        "CREATE INDEX archive_slot_idx ON orders (status);"
+    )]
+    #[case::index_renamed_away(
+        "ALTER INDEX archive_slot_idx RENAME TO archive_slot_old;",
+        "CREATE INDEX archive_slot_idx ON orders (status);"
+    )]
+    #[case::table_dropped("DROP TABLE archive;", "CREATE INDEX archive ON orders (id);")]
+    #[case::constraint_dropped(
+        "ALTER TABLE archive DROP CONSTRAINT archive_code_key;",
+        "CREATE INDEX archive_code_key ON orders (status);"
+    )]
+    fn create_index_onto_a_name_an_earlier_statement_of_the_unit_freed_is_silent(
+        #[case] freeing_statement: &str,
+        #[case] create_index: &str,
+    ) {
+        let messages = messages_for_change(
+            ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS,
+            &format!("{freeing_statement}\n{create_index}"),
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn using_index_after_a_rejected_create_index_of_its_name_names_the_index_that_kept_it() {
+        assert_eq!(
+            messages_for_change(
+                ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS,
+                "CREATE UNIQUE INDEX archive_slot_idx ON orders (id);
+                 ALTER TABLE orders ADD PRIMARY KEY USING INDEX archive_slot_idx;"
+            ),
+            [
+                "CREATE INDEX 'archive_slot_idx' on table 'orders' fails: \
+              index 'archive_slot_idx' on table 'archive' already has that name.",
+                "ADD PRIMARY KEY USING INDEX 'archive_slot_idx' on table 'orders' fails: \
+              the index belongs to table 'archive'."
+            ]
+        );
+    }
+
+    #[test]
+    fn create_index_onto_taken_names_findings() {
+        let history = ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS;
+        let change = "CREATE INDEX orders_id_idx ON orders (id);\n\
+                      CREATE INDEX archive ON orders (id);\n\
+                      CREATE INDEX CONCURRENTLY orders_id_idx ON orders (status);";
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let findings = RuleId::Pgm027.check(&normalized(parse_sql(change)), &ctx);
+
+        insta::assert_yaml_snapshot!(findings);
+    }
+
     #[test]
     fn each_failing_statement_of_a_unit_fires() {
         let lines: Vec<usize> = {
@@ -497,5 +708,24 @@ mod tests {
             RuleId::Pgm027.check(&normalized(parse_sql("DROP INDEX orders_pkey;")), &ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, RuleId::Pgm027.default_severity());
+    }
+
+    #[test]
+    fn down_migration_is_silent() {
+        let history = ARCHIVE_ORDERS_AND_ANALYTICS_REPORTS;
+        let change = "CREATE INDEX archive_slot_idx ON orders (status);
+                      ALTER TABLE orders RENAME TO archive;";
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        let file = std::path::PathBuf::from("migrations/000002_orders.down.sql");
+        let created = std::collections::HashSet::new();
+        let ctx = LintContext {
+            is_down: true,
+            ..make_ctx(&before, &after, &file, &created)
+        };
+
+        let findings = RuleId::Pgm027.check(&normalized(parse_sql(change)), &ctx);
+
+        assert!(findings.is_empty(), "got {findings:?}");
     }
 }

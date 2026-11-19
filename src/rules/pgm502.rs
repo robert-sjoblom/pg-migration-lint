@@ -94,6 +94,35 @@ mod tests {
         assert_eq!(messages, expected);
     }
 
+    #[rstest]
+    #[case::name_another_table_has("customers_pkey", &["Table 'orders' has no primary key."])]
+    #[case::free_name("orders_id_idx", &[])]
+    fn unique_index_after_create_table_counts_unless_postgres_rejects_it(
+        #[case] index: &str,
+        #[case] expected: &[&str],
+    ) {
+        let before = CatalogBuilder::new()
+            .table("customers", |t| {
+                t.column("id", "bigint", false)
+                    .named_pk("customers_pkey", &["id"])
+                    .index("customers_pkey", &["id"], true);
+            })
+            .build();
+        let stmts = normalized(parse_sql(&format!(
+            "CREATE TABLE orders (id bigint NOT NULL);
+             CREATE UNIQUE INDEX {index} ON orders (id);"
+        )));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", created: ["orders"]);
+
+        let messages: Vec<String> = RuleId::Pgm502
+            .check(&stmts, &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(messages, expected);
+    }
+
     #[test]
     fn test_no_pk_fires() {
         let before = Catalog::new();

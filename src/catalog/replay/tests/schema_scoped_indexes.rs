@@ -154,7 +154,7 @@ fn drop_table_keeps_an_index_entry_that_another_table_took_over() {
         "CREATE TABLE metrics (id int);
          CREATE TABLE events (id int);",
         "CREATE INDEX idx_created_at ON metrics (id);",
-        "CREATE INDEX idx_created_at ON events (id);",
+        "ALTER TABLE events ADD CONSTRAINT idx_created_at UNIQUE (id);",
         "DROP TABLE metrics;",
     ]);
 
@@ -178,29 +178,25 @@ fn drop_column_on_the_table_holding_a_generated_name_keeps_the_suffixed_index_of
 #[rstest]
 #[case::drop_column(
     "CREATE INDEX shared_idx ON archive (status);",
-    "CREATE INDEX shared_idx ON orders (status);",
     "ALTER TABLE archive DROP COLUMN status;"
 )]
 #[case::drop_constraint(
     "ALTER TABLE archive ADD CONSTRAINT shared_idx UNIQUE (status);",
-    "CREATE INDEX shared_idx ON orders (status);",
     "ALTER TABLE archive DROP CONSTRAINT shared_idx;"
 )]
 #[case::rename_constraint(
     "ALTER TABLE archive ADD CONSTRAINT shared_idx UNIQUE (status);",
-    "CREATE INDEX shared_idx ON orders (status);",
     "ALTER TABLE archive RENAME CONSTRAINT shared_idx TO archive_status_key;"
 )]
 fn unregistering_an_index_keeps_an_entry_another_table_took_over(
     #[case] archive_index_sql: &str,
-    #[case] orders_index_sql: &str,
     #[case] archive_change_sql: &str,
 ) {
     let catalog = replay_sql(&[
         "CREATE TABLE archive (status text);
          CREATE TABLE orders (status text);",
         archive_index_sql,
-        orders_index_sql,
+        "ALTER TABLE orders ADD CONSTRAINT shared_idx UNIQUE (status);",
         archive_change_sql,
     ]);
 

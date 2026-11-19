@@ -11,11 +11,23 @@
 use std::cell::OnceCell;
 
 use crate::catalog::Catalog;
-use crate::catalog::replay::map_with_state_before_if_needed;
+use crate::catalog::replay::{map_with_state_before_if_needed, relation_holding_index_name};
 use crate::catalog::types::{NamedRelation, RenameClash};
 use crate::names::{RelationName, ResolvedName};
-use crate::parser::ir::{AlterTable, IrNode, Located, SourceSpan};
+use crate::parser::ir::{AlterTable, CreateIndex, IrNode, Located, SourceSpan};
+use crate::rules::LintContext;
 use crate::rules::using_index::{UsingIndex, has_using_index};
+
+/// True when the unit of `ctx` is judged for statements PostgreSQL rejects:
+/// PGM027 reports them, and the rules that leave them to PGM027 skip them.
+/// A down migration is not judged. A go-migrate down file sorts before its
+/// up file, so replay applies it first and judges it against a schema it was
+/// never meant to run on: names its up file drops still look taken, and
+/// names it creates do not exist yet. The other rules then report its
+/// statements as if none were rejected.
+pub(super) fn unit_is_judged(ctx: &LintContext<'_>) -> bool {
+    !ctx.is_down
+}
 
 /// The statements of a unit PostgreSQL rejects, as [`rejections`] judges
 /// them, for a rule that leaves those statements to PGM027. The unit is
@@ -24,16 +36,19 @@ use crate::rules::using_index::{UsingIndex, has_using_index};
 pub(super) struct RejectedStatements<'a> {
     catalog_before: &'a Catalog,
     statements: &'a [Located<IrNode>],
+    unit_is_judged: bool,
     rejected_spans: OnceCell<Vec<&'a SourceSpan>>,
 }
 
 impl<'a> RejectedStatements<'a> {
-    /// The rejected statements among `statements`, judged against
-    /// `catalog_before` once a rule asks.
-    pub(super) fn new(catalog_before: &'a Catalog, statements: &'a [Located<IrNode>]) -> Self {
+    /// The rejected statements among `statements`, the unit of `ctx`, judged
+    /// against `ctx.catalog_before` once a rule asks. Empty when the unit is
+    /// not judged ([`unit_is_judged`]).
+    pub(super) fn new(ctx: &LintContext<'a>, statements: &'a [Located<IrNode>]) -> Self {
         Self {
-            catalog_before,
+            catalog_before: ctx.catalog_before,
             statements,
+            unit_is_judged: unit_is_judged(ctx),
             rejected_spans: OnceCell::new(),
         }
     }
@@ -43,6 +58,9 @@ impl<'a> RejectedStatements<'a> {
     /// statement's span, and PostgreSQL rejects all of it when it rejects one
     /// index (`verify/tests/other/pgm027_drop_constraint_index.sql`).
     pub(super) fn contains(&self, span: &SourceSpan) -> bool {
+        if !self.unit_is_judged {
+            return false;
+        }
         self.rejected_spans
             .get_or_init(|| {
                 self.statements
@@ -83,6 +101,14 @@ pub(super) enum Rejection {
         constraint: String,
         table: String,
     },
+    /// `CREATE INDEX index ON table` without `IF NOT EXISTS`, where a
+    /// relation in `table`'s schema already has the name `index`
+    /// (`verify/tests/other/pgm027_create_index_onto_taken_name.sql`).
+    CreateIndexOntoTakenName {
+        index: String,
+        table: String,
+        taken_by: TakenBy,
+    },
 }
 
 /// The object a rejected rename renames.
@@ -96,7 +122,7 @@ pub(super) enum Renamed {
     Constraint { constraint: String, table: String },
 }
 
-/// What already has the name a rejected rename wants.
+/// What already has the name a rejected rename or `CREATE INDEX` wants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TakenBy {
     /// The table `table`.
@@ -105,6 +131,20 @@ pub(super) enum TakenBy {
     Index { table: String },
     /// A constraint of that name on `table`, the renamed object's table.
     Constraint { table: String },
+}
+
+impl TakenBy {
+    /// The relation `holder`, which has the name.
+    fn relation(holder: NamedRelation<'_>) -> Self {
+        match holder {
+            NamedRelation::Table(table) => Self::Table {
+                table: table.display_name.clone(),
+            },
+            NamedRelation::Index { table } => Self::Index {
+                table: table.display_name.clone(),
+            },
+        }
+    }
 }
 
 /// For each of `statements`, why PostgreSQL rejects it, judged against
@@ -131,6 +171,7 @@ fn can_be_rejected(node: &IrNode) -> bool {
         | IrNode::RenameIndex { .. }
         | IrNode::RenameConstraint { .. }
         | IrNode::DropIndex(_) => true,
+        IrNode::CreateIndex(ci) => !ci.if_not_exists && ci.index_name.is_some(),
         _ => has_using_index(node),
     }
 }
@@ -182,6 +223,7 @@ fn rejection(state: &Catalog, node: &IrNode) -> Option<Rejection> {
             )
         }
         IrNode::DropIndex(di) => drop_index_of_constraint(state, &di.index_name),
+        IrNode::CreateIndex(ci) if !ci.if_not_exists => create_index_onto_taken_name(state, ci),
         _ => None,
     }
 }
@@ -218,14 +260,9 @@ fn rename_onto_taken_name(
     clash: RenameClash,
 ) -> Option<Rejection> {
     let taken_by = match clash {
-        RenameClash::Relation => match state.relation_named(&table.in_same_schema(new_name))? {
-            NamedRelation::Table(holder) => TakenBy::Table {
-                table: holder.display_name.clone(),
-            },
-            NamedRelation::Index { table: holder } => TakenBy::Index {
-                table: holder.display_name.clone(),
-            },
-        },
+        RenameClash::Relation => {
+            TakenBy::relation(state.relation_named(&table.in_same_schema(new_name))?)
+        }
         RenameClash::Constraint => TakenBy::Constraint {
             table: state.get_table(table)?.display_name.clone(),
         },
@@ -251,13 +288,27 @@ fn drop_index_of_constraint(state: &Catalog, index: &ResolvedName) -> Option<Rej
     })
 }
 
+/// The rejection of a `CREATE INDEX` without `IF NOT EXISTS` whose name a
+/// relation in its table's schema already has, as
+/// [`relation_holding_index_name`] tells it for replay too, which leaves the
+/// statement out. With `IF NOT EXISTS` PostgreSQL skips the statement
+/// instead.
+fn create_index_onto_taken_name(state: &Catalog, ci: &CreateIndex) -> Option<Rejection> {
+    let holder = relation_holding_index_name(state, ci)?;
+    Some(Rejection::CreateIndexOntoTakenName {
+        index: ci.index_name.clone()?,
+        table: ci.table_name.display_name(),
+        taken_by: TakenBy::relation(holder),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
     use crate::parser::pg_query::parse_sql;
-    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, normalized};
-    use crate::rules::{Rule, RuleId};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, make_ctx, normalized};
+    use crate::rules::{LintContext, Rule, RuleId};
 
     const ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK: &str = "
         CREATE TABLE customers (id bigint PRIMARY KEY);
@@ -273,6 +324,22 @@ mod tests {
         let before = catalog_from_sql(history);
         let after = catalog_from_sql(&format!("{history}\n{change}"));
         lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+        rule.check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    fn messages_for_down_change(rule: RuleId, change: &str) -> Vec<String> {
+        let history = ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK;
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        let file = std::path::PathBuf::from("migrations/000002_orders.down.sql");
+        let created = std::collections::HashSet::new();
+        let ctx = LintContext {
+            is_down: true,
+            ..make_ctx(&before, &after, &file, &created)
+        };
         rule.check(&normalized(parse_sql(change)), &ctx)
             .into_iter()
             .map(|finding| finding.message)
@@ -310,6 +377,16 @@ mod tests {
         "ALTER TABLE archive RENAME TO customers;",
         "ALTER TABLE archive RENAME TO archive_old;"
     )]
+    #[case::pgm402(
+        RuleId::Pgm402,
+        "CREATE INDEX archive ON orders (code);",
+        "CREATE INDEX orders_code_idx ON orders (code);"
+    )]
+    #[case::pgm508(
+        RuleId::Pgm508,
+        "CREATE INDEX archive_pkey ON orders (customer_id);",
+        "CREATE INDEX orders_customer_idx ON orders (customer_id);"
+    )]
     fn rule_leaves_a_statement_postgres_rejects_to_pgm027(
         #[case] rule: RuleId,
         #[case] rejected: &str,
@@ -323,5 +400,39 @@ mod tests {
         assert_eq!(rule_on_accepted.len(), 1, "got {rule_on_accepted:?}");
         let pgm027_on_accepted = messages_for_change(RuleId::Pgm027, accepted_of_the_same_shape);
         assert!(pgm027_on_accepted.is_empty(), "got {pgm027_on_accepted:?}");
+    }
+
+    #[rstest]
+    #[case::pgm002(RuleId::Pgm002, "DROP INDEX orders_pkey;")]
+    #[case::pgm003(RuleId::Pgm003, "DROP INDEX CONCURRENTLY orders_pkey;")]
+    #[case::pgm401(RuleId::Pgm401, "DROP INDEX orders_pkey;")]
+    #[case::pgm402(RuleId::Pgm402, "CREATE INDEX archive ON orders (code);")]
+    #[case::pgm501(RuleId::Pgm501, "DROP INDEX orders_customer_id_idx, orders_code_key;")]
+    #[case::pgm504(RuleId::Pgm504, "ALTER TABLE archive RENAME TO customers;")]
+    fn rule_reports_a_statement_of_a_down_migration_that_pgm027_does_not_judge(
+        #[case] rule: RuleId,
+        #[case] rejected_outside_a_down_migration: &str,
+    ) {
+        let rule_on_down = messages_for_down_change(rule, rejected_outside_a_down_migration);
+        assert_eq!(rule_on_down.len(), 1, "got {rule_on_down:?}");
+        let pgm027_on_down =
+            messages_for_down_change(RuleId::Pgm027, rejected_outside_a_down_migration);
+        assert!(pgm027_on_down.is_empty(), "got {pgm027_on_down:?}");
+    }
+
+    #[test]
+    fn pgm001_reports_create_index_onto_a_taken_name_alongside_pgm027() {
+        let change = "CREATE INDEX archive_pkey ON orders (code);";
+
+        assert_eq!(messages_for_change(RuleId::Pgm001, change).len(), 1);
+        assert_eq!(messages_for_change(RuleId::Pgm027, change).len(), 1);
+    }
+
+    #[test]
+    fn pgm003_reports_create_index_concurrently_onto_a_taken_name_alongside_pgm027() {
+        let change = "CREATE INDEX CONCURRENTLY archive_pkey ON orders (code);";
+
+        assert_eq!(messages_for_change(RuleId::Pgm003, change).len(), 1);
+        assert_eq!(messages_for_change(RuleId::Pgm027, change).len(), 1);
     }
 }

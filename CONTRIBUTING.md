@@ -274,17 +274,17 @@ map_with_state_before_if_needed(ctx.catalog_before, statements, has_using_index,
 
 ### `rejected_statements`
 
-For statements PostgreSQL rejects against the schema just before them: a `USING INDEX` of another table's index, a rename onto a taken name, and `DROP INDEX` of the index behind a PRIMARY KEY or UNIQUE constraint. PGM027 reports them through `rejections(catalog_before, statements)`, which gives each statement's `Option<Rejection>`. A rule that would report what such a statement does leaves it to PGM027 (PGM002, PGM003, PGM401, PGM501 and PGM504):
+For statements PostgreSQL rejects against the schema just before them: a `USING INDEX` of another table's index, a rename onto a taken name, `DROP INDEX` of the index behind a PRIMARY KEY or UNIQUE constraint, and `CREATE INDEX` onto a name a relation in the schema already has. PGM027 reports them through `rejections(catalog_before, statements)`, which gives each statement's `Option<Rejection>`. Replay leaves each of them out on the same predicate, so a later statement and `catalog_after` see the schema PostgreSQL leaves. The exception is `DROP INDEX a, b` naming a constraint's index: PostgreSQL drops none of them, but replay still drops the plain ones (#266). A rule that would report what such a statement does leaves it to PGM027 (PGM002, PGM003, PGM401, PGM402, PGM501 and PGM504):
 
 ```rust
-let rejected = RejectedStatements::new(ctx.catalog_before, statements);
+let rejected = RejectedStatements::new(ctx, statements);
 // ...
 if rejected.contains(&stmt.span) {
     continue;
 }
 ```
 
-The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report.
+The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report. A down migration is not judged at all (`unit_is_judged`): it usually sorts before its up file, so replay applies it against the wrong schema. PGM027 then reports nothing, and `contains` is false for every statement, so the other rules report as if nothing were rejected.
 
 ### `transaction_window`
 

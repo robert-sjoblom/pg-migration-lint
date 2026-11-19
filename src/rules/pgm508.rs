@@ -29,11 +29,11 @@ pub(super) fn check(
             None => continue,
         };
 
-        // A generated name is unique in its schema, so two indexes on the
-        // table share a name only when an explicit name repeats one it
-        // already has, which Postgres rejects. Which of the two this
-        // statement created is then unknown, so skip rather than report on
-        // the wrong index.
+        // The name was free just before the statement, so two indexes on
+        // the table share it only when a later statement of the unit adds a
+        // constraint of that name, which Postgres rejects and replay still
+        // applies. Which of the two this statement created is then unknown,
+        // so skip rather than report on the wrong index.
         let mut same_named = table.indexes.iter().filter(|idx| idx.name == index_name);
         let (Some(new_idx), None) = (same_named.next(), same_named.next()) else {
             continue;
@@ -506,6 +506,28 @@ mod tests {
             "CREATE TABLE orders (a int, b int);
              CREATE INDEX idx_orders ON orders (a, b);",
             "CREATE INDEX idx_orders ON orders (a);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn index_whose_name_a_later_constraint_of_the_unit_repeats_is_skipped() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE INDEX idx_orders_a_b ON orders (a, b);",
+            "CREATE INDEX idx_a ON orders (a);
+             ALTER TABLE orders ADD CONSTRAINT idx_a UNIQUE (b);",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn index_after_a_create_index_onto_a_taken_name_is_judged_without_it() {
+        let messages = messages_for_change(
+            "CREATE TABLE orders (a int, b int);
+             CREATE TABLE archive (id int);",
+            "CREATE INDEX archive ON orders (a, b);
+             CREATE INDEX idx_orders_a ON orders (a);",
         );
         assert!(messages.is_empty(), "got {messages:?}");
     }

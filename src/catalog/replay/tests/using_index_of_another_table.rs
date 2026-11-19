@@ -26,14 +26,6 @@ fn customers_in_two_schemas_and_orders_without_a_key() -> Catalog {
         .build()
 }
 
-fn replayed_on(before: &Catalog, sql: &str) -> Catalog {
-    let mut after = before.clone();
-    for unit in steps_from_sql(&[sql], TEST_DEFAULT_SCHEMA) {
-        apply(&mut after, &unit);
-    }
-    after
-}
-
 #[test]
 fn primary_key_using_another_tables_index_leaves_the_table_without_one() {
     let before = customers_in_two_schemas_and_orders_without_a_key();

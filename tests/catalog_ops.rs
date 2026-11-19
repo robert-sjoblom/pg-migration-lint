@@ -119,3 +119,27 @@ fn add_primary_key_using_another_tables_index_is_rejected_and_leaves_the_table_w
         ]
     );
 }
+
+#[test]
+fn create_index_onto_another_tables_index_name_is_rejected_and_builds_nothing() {
+    let findings = common::lint_fixture_rules(
+        "catalog-ops",
+        &["V006__create_index_onto_taken_name.sql"],
+        &["PGM027", "PGM502", "PGM503"],
+    );
+    let reported: Vec<(&str, &str)> = findings
+        .iter()
+        .map(|f| (f.rule_id.as_str(), f.message.as_str()))
+        .collect();
+    assert_eq!(
+        reported,
+        [
+            (
+                "PGM027",
+                "CREATE INDEX 'customers_id_idx' on table 'invoices' fails: \
+                 index 'customers_id_idx' on table 'customers' already has that name."
+            ),
+            ("PGM502", "Table 'invoices' has no primary key."),
+        ]
+    );
+}

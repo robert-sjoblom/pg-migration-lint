@@ -77,6 +77,7 @@ mod tests {
 
     const SHARED_IDX_CHANGING_HANDS: &str = "
         ALTER TABLE orders ADD UNIQUE USING INDEX shared_idx;
+        ALTER TABLE orders DROP CONSTRAINT shared_idx;
         CREATE UNIQUE INDEX shared_idx ON customers (id);
         ALTER TABLE orders ADD UNIQUE USING INDEX shared_idx;
         DROP INDEX shared_idx;
@@ -124,6 +125,7 @@ mod tests {
             [
                 "Missing",
                 "-",
+                "-",
                 "OfAnotherTable(customers)",
                 "-",
                 "-",
@@ -146,6 +148,6 @@ mod tests {
                 matches!(using_index, Some(UsingIndex::OfAnotherTable { .. }))
             });
         assert_eq!(rejected, of_another_table);
-        assert_eq!(rejected, [false, false, true, false, false, false]);
+        assert_eq!(rejected, [false, false, false, true, false, false, false]);
     }
 }
