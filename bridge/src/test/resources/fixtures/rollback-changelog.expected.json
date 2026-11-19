@@ -1,0 +1,50 @@
+[
+  {
+    "changeset_id": "001-create-widgets",
+    "author": "carol",
+    "sql": "CREATE TABLE widgets (id BIGINT NOT NULL, name TEXT, CONSTRAINT widgets_pkey PRIMARY KEY (id));",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 7,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "001-index-widgets-name",
+    "author": "carol",
+    "sql": "CREATE INDEX idx_widgets_name ON widgets (name);",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 16,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "001-add-widgets-note",
+    "author": "carol",
+    "sql": "ALTER TABLE widgets ADD note TEXT;",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 21,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "001-add-widgets-price",
+    "author": "carol",
+    "sql": "ALTER TABLE widgets ADD price numeric(10, 2);",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 33,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "001-create-gadgets",
+    "author": "carol",
+    "sql": "CREATE TABLE gadgets (id BIGINT NOT NULL, CONSTRAINT gadgets_pkey PRIMARY KEY (id));",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 42,
+    "run_in_transaction": true
+  },
+  {
+    "changeset_id": "001-drop-gadgets",
+    "author": "carol",
+    "sql": "DROP TABLE gadgets;",
+    "xml_file": "001-rollback-blocks.xml",
+    "xml_line": 52,
+    "run_in_transaction": true
+  }
+]

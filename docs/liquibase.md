@@ -29,7 +29,7 @@ The tool uses a two-tier approach for Liquibase XML processing (JRE required):
 
 ## Notes
 
-> **Note:** Liquibase `<rollback>` blocks are not detected as down migrations. Down migration detection (PGM901 severity cap) only applies to SQL files with `.down.sql` or `_down.sql` filename suffixes.
+> **Note:** Rollback SQL is never linted. Both strategies read only the SQL a changeset runs on `update`: the contents of `<rollback>` blocks, and the rollback Liquibase derives for changes like `createTable`, never reach the linter or its schema model. Down migration detection (PGM901 severity cap) only applies to SQL files with `.down.sql` or `_down.sql` filename suffixes.
 
 > **Note:** `liquibase update-sql` rejects changelogs that `<include>` the same file more than once ("duplicate identifiers" validation error). The bridge JAR does not have this limitation. In production, Liquibase silently skips already-applied changesets, so duplicate includes are harmless. Prefer the bridge JAR for maximum compatibility.
 

@@ -14,9 +14,11 @@ This directory contains test fixtures for pg-migration-lint.
   - `go-migrate/` - Tests go-migrate convention (.up.sql / .down.sql pairs)
   - `liquibase-fresh/` - Liquibase fixture for the bridge fresh-repo test (every changeset changed, expect only PGM402)
   - `liquibase-multi-schema/` - Tests Liquibase bridge with multi-schema changelogs
+  - `liquibase-rollback/` - Liquibase changesets with `<rollback>` blocks (inline SQL, nested changes, `<sqlFile>`, a `changeSetId` reference, empty, rollback only) and a derived rollback; both loaders must emit only the forward SQL
   - `liquibase-xml/` - Liquibase XML fixture for bridge tests
   - `multi-schema/` - Tests catalog tracking across multiple schemas (cross-schema FKs, name isolation, drop isolation)
   - `partition-lock-hazard/` - Tests PGM024 and PGM026 on a repartition of 5 partitioned parents in one transaction (PGM024: one finding per parent; PGM026: one finding naming all five), and the safe DETACH CONCURRENTLY then DROP
+  - `repeated-findings/` - Grouping: 20 `DROP TABLE` without IF EXISTS in one file (PGM201 and PGM401 floods), and a file where one suppressed statement keeps PGM401 below `group_threshold`
   - `schema-qualified/` - Tests schema-qualified names and cross-schema references
   - `suppressed/` - All violations suppressed via inline comments, expect 0 findings
 

@@ -95,7 +95,10 @@ public class LiquibaseBridge {
             try {
                 StringBuilder sqlBuilder = new StringBuilder();
 
-                // Generate SQL for each change within the changeset.
+                // Forward changes only, the SQL `update` runs. Liquibase keeps
+                // <rollback> contents in changeSet.getRollback() and derives
+                // automatic rollbacks only when rolling back, so neither is
+                // emitted.
                 for (var change : changeSet.getChanges()) {
                     SqlStatement[] statements = change.generateStatements(database);
                     for (SqlStatement statement : statements) {
@@ -110,8 +113,6 @@ public class LiquibaseBridge {
                     }
                 }
 
-                // Also capture any raw SQL blocks within the changeset.
-                // Liquibase <sql> tags store their content differently.
                 String generatedSql = sqlBuilder.toString();
                 if (generatedSql.isEmpty()) {
                     // Skip changesets that produce no SQL (e.g., preconditions-only).

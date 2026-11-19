@@ -1471,7 +1471,7 @@ Detection is by filename suffix: the stem (filename minus `.sql` extension) must
 - `V001__create_users_down.sql` — detected (underscore convention)
 - `downtown_orders.sql` — **not** detected (contains "down" but not as a suffix)
 
-Liquibase `<rollback>` blocks are not currently detected as down migrations.
+Liquibase changesets are never down migrations: the Liquibase loaders take only the SQL a changeset runs on `update`, so the SQL of `<rollback>` blocks is never linted.
 
 This rule cannot be suppressed (it is applied automatically by the pipeline).
 
