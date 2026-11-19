@@ -1,5 +1,49 @@
 # Changelog
 
+## [2.17.0](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.2...v2.17.0) (2026-11-19)
+
+
+### Features
+
+* **action:** add Marketplace branding ([28da17e](https://github.com/robert-sjoblom/pg-migration-lint/commit/28da17ee16ca1ef77f69fcec57999bd7df1a81c9)), closes [#303](https://github.com/robert-sjoblom/pg-migration-lint/issues/303)
+* add PGM026 for several partitioned parents locked in one transaction ([#314](https://github.com/robert-sjoblom/pg-migration-lint/issues/314)) ([719d9e2](https://github.com/robert-sjoblom/pg-migration-lint/commit/719d9e24b58cb3d6f1992960bd4f0bff08a2bf9d)), closes [#308](https://github.com/robert-sjoblom/pg-migration-lint/issues/308)
+* add PGM027 ([00378d7](https://github.com/robert-sjoblom/pg-migration-lint/commit/00378d71435e5928e4ffdced14591438b4f6f70d))
+* **catalog:** schema-qualified relation keys and pg-generated names ([#257](https://github.com/robert-sjoblom/pg-migration-lint/issues/257)) ([90fb933](https://github.com/robert-sjoblom/pg-migration-lint/commit/90fb9331f4d4420b00d5cf7f0159c2cac1084a3e))
+* group repeated findings of one rule per file ([a39be93](https://github.com/robert-sjoblom/pg-migration-lint/commit/a39be935635522f98e069d2ab7566edf8f731fe0)), closes [#294](https://github.com/robert-sjoblom/pg-migration-lint/issues/294)
+* **parser:** add TransactionControl IR node for BEGIN, COMMIT and ROLLBACK ([0cb66cf](https://github.com/robert-sjoblom/pg-migration-lint/commit/0cb66cf822f20ea5fb69c9e1e5e5dbf87d82a945)), closes [#306](https://github.com/robert-sjoblom/pg-migration-lint/issues/306)
+* **parser:** upgrade pg_query to 18.1 and parse PG 18 table-level NOT NULL ([#335](https://github.com/robert-sjoblom/pg-migration-lint/issues/335)) ([462f153](https://github.com/robert-sjoblom/pg-migration-lint/commit/462f1534fa9d732ab2155f8a187be68b002b0823)), closes [#288](https://github.com/robert-sjoblom/pg-migration-lint/issues/288)
+* **pgm003:** detect DETACH/REINDEX CONCURRENTLY in transactions ([2a4ba41](https://github.com/robert-sjoblom/pg-migration-lint/commit/2a4ba414f41cfb4af1448b5ce25763640a81873d))
+* **pgm024:** add PGM024 rule for partition lock hazard ([#233](https://github.com/robert-sjoblom/pg-migration-lint/issues/233)) ([ab5590d](https://github.com/robert-sjoblom/pg-migration-lint/commit/ab5590dfc3712e1bf14d5211ba149b57b272302d))
+* **pgm026:** count plain DETACH PARTITION and measure the lock claims ([f3b175b](https://github.com/robert-sjoblom/pg-migration-lint/commit/f3b175b9ba116ac1769982efb803c9cc188a0f42))
+* **pgm027:** report CREATE INDEX onto a name already taken ([23fa5de](https://github.com/robert-sjoblom/pg-migration-lint/commit/23fa5dee8824dfd6e6416ac5c4941ff13d0cfbf7)), closes [#302](https://github.com/robert-sjoblom/pg-migration-lint/issues/302)
+* **rules:** add PGM025 - DROP COLUMN silently removes EXCLUDE constraint ([#245](https://github.com/robert-sjoblom/pg-migration-lint/issues/245)) ([a145b4b](https://github.com/robert-sjoblom/pg-migration-lint/commit/a145b4b520207341a69420991cd2b77832450f2c))
+* **rules:** add transaction windows to LintContext ([5c774ad](https://github.com/robert-sjoblom/pg-migration-lint/commit/5c774ad9201df3cc4ba8bb5edb1231459aaf7687)), closes [#307](https://github.com/robert-sjoblom/pg-migration-lint/issues/307)
+* **rules:** defer rejected statements to PGM027 only while it is enabled ([#330](https://github.com/robert-sjoblom/pg-migration-lint/issues/330)) ([8422f74](https://github.com/robert-sjoblom/pg-migration-lint/commit/8422f74e76f76dfb321fa87ce561dea9022b6c61)), closes [#263](https://github.com/robert-sjoblom/pg-migration-lint/issues/263) [#264](https://github.com/robert-sjoblom/pg-migration-lint/issues/264)
+* **rules:** disable idempotency rules by default ([e95b1e6](https://github.com/robert-sjoblom/pg-migration-lint/commit/e95b1e639a4b08a990d9250a7b9a860d2244573a))
+
+
+### Bug Fixes
+
+* **action:** fail early on runners that are not Linux x86_64 ([#310](https://github.com/robert-sjoblom/pg-migration-lint/issues/310)) ([1fbe29e](https://github.com/robert-sjoblom/pg-migration-lint/commit/1fbe29edede67985181c83a9023f031d9cab422e)), closes [#304](https://github.com/robert-sjoblom/pg-migration-lint/issues/304)
+* **catalog:** back UNIQUE constraints with a synthetic index ([a4e3dd7](https://github.com/robert-sjoblom/pg-migration-lint/commit/a4e3dd7f0fdeadf91643ec48ac6ef338fce680b3))
+* **catalog:** scope index names per schema and replay ALTER INDEX RENAME ([281e221](https://github.com/robert-sjoblom/pg-migration-lint/commit/281e2211e710d4fa84562106d24dcce4237de176))
+* **catalog:** track EXCLUDE constraint columns ([191b14b](https://github.com/robert-sjoblom/pg-migration-lint/commit/191b14ba0f81428f0090a63ff5be932b0b35a4db))
+* **ci:** correct generator scripts to avoid dates, add support for pg19 ([a6bde89](https://github.com/robert-sjoblom/pg-migration-lint/commit/a6bde8901d2be725c9a8861c8935677f710527f1))
+* **cli:** make --list-rules show effective state under --config ([25d736a](https://github.com/robert-sjoblom/pg-migration-lint/commit/25d736a4baff6cb564d4cfaea2cc6388fa4f88e5))
+* minor fixes in preparation of schema layout rework ([#255](https://github.com/robert-sjoblom/pg-migration-lint/issues/255)) ([2a4e65b](https://github.com/robert-sjoblom/pg-migration-lint/commit/2a4e65b157d8d938bb70636e2b28e0bbd32761b1))
+* **parser:** keep byte offsets when uppercasing for table hints ([#297](https://github.com/robert-sjoblom/pg-migration-lint/issues/297)) ([0031aef](https://github.com/robert-sjoblom/pg-migration-lint/commit/0031aefc104e74ffa5700b731c89eafea5f990c9))
+* **parser:** split quoted names in the table hint outside quotes ([#325](https://github.com/robert-sjoblom/pg-migration-lint/issues/325)) ([f7c5abe](https://github.com/robert-sjoblom/pg-migration-lint/commit/f7c5abef00c4d5576394e0f261ded48ce58a5a5e)), closes [#289](https://github.com/robert-sjoblom/pg-migration-lint/issues/289)
+* **parser:** store parenthesized plain index column as a column ([42b4235](https://github.com/robert-sjoblom/pg-migration-lint/commit/42b4235d859bf844a99eb0d7f05990b5738338f7)), closes [#286](https://github.com/robert-sjoblom/pg-migration-lint/issues/286)
+* **parser:** use the complete column walker for index and partition key expressions ([#321](https://github.com/robert-sjoblom/pg-migration-lint/issues/321)) ([ba38974](https://github.com/robert-sjoblom/pg-migration-lint/commit/ba38974407f80d71609d9dae5a36a217b795d4fe)), closes [#285](https://github.com/robert-sjoblom/pg-migration-lint/issues/285)
+* **pgm003:** use transaction windows instead of the per-file flag ([a2d508b](https://github.com/robert-sjoblom/pg-migration-lint/commit/a2d508bee47aeabf549bd25dc4de4826bf961f0f)), closes [#291](https://github.com/robert-sjoblom/pg-migration-lint/issues/291)
+* **pgm013:** stay silent after a valid CHECK proving not-null ([#326](https://github.com/robert-sjoblom/pg-migration-lint/issues/326)) ([0510ee5](https://github.com/robert-sjoblom/pg-migration-lint/commit/0510ee59488e1df4311d6afc44a2141e6b6dca2e)), closes [#269](https://github.com/robert-sjoblom/pg-migration-lint/issues/269)
+* **pgm024:** address final review findings — docs count, TODO.md, e2e guard test, effort estimate ([cda0c91](https://github.com/robert-sjoblom/pg-migration-lint/commit/cda0c9103eb5470143147af5e62bdca3cacfbc6f))
+* **pgm501:** find an index renamed before it is dropped ([#329](https://github.com/robert-sjoblom/pg-migration-lint/issues/329)) ([d0de063](https://github.com/robert-sjoblom/pg-migration-lint/commit/d0de063689603061183aba4b7172370a0b588d03))
+* **pgm501:** stop flagging FK partial index coverage as seq scan ([#228](https://github.com/robert-sjoblom/pg-migration-lint/issues/228)) ([bef33e2](https://github.com/robert-sjoblom/pg-migration-lint/commit/bef33e291a885c5fda20d9f1e4ee8479f1615ad1))
+* **pgm501:** tighten and correct the no-covering index message ([#230](https://github.com/robert-sjoblom/pg-migration-lint/issues/230)) ([2ff2f2b](https://github.com/robert-sjoblom/pg-migration-lint/commit/2ff2f2bf4e0e2a9a8f7b8ad0679de81deb16bf14))
+* **replay:** skip ADD ... USING INDEX of another table's index ([7b59f91](https://github.com/robert-sjoblom/pg-migration-lint/commit/7b59f91e4432ee517237b709314a6ebc1b7eb07e))
+* **rules:** pgm501 doesn't fire on hash index ([3f2f638](https://github.com/robert-sjoblom/pg-migration-lint/commit/3f2f638e6759e249c1368dabe18029adf3c4f929))
+
 ## [2.16.2](https://github.com/robert-sjoblom/pg-migration-lint/compare/v2.16.1...v2.16.2) (2026-09-08)
 
 
