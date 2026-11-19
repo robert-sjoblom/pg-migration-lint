@@ -1,0 +1,2 @@
+ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer_id_old;
+DROP INDEX idx_orders_customer_id_old;

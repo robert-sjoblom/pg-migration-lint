@@ -1,5 +1,6 @@
 #![doc = include_str!("docs/pgm501.md")]
 
+use crate::catalog::replay::map_with_state_before;
 use crate::catalog::{Catalog, IndexState, TableState};
 use crate::names::RelationName;
 use crate::parser::ir::{AlterTableAction, IrNode, Located, SourceSpan, TableConstraint};
@@ -105,88 +106,163 @@ fn added_fks_without_coverage(
 }
 
 /// A finding for each foreign key the unit leaves without a covering index by
-/// dropping the indexes that covered it, while the key itself stays. The key
-/// must exist before and after the unit, be covered before it and not after.
-/// A key the unit adds is left to [`added_fks_without_coverage`]. When more
-/// than one statement drops a covering index, the finding goes to the last,
-/// which removes the coverage that was left. A statement PostgreSQL rejects
-/// drops nothing: `DROP INDEX covering_idx, constraint_idx` fails as a whole,
-/// though replay drops `covering_idx`, and PGM027 reports it.
+/// dropping the indexes that covered it, while the key itself stays
+/// ([`fks_losing_coverage`]). The finding goes to the statement that ends the
+/// key's coverage for the last time in the unit: the key is covered just
+/// before the statement and not just after it. Each statement is judged
+/// against `catalog_before` with the unit's earlier statements replayed on
+/// top, so an index renamed or created earlier in the unit is found under the
+/// name the statement drops it by. There is no finding when that statement
+/// drops no covering index, as with `DETACH PARTITION`, which PGM501 does not
+/// judge, or when PostgreSQL rejects it: `DROP INDEX covering_idx,
+/// constraint_idx` fails as a whole, though replay drops `covering_idx`, and
+/// PGM027 reports it. A unit without a statement that can drop an index, or
+/// that loses no key's coverage, is not replayed.
 fn fks_left_without_coverage_by_drops(
     rule: &impl Rule,
     statements: &[Located<IrNode>],
     added_fks: &[FkInfo],
     ctx: &LintContext<'_>,
 ) -> Vec<Finding> {
-    let rejected = RejectedStatements::new(ctx, statements);
-    let mut findings: Vec<((&RelationName, &str), Finding)> = Vec::new();
-    for drop in index_drops(statements, ctx.catalog_before) {
-        for (fk_table, fk_name, fk_columns) in fks_coverable_by(drop.table, ctx.catalog_after) {
-            let added_in_unit = added_fks
-                .iter()
-                .any(|added| added.table_name == fk_table.name && added.columns == fk_columns);
-            if added_in_unit {
-                continue;
-            }
-            let Some(table_before) = ctx.catalog_before.get_table(&fk_table.name) else {
-                continue;
-            };
-            let Some(fk_columns_before) = table_before
-                .foreign_keys()
-                .find_map(|(name, columns)| (name == fk_name).then_some(columns))
-            else {
-                continue;
-            };
-
-            let covering_names: Vec<&str> = drop
-                .indexes
-                .iter()
-                .filter(|idx| idx.covers_fk_column(fk_columns_before))
-                .map(|idx| idx.name.as_str())
-                .collect();
-            let coverage_lost = !covering_names.is_empty()
-                && fk_coverage(ctx.catalog_before, table_before, fk_columns_before) == Some(true)
-                && fk_coverage(ctx.catalog_after, fk_table, fk_columns) == Some(false);
-            if !coverage_lost || rejected.contains(drop.span) {
-                continue;
-            }
-
-            let finding = rule.make_finding(
-                format!(
-                    "{dropping} leaves foreign key '{fk_name}' on '{table}({cols})' without a \
-                     covering index. {SEQUENTIAL_SCAN_COST}",
-                    dropping = drop.cause.describe(&covering_names),
-                    table = fk_table.display_name,
-                    cols = fk_columns.join(", "),
-                ),
-                ctx.file,
-                drop.span,
-            );
-            let fk_key = (&fk_table.name, fk_name);
-            findings.retain(|(key, _)| *key != fk_key);
-            findings.push((fk_key, finding));
-        }
+    if !statements.iter().any(|stmt| may_drop_an_index(&stmt.node)) {
+        return Vec::new();
     }
+    let losing_coverage = fks_losing_coverage(added_fks, ctx);
+    if losing_coverage.is_empty() {
+        return Vec::new();
+    }
+    let before_each_statement: Vec<Vec<FkBeforeStatement<'_>>> =
+        map_with_state_before(ctx.catalog_before, statements, |state, stmt| {
+            let drops = index_drops(state, stmt);
+            losing_coverage
+                .iter()
+                .map(|fk| fk.before_statement(state, &drops))
+                .collect()
+        });
+
+    let rejected = RejectedStatements::new(ctx, statements);
+    let mut findings: Vec<(usize, Finding)> = Vec::new();
+    for (position, fk) in losing_coverage.iter().enumerate() {
+        let fk_before_each_statement: Vec<&FkBeforeStatement<'_>> = before_each_statement
+            .iter()
+            .filter_map(|fks| fks.get(position))
+            .collect();
+        let Some((stmt_index, drop)) = last_drop_ending_coverage(&fk_before_each_statement) else {
+            continue;
+        };
+        let Some(stmt) = statements.get(stmt_index) else {
+            continue;
+        };
+        if rejected.contains(&stmt.span) {
+            continue;
+        }
+        let finding = rule.make_finding(
+            format!(
+                "{dropping} leaves foreign key '{fk_name}' on '{table}({cols})' without a \
+                 covering index. {SEQUENTIAL_SCAN_COST}",
+                dropping = drop.cause.describe(&drop.index_names),
+                fk_name = fk.name,
+                table = fk.table.display_name,
+                cols = fk.columns.join(", "),
+            ),
+            ctx.file,
+            &stmt.span,
+        );
+        findings.push((stmt_index, finding));
+    }
+    findings.sort_by_key(|(stmt_index, _)| *stmt_index);
     findings.into_iter().map(|(_, finding)| finding).collect()
 }
 
-/// The foreign keys an index on `table` can cover, as `catalog` holds them:
-/// `table`'s own, and those of its partition children, which a recursive
-/// index on the parent covers.
-fn fks_coverable_by<'a>(
-    table: &TableState,
-    catalog: &'a Catalog,
-) -> Vec<(&'a TableState, &'a str, &'a [String])> {
-    let partition_children = catalog.get_partition_children(&table.name);
-    std::iter::once(&table.name)
-        .chain(&partition_children)
-        .filter_map(|key| catalog.get_table(key))
-        .flat_map(|fk_table| {
-            fk_table
+/// The foreign keys whose coverage the unit loses: a key on a table of the
+/// same name, with the same constraint name, in `catalog_before` and
+/// `catalog_after`, that a usable index covers before the unit and none
+/// after it ([`fk_coverage`]). A key the unit adds on the same table and
+/// columns is left to [`added_fks_without_coverage`]. Coverage the unit adds
+/// and takes away again, such as a temporary index for a backfill on a key
+/// that had none, is not lost. Ordered by table, then as the table lists its
+/// keys.
+fn fks_losing_coverage<'a>(
+    added_fks: &[FkInfo],
+    ctx: &LintContext<'a>,
+) -> Vec<FkLosingCoverage<'a>> {
+    let mut losing_coverage: Vec<FkLosingCoverage<'a>> = ctx
+        .catalog_after
+        .tables()
+        .flat_map(|table| {
+            table
                 .foreign_keys()
-                .map(move |(name, columns)| (fk_table, name, columns))
+                .map(move |(name, columns)| FkLosingCoverage {
+                    table,
+                    name,
+                    columns,
+                })
         })
-        .collect()
+        .filter(|fk| {
+            !added_fks
+                .iter()
+                .any(|added| added.table_name == fk.table.name && added.columns == fk.columns)
+        })
+        .filter(|fk| fk_coverage(ctx.catalog_after, fk.table, fk.columns) == Some(false))
+        .filter(|fk| {
+            fk.in_catalog(ctx.catalog_before)
+                .is_some_and(|(table, columns)| {
+                    fk_coverage(ctx.catalog_before, table, columns) == Some(true)
+                })
+        })
+        .collect();
+    losing_coverage.sort_by(|a, b| a.table.name.cmp(&b.table.name));
+    losing_coverage
+}
+
+/// The statement that ends a foreign key's coverage for the last time in the
+/// unit, by its index, and the covering indexes it drops. `before_each` holds
+/// the key just before each statement, so the key just after a statement is
+/// as the next one sees it, and after the last as `catalog_after` holds it:
+/// not covered, as [`fks_losing_coverage`] requires. `None` when no
+/// statement ends the key's coverage, or the last that does drops no index
+/// covering it.
+fn last_drop_ending_coverage<'f, 's>(
+    before_each: &[&'f FkBeforeStatement<'s>],
+) -> Option<(usize, &'f CoveringDrop<'s>)> {
+    let covered_after_each = before_each
+        .iter()
+        .skip(1)
+        .map(|fk| fk.covered)
+        .chain([Some(false)]);
+    let (stmt_index, (ending, _)) = before_each
+        .iter()
+        .zip(covered_after_each)
+        .enumerate()
+        .filter(|(_, (before, covered_after))| {
+            before.covered == Some(true) && *covered_after == Some(false)
+        })
+        .last()?;
+    Some((stmt_index, ending.covering_drop.as_ref()?))
+}
+
+/// True for a statement [`index_drops`] can find a drop in. In a unit
+/// without one, no statement can end a key's coverage by dropping its index.
+fn may_drop_an_index(node: &IrNode) -> bool {
+    match node {
+        IrNode::DropIndex(_) => true,
+        IrNode::AlterTable(at) => at.actions.iter().any(|action| {
+            matches!(
+                action,
+                AlterTableAction::DropConstraint { .. } | AlterTableAction::DropColumn { .. }
+            )
+        }),
+        _ => false,
+    }
+}
+
+/// Whether an index on `index_table` counts as coverage for a foreign key on
+/// `fk_table`, as [`fk_coverage`] counts it: an index on the key's own table,
+/// or on its parent when the table is a partition that is not partitioned
+/// itself.
+fn index_table_counts_for(index_table: &RelationName, fk_table: &TableState) -> bool {
+    *index_table == fk_table.name
+        || (!fk_table.is_partitioned && fk_table.parent_table.as_ref() == Some(index_table))
 }
 
 /// Whether a foreign key over `fk_columns` on `table` has a covering index in
@@ -208,20 +284,21 @@ fn fk_coverage(catalog: &Catalog, table: &TableState, fk_columns: &[String]) -> 
 
 /// The statement that drops a set of indexes, as a finding describes it.
 #[expect(clippy::enum_variant_names, reason = "we're okay with this")]
-enum DropCause<'a> {
+#[derive(Clone, Copy)]
+enum DropCause<'s> {
     /// `DROP INDEX`.
     DropIndex,
     /// `ALTER TABLE ... DROP CONSTRAINT` of a PRIMARY KEY, UNIQUE or EXCLUDE
     /// constraint, which drops the index of the same name.
-    DropConstraint(&'a str),
+    DropConstraint(&'s str),
     /// `ALTER TABLE ... DROP COLUMN`, which drops every index on the column.
-    DropColumn(&'a str),
+    DropColumn(&'s str),
 }
 
 impl DropCause<'_> {
     /// The start of a finding's message: the statement, and which of the
     /// indexes it drops, `index_names`, covered the foreign key.
-    fn describe(&self, index_names: &[&str]) -> String {
+    fn describe(&self, index_names: &[String]) -> String {
         let quoted = index_names
             .iter()
             .map(|name| format!("'{name}'"))
@@ -244,56 +321,74 @@ impl DropCause<'_> {
     }
 }
 
-/// Indexes one statement drops from one table, as the catalog before the
-/// unit records them.
-struct IndexDrop<'a> {
-    cause: DropCause<'a>,
-    table: &'a TableState,
-    indexes: Vec<&'a IndexState>,
-    span: &'a SourceSpan,
+/// Indexes one statement drops from one table, as the catalog just before
+/// the statement records them.
+struct IndexDrop<'c, 's> {
+    cause: DropCause<'s>,
+    table: &'c RelationName,
+    indexes: Vec<&'c IndexState>,
 }
 
-/// Every set of indexes a statement in `statements` drops, in statement
-/// order, looked up in `catalog_before`: `DROP INDEX`, `DROP CONSTRAINT` of an
-/// index-backed constraint, and `DROP COLUMN`. An index the unit itself
-/// creates is not in `catalog_before`, so dropping it again drops nothing
-/// here. Neither does `DROP INDEX` of a constraint's index, which PostgreSQL
-/// rejects (`cannot drop index ... because constraint ... requires it`):
-/// replay keeps the index, and PGM027 reports the statement.
-fn index_drops<'a>(
-    statements: &'a [Located<IrNode>],
-    catalog_before: &'a Catalog,
-) -> Vec<IndexDrop<'a>> {
-    let mut drops = Vec::new();
-    for stmt in statements {
-        match &stmt.node {
-            IrNode::DropIndex(di) => {
-                let index = di.index_name.relation();
-                let Some(table) = catalog_before
-                    .table_for_index(index)
-                    .and_then(|table| catalog_before.get_table(table))
-                else {
-                    continue;
-                };
-                if table.constraint_backed_by(&index.name).is_some() {
-                    continue;
-                }
-                drops.push(IndexDrop {
-                    cause: DropCause::DropIndex,
-                    table,
-                    indexes: table
-                        .indexes
-                        .iter()
-                        .filter(|idx| idx.name == index.name)
-                        .collect(),
-                    span: &stmt.span,
-                });
+impl<'s> IndexDrop<'_, 's> {
+    /// The indexes of this drop that cover a foreign key over `fk_columns` on
+    /// `fk_table`, as the same catalog holds the key. `None` when none does,
+    /// or the dropped indexes' table does not count for the key
+    /// ([`index_table_counts_for`]).
+    fn covering(&self, fk_table: &TableState, fk_columns: &[String]) -> Option<CoveringDrop<'s>> {
+        if !index_table_counts_for(self.table, fk_table) {
+            return None;
+        }
+        let index_names: Vec<String> = self
+            .indexes
+            .iter()
+            .filter(|idx| idx.covers_fk_column(fk_columns))
+            .map(|idx| idx.name.clone())
+            .collect();
+        (!index_names.is_empty()).then_some(CoveringDrop {
+            cause: self.cause,
+            index_names,
+        })
+    }
+}
+
+/// Every set of indexes `stmt` drops, looked up in `catalog`, the catalog
+/// just before it: `DROP INDEX`, `DROP CONSTRAINT` of an index-backed
+/// constraint, and `DROP COLUMN`, one per action of an `ALTER TABLE`, in
+/// order. An index renamed or created earlier in the unit is in `catalog`
+/// under the name the statement uses. `DROP INDEX` of a constraint's index
+/// drops nothing here, as PostgreSQL rejects it (`cannot drop index ...
+/// because constraint ... requires it`): replay keeps the index, and PGM027
+/// reports the statement.
+fn index_drops<'c, 's>(catalog: &'c Catalog, stmt: &'s Located<IrNode>) -> Vec<IndexDrop<'c, 's>> {
+    match &stmt.node {
+        IrNode::DropIndex(di) => {
+            let index = di.index_name.relation();
+            let Some(table) = catalog
+                .table_for_index(index)
+                .and_then(|table| catalog.get_table(table))
+            else {
+                return Vec::new();
+            };
+            if table.constraint_backed_by(&index.name).is_some() {
+                return Vec::new();
             }
-            IrNode::AlterTable(at) => {
-                let Some(table) = catalog_before.get_table(at.name.relation()) else {
-                    continue;
-                };
-                for action in &at.actions {
+            vec![IndexDrop {
+                cause: DropCause::DropIndex,
+                table: &table.name,
+                indexes: table
+                    .indexes
+                    .iter()
+                    .filter(|idx| idx.name == index.name)
+                    .collect(),
+            }]
+        }
+        IrNode::AlterTable(at) => {
+            let Some(table) = catalog.get_table(at.name.relation()) else {
+                return Vec::new();
+            };
+            at.actions
+                .iter()
+                .filter_map(|action| {
                     let (cause, indexes) = match action {
                         AlterTableAction::DropConstraint { constraint_name } => {
                             let backs_an_index = table
@@ -301,10 +396,10 @@ fn index_drops<'a>(
                                 .iter()
                                 .any(|c| c.is_index_backed() && c.name() == constraint_name);
                             if !backs_an_index {
-                                continue;
+                                return None;
                             }
                             (
-                                DropCause::DropConstraint(constraint_name),
+                                DropCause::DropConstraint(constraint_name.as_str()),
                                 table
                                     .indexes
                                     .iter()
@@ -313,23 +408,82 @@ fn index_drops<'a>(
                             )
                         }
                         AlterTableAction::DropColumn { name } => (
-                            DropCause::DropColumn(name),
+                            DropCause::DropColumn(name.as_str()),
                             table.indexes_involving_column(name),
                         ),
-                        _ => continue,
+                        _ => return None,
                     };
-                    drops.push(IndexDrop {
+                    Some(IndexDrop {
                         cause,
-                        table,
+                        table: &table.name,
                         indexes,
-                        span: &stmt.span,
-                    });
-                }
-            }
-            _ => {}
+                    })
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A foreign key whose coverage the unit loses ([`fks_losing_coverage`]),
+/// as `catalog_after` holds it.
+struct FkLosingCoverage<'a> {
+    table: &'a TableState,
+    name: &'a str,
+    columns: &'a [String],
+}
+
+impl FkLosingCoverage<'_> {
+    /// The key's table and columns in `catalog`: the table of the same name,
+    /// and its foreign key of the same name. `None` when `catalog` has no
+    /// such table, or no such key on it.
+    fn in_catalog<'c>(&self, catalog: &'c Catalog) -> Option<(&'c TableState, &'c [String])> {
+        let table = catalog.get_table(&self.table.name)?;
+        let columns = table
+            .foreign_keys()
+            .find_map(|(name, columns)| (name == self.name).then_some(columns))?;
+        Some((table, columns))
+    }
+
+    /// The key as `state`, the catalog just before a statement, holds it,
+    /// with the last of the statement's `drops` that takes indexes covering
+    /// it.
+    fn before_statement<'s>(
+        &self,
+        state: &Catalog,
+        drops: &[IndexDrop<'_, 's>],
+    ) -> FkBeforeStatement<'s> {
+        let Some((table, columns)) = self.in_catalog(state) else {
+            return FkBeforeStatement {
+                covered: None,
+                covering_drop: None,
+            };
+        };
+        FkBeforeStatement {
+            covered: fk_coverage(state, table, columns),
+            covering_drop: drops
+                .iter()
+                .rev()
+                .find_map(|drop| drop.covering(table, columns)),
         }
     }
-    drops
+}
+
+/// A foreign key losing coverage, as the catalog holds it just before one
+/// statement of the unit.
+struct FkBeforeStatement<'s> {
+    /// Whether a usable index covers the key ([`fk_coverage`]). `None` when
+    /// the catalog has no such key just then, or cannot tell.
+    covered: Option<bool>,
+    /// The last drop of the statement that takes indexes covering the key.
+    covering_drop: Option<CoveringDrop<'s>>,
+}
+
+/// The indexes covering a foreign key that one drop takes, by name, for a
+/// finding's message.
+struct CoveringDrop<'s> {
+    cause: DropCause<'s>,
+    index_names: Vec<String>,
 }
 
 /// A foreign key added in the current migration unit, with enough context
@@ -367,6 +521,13 @@ mod tests {
             .collect()
     }
 
+    fn lines_and_messages_for_change(history: &str, change: &str) -> Vec<(usize, String)> {
+        findings_for_change(history, change)
+            .into_iter()
+            .map(|finding| (finding.start_line, finding.message))
+            .collect()
+    }
+
     const ORDERS_WITH_COVERED_FK: &str = "
         CREATE TABLE customers (id int PRIMARY KEY);
         CREATE TABLE orders (
@@ -378,6 +539,34 @@ mod tests {
 
     const SCAN_COST: &str = "Queries joining or filtering on these columns, and referential \
                              integrity checks, cause sequential scans on the referencing table.";
+
+    const ORDERS_WITH_FK_COVERED_BY_A_UNIQUE_CONSTRAINT: &str = "
+        CREATE TABLE customers (id int PRIMARY KEY);
+        CREATE TABLE orders (
+            id int PRIMARY KEY,
+            customer_id int,
+            CONSTRAINT uq_orders_customer UNIQUE (customer_id),
+            CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+        );";
+
+    const ORDERS_WITH_FK_COVERED_BY_THE_PRIMARY_KEY: &str = "
+        CREATE TABLE customers (id int PRIMARY KEY);
+        CREATE TABLE orders (
+            id int,
+            customer_id int,
+            CONSTRAINT orders_pkey PRIMARY KEY (customer_id, id),
+            CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+        );";
+
+    const ORDERS_WITH_FK_COVERED_BY_A_TWO_COLUMN_INDEX: &str = "
+        CREATE TABLE customers (id int PRIMARY KEY);
+        CREATE TABLE orders (
+            id int PRIMARY KEY,
+            customer_id int,
+            legacy_code text,
+            CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+        );
+        CREATE INDEX idx_orders_customer_legacy ON orders (customer_id, legacy_code);";
 
     #[rstest]
     #[case::name_another_table_has(
@@ -1233,27 +1422,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unique(
-        "CONSTRAINT uq_orders_customer UNIQUE (customer_id)",
-        "uq_orders_customer"
-    )]
-    #[case::primary_key("CONSTRAINT orders_pkey PRIMARY KEY (customer_id, id)", "orders_pkey")]
+    #[case::unique(ORDERS_WITH_FK_COVERED_BY_A_UNIQUE_CONSTRAINT, "uq_orders_customer")]
+    #[case::primary_key(ORDERS_WITH_FK_COVERED_BY_THE_PRIMARY_KEY, "orders_pkey")]
     fn dropping_a_constraint_whose_index_covered_the_fk_fires(
-        #[case] index_backed_constraint: &str,
+        #[case] history: &str,
         #[case] constraint_name: &str,
     ) {
-        let history = format!(
-            "CREATE TABLE customers (id int PRIMARY KEY);
-             CREATE TABLE orders (
-                 id int,
-                 customer_id int,
-                 {index_backed_constraint},
-                 CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
-             );"
-        );
-
         let messages = messages_for_change(
-            &history,
+            history,
             &format!("ALTER TABLE orders DROP CONSTRAINT {constraint_name};"),
         );
         assert_eq!(
@@ -1268,17 +1444,10 @@ mod tests {
 
     #[test]
     fn dropping_a_column_of_the_only_covering_index_fires() {
-        let history = "
-            CREATE TABLE customers (id int PRIMARY KEY);
-            CREATE TABLE orders (
-                id int PRIMARY KEY,
-                customer_id int,
-                legacy_code text,
-                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
-            );
-            CREATE INDEX idx_orders_customer_legacy ON orders (customer_id, legacy_code);";
-
-        let messages = messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
+        let messages = messages_for_change(
+            ORDERS_WITH_FK_COVERED_BY_A_TWO_COLUMN_INDEX,
+            "ALTER TABLE orders DROP COLUMN legacy_code;",
+        );
         assert_eq!(
             messages,
             [format!(
@@ -1291,18 +1460,12 @@ mod tests {
 
     #[test]
     fn dropping_a_column_that_takes_two_covering_indexes_names_both() {
-        let history = "
-            CREATE TABLE customers (id int PRIMARY KEY);
-            CREATE TABLE orders (
-                id int PRIMARY KEY,
-                customer_id int,
-                legacy_code text,
-                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
-            );
-            CREATE INDEX idx_orders_customer_legacy ON orders (customer_id, legacy_code);
-            CREATE INDEX idx_orders_legacy_customer ON orders (legacy_code, customer_id);";
+        let history = format!(
+            "{ORDERS_WITH_FK_COVERED_BY_A_TWO_COLUMN_INDEX}
+             CREATE INDEX idx_orders_legacy_customer ON orders (legacy_code, customer_id);"
+        );
 
-        let messages = messages_for_change(history, "ALTER TABLE orders DROP COLUMN legacy_code;");
+        let messages = messages_for_change(&history, "ALTER TABLE orders DROP COLUMN legacy_code;");
         assert_eq!(
             messages,
             [format!(
@@ -1431,14 +1594,10 @@ mod tests {
              CREATE INDEX idx_orders_customer_id_id ON orders (customer_id, id);"
         );
 
-        let findings = findings_for_change(
+        let reported = lines_and_messages_for_change(
             &history,
             "DROP INDEX idx_orders_customer_id;\nDROP INDEX idx_orders_customer_id_id;",
         );
-        let reported: Vec<(usize, &str)> = findings
-            .iter()
-            .map(|finding| (finding.start_line, finding.message.as_str()))
-            .collect();
         assert_eq!(
             reported,
             [(
@@ -1448,23 +1607,16 @@ mod tests {
                      'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
                      {SCAN_COST}"
                 )
-                .as_str()
             )]
         );
     }
 
     #[test]
     fn drop_index_of_a_constraints_index_is_silent_as_postgres_rejects_it() {
-        let history = "
-            CREATE TABLE customers (id int PRIMARY KEY);
-            CREATE TABLE orders (
-                id int PRIMARY KEY,
-                customer_id int,
-                CONSTRAINT uq_orders_customer UNIQUE (customer_id),
-                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
-            );";
-
-        let messages = messages_for_change(history, "DROP INDEX uq_orders_customer;");
+        let messages = messages_for_change(
+            ORDERS_WITH_FK_COVERED_BY_A_UNIQUE_CONSTRAINT,
+            "DROP INDEX uq_orders_customer;",
+        );
         assert!(messages.is_empty(), "got {messages:?}");
     }
 
@@ -1522,5 +1674,302 @@ mod tests {
 
         let messages = messages_for_change(history, "DROP INDEX idx_orders_2024_ref_id;");
         assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn index_renamed_then_dropped_fires_on_the_drop_under_its_new_name() {
+        let reported = lines_and_messages_for_change(
+            ORDERS_WITH_COVERED_FK,
+            "ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer_id_old;
+             DROP INDEX idx_orders_customer_id_old;",
+        );
+        assert_eq!(
+            reported,
+            [(
+                2,
+                format!(
+                    "Dropping index 'idx_orders_customer_id_old' leaves foreign key \
+                     'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
+                     {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[rstest]
+    #[case::unique_renamed_by_rename_constraint(
+        ORDERS_WITH_FK_COVERED_BY_A_UNIQUE_CONSTRAINT,
+        "ALTER TABLE orders RENAME CONSTRAINT uq_orders_customer TO uq_orders_customer_old;",
+        "uq_orders_customer_old"
+    )]
+    #[case::unique_renamed_by_alter_index(
+        ORDERS_WITH_FK_COVERED_BY_A_UNIQUE_CONSTRAINT,
+        "ALTER INDEX uq_orders_customer RENAME TO uq_orders_customer_old;",
+        "uq_orders_customer_old"
+    )]
+    #[case::primary_key_renamed_by_rename_constraint(
+        ORDERS_WITH_FK_COVERED_BY_THE_PRIMARY_KEY,
+        "ALTER TABLE orders RENAME CONSTRAINT orders_pkey TO orders_pkey_old;",
+        "orders_pkey_old"
+    )]
+    #[case::primary_key_renamed_by_alter_index(
+        ORDERS_WITH_FK_COVERED_BY_THE_PRIMARY_KEY,
+        "ALTER INDEX orders_pkey RENAME TO orders_pkey_old;",
+        "orders_pkey_old"
+    )]
+    fn index_backed_constraint_renamed_then_dropped_fires_on_the_drop_under_its_new_name(
+        #[case] history: &str,
+        #[case] rename: &str,
+        #[case] new_name: &str,
+    ) {
+        let reported = lines_and_messages_for_change(
+            history,
+            &format!(
+                "{rename}
+                 ALTER TABLE orders DROP CONSTRAINT {new_name};"
+            ),
+        );
+        assert_eq!(
+            reported,
+            [(
+                2,
+                format!(
+                    "Dropping constraint '{new_name}' drops its index, which leaves foreign key \
+                     'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
+                     {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[test]
+    fn index_created_renamed_and_dropped_in_the_unit_takes_the_finding_when_it_covered_last() {
+        let reported = lines_and_messages_for_change(
+            ORDERS_WITH_COVERED_FK,
+            "CREATE INDEX idx_orders_customer_tmp ON orders (customer_id);
+             DROP INDEX idx_orders_customer_id;
+             ALTER INDEX idx_orders_customer_tmp RENAME TO idx_orders_customer_v2;
+             DROP INDEX idx_orders_customer_v2;",
+        );
+        assert_eq!(
+            reported,
+            [(
+                4,
+                format!(
+                    "Dropping index 'idx_orders_customer_v2' leaves foreign key \
+                     'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
+                     {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[test]
+    fn index_dropped_recreated_and_dropped_again_reports_the_second_drop() {
+        let reported = lines_and_messages_for_change(
+            ORDERS_WITH_COVERED_FK,
+            "DROP INDEX idx_orders_customer_id;
+             CREATE INDEX idx_orders_customer_id ON orders (customer_id);
+             DROP INDEX idx_orders_customer_id;",
+        );
+        assert_eq!(
+            reported,
+            [(
+                3,
+                format!(
+                    "Dropping index 'idx_orders_customer_id' leaves foreign key \
+                     'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
+                     {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[rstest]
+    #[case::rename_then_drop_with_another_index_covering(
+        "CREATE INDEX idx_orders_customer_created ON orders (customer_id, id);",
+        "ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer_id_old;
+         DROP INDEX idx_orders_customer_id_old;"
+    )]
+    #[case::rename_drop_then_create_a_replacement(
+        "",
+        "ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer_id_old;
+         DROP INDEX idx_orders_customer_id_old;
+         CREATE INDEX idx_orders_customer_id ON orders (customer_id);"
+    )]
+    #[case::rename_create_a_replacement_then_drop(
+        "",
+        "ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer_id_old;
+         CREATE INDEX idx_orders_customer_id ON orders (customer_id);
+         DROP INDEX idx_orders_customer_id_old;"
+    )]
+    #[case::drop_then_recreate(
+        "",
+        "DROP INDEX idx_orders_customer_id;
+         CREATE INDEX idx_orders_customer_id ON orders (customer_id);"
+    )]
+    #[case::rename_of_the_covering_index_alone(
+        "",
+        "ALTER INDEX idx_orders_customer_id RENAME TO idx_orders_customer;"
+    )]
+    #[case::unrelated_index_renamed_then_dropped(
+        "CREATE INDEX idx_orders_id ON orders (id);",
+        "ALTER INDEX idx_orders_id RENAME TO idx_orders_id_old;
+         DROP INDEX idx_orders_id_old;"
+    )]
+    fn fk_still_covered_at_the_end_of_the_unit_is_silent(
+        #[case] more_history: &str,
+        #[case] change: &str,
+    ) {
+        let history = format!("{ORDERS_WITH_COVERED_FK}\n{more_history}");
+        let messages = messages_for_change(&history, change);
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn index_created_and_dropped_in_the_unit_is_silent_when_the_fk_had_no_coverage_before() {
+        let history = "
+            CREATE TABLE customers (id int PRIMARY KEY);
+            CREATE TABLE orders (
+                id int PRIMARY KEY,
+                customer_id int,
+                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+            );";
+
+        let messages = messages_for_change(
+            history,
+            "CREATE INDEX idx_orders_customer_backfill ON orders (customer_id);
+             UPDATE orders SET customer_id = customer_id WHERE customer_id IS NULL;
+             DROP INDEX idx_orders_customer_backfill;",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn partitioned_parents_index_renamed_then_dropped_fires_for_a_child_fk_it_covered() {
+        let history = "
+            CREATE TABLE refs (id int PRIMARY KEY);
+            CREATE TABLE orders (id int, ref_id int) PARTITION BY RANGE (id);
+            CREATE INDEX idx_orders_ref_id ON orders (ref_id);
+            CREATE TABLE orders_2024 PARTITION OF orders FOR VALUES FROM (0) TO (100);
+            ALTER TABLE orders_2024 ADD CONSTRAINT fk_ref FOREIGN KEY (ref_id) REFERENCES refs (id);";
+
+        let messages = messages_for_change(
+            history,
+            "ALTER INDEX idx_orders_ref_id RENAME TO idx_orders_ref_id_old;
+             DROP INDEX idx_orders_ref_id_old;",
+        );
+        assert_eq!(
+            messages,
+            [format!(
+                "Dropping index 'idx_orders_ref_id_old' leaves foreign key 'fk_ref' on \
+                 'orders_2024(ref_id)' without a covering index. {SCAN_COST}"
+            )]
+        );
+    }
+
+    #[test]
+    fn drop_that_leaves_the_parents_coverage_is_silent_though_a_later_detach_ends_it() {
+        let history = "
+            CREATE TABLE refs (id int PRIMARY KEY);
+            CREATE TABLE orders (id int, ref_id int) PARTITION BY RANGE (id);
+            CREATE INDEX idx_orders_ref_id ON orders (ref_id);
+            CREATE TABLE orders_2024 PARTITION OF orders FOR VALUES FROM (0) TO (100);
+            CREATE INDEX idx_orders_2024_ref_id ON orders_2024 (ref_id);
+            ALTER TABLE orders_2024 ADD CONSTRAINT fk_ref FOREIGN KEY (ref_id) REFERENCES refs (id);";
+
+        let messages = messages_for_change(
+            history,
+            "DROP INDEX idx_orders_2024_ref_id;
+             ALTER TABLE orders DETACH PARTITION orders_2024;",
+        );
+        assert!(messages.is_empty(), "got {messages:?}");
+    }
+
+    #[test]
+    fn index_renamed_then_dropped_with_its_column_is_named_by_its_new_name() {
+        let reported = lines_and_messages_for_change(
+            ORDERS_WITH_FK_COVERED_BY_A_TWO_COLUMN_INDEX,
+            "ALTER INDEX idx_orders_customer_legacy RENAME TO idx_orders_customer_legacy_old;
+             ALTER TABLE orders DROP COLUMN legacy_code;",
+        );
+        assert_eq!(
+            reported,
+            [(
+                2,
+                format!(
+                    "Dropping column 'legacy_code' drops index 'idx_orders_customer_legacy_old', \
+                     which leaves foreign key 'fk_orders_customer' on 'orders(customer_id)' \
+                     without a covering index. {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[test]
+    fn constraint_added_using_the_covering_index_then_dropped_fires_on_the_drop() {
+        let history = "
+            CREATE TABLE customers (id int PRIMARY KEY);
+            CREATE TABLE orders (
+                id int PRIMARY KEY,
+                customer_id int,
+                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+            );
+            CREATE UNIQUE INDEX idx_orders_customer_id ON orders (customer_id);";
+
+        let reported = lines_and_messages_for_change(
+            history,
+            "ALTER TABLE orders ADD CONSTRAINT uq_orders_customer
+                 UNIQUE USING INDEX idx_orders_customer_id;
+             ALTER TABLE orders DROP CONSTRAINT uq_orders_customer;",
+        );
+        assert_eq!(
+            reported,
+            [(
+                3,
+                format!(
+                    "Dropping constraint 'uq_orders_customer' drops its index, which leaves \
+                     foreign key 'fk_orders_customer' on 'orders(customer_id)' without a \
+                     covering index. {SCAN_COST}"
+                )
+            )]
+        );
+    }
+
+    #[test]
+    fn rejected_statement_ending_coverage_reports_nothing_though_an_earlier_drop_took_an_index() {
+        let history = "
+            CREATE TABLE customers (id int PRIMARY KEY);
+            CREATE TABLE orders (
+                id int PRIMARY KEY,
+                customer_id int,
+                code text CONSTRAINT uq_orders_code UNIQUE,
+                CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+            );
+            CREATE INDEX idx_orders_customer_id ON orders (customer_id);
+            CREATE INDEX idx_orders_customer_id_id ON orders (customer_id, id);";
+        let earlier_drop = "DROP INDEX idx_orders_customer_id;";
+
+        let rejected = lines_and_messages_for_change(
+            history,
+            &format!("{earlier_drop}\nDROP INDEX idx_orders_customer_id_id, uq_orders_code;"),
+        );
+        assert!(rejected.is_empty(), "got {rejected:?}");
+
+        let accepted = lines_and_messages_for_change(
+            history,
+            &format!("{earlier_drop}\nDROP INDEX idx_orders_customer_id_id;"),
+        );
+        assert_eq!(
+            accepted,
+            [(
+                2,
+                format!(
+                    "Dropping index 'idx_orders_customer_id_id' leaves foreign key \
+                     'fk_orders_customer' on 'orders(customer_id)' without a covering index. \
+                     {SCAN_COST}"
+                )
+            )]
+        );
     }
 }
