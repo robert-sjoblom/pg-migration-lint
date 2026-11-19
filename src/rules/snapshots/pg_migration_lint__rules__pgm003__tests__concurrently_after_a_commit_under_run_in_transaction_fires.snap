@@ -1,0 +1,10 @@
+---
+source: src/rules/pgm003.rs
+expression: findings
+---
+- rule_id: PGM003
+  severity: Critical
+  message: "CONCURRENTLY cannot run inside a transaction. The COMMIT on line 2 ends the migration tool's transaction, but the tool runs the statements after it in a new one. Move this statement to a migration of its own and disable transactions for it (runInTransaction=\"false\" in Liquibase)."
+  file: migrations/002.sql
+  start_line: 3
+  end_line: 3

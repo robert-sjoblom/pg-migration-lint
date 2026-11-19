@@ -20,10 +20,12 @@ use crate::parser::ir::{IrNode, Located, TransactionControl};
 /// - [`BeginBlock`](TransactionWindowKind::BeginBlock): a transaction block
 ///   the file opens, from its `BEGIN` through the `COMMIT` or `ROLLBACK`
 ///   that ends it.
-/// - [`ToolTransaction`](TransactionWindowKind::ToolTransaction): the
-///   transaction the migration tool runs the unit in when
-///   `run_in_transaction` is on, from the unit's first statement. With no
-///   `COMMIT` or `ROLLBACK` in the file it is the whole unit.
+/// - [`ToolTransaction`](TransactionWindowKind::ToolTransaction): a
+///   transaction the migration tool runs the unit's statements in when
+///   `run_in_transaction` is on. The first starts at the unit's first
+///   statement, and each `COMMIT` or `ROLLBACK` in the file ends one, after
+///   which the next statement starts another. With no `COMMIT` or `ROLLBACK`
+///   in the file it is the whole unit.
 ///
 /// Every IR node, `TransactionControl` nodes included, is in exactly one
 /// window, and the windows cover the unit in statement order. An empty unit
@@ -42,22 +44,35 @@ use crate::parser::ir::{IrNode, Located, TransactionControl};
 /// - A block still open at the end of the unit, after a `BEGIN` with no
 ///   `COMMIT` or `ROLLBACK`, is one window to the end of the unit, as its
 ///   statements run in one transaction until the unit ends.
-/// - With `run_in_transaction`, the tool's transaction is open before the
-///   first statement, so a `BEGIN` in the file is a `BEGIN` inside a
-///   transaction and does nothing. A `COMMIT` or `ROLLBACK` in the file ends
-///   the tool's transaction early, and the statements after it are
-///   autocommit windows until a `BEGIN` opens a block. This assumes a runner
-///   that sends each statement separately and starts no new transaction
-///   after the file's `COMMIT`, as `psql --single-transaction` does. JDBC
-///   runners with autocommit off (Flyway, Liquibase) start a new transaction
-///   for the statements after it, and golang-migrate's default single `Exec`
-///   of the file runs them as a new implicit transaction.
+/// - With `run_in_transaction`, no statement runs outside a transaction, and
+///   every window is a tool transaction. A `COMMIT` or `ROLLBACK` in the
+///   file ends the tool's transaction, and the statements after it run in a
+///   new one, to the next `COMMIT` or `ROLLBACK` or to the end of the unit.
+///   A `COMMIT` as the unit's last statement leaves no statement for a new
+///   one, so it opens no window. A `BEGIN` in the file, wherever it is, is a
+///   `BEGIN` inside a transaction and does nothing.
+///
+///   The new transaction after a `COMMIT` is what the runners do:
+///   golang-migrate's default mode sends the file as one simple-protocol
+///   query, in which PostgreSQL runs the statements after a `COMMIT` in a
+///   new implicit transaction block
+///   (`verify/lock-tests/tests/pgm003_concurrently_after_commit.rs`), and a
+///   JDBC runner with autocommit off (Flyway, Liquibase with
+///   `runInTransaction`) sends a fresh `BEGIN` before the next statement,
+///   which is not measured. A
+///   runner that sends each statement on its own and starts no transaction
+///   after the file's `COMMIT`, as `psql --single-transaction` does, runs
+///   each of those statements in a transaction of its own instead, while
+///   the windows still hold them in one.
 /// - `COMMIT AND CHAIN` and `ROLLBACK AND CHAIN` arrive as the end followed
 ///   by a `Begin` with the same span, so the end closes its window and the
 ///   `Begin` opens the next. PostgreSQL rejects `AND CHAIN` outside a
 ///   transaction block (25P01) and starts no transaction. In a script it
 ///   rejects that way, the windows show an end that does nothing, an
 ///   autocommit window of its own, followed by a `Begin` that opens a block.
+///   With `run_in_transaction`, the `Begin` is the first statement of the
+///   next tool transaction and does nothing there: the statements after the
+///   end run in a transaction either way.
 ///
 /// Look a statement's window up by its index in the unit
 /// ([`window_of`](Self::window_of)), not by its span: the two nodes of an
@@ -89,15 +104,12 @@ pub enum TransactionWindowKind {
     /// in a transaction of its own. A `COMMIT` or `ROLLBACK` outside a
     /// transaction block is one too.
     Autocommit,
-    /// The transaction the migration tool opens around the unit when
-    /// `run_in_transaction` is on, from the unit's first statement to the
-    /// `COMMIT` or `ROLLBACK` in the file that ends it, or to the end of the
-    /// unit. The statements after such a `COMMIT` are autocommit, which
-    /// assumes a runner that sends each statement separately and starts no
-    /// new transaction after it, as `psql --single-transaction` does. JDBC
-    /// runners with autocommit off (Flyway, Liquibase) start a new
-    /// transaction there, and golang-migrate's default single `Exec` of the
-    /// file runs the rest as a new implicit transaction.
+    /// A transaction the migration tool runs the unit's statements in when
+    /// `run_in_transaction` is on, to the `COMMIT` or `ROLLBACK` in the file
+    /// that ends it, or to the end of the unit. The first starts at the
+    /// unit's first statement, and each later one at the statement after
+    /// such a `COMMIT` or `ROLLBACK`, as JDBC runners with autocommit off and
+    /// golang-migrate's default mode start a new transaction there.
     ToolTransaction,
     /// A transaction block a `BEGIN` or `START TRANSACTION` in the file
     /// opens, to the `COMMIT` or `ROLLBACK` that ends it, or to the end of the
@@ -124,16 +136,20 @@ impl OpenBlock {
 impl TransactionWindows {
     /// Split `statements`, the statements of one unit, into transaction
     /// windows. `run_in_transaction` says whether the migration tool runs
-    /// the unit in a transaction.
+    /// the unit in a transaction, and so starts one before any statement
+    /// that runs outside one.
     pub(super) fn new(statements: &[Located<IrNode>], run_in_transaction: bool) -> Self {
         let mut windows: Vec<TransactionWindow> = Vec::new();
-        let mut open_block = run_in_transaction.then_some(OpenBlock {
-            start: 0,
-            kind: TransactionWindowKind::ToolTransaction,
-        });
+        let mut open_block: Option<OpenBlock> = None;
         let mut previous: Option<&Located<IrNode>> = None;
 
         for (index, stmt) in statements.iter().enumerate() {
+            if run_in_transaction && open_block.is_none() {
+                open_block = Some(OpenBlock {
+                    start: index,
+                    kind: TransactionWindowKind::ToolTransaction,
+                });
+            }
             match (open_block, transaction_control(&stmt.node)) {
                 (Some(block), Some(TransactionControl::Commit | TransactionControl::Rollback)) => {
                     windows.push(block.ended_before(index + 1));
@@ -159,9 +175,7 @@ impl TransactionWindows {
             previous = Some(stmt);
         }
 
-        if let Some(block) = open_block
-            && block.start < statements.len()
-        {
+        if let Some(block) = open_block {
             windows.push(block.ended_before(statements.len()));
         }
 
@@ -431,7 +445,9 @@ mod tests {
     #[rstest]
     #[case::commit("COMMIT;")]
     #[case::rollback("ROLLBACK;")]
-    fn end_under_run_in_transaction_ends_the_tool_transaction(#[case] end: &str) {
+    fn end_under_run_in_transaction_starts_a_new_tool_transaction_to_the_end_of_the_unit(
+        #[case] end: &str,
+    ) {
         let sql = format!(
             "DROP TABLE a;
              {end}
@@ -441,16 +457,54 @@ mod tests {
 
         assert_eq!(
             window_shapes(&sql, true),
+            [(0..2, ToolTransaction), (2..4, ToolTransaction)]
+        );
+    }
+
+    #[test]
+    fn each_end_under_run_in_transaction_starts_the_next_tool_transaction() {
+        let sql = "DROP TABLE a;
+                   COMMIT;
+                   DROP TABLE b;
+                   ROLLBACK;
+                   DROP TABLE c;
+                   COMMIT;
+                   DROP TABLE d;";
+
+        assert_eq!(
+            window_shapes(sql, true),
             [
                 (0..2, ToolTransaction),
-                (2..3, Autocommit),
-                (3..4, Autocommit)
+                (2..4, ToolTransaction),
+                (4..6, ToolTransaction),
+                (6..7, ToolTransaction)
             ]
         );
     }
 
     #[test]
-    fn begin_after_the_tool_transaction_ended_opens_a_begin_block() {
+    fn end_as_the_last_statement_under_run_in_transaction_opens_no_window() {
+        let sql = "DROP TABLE a;
+                   DROP TABLE b;
+                   COMMIT;";
+
+        assert_eq!(window_shapes(sql, true), [(0..3, ToolTransaction)]);
+    }
+
+    #[test]
+    fn consecutive_ends_under_run_in_transaction_each_end_a_tool_transaction() {
+        let sql = "DROP TABLE a;
+                   COMMIT;
+                   COMMIT;";
+
+        assert_eq!(
+            window_shapes(sql, true),
+            [(0..2, ToolTransaction), (2..3, ToolTransaction)]
+        );
+    }
+
+    #[test]
+    fn begin_after_an_end_under_run_in_transaction_does_nothing_in_the_new_tool_transaction() {
         let sql = "DROP TABLE a;
                    COMMIT;
                    DROP TABLE b;
@@ -460,10 +514,25 @@ mod tests {
 
         assert_eq!(
             window_shapes(sql, true),
+            [(0..2, ToolTransaction), (2..6, ToolTransaction)]
+        );
+    }
+
+    #[test]
+    fn begin_block_right_after_an_end_under_run_in_transaction_is_a_tool_transaction() {
+        let sql = "DROP TABLE a;
+                   COMMIT;
+                   BEGIN;
+                   CREATE INDEX CONCURRENTLY idx_b ON b (id);
+                   COMMIT;
+                   DROP TABLE c;";
+
+        assert_eq!(
+            window_shapes(sql, true),
             [
                 (0..2, ToolTransaction),
-                (2..3, Autocommit),
-                (3..6, BeginBlock)
+                (2..5, ToolTransaction),
+                (5..6, ToolTransaction)
             ]
         );
     }
@@ -488,14 +557,14 @@ mod tests {
     }
 
     #[test]
-    fn commit_and_chain_under_run_in_transaction_opens_a_begin_block() {
+    fn commit_and_chain_under_run_in_transaction_continues_in_a_new_tool_transaction() {
         let sql = "DROP TABLE a;
                    COMMIT AND CHAIN;
                    CREATE INDEX CONCURRENTLY idx_b ON b (id);";
 
         assert_eq!(
             window_shapes(sql, true),
-            [(0..2, ToolTransaction), (2..4, BeginBlock)]
+            [(0..2, ToolTransaction), (2..4, ToolTransaction)]
         );
     }
 
@@ -729,24 +798,19 @@ mod tests {
     }
 
     #[rstest]
-    fn only_the_first_window_can_be_the_tool_transaction(
+    fn every_window_is_a_tool_transaction_exactly_when_run_in_transaction_is_on(
         #[values(true, false)] run_in_transaction: bool,
     ) {
         for unit in every_windowed_unit(run_in_transaction) {
-            let tool_transaction_positions: Vec<usize> = unit
-                .windows
-                .iter()
-                .enumerate()
-                .filter(|(_, window)| window.kind() == ToolTransaction)
-                .map(|(position, _)| position)
-                .collect();
-
-            let expected: &[usize] = if run_in_transaction && !unit.statements.is_empty() {
-                &[0]
-            } else {
-                &[]
-            };
-            assert_eq!(tool_transaction_positions, expected, "{}", unit.sql);
+            for window in &unit.windows {
+                assert_eq!(
+                    window.kind() == ToolTransaction,
+                    run_in_transaction,
+                    "{:?} in {}",
+                    window.statement_range(),
+                    unit.sql
+                );
+            }
         }
     }
 }
