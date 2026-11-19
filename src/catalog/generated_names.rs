@@ -13,7 +13,7 @@
 use crate::parser::ir::IndexColumn;
 
 /// `NAMEDATALEN - 1`: the longest identifier Postgres stores, in bytes.
-const MAX_IDENTIFIER_BYTES: usize = 63;
+pub(crate) const MAX_IDENTIFIER_BYTES: usize = 63;
 
 /// `NAMEDATALEN`: once the joined column list reaches this many bytes,
 /// `ChooseIndexNameAddition` stops appending column names.

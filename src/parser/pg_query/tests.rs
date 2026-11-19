@@ -650,6 +650,120 @@ fn test_extract_table_hint_reads_non_ascii_if_as_identifier() {
     assert_eq!(hint, Some(QualifiedName::unqualified("ıf")));
 }
 
+fn parsed_alter_table_name(sql: &str) -> QualifiedName {
+    match parse_sql(sql)
+        .into_iter()
+        .next()
+        .map(|located| located.node)
+    {
+        Some(IrNode::AlterTable(alter)) => alter.name,
+        other => panic!("{sql}: expected AlterTable, got {other:?}"),
+    }
+}
+
+#[rstest]
+#[case::quoted_schema_with_dot("\"my.schema\".orders", Some("my.schema"), "orders")]
+#[case::quoted_table_with_dot("public.\"my.table\"", Some("public"), "my.table")]
+#[case::quoted_schema_and_table_with_dots(
+    "\"my.schema\".\"my.table\"",
+    Some("my.schema"),
+    "my.table"
+)]
+#[case::escaped_quote("\"a\"\"b\"", None, "a\"b")]
+#[case::escaped_quote_before_dot("\"a\"\".b\"", None, "a\".b")]
+#[case::quoted_with_space("\"my table\"", None, "my table")]
+#[case::quoted_keeps_case("\"Orders\"", None, "Orders")]
+#[case::unquoted_is_lowercased("Public.Orders", Some("public"), "orders")]
+#[case::unquoted_non_ascii_keeps_case("ÄRENDEN", None, "Ärenden")]
+#[case::three_parts_drop_the_database("db.App.\"Orders\"", Some("app"), "Orders")]
+#[case::whitespace_around_dot("public . orders", Some("public"), "orders")]
+#[case::dollar_in_unquoted("or$ders", None, "or$ders")]
+#[case::non_breaking_space_starts_name("\u{a0}orders", None, "\u{a0}orders")]
+#[case::ideographic_space_inside_name("or\u{3000}ders", None, "or\u{3000}ders")]
+fn test_extract_table_hint_reads_name_as_postgres_does(
+    #[case] written_name: &str,
+    #[case] schema: Option<&str>,
+    #[case] name: &str,
+) {
+    let sql = format!("ALTER TABLE {written_name} ADD COLUMN note text;");
+    let expected = QualifiedName {
+        schema: schema.map(str::to_string),
+        name: name.to_string(),
+    };
+
+    let hint = extract_table_hint_from_raw(&sql);
+
+    assert_eq!(hint.as_ref(), Some(&expected));
+    assert_eq!(hint, Some(parsed_alter_table_name(&sql)));
+}
+
+#[rstest]
+#[case::unquoted("A".repeat(70), "a".repeat(63))]
+#[case::quoted(format!("\"{}\"", "A".repeat(70)), "A".repeat(63))]
+#[case::multibyte_at_char_boundary("ä".repeat(40), "ä".repeat(31))]
+fn test_extract_table_hint_cuts_long_name_to_63_bytes(
+    #[case] written_name: String,
+    #[case] name: String,
+) {
+    let sql = format!("ALTER TABLE {written_name} ADD COLUMN note text;");
+
+    let hint = extract_table_hint_from_raw(&sql);
+
+    assert_eq!(hint.as_ref(), Some(&QualifiedName::unqualified(name)));
+    assert_eq!(hint, Some(parsed_alter_table_name(&sql)));
+}
+
+#[rstest]
+#[case::unterminated_quote("ALTER TABLE \"orders ADD COLUMN note text;")]
+#[case::unterminated_after_escaped_quote("ALTER TABLE \"orders\"\"")]
+#[case::unterminated_multibyte("ALTER TABLE public.\"ärenden")]
+#[case::empty_quoted_part("ALTER TABLE \"\".orders ADD COLUMN note text;")]
+#[case::empty_part_between_dots("ALTER TABLE public..orders ADD COLUMN note text;")]
+#[case::leading_dot("ALTER TABLE .orders ADD COLUMN note text;")]
+#[case::trailing_dot("ALTER TABLE public.;")]
+#[case::four_parts("ALTER TABLE a.b.c.d ADD COLUMN note text;")]
+#[case::leading_digit("ALTER TABLE 1orders ADD COLUMN note text;")]
+#[case::leading_dollar("ALTER TABLE $x ADD COLUMN note text;")]
+#[case::leading_digit_after_dot("ALTER TABLE public.1x ADD COLUMN note text;")]
+fn test_extract_table_hint_none_for_name_postgres_rejects(#[case] sql: &str) {
+    assert!(pg_query::parse(sql).is_err());
+
+    assert_eq!(extract_table_hint_from_raw(sql), None);
+}
+
+#[rstest]
+#[case::uppercase("U&\"d\\0061ta\"")]
+#[case::lowercase("u&\"d\\0061ta\"")]
+#[case::after_schema("public.U&\"d\\0061ta\"")]
+fn test_extract_table_hint_none_for_unicode_escaped_name(#[case] written_name: &str) {
+    let sql = format!("ALTER TABLE {written_name} ADD COLUMN note text;");
+    assert_eq!(parsed_alter_table_name(&sql).name, "data");
+
+    assert_eq!(extract_table_hint_from_raw(&sql), None);
+}
+
+#[test]
+fn test_extract_table_hint_only_before_non_breaking_space_name() {
+    let sql = "ALTER TABLE ONLY \u{a0} ADD COLUMN note text;";
+
+    let hint = extract_table_hint_from_raw(sql);
+
+    assert_eq!(hint.as_ref(), Some(&QualifiedName::unqualified("\u{a0}")));
+    assert_eq!(hint, Some(parsed_alter_table_name(sql)));
+}
+
+#[test]
+fn test_extract_table_hint_name_starting_with_only() {
+    let hint = extract_table_hint_from_raw("ALTER TABLE only_items ADD COLUMN note text;");
+    assert_eq!(hint, Some(QualifiedName::unqualified("only_items")));
+}
+
+#[test]
+fn test_extract_table_hint_if_exists_only() {
+    let hint = extract_table_hint_from_raw("ALTER TABLE IF EXISTS ONLY orders ADD COLUMN x int;");
+    assert_eq!(hint, Some(QualifiedName::unqualified("orders")));
+}
+
 #[test]
 fn test_nullable_column_default() {
     let sql = "CREATE TABLE t (name text);";
