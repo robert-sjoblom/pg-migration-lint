@@ -31,7 +31,7 @@ pub(super) fn check(
                 ));
             }
             // IF EXISTS does not save a DROP INDEX naming a constraint's
-            // index; PGM027 reports it.
+            // index; while PGM027 is enabled, it reports it.
             IrNode::DropIndex(di) if !di.if_exists && !rejected.contains(&stmt.span) => {
                 findings.push(rule.make_finding(
                     format!(

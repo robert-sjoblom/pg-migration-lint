@@ -114,10 +114,11 @@ fn added_fks_without_coverage(
 /// top, so an index renamed or created earlier in the unit is found under the
 /// name the statement drops it by. There is no finding when that statement
 /// drops no covering index, as with `DETACH PARTITION`, which PGM501 does not
-/// judge, or when PostgreSQL rejects it: `DROP INDEX covering_idx,
-/// constraint_idx` fails as a whole, though replay drops `covering_idx`, and
-/// PGM027 reports it. A unit without a statement that can drop an index, or
-/// that loses no key's coverage, is not replayed.
+/// judge, or, while PGM027 is enabled, when PostgreSQL rejects it:
+/// `DROP INDEX covering_idx, constraint_idx` fails as a whole, though replay
+/// drops `covering_idx`, and PGM027 reports it. While PGM027 is disabled, the
+/// drop counts as replay applies it. A unit without a statement that can drop
+/// an index, or that loses no key's coverage, is not replayed.
 fn fks_left_without_coverage_by_drops(
     rule: &impl Rule,
     statements: &[Located<IrNode>],
@@ -357,8 +358,8 @@ impl<'s> IndexDrop<'_, 's> {
 /// order. An index renamed or created earlier in the unit is in `catalog`
 /// under the name the statement uses. `DROP INDEX` of a constraint's index
 /// drops nothing here, as PostgreSQL rejects it (`cannot drop index ...
-/// because constraint ... requires it`): replay keeps the index, and PGM027
-/// reports the statement.
+/// because constraint ... requires it`): replay keeps the index whether or
+/// not PGM027 is enabled, and PGM027, while enabled, reports the statement.
 fn index_drops<'c, 's>(catalog: &'c Catalog, stmt: &'s Located<IrNode>) -> Vec<IndexDrop<'c, 's>> {
     match &stmt.node {
         IrNode::DropIndex(di) => {

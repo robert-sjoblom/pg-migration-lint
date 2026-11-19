@@ -164,7 +164,7 @@ Relation names in the IR start as `QualifiedName { schema: Option<String>, name 
 
 ### 3.3 Table Catalog
 
-Built by replaying all migration files in configured order. Represents the schema state at each point in the migration history.
+Built by replaying all migration files in configured order. Represents the schema state at each point in the migration history. The tool is a static analyzer: it replays the migrations against this catalog and never applies them to a database, so where the catalog differs from the real schema, after a statement replay does not model or a change made outside the tracked migrations, rules can report problems that do not occur (false positives) and miss ones that do (false negatives).
 
 ```
 Catalog {
@@ -263,7 +263,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - **Non-partitioned table**: Standard CONCURRENTLY advice.
   - `ALTER INDEX ... ATTACH PARTITION` flips an ON ONLY index to recursive, so the suppression vs. warning is correctly distinguished even across migrations.
 - **Does not fire when**:
-  - The statement names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes (`DROP INDEX a, b`), as PGM027 judges it. PostgreSQL rejects the whole statement and drops nothing; PGM027 reports it.
+  - PGM027 is enabled and the statement names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes (`DROP INDEX a, b`), as PGM027 judges it. PostgreSQL rejects the whole statement and drops nothing; PGM027 reports it.
 
 #### PGM003 — `CONCURRENTLY` inside transaction
 
@@ -273,7 +273,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - A transaction block the file opens (`BeginBlock`), from `BEGIN` or `START TRANSACTION` (or `COMMIT AND CHAIN`) to the `COMMIT` or `ROLLBACK` that ends it or the end of the unit, when the unit does not run in a tool transaction (Liquibase `runInTransaction="false"`, or `run_in_transaction = false`).
 - **Does not fire when**:
   - The statement is outside a transaction block: the unit does not run in a tool transaction, and the statement is not in a transaction block the file opens (`BEGIN`, `START TRANSACTION` or `COMMIT AND CHAIN`, to the `COMMIT` or `ROLLBACK` that ends it or the end of the unit).
-  - `DROP INDEX CONCURRENTLY` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
+  - PGM027 is enabled and `DROP INDEX CONCURRENTLY` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`.
 - **Other rules**: fires on a `CREATE INDEX CONCURRENTLY` onto a taken name that PGM027 reports. Inside a transaction block PostgreSQL fails it with 25001 before it looks at the name (`verify/tests/other/pgm027_create_index_onto_taken_name.sql`), and PGM027's fix, a free name, still needs `CONCURRENTLY`.
 - **Message (tool transaction from the start of the unit)**: `CONCURRENTLY cannot run inside a transaction. Set runInTransaction="false" (Liquibase) or disable transactions for this migration.`
 - **Message (tool transaction after a `COMMIT` or `ROLLBACK` in the file)**: `CONCURRENTLY cannot run inside a transaction. The {COMMIT|ROLLBACK} on line {line} ends the migration tool's transaction, but the tool runs the statements after it in a new one. Move this statement to a migration of its own and disable transactions for it (runInTransaction="false" in Liquibase).`
@@ -359,7 +359,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
   - `USING INDEX` references a valid UNIQUE btree index and all PK columns are NOT NULL, also when the index was created, or the columns made NOT NULL, earlier in the same unit
-  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
+  - PGM027 is enabled and `USING INDEX` names an index of another table in the table's schema, as PGM027 judges it. PostgreSQL rejects the statement and builds nothing; PGM027 reports it. While PGM027 is disabled, the rule judges that index as if it were the table's own.
 - **Message (no USING INDEX)**: `ADD PRIMARY KEY on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a UNIQUE index CONCURRENTLY first, then use ADD PRIMARY KEY USING INDEX.`
 - **Message (index not found)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
 - **Message (index not unique)**: `ADD PRIMARY KEY USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
@@ -470,7 +470,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - Table is new (in `tables_created_in_change`)
   - Table doesn't exist in `catalog_before`
   - `USING INDEX` references a UNIQUE btree index of the table, also when the index was created earlier in the same unit
-  - `USING INDEX` names an index of another table in the table's schema. PostgreSQL rejects the statement and builds nothing; PGM027 reports it.
+  - PGM027 is enabled and `USING INDEX` names an index of another table in the table's schema, as PGM027 judges it. PostgreSQL rejects the statement and builds nothing; PGM027 reports it. While PGM027 is disabled, the rule judges that index as if it were the table's own.
 - **Message (no USING INDEX)**: `ADD UNIQUE on existing table '{table}' without USING INDEX on column(s) [{columns}]. Create a unique index CONCURRENTLY first, then use ADD CONSTRAINT ... UNIQUE USING INDEX.`
 - **Message (index not found)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index does not exist.`
 - **Message (index not unique)**: `ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': referenced index is not UNIQUE.`
@@ -602,7 +602,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - The `CREATE INDEX` has no name. PostgreSQL generates a free one (`verify/tests/naming/collisions.sql`).
   - The `CREATE INDEX` has `IF NOT EXISTS`. PostgreSQL skips it with a notice instead of failing, and replay changes nothing. PGM403 reports only `CREATE TABLE IF NOT EXISTS`, so no rule reports this no-op yet (#271).
   - The name of the `CREATE INDEX` is taken only in another schema, or only by a CHECK or FOREIGN KEY constraint
-  - The unit is a down migration (`is_down`). A down file usually sorts before its up file, so replay applies it first and the state just before it is not the one it undoes; the replay order of down migrations is not modelled. `rejected_statements::unit_is_judged` decides this for this rule and for `RejectedStatements`, so the rules that use `RejectedStatements` (listed under Other rules) report a down migration's statements as if none were rejected.
+  - The unit is a down migration (`is_down`). A down file usually sorts before its up file, so replay applies it first and the state just before it is not the one it undoes; the replay order of down migrations is not modelled. `rejected_statements::unit_is_judged` decides this for this rule, for `RejectedStatements` and for `UsingIndex::for_rule_deferring_to_pgm027`, so the rules listed under Other rules report a down migration's statements as if none were rejected.
 - **Known limitation**: sequences, views and the indexes PostgreSQL creates on the partitions of a partitioned table are relations too, so a `CREATE INDEX` onto one of their names fails with 42P07 as well (`verify/tests/other/pgm027_create_index_onto_taken_name.sql`). The catalog does not record them (#281), so this rule does not report that.
 - **Known limitation**: a drop or rename that replay misses leaves the old name taken in the catalog, so a later `CREATE INDEX` that reuses the name is reported though PostgreSQL accepts it. Known gaps: `ALTER TABLE` renaming an index and `ALTER INDEX` renaming a table (#278), and drops inside a `DO` block or a statement the parser cannot read.
 - **Not yet reported**: `ALTER TABLE ... ADD CONSTRAINT` and `CREATE TABLE` with a PRIMARY KEY, UNIQUE or EXCLUDE constraint whose name a relation in the schema already has also fail with 42P07, but replay still applies them (#322). They are where the catalog can still register a table's index under a name another table's index has.
@@ -611,7 +611,10 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Message (rename)**: `Renaming table '{table}' to '{new_name}' fails: {reason}.`, `Renaming index '{index}' to '{new_name}' fails: {reason}.` or `Renaming constraint '{constraint}' on table '{table}' to '{new_name}' fails: {reason}.`, where `{reason}` is `table '{holder}' already has that name`, `index '{new_name}' on table '{holder}' already has that name` or `table '{holder}' already has a constraint named '{new_name}'`. An index backing a constraint, renamed onto a constraint name of its table, adds `the index backs a constraint that is renamed with it, and ` before the reason; an index-backed constraint renamed onto a relation name adds `the constraint's index is renamed with it, and `.
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' fails: constraint '{constraint}' on table '{table}' requires it. Drop the constraint instead.`
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' on table '{table}' fails: {reason}.`, where `{reason}` is `table '{holder}' already has that name` or `index '{index}' on table '{holder}' already has that name`.
-- **Other rules**: PGM504 does not fire on a rename this rule reports. PGM016 and PGM017 do not fire on a `USING INDEX` of another table's index, and PGM107 does not read that index's columns. PGM002, PGM003, PGM401 and PGM501 do not fire on a `DROP INDEX` this rule reports, including the other indexes it names. PGM402 and PGM508 do not fire on a `CREATE INDEX` this rule reports; PGM001 and PGM003 do, as its fix, a free name, still needs `CONCURRENTLY`. In a down migration, which this rule does not judge, PGM002, PGM003, PGM401, PGM402, PGM501 and PGM504 report those statements as usual.
+- **Other rules**: while this rule is enabled, PGM504 does not fire on a rename this rule reports. PGM016 and PGM017 do not fire on a `USING INDEX` of another table's index, and PGM107 does not read that index's columns. PGM002, PGM003, PGM401 and PGM501 do not fire on a `DROP INDEX` this rule reports, including the other indexes it names. PGM402 does not fire on a `CREATE INDEX` this rule reports; PGM001 and PGM003 do, as its fix, a free name, still needs `CONCURRENTLY`. `rejected_statements::unit_is_judged` is the one decision: a unit is judged when this rule is among the rules it is linted with (`LintContext::pgm027_enabled`, which the pipeline sets from the active rule set, so `rules.disabled` and `rules.enabled` count) and it is not a down migration. In a unit that is not judged these rules judge the statements as if none were rejected, and PGM016, PGM017 and PGM107 take an index of another table for the altered table's own. Disabling this rule therefore makes no rule skip a statement because this rule would report it: each reports it as it would a statement PostgreSQL accepts, which may be nothing.
+- **Known limitation**: suppressing this rule's finding on a statement (`-- pgm-lint:suppress PGM027`, or `-- pgm-lint:suppress-file PGM027` for the file) does not make the other rules report the statement. Suppression filters findings after every rule has run (§5.1), so those rules still skip it. Disable the rule in the configuration instead.
+- **Replay does not depend on this rule**: replay is the same whichever rules are enabled, so a rule that reads the catalog sees the same schema with this rule disabled. PGM508 does not fire on a `CREATE INDEX` this rule would report, as replay builds no index for it, and PGM501 does not count that index as coverage; PGM502 does not count an `ADD PRIMARY KEY USING INDEX` of another table's index as a key. PGM501 does not fire on a `DROP INDEX` of only the index behind a PRIMARY KEY or UNIQUE constraint, even when that index is a foreign key's only cover: replay keeps the index, and PGM501 does not count it as dropped.
+- **Statements after a rejected one**: still checked, by this rule and by the others. Replay goes on past the rejected statement, in or out of a transaction, since the migration runs them once the failing statement is fixed (#264).
 
 #### PGM201 — `DROP TABLE` on existing table
 
@@ -696,7 +699,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - The statement already includes `IF NOT EXISTS`
   - The `CREATE INDEX` has no name. PostgreSQL generates one that is free in the schema (`{table}_{cols}_idx`, then `_idx1`, `_idx2`, ...; `verify/tests/naming/collisions.sql`), so the statement cannot fail on an existing index, and `IF NOT EXISTS` requires a name
-  - A relation in the table's schema already has the `CREATE INDEX`'s name, as PGM027 judges it. PostgreSQL rejects the statement, and `IF NOT EXISTS` would turn that into a silent no-op that builds no index; PGM027 reports it.
+  - PGM027 is enabled and a relation in the table's schema already has the `CREATE INDEX`'s name, as PGM027 judges it. PostgreSQL rejects the statement, and `IF NOT EXISTS` would turn that into a silent no-op that builds no index; PGM027 reports it.
 - **Message (CREATE TABLE)**: `CREATE TABLE '{table}' without IF NOT EXISTS will fail if the table already exists.`
 - **Message (CREATE INDEX)**: `CREATE INDEX '{index}' without IF NOT EXISTS will fail if the index already exists.`
 
@@ -715,7 +718,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `DROP TABLE` or `DROP INDEX` without the `IF EXISTS` clause.
 - **Does not fire when**:
   - The statement already includes `IF EXISTS`
-  - `DROP INDEX` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it with or without `IF EXISTS`; PGM027 reports it.
+  - PGM027 is enabled and `DROP INDEX` names the index behind a PRIMARY KEY or UNIQUE constraint, as PGM027 judges it. PostgreSQL rejects it with or without `IF EXISTS`; PGM027 reports it.
 - **Message (DROP TABLE)**: `DROP TABLE '{table}' without IF EXISTS will fail if the table does not exist.`
 - **Message (DROP INDEX)**: `DROP INDEX '{index}' without IF EXISTS will fail if the index does not exist.`
 
@@ -736,8 +739,8 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
   - The foreign key is dropped in the same unit, with `DROP CONSTRAINT`, by dropping one of its columns, or with its table.
   - Another usable index contains one of the key's columns in `catalog_after`, one the unit creates included, as when the unit drops an index and creates it again, or renames it, creates a replacement and drops the renamed one.
   - The unit adds a foreign key on the same table and columns, including one dropped and added back under its name. Trigger 1 reports it once.
-  - The statement is `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint, which PostgreSQL rejects. Replay keeps the index, and PGM027 reports the statement.
-  - The statement that ends the key's coverage is one PostgreSQL rejects, as PGM027 judges it, such as `DROP INDEX` of a covering index together with the index behind a PRIMARY KEY or UNIQUE constraint (`DROP INDEX covering_idx, orders_pkey`). It drops nothing, though replay drops the covering index; PGM027 reports it. Nothing is reported, even if an earlier accepted statement dropped another covering index.
+  - The statement is `DROP INDEX` of the index behind a PRIMARY KEY, UNIQUE or EXCLUDE constraint, which PostgreSQL rejects. Replay keeps the index whether or not PGM027 is enabled, and PGM027, while enabled, reports the statement.
+  - PGM027 is enabled and the statement that ends the key's coverage is one PostgreSQL rejects, as PGM027 judges it, such as `DROP INDEX` of a covering index together with the index behind a PRIMARY KEY or UNIQUE constraint (`DROP INDEX covering_idx, orders_pkey`). It drops nothing, though replay drops the covering index; PGM027 reports it. Nothing is reported, even if an earlier accepted statement dropped another covering index.
   - The key had no usable covering index in `catalog_before`, such as a temporary index the unit creates and drops again. The unit loses no coverage.
   - The statement that ends the key's coverage drops no covering index. That is `ALTER TABLE ... DETACH PARTITION`, which this rule does not judge (see the DETACH PARTITION known limitation below), when it follows a drop that left the key covered through the parent.
   - The dropped constraint is an EXCLUDE constraint. The catalog records no index for it, so it never counts as coverage.
@@ -768,7 +771,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Does not fire when**:
   - The table does not exist in `catalog_before`
   - A replacement table with the old name is created in the same migration unit
-  - The new name is taken (`Catalog::table_rename_clash`, judged against the state just before the statement as PGM027 judges it). PostgreSQL rejects the rename, so nothing breaks; PGM027 reports it.
+  - PGM027 is enabled and the new name is taken (`Catalog::table_rename_clash`, judged against the state just before the statement as PGM027 judges it). PostgreSQL rejects the rename, so nothing breaks; PGM027 reports it.
 - **Message**: `Renaming table '{old_name}' to '{new_name}'. Ensure all application queries, views, and functions referencing the old name are updated.`
 
 #### PGM505 — `RENAME COLUMN` on existing table
@@ -901,7 +904,7 @@ PGM101–PGM104, PGM106, PGM108 and PGM109 share a common detection pattern: ins
   - The column is not part of a primary key
   - `ALTER TABLE ... ADD PRIMARY KEY` on a table not in the catalog just before the statement
   - `ALTER TABLE ... ADD PRIMARY KEY (cols)` after an earlier statement of the unit changed the columns to `bigint`
-  - `ADD PRIMARY KEY USING INDEX` names an index that is missing just before the statement or belongs to another table (PostgreSQL rejects the latter; PGM027 reports it)
+  - `ADD PRIMARY KEY USING INDEX` names an index that is missing just before the statement, or, while PGM027 is enabled, one that belongs to another table (PostgreSQL rejects the statement; PGM027 reports it). While PGM027 is disabled, the rule reads the columns of another table's index as the table's own.
 - **Message**: `Primary key column '{col}' on '{table}' uses {type}. Consider using bigint to avoid exhausting the integer range on high-write tables.`
 
 #### PGM108 — Column uses `varchar(n)` instead of `text`
@@ -954,6 +957,8 @@ File-level suppression must appear before any SQL statements in the file.
 Multiple rules in one comment: `-- pgm-lint:suppress PGM001,PGM501`
 
 Suppressions apply before grouping (§7.4). A next-statement suppression removes that one statement from its group and from the count that decides whether the rule's findings are grouped; a file-level suppression removes the whole group.
+
+Suppressions apply after every rule has run, so suppressing one rule's findings never changes what another rule reports. In particular, the rules that leave a statement PostgreSQL rejects to PGM027 still skip it when PGM027's finding is suppressed; only disabling PGM027 in the configuration stops them skipping it (see PGM027).
 
 ### 5.2 SonarQube suppression
 
