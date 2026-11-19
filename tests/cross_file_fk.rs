@@ -35,13 +35,18 @@ use rstest::rstest;
     // V003 adds the covering index -> no additional PGM501.
     // V004 drops the covering index again -> PGM501 fires a second time.
     &[],
-    2,
+    3,
     Some("customer_id"),
 )]
 #[case::only_the_drop_of_the_covering_index_changed(
     &["V004__drop_index.sql"],
     1,
     Some("Dropping index 'idx_orders_customer_id' leaves foreign key 'fk_orders_customer'"),
+)]
+#[case::only_the_rename_then_drop_of_the_covering_index_changed(
+    &["V006__rename_then_drop_index.sql"],
+    1,
+    Some("Dropping index 'idx_orders_customer_id_old' leaves foreign key 'fk_orders_customer'"),
 )]
 fn test_fk_cross_file(
     #[case] changed_files: &[&str],
