@@ -20,8 +20,9 @@ pub struct LintContext<'a> {
 
     /// Set of table names created in the current set of changed files.
     /// Built incrementally during the single-pass replay: when a changed
-    /// file contains a CreateTable, add it to this set before linting
-    /// subsequent changed files.
+    /// up file contains a CreateTable, add it to this set before linting
+    /// subsequent changed files. A changed down file's CreateTables count
+    /// only while that down file is linted.
     pub tables_created_in_change: &'a HashSet<RelationName>,
 
     /// Whether this migration unit runs in a transaction.

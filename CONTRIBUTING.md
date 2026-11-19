@@ -152,7 +152,7 @@ Provided to every rule's `check()` function:
 |-------|------|---------|
 | `catalog_before` | `&Catalog` | State before the current unit was applied |
 | `catalog_after` | `&Catalog` | State after the current unit was applied |
-| `tables_created_in_change` | `&HashSet<RelationName>` | Tables created in the current set of changed files |
+| `tables_created_in_change` | `&HashSet<RelationName>` | Tables created by the changed up units so far, plus, while a changed down unit is linted, the tables it creates |
 | `run_in_transaction` | `bool` | Whether the migration unit runs in a transaction |
 | `is_down` | `bool` | Whether this is a down/rollback migration |
 | `pgm027_enabled` | `bool` | Whether PGM027 is among the rules the unit is linted with; `LintPipeline::lint` sets it from the active rule set. See [`rejected_statements`](#rejected_statements) |
@@ -286,7 +286,7 @@ if rejected.contains(&stmt.span) {
 }
 ```
 
-The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report. Whether a unit is judged at all is one decision, `unit_is_judged(ctx)`, which `RejectedStatements`, `UsingIndex::for_rule_deferring_to_pgm027` and PGM027 itself share. A unit is not judged while PGM027 is disabled (`ctx.pgm027_enabled` is false), so turning PGM027 off in the config, the remedy for a replay gap that makes it report a statement PostgreSQL accepts, makes no rule skip a statement because PGM027 would report it: each reports it as it would a statement PostgreSQL accepts, which may be nothing. Nor is a down migration judged: it usually sorts before its up file, so replay applies it against the wrong schema. In a unit that is not judged PGM027 reports nothing, `contains` is false for every statement, and the other rules report as if nothing were rejected. A suppression comment for PGM027 does not count, as suppressions are applied after every rule has run. Replay does not depend on the rule set, so a rule that reads the catalog sees the same schema either way: PGM508 on a `CREATE INDEX` onto a taken name, which replay leaves out, and PGM501 on a `DROP INDEX` of a constraint's index, which replay keeps.
+The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report. Whether a unit is judged at all is one decision, `unit_is_judged(ctx)`, which `RejectedStatements`, `UsingIndex::for_rule_deferring_to_pgm027` and PGM027 itself share. A unit is not judged while PGM027 is disabled (`ctx.pgm027_enabled` is false), so turning PGM027 off in the config, the remedy for a replay gap that makes it report a statement PostgreSQL accepts, makes no rule skip a statement because PGM027 would report it: each reports it as it would a statement PostgreSQL accepts, which may be nothing. Nor is a down migration judged: it can sort before its up file, so it is linted against the wrong schema. In a unit that is not judged PGM027 reports nothing, `contains` is false for every statement, and the other rules report as if nothing were rejected. A suppression comment for PGM027 does not count, as suppressions are applied after every rule has run. Replay does not depend on the rule set, so a rule that reads the catalog sees the same schema either way: PGM508 on a `CREATE INDEX` onto a taken name, which replay leaves out, and PGM501 on a `DROP INDEX` of a constraint's index, which replay keeps.
 
 ### `transaction_window`
 
