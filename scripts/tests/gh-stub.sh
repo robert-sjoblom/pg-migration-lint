@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # gh-stub.sh — fake `gh` CLI for test-download-binary.sh. Simulates
-# `gh release view` / `gh release download` without any network access, and
-# logs every invocation for the test to assert against.
+# `gh release view` / `gh release download` / `gh api repos/<repo>/releases`
+# without any network access, and logs every invocation for the test to
+# assert against.
 #
 # Required environment (set by the test harness, not a real caller):
 #   GH_STUB_LOG          file to append "gh <args...>" invocation lines to.
@@ -20,6 +21,16 @@
 #                                     "no assets matched patterns" behavior
 #                                     for a release published before
 #                                     checksums existed.
+#
+# Optional environment:
+#   GH_STUB_RELEASES_RESPONSE  the JSON array that
+#                              `gh api repos/<repo>/releases` responds with.
+#                              The stub applies the caller's `--jq` filter to
+#                              it with the real `jq`, so the filter itself is
+#                              under test. Any value that is not a JSON array,
+#                              such as `HTTP 502: Bad Gateway`, makes the call
+#                              fail with that error. Without it, `gh api`
+#                              counts as unstubbed.
 
 set -euo pipefail
 
@@ -29,6 +40,23 @@ set -euo pipefail
 : "${GH_STUB_SHA256_MODE:?}"
 
 printf 'gh %s\n' "$*" >> "$GH_STUB_LOG"
+
+if [[ "${1:-}" == "api" && "${2:-}" == repos/*/releases* && -n "${GH_STUB_RELEASES_RESPONSE:-}" ]]; then
+  if [[ "$GH_STUB_RELEASES_RESPONSE" != \[* ]]; then
+    echo "gh: $GH_STUB_RELEASES_RESPONSE" >&2
+    exit 1
+  fi
+  shift 2
+  jq_filter="."
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --jq|-q) jq_filter="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  jq -r "$jq_filter" <<<"$GH_STUB_RELEASES_RESPONSE"
+  exit
+fi
 
 case "${1:-} ${2:-}" in
   "release view")
