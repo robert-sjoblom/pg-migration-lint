@@ -1738,3 +1738,60 @@ fn spike_transaction_stmt_kinds() {
         assert_eq!(transaction_stmt(sql).gid, "gid_1", "{sql}");
     }
 }
+
+/// How the scanner turns a written relation name into `RangeVar` fields.
+/// A dot inside double quotes is part of the name, and `""` inside quotes is
+/// one `"`. Quoted parts keep their case; unquoted parts are lowercased in
+/// ASCII only, so `ÄRENDEN` becomes `Ärenden`. Either kind is cut to 63
+/// bytes at a character boundary. Whitespace may surround a dot. A
+/// three-part name puts its first part in `catalogname`; four parts, an
+/// empty quoted part, `..` and an unterminated quote are parse errors.
+#[test]
+fn spike_range_var_name_folding() {
+    fn range_var(name: &str) -> pg_query::protobuf::RangeVar {
+        let sql = format!("ALTER TABLE {name} ADD COLUMN note text;");
+        let result = pg_query::parse(&sql).expect("parse failed");
+        let stmt = result.protobuf.stmts[0]
+            .stmt
+            .as_ref()
+            .unwrap()
+            .node
+            .as_ref()
+            .unwrap();
+        let pg_query::NodeEnum::AlterTableStmt(alter) = stmt else {
+            panic!("{sql}: expected AlterTableStmt, got {stmt:?}");
+        };
+        alter.relation.clone().expect("relation")
+    }
+
+    let cases = [
+        ("\"my.schema\".orders", "", "my.schema", "orders"),
+        ("public.\"my.table\"", "", "public", "my.table"),
+        ("\"my.schema\".\"my.table\"", "", "my.schema", "my.table"),
+        ("\"a\"\"b\"", "", "", "a\"b"),
+        ("\"Orders\"", "", "", "Orders"),
+        ("Orders", "", "", "orders"),
+        ("ÄRENDEN", "", "", "Ärenden"),
+        ("db.App.Orders", "db", "app", "orders"),
+        ("public . orders", "", "public", "orders"),
+        ("or$ders", "", "", "or$ders"),
+    ];
+    for (name, catalog, schema, relation) in cases {
+        let rv = range_var(name);
+        assert_eq!(rv.catalogname, catalog, "{name}");
+        assert_eq!(rv.schemaname, schema, "{name}");
+        assert_eq!(rv.relname, relation, "{name}");
+    }
+
+    let long_unquoted = "A".repeat(70);
+    assert_eq!(range_var(&long_unquoted).relname, "a".repeat(63));
+    let long_quoted = format!("\"{}\"", "A".repeat(70));
+    assert_eq!(range_var(&long_quoted).relname, "A".repeat(63));
+    let long_multibyte = "ä".repeat(40);
+    assert_eq!(range_var(&long_multibyte).relname, "ä".repeat(31));
+
+    for name in ["a.b.c.d", "\"\".orders", "public..orders", "\"orders"] {
+        let sql = format!("ALTER TABLE {name} ADD COLUMN note text;");
+        assert!(pg_query::parse(&sql).is_err(), "{sql}");
+    }
+}

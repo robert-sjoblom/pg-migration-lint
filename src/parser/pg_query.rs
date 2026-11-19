@@ -4,6 +4,7 @@
 //! IR layer used by the rule engine. It handles type canonicalization, constraint
 //! normalization, and source location tracking.
 
+use crate::catalog::generated_names::MAX_IDENTIFIER_BYTES;
 use crate::catalog::types::IndexState;
 use crate::parser::ir::{
     AlterTable, AlterTableAction, Cluster, ColumnDef, CreateIndex, CreateTable, DefaultExpr,
@@ -1557,7 +1558,10 @@ fn deparse_node(node: &pg_query::protobuf::Node) -> String {
 
 /// Try to extract a table name hint from raw SQL that failed to parse.
 ///
-/// This is a best-effort heuristic used to mark tables as incomplete in the catalog.
+/// This is a best-effort heuristic used to mark tables as incomplete in the
+/// catalog: the name after the first `ALTER TABLE`, or failing that the
+/// first `CREATE TABLE`, read as [`qualified_name_from_identifier`]
+/// describes.
 fn extract_table_hint_from_raw(sql: &str) -> Option<QualifiedName> {
     let upper = sql.to_ascii_uppercase();
 
@@ -1565,59 +1569,135 @@ fn extract_table_hint_from_raw(sql: &str) -> Option<QualifiedName> {
     let kw = "ALTER TABLE";
     if let Some(pos) = upper.find(kw) {
         let rest = &sql[pos + kw.len()..];
-        return extract_first_identifier(rest).map(|ident| qualified_name_from_identifier(&ident));
+        return qualified_name_from_identifier(skip_keywords_before_name(rest));
     }
 
     // Try to find "CREATE TABLE <name>" pattern
     let kw = "CREATE TABLE";
     if let Some(pos) = upper.find(kw) {
         let rest = &sql[pos + kw.len()..];
-        return extract_first_identifier(rest).map(|ident| qualified_name_from_identifier(&ident));
+        return qualified_name_from_identifier(skip_keywords_before_name(rest));
     }
 
     None
 }
 
-/// Split an identifier taken from raw SQL text at its first `.` into schema
-/// and name. Quotes are already stripped, so a quoted name containing a dot
-/// splits in the wrong place; acceptable for a best-effort hint.
-fn qualified_name_from_identifier(ident: &str) -> QualifiedName {
-    match ident.split_once('.') {
-        Some((schema, name)) => QualifiedName::qualified(schema, name),
-        None => QualifiedName::unqualified(ident),
+/// `s` from the table name on: past leading whitespace, an `IF NOT EXISTS`
+/// or `IF EXISTS`, and an `ONLY`.
+fn skip_keywords_before_name(s: &str) -> &str {
+    let after_guard = strip_keyword(s, "IF NOT EXISTS")
+        .or_else(|| strip_keyword(s, "IF EXISTS"))
+        .unwrap_or(s);
+    trim_start_postgres_whitespace(strip_keyword(after_guard, "ONLY").unwrap_or(after_guard))
+}
+
+/// `s` after `keyword` (in any ASCII case) and the whitespace before it, or
+/// `None` unless `s` starts with `keyword` as a whole word: `only_items`
+/// does not start with `ONLY`.
+fn strip_keyword<'a>(s: &'a str, keyword: &str) -> Option<&'a str> {
+    let (head, rest) = trim_start_postgres_whitespace(s).split_at_checked(keyword.len())?;
+    let is_whole_word = !rest.starts_with(continues_unquoted_identifier);
+    (head.eq_ignore_ascii_case(keyword) && is_whole_word).then_some(rest)
+}
+
+/// The relation name at the start of `sql`, read as PostgreSQL reads one, so
+/// the hint resolves to the catalog key a parsed statement on the same name
+/// would get. A dot splits the name only outside double quotes, and may have
+/// whitespace around it. Each part is read by [`identifier_part`]. Of a
+/// three-part name the first part, the database, is dropped, as the parser
+/// does. An empty part, an unterminated quote, an unquoted part that cannot
+/// start an identifier, or more than three parts gives no hint, nor does a
+/// Unicode-escaped `U&"..."` part, which is not decoded.
+fn qualified_name_from_identifier(sql: &str) -> Option<QualifiedName> {
+    let mut parts = Vec::new();
+    let mut rest = sql;
+    loop {
+        let (part, after_part) = identifier_part(rest)?;
+        parts.push(part);
+        match trim_start_postgres_whitespace(after_part).strip_prefix('.') {
+            Some(after_dot) => rest = trim_start_postgres_whitespace(after_dot),
+            None => break,
+        }
+    }
+
+    match parts.as_slice() {
+        [name] => Some(QualifiedName::unqualified(name.as_str())),
+        [schema, name] | [_, schema, name] => {
+            Some(QualifiedName::qualified(schema.as_str(), name.as_str()))
+        }
+        _ => None,
     }
 }
 
-/// Extract the first SQL identifier from a string, skipping whitespace and keywords.
-fn extract_first_identifier(s: &str) -> Option<String> {
-    let trimmed = s.trim();
-
-    // Skip optional keywords before the identifier
-    let trimmed = {
-        let upper = trimmed.to_ascii_uppercase();
-        let skip_len = if upper.starts_with("IF NOT EXISTS") {
-            "IF NOT EXISTS".len()
-        } else if upper.starts_with("IF EXISTS") {
-            "IF EXISTS".len()
-        } else if upper.starts_with("ONLY") {
-            "ONLY".len()
-        } else {
-            0
-        };
-        trimmed[skip_len..].trim()
+/// The identifier at the start of `sql` and the text after it, as
+/// PostgreSQL's scanner produces it. A double-quoted identifier keeps its
+/// case and reads `""` as `"`. An unquoted one starts with a character
+/// [`starts_unquoted_identifier`] accepts, runs while
+/// [`continues_unquoted_identifier`] holds, and is lowercased in ASCII only,
+/// as `downcase_identifier` does under UTF-8. Either is cut to 63 bytes at a
+/// character boundary. `None` for an empty identifier, an unterminated
+/// quote, an unquoted one that cannot start an identifier, or the `U&`
+/// that opens a Unicode-escaped identifier.
+fn identifier_part(sql: &str) -> Option<(String, &str)> {
+    let (mut ident, rest) = match sql.strip_prefix('"') {
+        Some(quoted) => quoted_identifier_body(quoted)?,
+        None => {
+            if !sql.starts_with(starts_unquoted_identifier) {
+                return None;
+            }
+            let end = sql
+                .find(|c| !continues_unquoted_identifier(c))
+                .unwrap_or(sql.len());
+            let (word, rest) = sql.split_at(end);
+            if word.eq_ignore_ascii_case("u") && rest.starts_with('&') {
+                return None;
+            }
+            (word.to_ascii_lowercase(), rest)
+        }
     };
-
-    // Take characters that could be part of an identifier (letters, digits, _, .)
-    let ident: String = trimmed
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.' || *c == '"')
-        .collect();
-
     if ident.is_empty() {
-        None
-    } else {
-        // Strip quotes and return the full identifier (may be schema-qualified)
-        let cleaned = ident.replace('"', "");
-        Some(cleaned)
+        return None;
     }
+    ident.truncate(ident.floor_char_boundary(MAX_IDENTIFIER_BYTES));
+    Some((ident, rest))
+}
+
+/// The body of a double-quoted identifier whose opening quote is already
+/// consumed, with each `""` read as `"`, and the text after its closing
+/// quote. `None` if the quote is never closed.
+fn quoted_identifier_body(sql: &str) -> Option<(String, &str)> {
+    let mut body = String::new();
+    let mut rest = sql;
+    loop {
+        let quote = rest.find('"')?;
+        body.push_str(&rest[..quote]);
+        rest = &rest[quote + 1..];
+        match rest.strip_prefix('"') {
+            Some(after_escaped_quote) => {
+                body.push('"');
+                rest = after_escaped_quote;
+            }
+            None => return Some((body, rest)),
+        }
+    }
+}
+
+/// True for a character PostgreSQL's scanner starts an unquoted identifier
+/// with (`ident_start`): an ASCII letter, `_`, or any non-ASCII character.
+fn starts_unquoted_identifier(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_' || !c.is_ascii()
+}
+
+/// True for a character PostgreSQL's scanner continues an unquoted
+/// identifier with (`ident_cont`): what [`starts_unquoted_identifier`]
+/// accepts, an ASCII digit, or `$`.
+fn continues_unquoted_identifier(c: char) -> bool {
+    starts_unquoted_identifier(c) || c.is_ascii_digit() || c == '$'
+}
+
+/// `s` past the whitespace PostgreSQL's scanner skips (`space`): space, tab,
+/// newline, carriage return, vertical tab and form feed. Other Unicode
+/// whitespace, such as U+00A0, is part of an identifier there.
+fn trim_start_postgres_whitespace(s: &str) -> &str {
+    s.trim_start_matches([' ', '\t', '\n', '\r', '\x0B', '\x0C'])
 }

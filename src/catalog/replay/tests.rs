@@ -1,5 +1,7 @@
 use super::*;
-use crate::catalog::builder::{CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel};
+use crate::catalog::builder::{
+    CatalogAssertions, CatalogBuilder, TEST_DEFAULT_SCHEMA, rel, rel_in,
+};
 use crate::normalize::{resolve_node, resolve_units};
 use rstest::rstest;
 use std::path::PathBuf;
@@ -245,6 +247,22 @@ fn test_unparseable_marks_incomplete() {
         table.incomplete,
         "Table should be marked incomplete after Unparseable with hint"
     );
+}
+
+#[test]
+fn test_unparseable_on_quoted_schema_with_dot_marks_that_table_incomplete() {
+    let catalog = replay_sql(&[
+        "CREATE TABLE \"my.schema\".orders (id int);
+         CREATE TABLE my.\"schema.orders\" (id int);",
+        "ALTER TABLE \"my.schema\".orders ADD COLUMN note text DEFAUL 'x';",
+    ]);
+
+    let incomplete: Vec<&RelationName> = catalog
+        .tables()
+        .filter(|table| table.incomplete)
+        .map(|table| &table.name)
+        .collect();
+    assert_eq!(incomplete, [&rel_in("my.schema", "orders")]);
 }
 
 #[test]
