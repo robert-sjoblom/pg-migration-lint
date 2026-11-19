@@ -280,6 +280,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
 - `liquibase-fresh/` - Liquibase bridge on a fresh repo with every changeset changed, expect only PGM402
 - `liquibase-multi-schema/` - Liquibase bridge with multi-schema changelogs
+- `liquibase-rollback/` - Liquibase changesets with `<rollback>` blocks (inline SQL, nested changes, `<sqlFile>`, a `changeSetId` reference, empty, rollback only) and a derived rollback; both loaders must emit only the forward SQL
 - `liquibase-xml/` - Liquibase XML bridge/update-sql parsing
 - `multi-schema/` - Cross-schema FKs, name isolation, drop isolation
 - `partition-lock-hazard/` - PGM024 and PGM026: a repartition of 5 partitioned parents in one transaction (PGM024: one finding per parent; PGM026: one finding naming all five), and the safe DETACH CONCURRENTLY then DROP

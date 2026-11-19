@@ -53,7 +53,7 @@ Down migrations are detected by filename suffix: the stem (filename minus `.sql`
 
 - Single XML files containing multiple `<changeSet>` elements are supported across both strategies.
 
-- **Limitation — rollback blocks**: Liquibase `<rollback>` elements inside changesets are not detected as down migrations. Both Liquibase loaders emit `is_down: false` for all changesets. SQL extracted from rollback blocks will be linted at full severity rather than being capped to INFO by PGM901.
+- **Rollback blocks**: neither loader emits rollback SQL, so it is neither linted nor replayed. The bridge generates a changeset's `sql` from its forward changes only (`ChangeSet.getChanges()`), and `update-sql` prints the SQL that `update` runs. The contents of a `<rollback>` element (inline SQL, nested changes such as `<sql>`, `<sqlFile>` or `<createTable>`, a `changeSetId`/`changeSetAuthor` reference to another changeset, or an empty `<rollback/>`) and the rollback Liquibase derives for changes like `createTable` are used only by Liquibase's rollback commands (such as `rollback` and `rollback-sql`), and never reach a migration unit. A changeset that holds only a `<rollback>` produces no unit. Every Liquibase unit is therefore a forward unit with `is_down: false` (`tests/fixtures/repos/liquibase-rollback`, checked for both loaders in `tests/bridge.rs`).
 
 - **Limitation — `update-sql` rejects duplicate changeset includes**: If a master changelog `<include>`s the same file more than once (duplicate `<include>` directives), `liquibase update-sql` fails validation with "changesets had duplicate identifiers". The bridge jar handles this correctly. In production Liquibase, duplicates are silently skipped via the DATABASECHANGELOG tracking table, so these changelogs are valid and will apply without error. This is a known fidelity gap: `update-sql` runs without a database and applies stricter validation than the real Liquibase runtime. When the bridge jar is available, prefer it for this reason.
 
@@ -829,7 +829,7 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **All down-migration findings are capped at INFO severity**, regardless of what the rule would normally produce.
 - The same rules run on down migrations, but findings are informational only.
 - PGM901 is a meta-behavior, not a standalone lint rule. It has no `Rule` trait implementation and cannot be suppressed or disabled via inline comments. The 9xx range is reserved for meta-behaviors that modify how other rules operate.
-- **Scope**: Down migration detection relies on filename patterns (`.down.sql` / `_down.sql` suffixes). Liquibase `<rollback>` blocks are not currently detected as down migrations (see §2.2).
+- **Scope**: Down migration detection relies on filename patterns (`.down.sql` / `_down.sql` suffixes). It never applies to Liquibase changesets: neither Liquibase loader emits the SQL of `<rollback>` blocks, so no rollback SQL is linted (see §2.2).
 
 ### 4.3 Type Anti-pattern Rules (PGM1xx)
 

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.5.xsd">
+
+    <!-- No <rollback>: Liquibase derives DROP TABLE widgets itself -->
+    <changeSet id="001-create-widgets" author="carol">
+        <createTable tableName="widgets">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="TEXT"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="001-index-widgets-name" author="carol">
+        <sql>CREATE INDEX idx_widgets_name ON widgets (name);</sql>
+        <rollback>DROP TABLE rollback_only_inline_sql;</rollback>
+    </changeSet>
+
+    <changeSet id="001-add-widgets-note" author="carol">
+        <addColumn tableName="widgets">
+            <column name="note" type="TEXT"/>
+        </addColumn>
+        <rollback>
+            <sql>DROP TABLE rollback_only_nested_sql;</sql>
+            <createTable tableName="rollback_only_nested_create_table">
+                <column name="id" type="BIGINT"/>
+            </createTable>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="001-add-widgets-price" author="carol">
+        <addColumn tableName="widgets">
+            <column name="price" type="NUMERIC(10,2)"/>
+        </addColumn>
+        <rollback>
+            <sqlFile path="rollback-only-undo.sql" relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="001-create-gadgets" author="carol">
+        <createTable tableName="gadgets">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+        </createTable>
+        <rollback/>
+    </changeSet>
+
+    <!-- Rolling back re-runs the changes of 001-create-gadgets -->
+    <changeSet id="001-drop-gadgets" author="carol">
+        <dropTable tableName="gadgets"/>
+        <rollback changeSetId="001-create-gadgets" changeSetAuthor="carol"/>
+    </changeSet>
+
+    <changeSet id="001-rollback-without-changes" author="carol">
+        <rollback>DROP TABLE rollback_only_without_changes;</rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -9,7 +9,7 @@ mod tests {
     use pg_migration_lint::input::liquibase_bridge::{BridgeLoader, resolve_source_paths};
     use pg_migration_lint::input::liquibase_updatesql::UpdateSqlLoader;
     use pg_migration_lint::suppress::parse_suppressions;
-    use pg_migration_lint::{Finding, LintPipeline, RuleId, normalize};
+    use pg_migration_lint::{Finding, IrNode, LintPipeline, RuleId, normalize};
 
     use super::common;
 
@@ -609,5 +609,72 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n  ")
         );
+    }
+
+    fn rollback_fixture_changelog() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/repos/liquibase-rollback/changelog/master.xml")
+    }
+
+    // 001-rollback-without-changes holds only a <rollback>, so it has no unit.
+    const FORWARD_KEYWORDS_BY_ROLLBACK_FIXTURE_CHANGESET: [(&str, &str); 6] = [
+        ("001-create-widgets", "CREATE TABLE"),
+        ("001-index-widgets-name", "CREATE INDEX"),
+        ("001-add-widgets-note", "ALTER TABLE"),
+        ("001-add-widgets-price", "ALTER TABLE"),
+        ("001-create-gadgets", "CREATE TABLE"),
+        ("001-drop-gadgets", "DROP TABLE"),
+    ];
+
+    fn assert_units_hold_only_forward_sql(raw_units: Vec<RawMigrationUnit>) {
+        let ids: Vec<&str> = raw_units.iter().map(|u| u.id.as_str()).collect();
+        let forward_ids: Vec<&str> = FORWARD_KEYWORDS_BY_ROLLBACK_FIXTURE_CHANGESET
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(ids, forward_ids);
+
+        for (unit, (id, forward_keywords)) in raw_units
+            .into_iter()
+            .zip(FORWARD_KEYWORDS_BY_ROLLBACK_FIXTURE_CHANGESET)
+        {
+            let sql = unit.sql.clone();
+            assert!(
+                !sql.contains("rollback_only"),
+                "{id} holds rollback SQL:\n{sql}"
+            );
+            assert!(
+                sql.starts_with(forward_keywords),
+                "{id} should start with {forward_keywords}:\n{sql}"
+            );
+            let statements = unit.into_migration_unit().statements;
+            assert_eq!(
+                statements.len(),
+                1,
+                "{id} should hold only its forward statement:\n{sql}"
+            );
+            assert!(
+                !matches!(statements[0].node, IrNode::Unparseable { .. }),
+                "{id} should parse:\n{sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bridge_units_hold_no_rollback_sql() {
+        let raw_units = BridgeLoader::new(bridge_jar_path())
+            .load(&rollback_fixture_changelog())
+            .expect("Failed to load rollback fixture via bridge");
+
+        assert_units_hold_only_forward_sql(raw_units);
+    }
+
+    #[test]
+    fn test_updatesql_units_hold_no_rollback_sql() {
+        let raw_units = UpdateSqlLoader::new(liquibase_binary_path())
+            .load(&rollback_fixture_changelog())
+            .expect("Failed to load rollback fixture via update-sql");
+
+        assert_units_hold_only_forward_sql(raw_units);
     }
 }

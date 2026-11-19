@@ -71,9 +71,20 @@ class GoldenFileTest {
 
     @Test
     void fullChangelogGoldenFile() throws Exception {
+        assertRepoChangelogMatchesGolden("liquibase-xml", "full-changelog");
+    }
+
+    @Test
+    void rollbackChangelogGoldenFile() throws Exception {
+        assertRepoChangelogMatchesGolden("liquibase-rollback", "rollback-changelog");
+    }
+
+    private void assertRepoChangelogMatchesGolden(String fixtureRepo, String goldenName)
+            throws Exception {
         // Maven CWD is bridge/, so parent is the project root
         Path projectRoot = Paths.get("").toAbsolutePath().getParent();
-        Path masterXml = projectRoot.resolve("tests/fixtures/repos/liquibase-xml/changelog/master.xml");
+        Path masterXml = projectRoot.resolve(
+            "tests/fixtures/repos/" + fixtureRepo + "/changelog/master.xml");
 
         assertTrue(masterXml.toFile().exists(),
             "Master XML fixture not found at: " + masterXml);
@@ -82,12 +93,12 @@ class GoldenFileTest {
             LiquibaseBridge.processChangelog(masterXml.toString());
         String actualJson = GSON.toJson(entries);
 
-        String expectedJson = loadResource("fixtures/full-changelog.expected.json");
+        String expectedJson = loadResource("fixtures/" + goldenName + ".expected.json");
 
         try {
             JSONAssert.assertEquals(expectedJson, actualJson, JSONCompareMode.STRICT);
         } catch (JSONException e) {
-            fail("JSON comparison failed for full-changelog: " + e.getMessage()
+            fail("JSON comparison failed for " + goldenName + ": " + e.getMessage()
                 + "\n\nActual output:\n" + actualJson);
         }
     }
