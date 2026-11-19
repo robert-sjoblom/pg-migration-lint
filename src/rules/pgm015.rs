@@ -52,8 +52,33 @@ mod tests {
     use crate::catalog::Catalog;
     use crate::catalog::builder::CatalogBuilder;
     use crate::parser::ir::*;
+    use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{lint_ctx, located};
+    use crate::rules::test_helpers::{lint_ctx, located, normalized, replayed};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::column_enforced("ALTER TABLE orders ADD COLUMN qty int CHECK (qty > 0);", 1)]
+    #[case::column_not_enforced(
+        "ALTER TABLE orders ADD COLUMN qty int CHECK (qty > 0) NOT ENFORCED;",
+        0
+    )]
+    #[case::table_not_enforced(
+        "ALTER TABLE orders ADD CONSTRAINT orders_id_check CHECK (id > 0) NOT ENFORCED;",
+        0
+    )]
+    fn not_enforced_check_is_not_reported(#[case] sql: &str, #[case] expected: usize) {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false).pk(&["id"]);
+            })
+            .build();
+        let stmts = normalized(parse_sql(sql));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        assert_eq!(RuleId::Pgm015.check(&stmts, &ctx).len(), expected);
+    }
 
     #[test]
     fn test_check_without_not_valid_on_existing_table_fires() {

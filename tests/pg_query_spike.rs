@@ -6,7 +6,7 @@
 
 /// Extract the canonical type name(s) from a CREATE TABLE statement
 fn extract_type_info(sql: &str) -> String {
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmts = &result.protobuf.stmts;
     let stmt = stmts[0].stmt.as_ref().unwrap().node.as_ref().unwrap();
 
@@ -126,7 +126,7 @@ fn spike_serial_expansion() {
 
 /// Extract constraint info from CREATE TABLE to compare inline vs table-level
 fn extract_create_info(sql: &str) -> String {
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmts = &result.protobuf.stmts;
     let stmt = stmts[0].stmt.as_ref().unwrap().node.as_ref().unwrap();
 
@@ -280,7 +280,7 @@ fn spike_alter_table_ast() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -327,7 +327,7 @@ fn spike_create_drop_index_ast() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -368,7 +368,7 @@ fn spike_create_drop_index_ast() {
 #[test]
 fn spike_do_block() {
     let sql = "DO $$ BEGIN RAISE NOTICE 'hello'; END $$;";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -383,7 +383,7 @@ fn spike_do_block() {
 #[test]
 fn spike_multi_statement_offsets() {
     let sql = "CREATE TABLE foo (id int);\nCREATE INDEX idx ON foo (id);\nALTER TABLE foo ADD COLUMN name text;";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
 
     println!("\n=== Multi-statement offsets ===");
     for (i, stmt) in result.protobuf.stmts.iter().enumerate() {
@@ -404,7 +404,7 @@ fn spike_ignored_statements() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql);
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT);
         println!("\n=== {} ===", sql);
         match result {
             Ok(parsed) => {
@@ -436,7 +436,7 @@ fn spike_index_rangevar_inh() {
         ("CREATE INDEX idx ON ONLY foo (col)", false),
     ];
     for (sql, expected_inh) in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -462,7 +462,7 @@ fn spike_truncate_stmt() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -500,7 +500,7 @@ fn spike_alter_index_attach_partition() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql);
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT);
         println!("\n=== {} ===", sql);
         match result {
             Ok(parsed) => {
@@ -524,7 +524,7 @@ fn spike_alter_index_attach_partition() {
 #[test]
 fn spike_drop_schema_ast() {
     let sql = "DROP SCHEMA myschema CASCADE";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -563,7 +563,7 @@ fn spike_drop_schema_ast() {
 #[test]
 fn spike_drop_schema_if_exists_no_cascade() {
     let sql = "DROP SCHEMA IF EXISTS myschema";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -598,7 +598,7 @@ fn spike_drop_schema_if_exists_no_cascade() {
 #[test]
 fn spike_drop_schema_multiple_schemas() {
     let sql = "DROP SCHEMA foo, bar CASCADE";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
 
     // Multiple schemas in one DROP produce a single DropStmt with multiple objects
     assert_eq!(
@@ -645,7 +645,7 @@ fn spike_alter_column_set_drop_default() {
         "ALTER TABLE t ALTER COLUMN col DROP DEFAULT;",
     ];
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -680,7 +680,7 @@ fn spike_index_access_method() {
         "CREATE INDEX idx ON t USING brin (col);",
     ];
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -696,7 +696,8 @@ fn spike_index_access_method() {
 
 #[test]
 fn spike_vacuum_full() {
-    let result = pg_query::parse("VACUUM FULL orders;").expect("should parse");
+    let result = pg_query::parse("VACUUM FULL orders;", pg_query::ParserOptions::DEFAULT)
+        .expect("should parse");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -730,7 +731,8 @@ fn spike_vacuum_full() {
 
 #[test]
 fn spike_vacuum_plain() {
-    let result = pg_query::parse("VACUUM orders;").expect("should parse");
+    let result =
+        pg_query::parse("VACUUM orders;", pg_query::ParserOptions::DEFAULT).expect("should parse");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -751,7 +753,11 @@ fn spike_vacuum_plain() {
 
 #[test]
 fn spike_vacuum_full_analyze() {
-    let result = pg_query::parse("VACUUM (FULL, ANALYZE) orders;").expect("should parse");
+    let result = pg_query::parse(
+        "VACUUM (FULL, ANALYZE) orders;",
+        pg_query::ParserOptions::DEFAULT,
+    )
+    .expect("should parse");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -796,7 +802,8 @@ fn spike_sql_value_function_vs_func_call() {
     // SQL keywords: pg_query puts DEFAULT in a Constraint node, not raw_default.
     // The default value is in Constraint.raw_expr as SQLValueFunction.
     let keyword_sql = "CREATE TABLE t (col timestamptz DEFAULT CURRENT_TIMESTAMP);";
-    let result = pg_query::parse(keyword_sql).expect("parse failed");
+    let result =
+        pg_query::parse(keyword_sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -847,7 +854,7 @@ fn spike_sql_value_function_vs_func_call() {
 
     // Function calls: pg_query puts these in raw_default as FuncCall.
     let func_sql = "CREATE TABLE t (col timestamptz DEFAULT now());";
-    let result = pg_query::parse(func_sql).expect("parse failed");
+    let result = pg_query::parse(func_sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -917,7 +924,7 @@ fn spike_sql_value_function_vs_func_call() {
     ];
 
     for (label, sql) in keyword_cases {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -956,7 +963,7 @@ fn spike_reindex_stmt() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1003,7 +1010,7 @@ fn spike_float_types_canonical_name_assertions() {
         "CREATE TABLE t (col float(24));",
     ];
     for sql in float4_sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1043,7 +1050,7 @@ fn spike_float_types_canonical_name_assertions() {
         "CREATE TABLE t (col float(53));",
     ];
     for sql in float8_sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1079,7 +1086,7 @@ fn spike_float_types_canonical_name_assertions() {
 #[test]
 fn test_stmt_location_with_leading_comment() {
     let sql = "-- pgm-lint:suppress PGM508\n\nCREATE INDEX CONCURRENTLY idx_foo ON foo (id);";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     for stmt in &result.protobuf.stmts {
         println!(
             "stmt_location={}, stmt_len={}",
@@ -1094,7 +1101,7 @@ fn test_stmt_location_with_leading_comment() {
 fn test_quoted_vs_unquoted_identifier_casing() {
     // Unquoted: pg_query lowercases everything
     let sql = "CREATE TABLE MyTable (MyColumn int);";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1121,7 +1128,7 @@ fn test_quoted_vs_unquoted_identifier_casing() {
 
     // Quoted: pg_query preserves original case
     let sql = r#"CREATE TABLE "MyTable" ("MyColumn" int);"#;
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1150,7 +1157,7 @@ fn test_quoted_vs_unquoted_identifier_casing() {
 fn test_rename_stmt_newname_casing() {
     // Unquoted: pg_query lowercases the new name
     let sql = "ALTER TABLE users RENAME TO Users;";
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1168,7 +1175,7 @@ fn test_rename_stmt_newname_casing() {
 
     // Quoted: pg_query preserves the new name case
     let sql = r#"ALTER TABLE users RENAME TO "Users";"#;
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1190,7 +1197,7 @@ fn test_rename_stmt_newname_casing() {
 fn test_reserved_word_as_quoted_identifier() {
     // "order" is a reserved word — can only be used as identifier when quoted
     let sql = r#"CREATE TABLE "order" ("select" text);"#;
-    let result = pg_query::parse(sql).expect("parse failed");
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1239,7 +1246,7 @@ fn spike_partition_cmd_is_not_combinable() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql);
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT);
         println!("\n=== {sql} ===");
         match result {
             Ok(parsed) => {
@@ -1280,7 +1287,7 @@ fn spike_exclude_constraint_exclusions_shape() {
     ];
 
     for sql in sqls {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1309,7 +1316,7 @@ fn spike_exclude_constraint_exclusions_shape() {
 /// expression node. Panics if the element is a plain column (`IndexElem.name`).
 fn index_element_expression(element: &str) -> pg_query::NodeEnum {
     let sql = format!("CREATE INDEX ON t ({element});");
-    let result = pg_query::parse(&sql).expect("parse failed");
+    let result = pg_query::parse(&sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1417,7 +1424,11 @@ fn spike_index_element_expression_node_kinds() {
 fn spike_include_columns_shape() {
     use pg_query::NodeEnum;
 
-    let result = pg_query::parse("CREATE INDEX ON t (a) INCLUDE (b, c);").unwrap();
+    let result = pg_query::parse(
+        "CREATE INDEX ON t (a) INCLUDE (b, c);",
+        pg_query::ParserOptions::DEFAULT,
+    )
+    .unwrap();
     let stmt = result.protobuf.stmts[0]
         .stmt
         .as_ref()
@@ -1444,7 +1455,7 @@ fn spike_include_columns_shape() {
         "EXCLUDE USING btree (a WITH =) INCLUDE (b, c)",
     ] {
         let sql = format!("CREATE TABLE t (a int, b int, c int, {constraint});");
-        let result = pg_query::parse(&sql).unwrap();
+        let result = pg_query::parse(&sql, pg_query::ParserOptions::DEFAULT).unwrap();
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1485,7 +1496,7 @@ fn spike_rename_constraint_stmt_shape() {
     use pg_query::protobuf::ObjectType;
 
     fn rename_stmt(sql: &str) -> pg_query::protobuf::RenameStmt {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1552,7 +1563,7 @@ fn spike_parenthesized_index_column_shape() {
     }
 
     fn first_statement(sql: &str) -> NodeEnum {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1626,7 +1637,7 @@ fn spike_transaction_stmt_kinds() {
     use pg_query::protobuf::{TransactionStmt, TransactionStmtKind as Kind};
 
     fn transaction_stmt(sql: &str) -> TransactionStmt {
-        let result = pg_query::parse(sql).expect("parse failed");
+        let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         assert_eq!(result.protobuf.stmts.len(), 1, "{sql}");
         let stmt = result.protobuf.stmts[0]
             .stmt
@@ -1750,7 +1761,7 @@ fn spike_transaction_stmt_kinds() {
 fn spike_range_var_name_folding() {
     fn range_var(name: &str) -> pg_query::protobuf::RangeVar {
         let sql = format!("ALTER TABLE {name} ADD COLUMN note text;");
-        let result = pg_query::parse(&sql).expect("parse failed");
+        let result = pg_query::parse(&sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
         let stmt = result.protobuf.stmts[0]
             .stmt
             .as_ref()
@@ -1792,6 +1803,306 @@ fn spike_range_var_name_folding() {
 
     for name in ["a.b.c.d", "\"\".orders", "public..orders", "\"orders"] {
         let sql = format!("ALTER TABLE {name} ADD COLUMN note text;");
-        assert!(pg_query::parse(&sql).is_err(), "{sql}");
+        assert!(
+            pg_query::parse(&sql, pg_query::ParserOptions::DEFAULT).is_err(),
+            "{sql}"
+        );
+    }
+}
+
+/// The first statement of `sql` as a `NodeEnum`.
+fn first_statement_node(sql: &str) -> pg_query::NodeEnum {
+    let result = pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).expect("parse failed");
+    result.protobuf.stmts[0]
+        .stmt
+        .as_ref()
+        .unwrap()
+        .node
+        .clone()
+        .unwrap()
+}
+
+/// The `Constraint` nodes among `CREATE TABLE`'s table elements.
+fn create_table_constraints(sql: &str) -> Vec<pg_query::protobuf::Constraint> {
+    let pg_query::NodeEnum::CreateStmt(create) = first_statement_node(sql) else {
+        panic!("{sql}: not a CreateStmt");
+    };
+    create
+        .table_elts
+        .iter()
+        .filter_map(|elt| match elt.node.as_ref() {
+            Some(pg_query::NodeEnum::Constraint(con)) => Some(*con.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The constraints written on the column `column` of a `CREATE TABLE`.
+fn create_table_column_constraints(sql: &str, column: &str) -> Vec<pg_query::protobuf::Constraint> {
+    let pg_query::NodeEnum::CreateStmt(create) = first_statement_node(sql) else {
+        panic!("{sql}: not a CreateStmt");
+    };
+    let column_def = create
+        .table_elts
+        .iter()
+        .find_map(|elt| match elt.node.as_ref() {
+            Some(pg_query::NodeEnum::ColumnDef(col)) if col.colname == column => Some(col.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{sql}: no column {column}"));
+    column_def
+        .constraints
+        .iter()
+        .filter_map(|n| match n.node.as_ref() {
+            Some(pg_query::NodeEnum::Constraint(con)) => Some(*con.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The subcommands of an `ALTER TABLE`.
+fn alter_table_cmds(sql: &str) -> Vec<pg_query::protobuf::AlterTableCmd> {
+    let pg_query::NodeEnum::AlterTableStmt(alter) = first_statement_node(sql) else {
+        panic!("{sql}: not an AlterTableStmt");
+    };
+    alter
+        .cmds
+        .iter()
+        .filter_map(|n| match n.node.as_ref() {
+            Some(pg_query::NodeEnum::AlterTableCmd(cmd)) => Some(*cmd.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `Constraint` an `ALTER TABLE ... ADD` subcommand adds.
+fn added_constraint(cmd: &pg_query::protobuf::AlterTableCmd) -> pg_query::protobuf::Constraint {
+    match cmd.def.as_ref().and_then(|d| d.node.as_ref()) {
+        Some(pg_query::NodeEnum::Constraint(con)) => *con.clone(),
+        other => panic!("ADD subcommand without a Constraint: {other:?}"),
+    }
+}
+
+fn constraint_keys(con: &pg_query::protobuf::Constraint) -> Vec<&str> {
+    con.keys
+        .iter()
+        .map(|k| match k.node.as_ref() {
+            Some(pg_query::NodeEnum::String(s)) => s.sval.as_str(),
+            other => panic!("key is not a String: {other:?}"),
+        })
+        .collect()
+}
+
+/// PostgreSQL 18's table constraint `[CONSTRAINT name] NOT NULL column`, in
+/// `CREATE TABLE` (anywhere in the element list) and in `ALTER TABLE ... ADD`,
+/// is a `Constraint` with `CONSTR_NOTNULL` and the one column in `keys`.
+/// `NOT VALID` sets `skip_validation` and clears `initially_valid`, and
+/// `NO INHERIT` sets `is_no_inherit`. The raw tree leaves
+/// `CreateStmt.nnconstraints` empty; parse analysis fills it. A column's own
+/// `CONSTRAINT name NOT NULL` keeps its name in `conname`, with no `keys`.
+/// `DEFERRABLE` is rejected.
+#[test]
+fn spike_pg18_not_null_table_constraint_shape() {
+    use pg_query::protobuf::{AlterTableType, ConstrType};
+
+    for sql in [
+        "CREATE TABLE t (a int, b int, NOT NULL a);",
+        "CREATE TABLE t (NOT NULL a, a int);",
+    ] {
+        let constraints = create_table_constraints(sql);
+        assert_eq!(constraints.len(), 1, "{sql}");
+        assert_eq!(constraints[0].contype(), ConstrType::ConstrNotnull, "{sql}");
+        assert_eq!(constraints[0].conname, "", "{sql}");
+        assert_eq!(constraint_keys(&constraints[0]), ["a"], "{sql}");
+        assert!(!constraints[0].skip_validation, "{sql}");
+        assert!(
+            create_table_column_constraints(sql, "a").is_empty(),
+            "{sql}"
+        );
+        let pg_query::NodeEnum::CreateStmt(create) = first_statement_node(sql) else {
+            panic!("{sql}: not a CreateStmt");
+        };
+        assert!(create.nnconstraints.is_empty(), "{sql}");
+    }
+
+    let named = &create_table_constraints(
+        "CREATE TABLE t (a int, CONSTRAINT a_nn NOT NULL a NOT VALID NO INHERIT);",
+    )[0];
+    assert_eq!(named.contype(), ConstrType::ConstrNotnull);
+    assert_eq!(named.conname, "a_nn");
+    assert_eq!(constraint_keys(named), ["a"]);
+    assert!(named.skip_validation);
+    assert!(!named.initially_valid);
+    assert!(named.is_no_inherit);
+
+    let cmds = alter_table_cmds(
+        "ALTER TABLE t ADD NOT NULL a, ADD CONSTRAINT t_b_nn NOT NULL b NOT VALID;",
+    );
+    assert_eq!(cmds.len(), 2);
+    assert!(
+        cmds.iter()
+            .all(|cmd| cmd.subtype() == AlterTableType::AtAddConstraint)
+    );
+    let unnamed = added_constraint(&cmds[0]);
+    assert_eq!(unnamed.contype(), ConstrType::ConstrNotnull);
+    assert_eq!(unnamed.conname, "");
+    assert_eq!(constraint_keys(&unnamed), ["a"]);
+    assert!(!unnamed.skip_validation);
+    let not_valid = added_constraint(&cmds[1]);
+    assert_eq!(not_valid.conname, "t_b_nn");
+    assert_eq!(constraint_keys(&not_valid), ["b"]);
+    assert!(not_valid.skip_validation);
+
+    let column_level =
+        &create_table_column_constraints("CREATE TABLE t (a int CONSTRAINT a_nn NOT NULL);", "a")
+            [0];
+    assert_eq!(column_level.contype(), ConstrType::ConstrNotnull);
+    assert_eq!(column_level.conname, "a_nn");
+    assert!(column_level.keys.is_empty());
+
+    assert!(
+        pg_query::parse(
+            "ALTER TABLE t ADD CONSTRAINT x NOT NULL a DEFERRABLE;",
+            pg_query::ParserOptions::DEFAULT
+        )
+        .is_err()
+    );
+}
+
+/// Other PostgreSQL 18 syntax the IR conversion meets:
+/// - `GENERATED ALWAYS AS (expr)` is a `CONSTR_GENERATED` column constraint
+///   whose `generated_kind` is `v` (VIRTUAL, the default without a keyword)
+///   or `s` (STORED).
+/// - `WITHOUT OVERLAPS` in a PRIMARY KEY or UNIQUE keeps the column in
+///   `keys` and sets `without_overlaps`; `PERIOD` in a FOREIGN KEY keeps the
+///   column in `fk_attrs` / `pk_attrs` and sets `fk_with_period` /
+///   `pk_with_period`.
+/// - A table constraint's `NOT ENFORCED` clears `is_enforced` and sets
+///   `skip_validation`, as `NOT VALID` does. On a column it is a
+///   `CONSTR_ATTR_NOT_ENFORCED` node after the constraint it qualifies, which
+///   keeps `is_enforced` and `skip_validation` as if it were enforced. Other
+///   attribute nodes, such as `CONSTR_ATTR_DEFERRABLE`, can come between them,
+///   in `ALTER TABLE ... ADD COLUMN` as in `CREATE TABLE`.
+/// - `ALTER CONSTRAINT ... [NOT] ENFORCED` and `... [NO] INHERIT` are
+///   `AT_AlterConstraint` subcommands with an `ATAlterConstraint` definition.
+#[test]
+fn spike_pg18_constraint_syntax_shapes() {
+    use pg_query::NodeEnum;
+    use pg_query::protobuf::{AlterTableType, ConstrType};
+
+    for (sql, kind) in [
+        (
+            "CREATE TABLE t (a int, b int GENERATED ALWAYS AS (a * 2));",
+            "v",
+        ),
+        (
+            "CREATE TABLE t (a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);",
+            "v",
+        ),
+        (
+            "CREATE TABLE t (a int, b int GENERATED ALWAYS AS (a * 2) STORED);",
+            "s",
+        ),
+    ] {
+        let constraints = create_table_column_constraints(sql, "b");
+        assert_eq!(constraints.len(), 1, "{sql}");
+        assert_eq!(
+            constraints[0].contype(),
+            ConstrType::ConstrGenerated,
+            "{sql}"
+        );
+        assert_eq!(constraints[0].generated_kind, kind, "{sql}");
+        assert!(constraints[0].raw_expr.is_some(), "{sql}");
+    }
+
+    let temporal_key = &create_table_constraints(
+        "CREATE TABLE t (id int, valid tsrange, PRIMARY KEY (id, valid WITHOUT OVERLAPS));",
+    )[0];
+    assert_eq!(temporal_key.contype(), ConstrType::ConstrPrimary);
+    assert_eq!(constraint_keys(temporal_key), ["id", "valid"]);
+    assert!(temporal_key.without_overlaps);
+
+    let temporal_fk = added_constraint(
+        &alter_table_cmds(
+            "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (id, PERIOD valid) REFERENCES p (id, PERIOD valid);",
+        )[0],
+    );
+    assert_eq!(temporal_fk.contype(), ConstrType::ConstrForeign);
+    assert_eq!(temporal_fk.fk_attrs.len(), 2);
+    assert_eq!(temporal_fk.pk_attrs.len(), 2);
+    assert!(temporal_fk.fk_with_period);
+    assert!(temporal_fk.pk_with_period);
+
+    for sql in [
+        "ALTER TABLE t ADD CONSTRAINT c CHECK (a > 0) NOT ENFORCED;",
+        "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES p NOT ENFORCED;",
+    ] {
+        let not_enforced = added_constraint(&alter_table_cmds(sql)[0]);
+        assert!(!not_enforced.is_enforced, "{sql}");
+        assert!(not_enforced.skip_validation, "{sql}");
+    }
+    let enforced = added_constraint(
+        &alter_table_cmds("ALTER TABLE t ADD CONSTRAINT c CHECK (a > 0) ENFORCED;")[0],
+    );
+    assert!(enforced.is_enforced);
+    assert!(!enforced.skip_validation);
+
+    let column_check =
+        create_table_column_constraints("CREATE TABLE t (a int CHECK (a > 0) NOT ENFORCED);", "a");
+    let kinds: Vec<ConstrType> = column_check.iter().map(|con| con.contype()).collect();
+    assert_eq!(
+        kinds,
+        [ConstrType::ConstrCheck, ConstrType::ConstrAttrNotEnforced]
+    );
+    assert!(column_check[0].is_enforced);
+    assert!(!column_check[0].skip_validation);
+
+    let added_column = &alter_table_cmds(
+        "ALTER TABLE t ADD COLUMN c bigint REFERENCES p DEFERRABLE NOT ENFORCED;",
+    )[0];
+    assert_eq!(added_column.subtype(), AlterTableType::AtAddColumn);
+    let Some(NodeEnum::ColumnDef(column_def)) =
+        added_column.def.as_ref().and_then(|d| d.node.as_ref())
+    else {
+        panic!("ADD COLUMN without a ColumnDef");
+    };
+    let column_fk: Vec<pg_query::protobuf::Constraint> = column_def
+        .constraints
+        .iter()
+        .filter_map(|n| match n.node.as_ref() {
+            Some(NodeEnum::Constraint(con)) => Some(*con.clone()),
+            _ => None,
+        })
+        .collect();
+    let kinds: Vec<ConstrType> = column_fk.iter().map(|con| con.contype()).collect();
+    assert_eq!(
+        kinds,
+        [
+            ConstrType::ConstrForeign,
+            ConstrType::ConstrAttrDeferrable,
+            ConstrType::ConstrAttrNotEnforced
+        ]
+    );
+    assert!(column_fk[0].is_enforced);
+    assert!(!column_fk[0].skip_validation);
+
+    for (sql, enforceability, inheritability) in [
+        (
+            "ALTER TABLE t ALTER CONSTRAINT c NOT ENFORCED;",
+            true,
+            false,
+        ),
+        ("ALTER TABLE t ALTER CONSTRAINT c NO INHERIT;", false, true),
+    ] {
+        let cmd = &alter_table_cmds(sql)[0];
+        assert_eq!(cmd.subtype(), AlterTableType::AtAlterConstraint, "{sql}");
+        let Some(NodeEnum::AtalterConstraint(alter)) =
+            cmd.def.as_ref().and_then(|d| d.node.as_ref())
+        else {
+            panic!("{sql}: no ATAlterConstraint");
+        };
+        assert_eq!(alter.conname, "c", "{sql}");
+        assert_eq!(alter.alter_enforceability, enforceability, "{sql}");
+        assert_eq!(alter.alter_inheritability, inheritability, "{sql}");
     }
 }

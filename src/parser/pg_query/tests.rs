@@ -726,7 +726,7 @@ fn test_extract_table_hint_cuts_long_name_to_63_bytes(
 #[case::leading_dollar("ALTER TABLE $x ADD COLUMN note text;")]
 #[case::leading_digit_after_dot("ALTER TABLE public.1x ADD COLUMN note text;")]
 fn test_extract_table_hint_none_for_name_postgres_rejects(#[case] sql: &str) {
-    assert!(pg_query::parse(sql).is_err());
+    assert!(pg_query::parse(sql, pg_query::ParserOptions::DEFAULT).is_err());
 
     assert_eq!(extract_table_hint_from_raw(sql), None);
 }

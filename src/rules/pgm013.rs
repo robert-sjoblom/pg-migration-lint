@@ -103,8 +103,45 @@ mod tests {
     use crate::parser::ir::*;
     use crate::parser::pg_query::parse_sql;
     use crate::rules::RuleId;
-    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized};
+    use crate::rules::test_helpers::{catalog_from_sql, lint_ctx, located, normalized, replayed};
     use rstest::rstest;
+
+    const STATUS_SET_NOT_NULL_MESSAGE: &str = "SET NOT NULL on column 'status' of existing table \
+        'orders' requires an ACCESS EXCLUSIVE lock and full table scan. Use a CHECK constraint \
+        with NOT VALID, validate it, then set NOT NULL.";
+
+    #[rstest]
+    #[case::unnamed("ALTER TABLE orders ADD NOT NULL status;", &[STATUS_SET_NOT_NULL_MESSAGE])]
+    #[case::named(
+        "ALTER TABLE orders ADD CONSTRAINT orders_status_nn NOT NULL status;",
+        &[STATUS_SET_NOT_NULL_MESSAGE]
+    )]
+    #[case::not_valid(
+        "ALTER TABLE orders ADD CONSTRAINT orders_status_nn NOT NULL status NOT VALID;",
+        &[]
+    )]
+    fn add_not_null_table_constraint_on_existing_table_is_set_not_null_unless_not_valid(
+        #[case] sql: &str,
+        #[case] expected: &[&str],
+    ) {
+        let before = CatalogBuilder::new()
+            .table("orders", |t| {
+                t.column("id", "integer", false)
+                    .column("status", "text", true)
+                    .pk(&["id"]);
+            })
+            .build();
+        let stmts = normalized(parse_sql(sql));
+        let after = replayed(&before, &stmts);
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql");
+
+        let messages: Vec<String> = RuleId::Pgm013
+            .check(&stmts, &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(messages, expected);
+    }
 
     #[test]
     fn test_set_not_null_on_existing_table_fires() {
@@ -235,6 +272,21 @@ mod tests {
          ALTER TABLE orders ALTER COLUMN \"Note\" SET NOT NULL;"
             .to_string(),
     )]
+    #[case::redundantly_parenthesized_check(
+        ORDERS,
+        format!(
+            "ALTER TABLE orders ADD CONSTRAINT orders_status_nn \
+             CHECK ((status IS NOT NULL)) NOT VALID;\n\
+             {VALIDATE_STATUS_CHECK}\n{SET_STATUS_NOT_NULL}"
+        ),
+    )]
+    #[case::postfix_notnull_check(
+        ORDERS,
+        format!(
+            "ALTER TABLE orders ADD CONSTRAINT orders_status_nn CHECK (status NOTNULL) NOT VALID;\n\
+             {VALIDATE_STATUS_CHECK}\n{SET_STATUS_NOT_NULL}"
+        ),
+    )]
     #[case::schema_qualified_table(
         AUDIT_ORDERS_WITH_VALID_STATUS_CHECK,
         "ALTER TABLE audit.orders ALTER COLUMN status SET NOT NULL;".to_string(),
@@ -342,5 +394,56 @@ mod tests {
         let findings = findings_for_change(history, &change, true);
 
         insta::assert_yaml_snapshot!(format!("fires_{name}"), findings);
+    }
+
+    const ADD_STATUS_NOT_NULL: &str = "ALTER TABLE orders ADD NOT NULL status;";
+
+    #[rstest]
+    #[case::unnamed_after_check_validated_earlier_in_the_unit(
+        format!("{ADD_STATUS_CHECK_NOT_VALID}\n{VALIDATE_STATUS_CHECK}\n{ADD_STATUS_NOT_NULL}"),
+        &[],
+    )]
+    #[case::named_after_check_validated_earlier_in_the_unit(
+        format!(
+            "{ADD_STATUS_CHECK_NOT_VALID}\n{VALIDATE_STATUS_CHECK}\n\
+             ALTER TABLE orders ADD CONSTRAINT orders_status_not_null NOT NULL status;"
+        ),
+        &[],
+    )]
+    #[case::after_check_left_not_valid(
+        format!("{ADD_STATUS_CHECK_NOT_VALID}\n{ADD_STATUS_NOT_NULL}"),
+        &[STATUS_SET_NOT_NULL_MESSAGE],
+    )]
+    #[case::statement_drops_the_validated_check(
+        format!(
+            "{ADD_STATUS_CHECK_NOT_VALID}\n{VALIDATE_STATUS_CHECK}\n\
+             ALTER TABLE orders ADD NOT NULL status, DROP CONSTRAINT orders_status_nn;"
+        ),
+        &[STATUS_SET_NOT_NULL_MESSAGE],
+    )]
+    #[case::not_valid_after_check_left_not_valid(
+        format!(
+            "{ADD_STATUS_CHECK_NOT_VALID}\n\
+             ALTER TABLE orders ADD CONSTRAINT orders_status_not_null NOT NULL status NOT VALID;"
+        ),
+        &[],
+    )]
+    #[case::not_valid_after_check_validated_earlier_in_the_unit(
+        format!(
+            "{ADD_STATUS_CHECK_NOT_VALID}\n{VALIDATE_STATUS_CHECK}\n\
+             ALTER TABLE orders ADD CONSTRAINT orders_status_not_null NOT NULL status NOT VALID;"
+        ),
+        &[],
+    )]
+    fn add_not_null_table_constraint_is_reported_unless_a_valid_check_proves_it_or_it_is_not_valid(
+        #[case] change: String,
+        #[case] expected: &[&str],
+    ) {
+        let messages: Vec<String> = findings_for_change(ORDERS, &change, true)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(messages, expected);
     }
 }

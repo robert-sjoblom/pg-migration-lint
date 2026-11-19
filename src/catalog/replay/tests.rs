@@ -2797,6 +2797,46 @@ fn test_drop_not_null() {
     );
 }
 
+fn column_nullability(catalog: &Catalog, table: &str) -> Vec<(String, bool)> {
+    catalog
+        .table(table)
+        .columns
+        .iter()
+        .map(|column| (column.name.clone(), column.nullable))
+        .collect()
+}
+
+#[rstest]
+#[case::create_table_not_null(&["CREATE TABLE orders (id int, status text, NOT NULL status);"], false)]
+#[case::alter_table_add_not_null(
+    &[
+        "CREATE TABLE orders (id int, status text);",
+        "ALTER TABLE orders ADD CONSTRAINT orders_status_nn NOT NULL status;",
+    ],
+    false
+)]
+#[case::alter_table_add_not_null_not_valid(
+    &[
+        "CREATE TABLE orders (id int, status text);",
+        "ALTER TABLE orders ADD CONSTRAINT orders_status_nn NOT NULL status NOT VALID;",
+    ],
+    true
+)]
+fn not_null_table_constraint_replays_by_validity(
+    #[case] sql_steps: &[&str],
+    #[case] status_nullable: bool,
+) {
+    let catalog = replay_sql(sql_steps);
+    assert_eq!(
+        column_nullability(&catalog, "orders"),
+        [
+            ("id".to_string(), true),
+            ("status".to_string(), status_nullable)
+        ]
+    );
+    assert!(!catalog.table("orders").incomplete);
+}
+
 #[test]
 fn test_drop_not_null_nonexistent_column() {
     let mut catalog = Catalog::new();
