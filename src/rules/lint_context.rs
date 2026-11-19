@@ -30,6 +30,15 @@ pub struct LintContext<'a> {
     /// Whether this is a down/rollback migration.
     pub is_down: bool,
 
+    /// Whether PGM027 is among the rules the unit is linted with. While it
+    /// is, a rule that would report what a statement does leaves a statement
+    /// PostgreSQL rejects to PGM027. While it is not, no rule skips a
+    /// statement because PGM027 would report it: each reports the statement
+    /// as it would a statement PostgreSQL accepts, which may be nothing.
+    /// Suppression comments are applied after the rules run, so suppressing
+    /// PGM027 does not count.
+    pub pgm027_enabled: bool,
+
     /// The source file being linted.
     pub file: &'a Path,
 }

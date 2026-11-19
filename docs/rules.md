@@ -84,7 +84,7 @@ DROP INDEX idx_orders_status;
 DROP INDEX CONCURRENTLY idx_orders_status;
 ```
 
-Does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes. PostgreSQL rejects the whole statement and drops nothing; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+While [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) is enabled, it does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint, alone or with other indexes. PostgreSQL rejects the whole statement and drops nothing, and PGM027 reports it.
 
 See also [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003).
 
@@ -127,7 +127,7 @@ COMMIT;
 CREATE INDEX CONCURRENTLY idx_foo ON bar (col);
 ```
 
-Does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`. It does fire on a `CREATE INDEX CONCURRENTLY` whose name is already taken, which [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports too: inside a transaction PostgreSQL fails it on the transaction first, and with a free name it still has to run outside one.
+While [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) is enabled, it does not fire on a `DROP INDEX CONCURRENTLY` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it in or out of a transaction, and PGM027 reports it; its fix, `ALTER TABLE ... DROP CONSTRAINT`, needs no `CONCURRENTLY`. It does fire on a `CREATE INDEX CONCURRENTLY` whose name is already taken, which [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports too: inside a transaction PostgreSQL fails it on the transaction first, and with a free name it still has to run outside one.
 
 See also [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001), [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), and [PGM022](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm022).
 
@@ -745,7 +745,9 @@ Detects a statement that PostgreSQL will reject, given the schema built from the
 
 Each statement is checked against the schema as it stands just before it, so a name freed or taken earlier in the same migration counts. The rule fires only on positive evidence: an object the migration history does not show may exist outside it, so a missing table, index or constraint is never reported.
 
-Down migrations (`.down.sql`, `_down.sql`) are not checked. A down file usually sorts before its up file, so the schema it would be checked against is the one before the up migration ran, not the one it undoes. PGM002, PGM003, PGM401, PGM402, PGM501 and PGM504 report a down migration's statements as usual.
+The statements after a rejected one are still checked, by this rule and by the others, as if the migration went on past it, in or out of a transaction. Once the failing statement is fixed and the migration runs again, they run too, so their findings still apply.
+
+Down migrations (`.down.sql`, `_down.sql`) are not checked. A down file usually sorts before its up file, so the schema it would be checked against is the one before the up migration ran, not the one it undoes. The rules that leave a statement this rule reports to it (listed below) report a down migration's statements as usual.
 
 It currently detects:
 
@@ -779,7 +781,9 @@ ALTER TABLE orders DROP CONSTRAINT orders_pkey;
 CREATE INDEX CONCURRENTLY orders_created_at_idx ON orders (created_at);
 ```
 
-A statement this rule reports is not reported by [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017), [PGM107](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm107), [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401), [PGM402](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm402), [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501), [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504) or [PGM508](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm508), since it never takes effect. [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003) leaves a `DROP INDEX CONCURRENTLY` this rule reports alone, as its fix needs no `CONCURRENTLY`. A `CREATE INDEX` onto a taken name is still reported by [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001) on an existing table, and by [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003) with `CONCURRENTLY` inside a transaction: once it has a free name, it still needs `CONCURRENTLY` on an existing table, and `CONCURRENTLY` still cannot run inside a transaction.
+While this rule is enabled, a statement it reports is not reported by [PGM002](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm002), [PGM016](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm016), [PGM017](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm017), [PGM107](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm107), [PGM401](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm401), [PGM402](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm402), [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501) or [PGM504](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm504), since it never takes effect, nor a `DROP INDEX CONCURRENTLY` by [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003), as its fix needs no `CONCURRENTLY`. Disabling this rule in the configuration, for example because it reports a statement that PostgreSQL in fact accepts, makes those rules judge the statement as they would one PostgreSQL accepts, which may mean no finding: PGM016, PGM017 and PGM107 then judge another table's index named in `USING INDEX` as if it were the altered table's own. Suppressing a finding of this rule with a `pgm-lint:suppress` or `pgm-lint:suppress-file` comment does not have that effect: suppression comments are applied after every rule has run, so those rules still skip the statement. Disabling this rule does not change the schema the linter builds from the migrations either: a `CREATE INDEX` onto a taken name still builds no index there, so [PGM508](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm508) does not report it, and [PGM501](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm501) does not count it as covering a foreign key; a `DROP INDEX` of only a constraint's index still drops nothing there, so PGM501 does not report a foreign key it would leave without a covering index.
+
+A `CREATE INDEX` onto a taken name is still reported by [PGM001](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm001) on an existing table, and by [PGM003](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm003) with `CONCURRENTLY` inside a transaction: once it has a free name, it still needs `CONCURRENTLY` on an existing table, and `CONCURRENTLY` still cannot run inside a transaction.
 
 ---
 
@@ -1163,7 +1167,7 @@ DROP TABLE IF EXISTS orders;
 DROP INDEX IF EXISTS idx_orders_status;
 ```
 
-Does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it with or without `IF EXISTS`; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+While [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) is enabled, it does not fire on a `DROP INDEX` that names the index behind a PRIMARY KEY or UNIQUE constraint. PostgreSQL rejects it with or without `IF EXISTS`, and PGM027 reports it.
 
 ---
 
@@ -1176,7 +1180,7 @@ Detects `CREATE TABLE` or `CREATE INDEX` without the `IF NOT EXISTS` clause. Wit
 
 An unnamed `CREATE INDEX` is not reported. PostgreSQL gives it a generated name that is free in the schema, so it cannot fail on an existing index, and `IF NOT EXISTS` requires a name.
 
-Nor is a `CREATE INDEX` whose name a table or index in the schema already has. PostgreSQL rejects it, and `IF NOT EXISTS` would only turn that into a silent no-op that builds no index; [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it.
+Nor, while [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) is enabled, is a `CREATE INDEX` whose name a table or index in the schema already has. PostgreSQL rejects it, and `IF NOT EXISTS` would only turn that into a silent no-op that builds no index; PGM027 reports it.
 
 **Example** (bad):
 ```sql
@@ -1253,7 +1257,7 @@ ALTER TABLE order_items
 DROP INDEX CONCURRENTLY idx_order_items_order_id;
 ```
 
-It does not fire when the same file drops the foreign key too, when another usable index still covers it once the file is done, one the file creates included, when the foreign key had no covering index before the file, as with a temporary index the file creates and drops again, or when the same file adds the foreign key, which the first check already reports once. Nor does it fire on a statement PostgreSQL rejects, such as a `DROP INDEX` that also names the index behind a PRIMARY KEY or UNIQUE constraint: nothing is dropped, and [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) reports it. When several statements in a file drop covering indexes of one foreign key, the finding goes to the statement that leaves the key without a covering index, or to the last such statement when the file covers the key again in between.
+It does not fire when the same file drops the foreign key too, when another usable index still covers it once the file is done, one the file creates included, when the foreign key had no covering index before the file, as with a temporary index the file creates and drops again, or when the same file adds the foreign key, which the first check already reports once. Nor, while [PGM027](https://robert-sjoblom.github.io/pg-migration-lint/rules#pgm027) is enabled, does it fire on a statement PostgreSQL rejects, such as a `DROP INDEX` that also names the index behind a PRIMARY KEY or UNIQUE constraint: nothing is dropped, and PGM027 reports it. When several statements in a file drop covering indexes of one foreign key, the finding goes to the statement that leaves the key without a covering index, or to the last such statement when the file covers the key again in between.
 
 **Known limitation**: the schema built from the migration history does not record the index PostgreSQL gives each partition for an index on its partitioned parent, so a partition's foreign key counts as covered through the parent's index instead. After `ALTER TABLE ... DETACH PARTITION`, the rule no longer counts the parent's index for the detached table, though PostgreSQL leaves the table its own copy of it. So the rule does not report the detach, nor a drop that leaves the foreign key covered through the parent until a later `DETACH PARTITION` in the same file. Once a partition is detached, dropping its own covering index is reported even when the copy of the parent's index still covers the foreign key.
 

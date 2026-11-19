@@ -11,12 +11,16 @@
 //! [`UsingIndex::in_catalog`] tells an index of another table with
 //! [`Catalog::other_table_owning_index`], as PGM027 and replay do, so PGM016,
 //! PGM017 and PGM107 never see an index of the altered table where PGM027
-//! reports another table's and replay leaves the statement out.
+//! reports another table's and replay leaves the statement out. When PGM027
+//! does not judge the unit ([`unit_is_judged`]), they report the statement
+//! as if PostgreSQL accepted it ([`UsingIndex::for_rule_deferring_to_pgm027`]).
 
 use crate::catalog::Catalog;
 use crate::catalog::types::{IndexState, TableState};
 use crate::names::RelationName;
 use crate::parser::ir::IrNode;
+use crate::rules::LintContext;
+use crate::rules::rejected_statements::unit_is_judged;
 
 /// What the index name in `ALTER TABLE ... ADD ... USING INDEX` refers to in
 /// a catalog, borrowed from that catalog.
@@ -47,6 +51,35 @@ impl<'a> UsingIndex<'a> {
                 owner: &owner.display_name,
             };
         }
+        Self::taken_for_the_tables_own(catalog, table, index_name)
+    }
+
+    /// What `index_name` refers to for PGM016, PGM017 and PGM107, which leave
+    /// a statement PostgreSQL rejects to PGM027: [`UsingIndex::in_catalog`]
+    /// while PGM027 judges the unit of `ctx` ([`unit_is_judged`]). While it
+    /// does not, they report the statement as if PostgreSQL accepted it, which
+    /// it does only for an index of the altered table, so an index of another
+    /// table counts as the altered table's own.
+    pub(super) fn for_rule_deferring_to_pgm027(
+        ctx: &LintContext<'_>,
+        catalog: &'a Catalog,
+        table: &RelationName,
+        index_name: &str,
+    ) -> Self {
+        if unit_is_judged(ctx) {
+            Self::in_catalog(catalog, table, index_name)
+        } else {
+            Self::taken_for_the_tables_own(catalog, table, index_name)
+        }
+    }
+
+    /// The index `index_name` in `table`'s schema, whichever table the
+    /// catalog gives it to, as an index of `table`.
+    fn taken_for_the_tables_own(
+        catalog: &'a Catalog,
+        table: &RelationName,
+        index_name: &str,
+    ) -> Self {
         match (
             catalog.get_index(&table.in_same_schema(index_name)),
             catalog.get_table(table),

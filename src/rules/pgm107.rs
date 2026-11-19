@@ -90,7 +90,7 @@ fn statement_findings(
             }
         }
         IrNode::AlterTable(at) => {
-            for column in small_int_pk_columns(state, at) {
+            for column in small_int_pk_columns(ctx, state, at) {
                 findings.push(rule.make_finding(
                     format!(
                         "Primary key column '{}' on '{}' uses {}. \
@@ -145,18 +145,27 @@ fn added_primary_keys(at: &AlterTable) -> impl Iterator<Item = (&[String], Optio
 /// in `state`, the catalog just before `at`: `catalog_before` with the
 /// earlier statements of the unit replayed on top, so a column added or
 /// retyped earlier in the unit counts. With `USING INDEX` they are the
-/// referenced index's columns. Only an index of the altered table has them:
-/// Postgres rejects another table's index (PGM027).
-fn small_int_pk_columns<'a>(state: &'a Catalog, at: &'a AlterTable) -> Vec<AddedPkColumn<'a>> {
+/// referenced index's columns. While PGM027 judges the unit of `ctx`, only an
+/// index of the altered table has them: Postgres rejects another table's
+/// index, and PGM027 reports it. While it does not, another table's index
+/// counts as the altered table's own, and its columns are looked up on the
+/// altered table ([`UsingIndex::for_rule_deferring_to_pgm027`]).
+fn small_int_pk_columns<'a>(
+    ctx: &LintContext<'_>,
+    state: &'a Catalog,
+    at: &'a AlterTable,
+) -> Vec<AddedPkColumn<'a>> {
     let table_key = at.name.relation();
     added_primary_keys(at)
         .flat_map(|(columns, using_index)| match using_index {
-            Some(index_name) => match UsingIndex::in_catalog(state, table_key, index_name) {
-                UsingIndex::OfTable { index, table } => {
-                    small_int_columns(table, index.column_names())
+            Some(index_name) => {
+                match UsingIndex::for_rule_deferring_to_pgm027(ctx, state, table_key, index_name) {
+                    UsingIndex::OfTable { index, table } => {
+                        small_int_columns(table, index.column_names())
+                    }
+                    UsingIndex::OfAnotherTable { .. } | UsingIndex::Missing => Vec::new(),
                 }
-                UsingIndex::OfAnotherTable { .. } | UsingIndex::Missing => Vec::new(),
-            },
+            }
             None => state.get_table(table_key).map_or_else(Vec::new, |table| {
                 small_int_columns(table, columns.iter().map(String::as_str))
             }),

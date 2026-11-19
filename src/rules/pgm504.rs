@@ -52,7 +52,8 @@ pub(super) fn check(
             }
 
             // Postgres rejects a rename onto a taken name, so nothing is
-            // renamed and nothing breaks; PGM027 reports the failure.
+            // renamed and nothing breaks; while PGM027 is enabled, it reports
+            // the failure.
             if rejected.contains(&stmt.span) {
                 continue;
             }

@@ -53,7 +53,7 @@ pub(super) fn check(
             }
 
             // Postgres rejects a DROP INDEX naming a constraint's index and
-            // drops nothing; PGM027 reports the failure.
+            // drops nothing; while PGM027 is enabled, it reports the failure.
             if rejected.contains(&stmt.span) {
                 continue;
             }

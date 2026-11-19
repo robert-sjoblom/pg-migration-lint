@@ -46,6 +46,10 @@ impl LintPipeline {
     /// Handles: catalog clone, replay, track created tables (with IF NOT EXISTS
     /// guard), build [`LintContext`], run rules, and cap severity for down
     /// migrations.
+    ///
+    /// `rules` also sets `LintContext::pgm027_enabled`: with a set that lacks
+    /// PGM027, the rules that leave a statement PostgreSQL rejects to PGM027
+    /// report it as they would a statement PostgreSQL accepts.
     pub fn lint(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
         // Clone catalog BEFORE applying this unit
         let catalog_before = self.catalog.clone();
@@ -73,6 +77,7 @@ impl LintPipeline {
             tables_created_in_change: &self.tables_created_in_change,
             run_in_transaction: unit.run_in_transaction,
             is_down: unit.is_down,
+            pgm027_enabled: rules.contains(&RuleId::Pgm027),
             file: &unit.source_file,
         };
 

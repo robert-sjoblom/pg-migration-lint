@@ -23,6 +23,7 @@ fn make_ctx<'a>(
         tables_created_in_change: created,
         run_in_transaction: true,
         is_down: false,
+        pgm027_enabled: true,
         file,
     }
 }

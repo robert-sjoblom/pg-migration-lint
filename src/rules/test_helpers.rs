@@ -10,7 +10,8 @@ use crate::rules::LintContext;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-/// Build a `LintContext` with default settings (in transaction, not a down migration).
+/// Build a `LintContext` with default settings (in transaction, not a down
+/// migration, PGM027 enabled).
 pub fn make_ctx<'a>(
     before: &'a Catalog,
     after: &'a Catalog,
@@ -23,6 +24,7 @@ pub fn make_ctx<'a>(
         tables_created_in_change: created,
         run_in_transaction: true,
         is_down: false,
+        pgm027_enabled: true,
         file,
     }
 }
@@ -41,6 +43,7 @@ pub fn make_ctx_with_txn<'a>(
         tables_created_in_change: created,
         run_in_transaction,
         is_down: false,
+        pgm027_enabled: true,
         file,
     }
 }
@@ -61,6 +64,9 @@ pub fn make_ctx_with_txn<'a>(
 ///
 /// // With explicit run_in_transaction flag:
 /// lint_ctx!(ctx, &before, &after, "migrations/001.sql", txn: false);
+///
+/// // With PGM027 left out of the rules the unit is linted with:
+/// lint_ctx!(ctx, &before, &after, "migrations/001.sql", pgm027_enabled: false);
 /// ```
 macro_rules! lint_ctx {
     ($ctx:ident, $before:expr, $after:expr, $file:expr) => {
@@ -84,6 +90,14 @@ macro_rules! lint_ctx {
         let $ctx = $crate::rules::test_helpers::make_ctx_with_txn(
             $before, $after, &__lint_file, &__lint_created, $txn,
         );
+    };
+    ($ctx:ident, $before:expr, $after:expr, $file:expr, pgm027_enabled: $enabled:expr) => {
+        let __lint_file = ::std::path::PathBuf::from($file);
+        let __lint_created = ::std::collections::HashSet::<$crate::names::RelationName>::new();
+        let $ctx = $crate::rules::LintContext {
+            pgm027_enabled: $enabled,
+            ..$crate::rules::test_helpers::make_ctx($before, $after, &__lint_file, &__lint_created)
+        };
     };
 }
 

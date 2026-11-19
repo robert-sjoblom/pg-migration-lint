@@ -494,6 +494,56 @@ fn test_idempotency_rules_enabled_via_config() {
     }
 }
 
+/// The rule IDs the binary reports, in text format, for the all-rules
+/// fixture's `V024__statement_fails.sql`, a table rename onto a name an
+/// earlier migration took, with `rules_toml` appended to the config.
+fn rules_reported_for_a_rename_onto_a_taken_name(rules_toml: &str) -> Vec<String> {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let migrations_dir = fixture_path("all-rules").join("migrations");
+    let output_dir = tmp.path().join("output");
+    let config_path = write_temp_config(
+        tmp.path(),
+        &migrations_dir.to_string_lossy(),
+        &output_dir.to_string_lossy(),
+        &["text"],
+        "info",
+    );
+    append_to_config(&config_path, rules_toml);
+    let changed = migrations_dir.join("V024__statement_fails.sql");
+
+    let output = run_lint(&[
+        "--config",
+        &config_path.to_string_lossy(),
+        "--changed-files",
+        &changed.to_string_lossy(),
+        "--format",
+        "text",
+    ]);
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.starts_with(char::is_whitespace))
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn rename_onto_a_taken_name_is_left_to_pgm027_while_it_is_enabled() {
+    assert_eq!(
+        rules_reported_for_a_rename_onto_a_taken_name(""),
+        ["PGM027"]
+    );
+}
+
+#[test]
+fn rename_onto_a_taken_name_is_reported_by_pgm504_once_config_disables_pgm027() {
+    assert_eq!(
+        rules_reported_for_a_rename_onto_a_taken_name("\n[rules]\ndisabled = [\"PGM027\"]\n"),
+        ["PGM504"]
+    );
+}
+
 #[test]
 fn test_rule_in_both_enabled_and_disabled_rejected() {
     // A rule cannot be listed in both `rules.enabled` and `rules.disabled` --

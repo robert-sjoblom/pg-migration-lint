@@ -60,7 +60,7 @@ fn statement_findings(
             Some(idx_name) => using_index_message(
                 at,
                 idx_name,
-                UsingIndex::in_catalog(state, at.name.relation(), idx_name),
+                UsingIndex::for_rule_deferring_to_pgm027(ctx, state, at.name.relation(), idx_name),
             ),
             None => Some(format!(
                 "ADD UNIQUE on existing table '{table}' without USING INDEX \
@@ -84,8 +84,8 @@ fn statement_findings(
 fn using_index_message(at: &AlterTable, idx_name: &str, target: UsingIndex<'_>) -> Option<String> {
     let table = at.name.display_name();
     match target {
-        // Postgres rejects the statement and builds nothing, so there is no
-        // lock to report; PGM027 reports it.
+        // Only while PGM027 judges the unit. Postgres rejects the statement
+        // and builds nothing, so there is no lock to report; PGM027 reports it.
         UsingIndex::OfAnotherTable { .. } => None,
         UsingIndex::Missing => Some(format!(
             "ADD UNIQUE USING INDEX '{idx_name}' on table '{table}': \

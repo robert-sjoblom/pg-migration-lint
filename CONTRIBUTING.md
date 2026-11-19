@@ -155,6 +155,7 @@ Provided to every rule's `check()` function:
 | `tables_created_in_change` | `&HashSet<RelationName>` | Tables created in the current set of changed files |
 | `run_in_transaction` | `bool` | Whether the migration unit runs in a transaction |
 | `is_down` | `bool` | Whether this is a down/rollback migration |
+| `pgm027_enabled` | `bool` | Whether PGM027 is among the rules the unit is linted with; `LintPipeline::lint` sets it from the active rule set. See [`rejected_statements`](#rejected_statements) |
 | `file` | `&Path` | The source file being linted |
 
 **Helper methods**:
@@ -263,12 +264,13 @@ For rules that look at `ALTER TABLE ... ADD PRIMARY KEY USING INDEX` or `ADD UNI
 - `using_index_constraints(at)`: the `(constraint kind, index name)` of each `USING INDEX` constraint in an `AlterTable`, in statement order
 - `has_using_index(node)`: true for an `ALTER TABLE` with a `USING INDEX` constraint
 - `UsingIndex::in_catalog(catalog, table, index_name)`: what the index name refers to in the altered table's schema, one of `OfTable { index, table }`, `OfAnotherTable { owner }` (PostgreSQL rejects the statement and PGM027 reports it) or `Missing`
+- `UsingIndex::for_rule_deferring_to_pgm027(ctx, catalog, table, index_name)`: what a rule other than PGM027 sees. `in_catalog` while PGM027 judges the unit (`unit_is_judged`, see [`rejected_statements`](#rejected_statements)); otherwise an index of another table comes back as `OfTable`, as if PostgreSQL accepted the statement
 
 PostgreSQL looks the index up when the statement runs, and attaching it renames it to the constraint's name, so judge each statement against the catalog just before it. `replay::map_with_state_before_if_needed` replays the unit's earlier statements on a copy of `catalog_before`, and only when some statement passes the filter:
 
 ```rust
 map_with_state_before_if_needed(ctx.catalog_before, statements, has_using_index, |state, stmt| {
-    // UsingIndex::in_catalog(state, at.name.relation(), index_name)
+    // UsingIndex::for_rule_deferring_to_pgm027(ctx, state, at.name.relation(), index_name)
 })
 ```
 
@@ -284,7 +286,7 @@ if rejected.contains(&stmt.span) {
 }
 ```
 
-The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report. A down migration is not judged at all (`unit_is_judged`): it usually sorts before its up file, so replay applies it against the wrong schema. PGM027 then reports nothing, and `contains` is false for every statement, so the other rules report as if nothing were rejected.
+The unit is judged on the first `contains` call, so a rule that asks only before reporting replays nothing when it has nothing to report. Whether a unit is judged at all is one decision, `unit_is_judged(ctx)`, which `RejectedStatements`, `UsingIndex::for_rule_deferring_to_pgm027` and PGM027 itself share. A unit is not judged while PGM027 is disabled (`ctx.pgm027_enabled` is false), so turning PGM027 off in the config, the remedy for a replay gap that makes it report a statement PostgreSQL accepts, makes no rule skip a statement because PGM027 would report it: each reports it as it would a statement PostgreSQL accepts, which may be nothing. Nor is a down migration judged: it usually sorts before its up file, so replay applies it against the wrong schema. In a unit that is not judged PGM027 reports nothing, `contains` is false for every statement, and the other rules report as if nothing were rejected. A suppression comment for PGM027 does not count, as suppressions are applied after every rule has run. Replay does not depend on the rule set, so a rule that reads the catalog sees the same schema either way: PGM508 on a `CREATE INDEX` onto a taken name, which replay leaves out, and PGM501 on a `DROP INDEX` of a constraint's index, which replay keeps.
 
 ### `transaction_window`
 
@@ -360,8 +362,8 @@ Table names, including `fk()`'s referenced table, are written `"orders"` (meanin
 
 ### test_helpers
 
-- `lint_ctx!(ctx, &before, &after, "migrations/002.sql")`: the form rules use. Binds `ctx` through `make_ctx` and owns the file path and `created` set for you; append `created: ["orders"]` to fill the `created` set, or `txn: false` to go through `make_ctx_with_txn` instead
-- `make_ctx(before, after, file, created)` — build a `LintContext` with default settings (in transaction, not a down migration)
+- `lint_ctx!(ctx, &before, &after, "migrations/002.sql")`: the form rules use. Binds `ctx` through `make_ctx` and owns the file path and `created` set for you; append `created: ["orders"]` to fill the `created` set, `txn: false` to go through `make_ctx_with_txn` instead, or `pgm027_enabled: false` to lint as if PGM027 were disabled
+- `make_ctx(before, after, file, created)`: build a `LintContext` with default settings (in transaction, not a down migration, PGM027 enabled)
 - `make_ctx_with_txn(before, after, file, created, run_in_transaction)` — same but with explicit transaction flag
 - `located(node)` — take a parser-form `IrNode<QualifiedName>`, resolve its names against `public` as the pipeline would, and wrap it in a `Located` with a dummy span at line 1
 - `located_at(node, line)`: same as `located`, with the span at `line`, for tests whose findings depend on statement lines

@@ -1,6 +1,7 @@
 //! Statements PostgreSQL rejects against the schema the catalog holds just
 //! before them. PGM027 reports them, and the rules that would report what
-//! such a statement does leave it to PGM027 ([`RejectedStatements`]).
+//! such a statement does leave it to PGM027 ([`RejectedStatements`]), as long
+//! as PGM027 judges the unit ([`unit_is_judged`]).
 //!
 //! Each statement is judged against `catalog_before` with the unit's earlier
 //! statements replayed on top ([`map_with_state_before_if_needed`]), so a
@@ -20,13 +21,16 @@ use crate::rules::using_index::{UsingIndex, has_using_index};
 
 /// True when the unit of `ctx` is judged for statements PostgreSQL rejects:
 /// PGM027 reports them, and the rules that leave them to PGM027 skip them.
-/// A down migration is not judged. A go-migrate down file sorts before its
-/// up file, so replay applies it first and judges it against a schema it was
-/// never meant to run on: names its up file drops still look taken, and
-/// names it creates do not exist yet. The other rules then report its
-/// statements as if none were rejected.
+/// When it is not, PGM027 reports nothing and no rule skips a statement
+/// because PGM027 would report it: each reports the statement as it would a
+/// statement PostgreSQL accepts, which may be nothing. No unit is judged
+/// while PGM027 is disabled
+/// (`ctx.pgm027_enabled`). Nor is a down migration. A go-migrate down file
+/// sorts before its up file, so replay applies it first and judges it
+/// against a schema it was never meant to run on: names its up file drops
+/// still look taken, and names it creates do not exist yet.
 pub(super) fn unit_is_judged(ctx: &LintContext<'_>) -> bool {
-    !ctx.is_down
+    ctx.pgm027_enabled && !ctx.is_down
 }
 
 /// The statements of a unit PostgreSQL rejects, as [`rejections`] judges
@@ -317,7 +321,9 @@ mod tests {
             code text CONSTRAINT orders_code_key UNIQUE,
             customer_id bigint CONSTRAINT orders_customer_fk REFERENCES customers (id));
         CREATE INDEX orders_customer_id_idx ON orders (customer_id);
-        CREATE TABLE archive (id bigint PRIMARY KEY);";
+        CREATE TABLE archive (id bigint PRIMARY KEY);
+        CREATE TABLE ledger (id int, code text);
+        CREATE UNIQUE INDEX ledger_id_key ON ledger (id);";
 
     fn messages_for_change(rule: RuleId, change: &str) -> Vec<String> {
         let history = ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK;
@@ -340,6 +346,17 @@ mod tests {
             is_down: true,
             ..make_ctx(&before, &after, &file, &created)
         };
+        rule.check(&normalized(parse_sql(change)), &ctx)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect()
+    }
+
+    fn messages_for_change_with_pgm027_disabled(rule: RuleId, change: &str) -> Vec<String> {
+        let history = ORDERS_WITH_CONSTRAINTS_AND_A_COVERED_FK;
+        let before = catalog_from_sql(history);
+        let after = catalog_from_sql(&format!("{history}\n{change}"));
+        lint_ctx!(ctx, &before, &after, "migrations/002.sql", pgm027_enabled: false);
         rule.check(&normalized(parse_sql(change)), &ctx)
             .into_iter()
             .map(|finding| finding.message)
@@ -387,6 +404,21 @@ mod tests {
         "CREATE INDEX archive_pkey ON orders (customer_id);",
         "CREATE INDEX orders_customer_idx ON orders (customer_id);"
     )]
+    #[case::pgm016(
+        RuleId::Pgm016,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;",
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX ledger_id_key;"
+    )]
+    #[case::pgm017(
+        RuleId::Pgm017,
+        "ALTER TABLE ledger ADD UNIQUE USING INDEX orders_customer_id_idx;",
+        "ALTER TABLE orders ADD UNIQUE USING INDEX orders_customer_id_idx;"
+    )]
+    #[case::pgm107(
+        RuleId::Pgm107,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;",
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX ledger_id_key;"
+    )]
     fn rule_leaves_a_statement_postgres_rejects_to_pgm027(
         #[case] rule: RuleId,
         #[case] rejected: &str,
@@ -409,6 +441,18 @@ mod tests {
     #[case::pgm402(RuleId::Pgm402, "CREATE INDEX archive ON orders (code);")]
     #[case::pgm501(RuleId::Pgm501, "DROP INDEX orders_customer_id_idx, orders_code_key;")]
     #[case::pgm504(RuleId::Pgm504, "ALTER TABLE archive RENAME TO customers;")]
+    #[case::pgm016(
+        RuleId::Pgm016,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;"
+    )]
+    #[case::pgm017(
+        RuleId::Pgm017,
+        "ALTER TABLE ledger ADD UNIQUE USING INDEX orders_customer_id_idx;"
+    )]
+    #[case::pgm107(
+        RuleId::Pgm107,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;"
+    )]
     fn rule_reports_a_statement_of_a_down_migration_that_pgm027_does_not_judge(
         #[case] rule: RuleId,
         #[case] rejected_outside_a_down_migration: &str,
@@ -418,6 +462,50 @@ mod tests {
         let pgm027_on_down =
             messages_for_down_change(RuleId::Pgm027, rejected_outside_a_down_migration);
         assert!(pgm027_on_down.is_empty(), "got {pgm027_on_down:?}");
+    }
+
+    #[rstest]
+    #[case::pgm002(RuleId::Pgm002, "DROP INDEX orders_pkey;", 1)]
+    #[case::pgm002_one_finding_per_index_named(
+        RuleId::Pgm002,
+        "DROP INDEX orders_customer_id_idx, orders_code_key;",
+        2
+    )]
+    #[case::pgm003(RuleId::Pgm003, "DROP INDEX CONCURRENTLY orders_code_key;", 1)]
+    #[case::pgm401(RuleId::Pgm401, "DROP INDEX orders_pkey;", 1)]
+    #[case::pgm501_constraint_index_named_with_the_covering_one(
+        RuleId::Pgm501,
+        "DROP INDEX orders_customer_id_idx, orders_code_key;",
+        1
+    )]
+    #[case::pgm504(RuleId::Pgm504, "ALTER TABLE archive RENAME TO customers;", 1)]
+    #[case::pgm402(RuleId::Pgm402, "CREATE INDEX archive ON orders (code);", 1)]
+    #[case::pgm016(
+        RuleId::Pgm016,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;",
+        1
+    )]
+    #[case::pgm017(
+        RuleId::Pgm017,
+        "ALTER TABLE ledger ADD UNIQUE USING INDEX orders_customer_id_idx;",
+        1
+    )]
+    #[case::pgm107(
+        RuleId::Pgm107,
+        "ALTER TABLE ledger ADD PRIMARY KEY USING INDEX customers_pkey;",
+        1
+    )]
+    fn rule_reports_a_statement_postgres_rejects_while_pgm027_is_disabled(
+        #[case] rule: RuleId,
+        #[case] rejected: &str,
+        #[case] expected_findings: usize,
+    ) {
+        let rule_on_rejected = messages_for_change_with_pgm027_disabled(rule, rejected);
+        assert_eq!(
+            rule_on_rejected.len(),
+            expected_findings,
+            "got {rule_on_rejected:?}"
+        );
     }
 
     #[test]
