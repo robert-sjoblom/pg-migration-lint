@@ -131,6 +131,7 @@ The catalog tracks:
 **Single-pass replay strategy**: The pipeline iterates through migration history once. For each unit:
 - If in changed files: clone catalog, apply unit, lint with both before/after catalogs
 - Otherwise: just apply unit to catalog
+- A down unit (`is_down`) never changes the catalog or `tables_created_in_change`: if changed, it is linted against the catalog at its position, its own effect only in throwaway copies; otherwise it is skipped
 - No separate "replay_until" phase
 
 ### Rule System
@@ -226,20 +227,31 @@ pub(crate) fn apply(catalog: &mut Catalog, unit: &MigrationUnit);
 
 `MigrationUnit` defaults to `MigrationUnit<ResolvedName>`, so replay only accepts units that have been through `resolve_units`.
 
-`LintPipeline` (`src/pipeline.rs`) drives replay. It owns the catalog and `tables_created_in_change`; `main.rs` feeds it the resolved units in order, calling `lint` for changed files and `replay` for the rest:
+`LintPipeline` (`src/pipeline.rs`) drives replay. It owns the catalog and `tables_created_in_change`; `main.rs` feeds it the resolved units in order, calling `lint` for changed files and `replay` for the rest. Only up units change them:
 ```rust
 impl LintPipeline {
     fn replay(&mut self, unit: &MigrationUnit) {
-        apply(&mut self.catalog, unit);
+        if !unit.is_down { apply(&mut self.catalog, unit); }
     }
 
     fn lint(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
+        if unit.is_down { self.lint_down(unit, rules) } else { self.lint_up(unit, rules) }
+    }
+
+    fn lint_up(&mut self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {
         let catalog_before = self.catalog.clone();
         apply(&mut self.catalog, unit);
         record tables the unit creates in self.tables_created_in_change;
         run rules with (&catalog_before, &self.catalog);  // catalog_after is current catalog
                                                           // pgm027_enabled = rules.contains(&RuleId::Pgm027)
-        cap findings to INFO if unit.is_down;             // PGM901
+    }
+
+    fn lint_down(&self, unit: &MigrationUnit, rules: &[RuleId]) -> Vec<Finding> {  // &self: changes nothing
+        let catalog_after = self.catalog.clone() with unit applied;
+        created = self.tables_created_in_change plus the tables the unit creates;
+        run rules with (&self.catalog, &catalog_after) and created;
+                                                          // pgm027_enabled = rules.contains(&RuleId::Pgm027)
+        cap findings to INFO;                             // PGM901
     }
 }
 ```
@@ -277,6 +289,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - `bridge-table/` - PGM501 negative case: a bridge table whose composite PK `(x_id, y_id)` covers both FKs
 - `catalog-ops/` - Catalog operations (DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes)
 - `clean/` - All migrations correct, expect 0 findings
+- `down-migrations/` - A `_down.sql` that drops the table its up creates; the later `V002__index_users_email.sql` must still see the table (down migrations never change the replayed schema)
 - `enterprise/` - Realistic 31-file migration history
 - `fk-with-later-index/` - PGM501 FK detection across migration boundaries; `V004__drop_index.sql` drops the covering index again, the drop-coverage case, and `V006__rename_then_drop_index.sql` drops it under the name an `ALTER INDEX ... RENAME TO` earlier in the file gave it
 - `go-migrate/` - go-migrate convention (.up.sql / .down.sql pairs)
@@ -296,7 +309,7 @@ Integration tests use fixture repos in `tests/fixtures/repos/`:
 - All public functions require doc comments
 - Index column order must be preserved (affects PGM508's prefix-based redundant-index detection via `is_prefix()`)
 - `pg_query` uses libpg_query bindings - use the pg_query_spike.rs test file to figure out the AST.
-- Down migrations (`.down.sql` / `_down.sql` suffix) always get INFO severity cap (PGM901)
+- Down migrations (`.down.sql` / `_down.sql` suffix) always get INFO severity cap (PGM901) and never change the replayed catalog
 - Error paths: config errors exit 2, parse failures on individual files warn and continue
 - Never write inline spike tests or temporary test files — always add spike tests to `tests/pg_query_spike.rs`
 

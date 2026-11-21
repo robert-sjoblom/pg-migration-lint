@@ -9,6 +9,7 @@ This directory contains test fixtures for pg-migration-lint.
   - `bridge-table/` - Tests PGM501 on a bridge table whose composite PK `(x_id, y_id)` covers both FKs, expect no PGM501 finding
   - `catalog-ops/` - Tests catalog operations: DROP NOT NULL, DROP CONSTRAINT, SET/DROP DEFAULT, hash indexes, an `ADD PRIMARY KEY USING INDEX` of another table's index and a `CREATE UNIQUE INDEX` onto another table's index name, which replay leaves out
   - `clean/` - All migrations correct, expect 0 findings
+  - `down-migrations/` - Tests that a down migration never changes the replayed schema: `V001__create_users_down.sql` drops the table `V001__create_users.sql` creates, and `V002__index_users_email.sql` still indexes an existing table (PGM001), linted or replayed
   - `enterprise/` - Realistic 31-file migration history based on anonymized production schema
   - `fk-with-later-index/` - Tests PGM501 FK detection across migration boundaries: an FK added before its covering index, the index dropped again later, created again, and then renamed and dropped under its new name in one file
   - `go-migrate/` - Tests go-migrate convention (.up.sql / .down.sql pairs)

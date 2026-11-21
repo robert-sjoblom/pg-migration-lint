@@ -24,11 +24,11 @@ use crate::rules::using_index::{UsingIndex, has_using_index};
 /// When it is not, PGM027 reports nothing and no rule skips a statement
 /// because PGM027 would report it: each reports the statement as it would a
 /// statement PostgreSQL accepts, which may be nothing. No unit is judged
-/// while PGM027 is disabled
-/// (`ctx.pgm027_enabled`). Nor is a down migration. A go-migrate down file
-/// sorts before its up file, so replay applies it first and judges it
-/// against a schema it was never meant to run on: names its up file drops
-/// still look taken, and names it creates do not exist yet.
+/// while PGM027 is disabled (`ctx.pgm027_enabled`). Nor is a down migration.
+/// It is linted against the schema at its sort position (SPEC §2.1), and a
+/// go-migrate down file sorts before its up file, so that schema is one it
+/// was never meant to run on: names its up file drops still look taken, and
+/// names it creates do not exist yet.
 pub(super) fn unit_is_judged(ctx: &LintContext<'_>) -> bool {
     ctx.pgm027_enabled && !ctx.is_down
 }
