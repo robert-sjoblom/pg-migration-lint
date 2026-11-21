@@ -30,10 +30,10 @@ pub(super) fn check(
                 vec![rule.make_finding(
                     format!(
                         "Adding CHECK constraint on existing table '{table}' without \
-                         NOT VALID will scan the entire table while holding a SHARE \
-                         ROW EXCLUSIVE lock, blocking concurrent writes. Use ADD \
-                         CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a \
-                         separate statement.",
+                         NOT VALID will scan the entire table while holding an \
+                         ACCESS EXCLUSIVE lock, blocking concurrent reads and \
+                         writes. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE \
+                         CONSTRAINT in a separate migration.",
                         table = at.name.display_name(),
                     ),
                     ctx.file,

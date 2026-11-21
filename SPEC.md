@@ -303,24 +303,25 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 #### PGM005 — `ATTACH PARTITION` of existing table without pre-validated `CHECK`
 
 - **Severity**: MAJOR
-- **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where the child table exists in `catalog_before`, is not created in the same set of changed files, and has no CHECK constraint in the catalog.
-- **Safe alternative** (3-step pattern):
+- **Triggers**: `ALTER TABLE parent ATTACH PARTITION child FOR VALUES ...` where the child table exists in `catalog_before`, is not created in the same set of changed files, and has no validated CHECK constraint in `catalog_before` that references every partition key column, or, when the parent is missing from `catalog_before` or has no partition key there, no validated CHECK constraint at all.
+- **Safe alternative** (three migrations):
   ```sql
-  -- Step 1: add CHECK mirroring partition bound (NOT VALID)
+  -- Migration 1: add CHECK mirroring partition bound (NOT VALID: no scan, ACCESS EXCLUSIVE on the child until commit)
   ALTER TABLE orders_2024 ADD CONSTRAINT orders_2024_bound_check
     CHECK (created_at >= '2024-01-01' AND created_at < '2025-01-01') NOT VALID;
-  -- Step 2: validate separately (SHARE UPDATE EXCLUSIVE)
+  -- Migration 2: validate (SHARE UPDATE EXCLUSIVE, allows reads and writes)
   ALTER TABLE orders_2024 VALIDATE CONSTRAINT orders_2024_bound_check;
-  -- Step 3: attach (scan skipped)
+  -- Migration 3: attach (scan skipped)
   ALTER TABLE orders_partitioned ATTACH PARTITION orders_2024
     FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
   ```
+  Migration 1 must commit before the validation runs. `ADD CONSTRAINT ... CHECK` takes ACCESS EXCLUSIVE with or without `NOT VALID`, as PostgreSQL's `ALTER TABLE` documentation states (measured without `NOT VALID` in `verify/lock-tests/tests/pgm015_add_check_lock.rs`; the `NOT VALID` form is not measured), and a transaction holds it until it ends, so in the same transaction as `VALIDATE CONSTRAINT` the validation scan runs with reads and writes on the child blocked. A runner that commits each statement on its own is not affected. PGM005 does not report the two statements in one transaction. The SHARE UPDATE EXCLUSIVE lock of `VALIDATE CONSTRAINT` is from the same documentation and is not measured for a CHECK; `verify/lock-tests/tests/pgm014_validate_constraint_lock.rs` measures only that validating a foreign key allows reads and writes. The attach needs a migration of its own because the rule reads the child's CHECK constraints in `catalog_before`, which lacks a CHECK added earlier in the same unit and still holds one validated there as `NOT VALID`.
 - **Does not fire when**:
-  - The child table has at least one CHECK constraint (used as a proxy for partition-bound-matching CHECK)
+  - The child has a validated CHECK constraint in `catalog_before` whose expression references every partition key column, or any validated CHECK constraint when the parent is missing from `catalog_before` or has no partition key there. A `NOT VALID` CHECK does not count.
   - The child is not in `catalog_before` (new table)
   - The child is created in the same set of changed files
   - The parent is created in the same set of changed files
-- **Known limitation**: The rule uses presence of any CHECK as a proxy for a partition-bound-matching CHECK. It does not verify expression semantics.
+- **Known limitation**: The rule checks that the CHECK references the partition key columns, used as a proxy for a partition-bound-matching CHECK. It does not verify expression semantics.
 - **Message**: `ATTACH PARTITION of existing table '{child}' to '{parent}' will scan the entire child table under ACCESS EXCLUSIVE lock to verify the partition bound. Add a CHECK constraint mirroring the partition bound, validate it separately, then attach.`
 
 #### PGM006 — Volatile default on column
@@ -434,18 +435,19 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Safe alternative**:
   ```sql
-  -- Migration 1: add constraint without validation (instant)
+  -- Migration 1: add constraint without validation (no scan, SHARE ROW EXCLUSIVE on both tables until commit)
   ALTER TABLE orders ADD CONSTRAINT fk_customer
     FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;
-  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE, allows reads and writes)
   ALTER TABLE orders VALIDATE CONSTRAINT fk_customer;
   ```
+  Migration 1 must commit before the validation runs. `ADD FOREIGN KEY` takes SHARE ROW EXCLUSIVE on both the referencing and the referenced table, with or without `NOT VALID`, as PostgreSQL's `ALTER TABLE` documentation states (only that it blocks writes but not reads on the referencing table is measured, without `NOT VALID`, in `verify/lock-tests/tests/pgm014_add_fk_lock.rs`), and a transaction holds both locks until it ends, so in the same transaction as `VALIDATE CONSTRAINT` the validation scan runs with writes to both tables blocked. A runner that commits each statement on its own is not affected. PGM014 does not report that. The SHARE UPDATE EXCLUSIVE lock of `VALIDATE CONSTRAINT` is from the same documentation; that it allows reads and writes on the referencing table is measured in `verify/lock-tests/tests/pgm014_validate_constraint_lock.rs`.
 - **Does not fire when**:
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
   - The constraint includes `NOT VALID`
 - **Interaction with PGM501**: PGM501 (missing FK index) fires independently. The rules are complementary.
-- **Message**: `Adding foreign key '{constraint}' on existing table '{table}' validates all rows, blocking writes. Use NOT VALID and validate in a separate migration.`
+- **Message**: `Adding FOREIGN KEY constraint on existing table '{table}' without NOT VALID will scan the entire table while holding a SHARE ROW EXCLUSIVE lock on both the referencing and referenced tables. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate migration.`
 
 #### PGM015 — `ADD CHECK` on existing table without `NOT VALID`
 
@@ -453,17 +455,18 @@ Rule sections define behaviour: severity, what triggers the rule, what does not,
 - **Triggers**: `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` without `NOT VALID`, on a table that exists in `catalog_before` (not created in the same set of changed files).
 - **Safe alternative**:
   ```sql
-  -- Migration 1: add constraint without validation (instant)
+  -- Migration 1: add constraint without validation (no scan, ACCESS EXCLUSIVE until commit)
   ALTER TABLE orders ADD CONSTRAINT orders_status_valid
     CHECK (status IN ('pending', 'shipped', 'delivered')) NOT VALID;
-  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE — allows reads & writes)
+  -- Migration 2: validate separately (SHARE UPDATE EXCLUSIVE, allows reads and writes)
   ALTER TABLE orders VALIDATE CONSTRAINT orders_status_valid;
   ```
+  Migration 1 must commit before the validation runs. `ADD CONSTRAINT ... CHECK` takes ACCESS EXCLUSIVE with or without `NOT VALID`, as PostgreSQL's `ALTER TABLE` documentation states (measured without `NOT VALID` in `verify/lock-tests/tests/pgm015_add_check_lock.rs`; the `NOT VALID` form is not measured), and a transaction holds it until it ends, so in the same transaction as `VALIDATE CONSTRAINT` the validation scan runs with reads and writes blocked. A runner that commits each statement on its own is not affected. PGM015 does not report that. The SHARE UPDATE EXCLUSIVE lock of `VALIDATE CONSTRAINT` is from the same documentation and is not measured for a CHECK; `verify/lock-tests/tests/pgm014_validate_constraint_lock.rs` measures only that validating a foreign key allows reads and writes.
 - **Does not fire when**:
   - The table is created in the same set of changed files
   - The table does not exist in `catalog_before`
   - The constraint includes `NOT VALID`
-- **Message**: `Adding CHECK constraint '{constraint}' on existing table '{table}' validates all rows under ACCESS EXCLUSIVE lock. Use NOT VALID and validate in a separate migration.`
+- **Message**: `Adding CHECK constraint on existing table '{table}' without NOT VALID will scan the entire table while holding an ACCESS EXCLUSIVE lock, blocking concurrent reads and writes. Use ADD CONSTRAINT ... NOT VALID, then VALIDATE CONSTRAINT in a separate migration.`
 
 #### PGM017 — `ADD UNIQUE` on existing table without `USING INDEX`
 

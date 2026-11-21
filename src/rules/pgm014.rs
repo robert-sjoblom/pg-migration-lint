@@ -34,7 +34,7 @@ pub(super) fn check(
                          holding a SHARE ROW EXCLUSIVE lock on both the \
                          referencing and referenced tables. Use ADD CONSTRAINT \
                          ... NOT VALID, then VALIDATE CONSTRAINT in a separate \
-                         statement.",
+                         migration.",
                         at.name.display_name(),
                     ),
                     ctx.file,
