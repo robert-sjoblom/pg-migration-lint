@@ -268,7 +268,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@v2.1.1
+      - uses: EmbarkStudios/cargo-deny-action@v2.1.2
 
   audit:
     name: Security audit
